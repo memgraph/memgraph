@@ -18,23 +18,23 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   void SetUp(const benchmark::State &state) override {
     db_.emplace();
     auto dba = db_->Access();
-    for (int i = 0; i < state.range(0); i++) dba->InsertVertex();
+    for (int i = 0; i < state.range(0); i++) dba.InsertVertex();
 
     // the fixed part is one vertex expanding to 1000 others
-    auto start = dba->InsertVertex();
-    start.add_label(dba->Label("Starting"));
-    auto edge_type = dba->EdgeType("edge_type");
+    auto start = dba.InsertVertex();
+    start.add_label(dba.Label("Starting"));
+    auto edge_type = dba.EdgeType("edge_type");
     for (int i = 0; i < 1000; i++) {
-      auto dest = dba->InsertVertex();
-      dba->InsertEdge(start, dest, edge_type);
+      auto dest = dba.InsertVertex();
+      dba.InsertEdge(start, dest, edge_type);
     }
-    dba->Commit();
+    dba.Commit();
   }
 
   void TearDown(const benchmark::State &) override {
     auto dba = db_->Access();
-    for (auto vertex : dba->Vertices(false)) dba->DetachRemoveVertex(vertex);
-    dba->Commit();
+    for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
+    dba.Commit();
     db_ = std::experimental::nullopt;
   }
 
@@ -46,7 +46,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, *dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false).PullAll(results);
   }
 }
 
@@ -60,7 +60,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, *dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false).PullAll(results);
   }
 }
 

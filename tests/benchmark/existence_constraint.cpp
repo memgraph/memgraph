@@ -59,15 +59,15 @@ void Run(benchmark::State &state, bool enable_constraint) {
       state.PauseTiming();
       for (size_t i = 0; i < kNumOfConstraints; ++i) {
         auto dba = db.Access();
-        auto label = dba->Label(test_set.constraint_labels.at(i));
+        auto label = dba.Label(test_set.constraint_labels.at(i));
         std::vector<storage::Property> props;
         props.reserve(kNumOfPropsInConstraint);
         for (size_t j = 0; j < kNumOfPropsInConstraint; ++j) {
-          props.push_back(dba->Property(
+          props.push_back(dba.Property(
               test_set.constraint_props.at(kNumOfPropsInConstraint * i + j)));
         }
-        dba->BuildExistenceConstraint(label, props);
-        dba->Commit();
+        dba.BuildExistenceConstraint(label, props);
+        dba.Commit();
       }
       state.ResumeTiming();
     }
@@ -77,37 +77,37 @@ void Run(benchmark::State &state, bool enable_constraint) {
     vertices.reserve(kNumOfVertices);
     for (size_t k = 0; k < kNumOfVertices; ++k) {
       auto dba = db.Access();
-      auto v = dba->InsertVertex();
+      auto v = dba.InsertVertex();
       vertices.push_back(v.gid());
 
       // Labels and properties that define constraints
       for (size_t i = 0; i < kNumOfConstraints; ++i) {
         for (size_t j = 0; j < kNumOfPropsInConstraint; ++j) {
-          v.PropsSet(dba->Property(test_set.constraint_props.at(
+          v.PropsSet(dba.Property(test_set.constraint_props.at(
                          kNumOfPropsInConstraint * i + j)),
                      test_set.short_prop_value);
         }
-        auto label = dba->Label(test_set.constraint_labels.at(i));
+        auto label = dba.Label(test_set.constraint_labels.at(i));
         v.add_label(label);
       }
 
       // Add other labels
       for (auto label : test_set.labels) {
-        v.add_label(dba->Label(label));
+        v.add_label(dba.Label(label));
       }
 
       // Add other properties
       for (auto prop : test_set.props) {
-        v.PropsSet(dba->Property(prop), test_set.short_prop_value);
+        v.PropsSet(dba.Property(prop), test_set.short_prop_value);
       }
 
-      dba->Commit();
+      dba.Commit();
     }
 
     // Delete all properties and labels
     for (auto gid : vertices) {
       auto dba = db.Access();
-      auto v = dba->FindVertex(gid, false);
+      auto v = dba.FindVertex(gid, false);
       std::vector<storage::Label> labels_to_del(v.labels());
       for (auto &label : labels_to_del) {
         v.remove_label(label);
@@ -119,9 +119,9 @@ void Run(benchmark::State &state, bool enable_constraint) {
     // Delete all vertices
     for (auto gid : vertices) {
       auto dba = db.Access();
-      auto v = dba->FindVertex(gid, false);
-      dba->RemoveVertex(v);
-      dba->Commit();
+      auto v = dba.FindVertex(gid, false);
+      dba.RemoveVertex(v);
+      dba.Commit();
     }
   }
 }

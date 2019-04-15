@@ -17,15 +17,15 @@ DECLARE_bool(query_cost_planner);
 class QueryExecution : public testing::Test {
  protected:
   std::experimental::optional<database::GraphDb> db_;
-  std::unique_ptr<database::GraphDbAccessor> dba_;
+  std::experimental::optional<database::GraphDbAccessor> dba_;
 
   void SetUp() {
     db_.emplace();
-    dba_ = db_->Access();
+    dba_.emplace(db_->Access());
   }
 
   void TearDown() {
-    dba_ = nullptr;
+    dba_ = std::experimental::nullopt;
     db_ = std::experimental::nullopt;
   }
 

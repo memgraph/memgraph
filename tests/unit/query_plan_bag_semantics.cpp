@@ -31,23 +31,23 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(1, PullAll(*skip, &context));
 
-  for (int i = 0; i < 10; ++i) dba->InsertVertex();
-  dba->AdvanceCommand();
+  for (int i = 0; i < 10; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(11, PullAll(*skip, &context));
 }
 
@@ -61,23 +61,23 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(1, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
 
-  for (int i = 0; i < 10; ++i) dba->InsertVertex();
-  dba->AdvanceCommand();
+  for (int i = 0; i < 10; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
 }
 
@@ -87,9 +87,9 @@ TEST(QueryPlan, CreateLimit) {
   // in the end we need to have 3 vertices in the db
   database::GraphDb db;
   auto dba = db.Access();
-  dba->InsertVertex();
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  dba.InsertVertex();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -100,16 +100,15 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  auto context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
-  dba->AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
+  dba.AdvanceCommand();
+  EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
 }
 
 TEST(QueryPlan, OrderBy) {
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");
@@ -168,8 +167,7 @@ TEST(QueryPlan, OrderBy) {
 
 TEST(QueryPlan, OrderByMultiple) {
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -224,8 +222,7 @@ TEST(QueryPlan, OrderByMultiple) {
 
 TEST(QueryPlan, OrderByExceptions) {
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");

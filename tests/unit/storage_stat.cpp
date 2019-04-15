@@ -20,9 +20,9 @@ TEST_F(StatTest, CountTest1) {
   COMPARE(stat, 0, 0, 0);
 
   auto dba = db_.Access();
-  dba->InsertVertex();
-  dba->InsertVertex();
-  dba->InsertVertex();
+  dba.InsertVertex();
+  dba.InsertVertex();
+  dba.InsertVertex();
 
   COMPARE(stat, 0, 0, 0);
   db_.RefreshStat();
@@ -34,31 +34,31 @@ TEST_F(StatTest, CountTest2) {
   COMPARE(stat, 0, 0, 0);
 
   auto dba = db_.Access();
-  auto type = dba->EdgeType("edge");
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto v3 = dba->InsertVertex();
-  auto v4 = dba->InsertVertex();
-  dba->InsertEdge(v1, v2, type);
-  dba->InsertEdge(v2, v2, type);
-  dba->InsertEdge(v3, v2, type);
-  dba->InsertEdge(v4, v2, type);
-  dba->InsertEdge(v1, v3, type);
+  auto type = dba.EdgeType("edge");
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto v4 = dba.InsertVertex();
+  dba.InsertEdge(v1, v2, type);
+  dba.InsertEdge(v2, v2, type);
+  dba.InsertEdge(v3, v2, type);
+  dba.InsertEdge(v4, v2, type);
+  dba.InsertEdge(v1, v3, type);
 
   COMPARE(stat, 0, 0, 0);
   db_.RefreshStat();
   COMPARE(stat, 4, 5, 2.5);
 
-  dba->Commit();
+  dba.Commit();
 
   auto dba1 = db_.Access();
-  auto v22 = dba1->FindVertex(v2.gid(), true);
-  dba1->DetachRemoveVertex(v22);
+  auto v22 = dba1.FindVertex(v2.gid(), true);
+  dba1.DetachRemoveVertex(v22);
 
   db_.RefreshStat();
   COMPARE(stat, 4, 5, 2.5);
 
-  dba1->Commit();
+  dba1.Commit();
   db_.CollectGarbage();
   db_.RefreshStat();
   COMPARE(stat, 3, 1, 2.0 / 3);

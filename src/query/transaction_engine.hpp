@@ -58,7 +58,11 @@ class TransactionEngine final {
     if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
 
     // Create a DB accessor if we don't yet have one.
+#ifndef MG_DISTRIBUTED
+    if (!db_accessor_) db_accessor_.emplace(db_->Access());
+#else
     if (!db_accessor_) db_accessor_ = db_->Access();
+#endif
 
     // Interpret the query and return the headers.
     try {
@@ -104,13 +108,21 @@ class TransactionEngine final {
     in_explicit_transaction_ = false;
     if (!db_accessor_) return;
     db_accessor_->Abort();
+#ifndef MG_DISTRIBUTED
+    db_accessor_ = std::experimental::nullopt;
+#else
     db_accessor_ = nullptr;
+#endif
   }
 
  private:
   database::GraphDb *db_{nullptr};
   Interpreter *interpreter_{nullptr};
+#ifndef MG_DISTRIBUTED
+  std::experimental::optional<database::GraphDbAccessor> db_accessor_;
+#else
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
+#endif
   // The `query::Interpreter::Results` object MUST be destroyed before the
   // `database::GraphDbAccessor` is destroyed because the `Results` object holds
   // references to the `GraphDb` object and will crash the database when
@@ -123,7 +135,11 @@ class TransactionEngine final {
     results_ = std::experimental::nullopt;
     if (!db_accessor_) return;
     db_accessor_->Commit();
+#ifndef MG_DISTRIBUTED
+    db_accessor_ = std::experimental::nullopt;
+#else
     db_accessor_ = nullptr;
+#endif
   }
 
   void AdvanceCommand() {

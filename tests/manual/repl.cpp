@@ -59,7 +59,7 @@ class RandomGraphGenerator {
     auto dba = db_.Access();
     std::vector<storage::Label> labels;
     for (const auto &label_name : label_names)
-      labels.push_back(dba->Label(label_name));
+      labels.push_back(dba.Label(label_name));
 
     Map(
         [&labels, this](database::GraphDbAccessor &dba) {
@@ -77,7 +77,7 @@ class RandomGraphGenerator {
    */
   int64_t VertexCount() const {
     auto accessor = db_.Access();
-    return CountIterable(accessor->Vertices(true));
+    return CountIterable(accessor.Vertices(true));
   }
 
   /**
@@ -102,11 +102,11 @@ class RandomGraphGenerator {
     auto vertices_to = FilterVertices(to_filter);
 
     auto dba = db_.Access();
-    auto edge_type = dba->EdgeType(edge_type_name);
+    auto edge_type = dba.EdgeType(edge_type_name);
 
     // for small vertex counts reduce the batch size
     batch_size =
-        std::min(batch_size, static_cast<int>(dba->VerticesCount() / 1000 + 1));
+        std::min(batch_size, static_cast<int>(dba.VerticesCount() / 1000 + 1));
 
     Map(
         [&vertices_from, &vertices_to, edge_type,
@@ -129,7 +129,7 @@ class RandomGraphGenerator {
    */
   int64_t EdgeCount() const {
     auto accessor = db_.Access();
-    return CountIterable(accessor->Edges(true));
+    return CountIterable(accessor.Edges(true));
   }
 
   /**
@@ -147,10 +147,10 @@ class RandomGraphGenerator {
       std::function<bool(VertexAccessor &va)> predicate = {}) {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
     auto dba = db_.Access();
-    auto property = dba->Property(prop_name);
-    for (VertexAccessor va : dba->Vertices(false))
+    auto property = dba.Property(prop_name);
+    for (VertexAccessor va : dba.Vertices(false))
       if (predicate(va)) va.PropsSet(property, value_generator());
-    dba->Commit();
+    dba.Commit();
   }
 
  private:
@@ -176,7 +176,7 @@ class RandomGraphGenerator {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
     std::vector<VertexAccessor> r_val;
     auto dba = db_.Access();
-    for (VertexAccessor &item : dba->Vertices(false))
+    for (VertexAccessor &item : dba.Vertices(false))
       if (predicate(item)) r_val.emplace_back(item);
 
     return r_val;
@@ -211,9 +211,9 @@ class RandomGraphGenerator {
               int apply_count =
                   std::min(elements_per_commit, count_per_thread - i);
               while (apply_count--) {
-                f(*dba);
+                f(dba);
               }
-              dba->Commit();
+              dba.Commit();
               break;
             } catch (...) {
             }

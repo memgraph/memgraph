@@ -43,7 +43,7 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     auto *query = AddChainedMatches(num_matches, storage);
     auto symbol_table = query::MakeSymbolTable(query);
     auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                dba.get());
+                                                &dba);
     state.ResumeTiming();
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
@@ -91,18 +91,18 @@ static query::CypherQuery *AddIndexedMatches(int num_matches,
 
 static auto CreateIndexedVertices(int index_count, int vertex_count,
                                   database::GraphDb &db) {
-  auto label = db.Access()->Label("label");
-  auto prop = db.Access()->Property("prop");
-  db.Access()->BuildIndex(label, prop, false);
+  auto label = db.Access().Label("label");
+  auto prop = db.Access().Property("prop");
+  db.Access().BuildIndex(label, prop, false);
   auto dba = db.Access();
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
-      auto vertex = dba->InsertVertex();
+      auto vertex = dba.InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(prop, index);
     }
   }
-  dba->Commit();
+  dba.Commit();
   return std::make_pair("label", "prop");
 }
 
@@ -122,7 +122,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                dba.get());
+                                                &dba);
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
@@ -132,7 +132,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto plans = query::plan::MakeLogicalPlanForSingleQuery<
         query::plan::VariableStartPlanner>(single_query_parts, &ctx);
     for (auto plan : plans) {
-      query::plan::EstimatePlanCost(dba.get(), parameters, *plan);
+      query::plan::EstimatePlanCost(&dba, parameters, *plan);
     }
   }
 }
@@ -146,7 +146,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
   auto dba = db.Access();
-  auto vertex_counts = query::plan::MakeVertexCountCache(dba.get());
+  auto vertex_counts = query::plan::MakeVertexCountCache(&dba);
   query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();

@@ -14,6 +14,6 @@ int main(int argc, char *argv[]) {
   google::InitGoogleLogging(argv[0]);
   database::GraphDb db;
   auto dba = db.Access();
-  RunInteractivePlanning(dba.get());
+  RunInteractivePlanning(&dba);
   return 0;
 }

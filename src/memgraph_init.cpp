@@ -124,12 +124,21 @@ void KafkaStreamWriter(
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
+#ifndef MG_DISTRIBUTED
+    (*session_data.interpreter)(query, dba, params_pv, false).PullAll(stream);
+    dba.Commit();
+#else
     (*session_data.interpreter)(query, *dba, params_pv, false).PullAll(stream);
     dba->Commit();
+#endif
   } catch (const utils::BasicException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "
                  << e.what();
+#ifndef MG_DISTRIBUTED
+    dba.Abort();
+#else
     dba->Abort();
+#endif
   }
 };
 

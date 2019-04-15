@@ -8,12 +8,14 @@ class SingleNodeDb : public Database {
   SingleNodeDb() : db_() {}
 
   std::unique_ptr<database::GraphDbAccessor> Access() override {
-    return db_.Access();
+    std::unique_ptr<database::GraphDbAccessor> dba =
+        std::make_unique<database::GraphDbAccessor>(db_.Access());
+    return dba;
   }
 
   void AdvanceCommand(tx::TransactionId tx_id) override {
     auto dba = db_.Access(tx_id);
-    dba->AdvanceCommand();
+    dba.AdvanceCommand();
   }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(

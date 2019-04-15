@@ -18,11 +18,10 @@ using testing::UnorderedElementsAre;
 namespace {
 
 struct ExpressionPrettyPrinterTest : public ::testing::Test {
-  ExpressionPrettyPrinterTest() : pdba{db.Access()}, dba{*pdba} {}
+  ExpressionPrettyPrinterTest() : dba{db.Access()} {}
 
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> pdba;
-  database::GraphDbAccessor &dba;
+  database::GraphDbAccessor dba;
   AstStorage storage;
 };
 

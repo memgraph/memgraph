@@ -24,19 +24,19 @@ auto Count(TIterable iterable) {
 class GraphDbAccessorIndex : public testing::Test {
  protected:
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
-  storage::Property property = dba->Property("property");
-  storage::Label label = dba->Label("label");
-  storage::EdgeType edge_type = dba->EdgeType("edge_type");
+  database::GraphDbAccessor dba{db.Access()};
+  storage::Property property = dba.Property("property");
+  storage::Label label = dba.Label("label");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   auto AddVertex() {
-    auto vertex = dba->InsertVertex();
+    auto vertex = dba.InsertVertex();
     vertex.add_label(label);
     return vertex;
   }
 
   auto AddVertex(int property_value) {
-    auto vertex = dba->InsertVertex();
+    auto vertex = dba.InsertVertex();
     vertex.add_label(label);
     vertex.PropsSet(property, property_value);
     return vertex;
@@ -44,106 +44,106 @@ class GraphDbAccessorIndex : public testing::Test {
 
   // commits the current dba, and replaces it with a new one
   void Commit() {
-    dba->Commit();
+    dba.Commit();
     dba = db.Access();
   }
 };
 
 TEST_F(GraphDbAccessorIndex, LabelIndexCount) {
-  auto label2 = dba->Label("label2");
-  EXPECT_EQ(dba->VerticesCount(label), 0);
-  EXPECT_EQ(dba->VerticesCount(label2), 0);
-  EXPECT_EQ(dba->VerticesCount(), 0);
-  for (int i = 0; i < 11; ++i) dba->InsertVertex().add_label(label);
-  for (int i = 0; i < 17; ++i) dba->InsertVertex().add_label(label2);
+  auto label2 = dba.Label("label2");
+  EXPECT_EQ(dba.VerticesCount(label), 0);
+  EXPECT_EQ(dba.VerticesCount(label2), 0);
+  EXPECT_EQ(dba.VerticesCount(), 0);
+  for (int i = 0; i < 11; ++i) dba.InsertVertex().add_label(label);
+  for (int i = 0; i < 17; ++i) dba.InsertVertex().add_label(label2);
   // even though xxx_count functions in database::GraphDbAccessor can
   // over-estaimate in this situation they should be exact (nothing was ever
   // deleted)
-  EXPECT_EQ(dba->VerticesCount(label), 11);
-  EXPECT_EQ(dba->VerticesCount(label2), 17);
-  EXPECT_EQ(dba->VerticesCount(), 28);
+  EXPECT_EQ(dba.VerticesCount(label), 11);
+  EXPECT_EQ(dba.VerticesCount(label2), 17);
+  EXPECT_EQ(dba.VerticesCount(), 28);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelIndexIteration) {
   // add 10 vertices, check visibility
   for (int i = 0; i < 10; i++) AddVertex();
-  EXPECT_EQ(Count(dba->Vertices(label, false)), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, false)), 0);
+  EXPECT_EQ(Count(dba.Vertices(label, true)), 10);
   Commit();
-  EXPECT_EQ(Count(dba->Vertices(label, false)), 10);
-  EXPECT_EQ(Count(dba->Vertices(label, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, false)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, true)), 10);
 
   // remove 3 vertices, check visibility
   int deleted = 0;
-  for (auto vertex : dba->Vertices(false)) {
-    dba->RemoveVertex(vertex);
+  for (auto vertex : dba.Vertices(false)) {
+    dba.RemoveVertex(vertex);
     if (++deleted >= 3) break;
   }
-  EXPECT_EQ(Count(dba->Vertices(label, false)), 10);
-  EXPECT_EQ(Count(dba->Vertices(label, true)), 7);
+  EXPECT_EQ(Count(dba.Vertices(label, false)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, true)), 7);
   Commit();
-  EXPECT_EQ(Count(dba->Vertices(label, false)), 7);
-  EXPECT_EQ(Count(dba->Vertices(label, true)), 7);
+  EXPECT_EQ(Count(dba.Vertices(label, false)), 7);
+  EXPECT_EQ(Count(dba.Vertices(label, true)), 7);
 }
 
 TEST_F(GraphDbAccessorIndex, EdgesCount) {
-  auto edge_type2 = dba->EdgeType("edge_type2");
-  EXPECT_EQ(dba->EdgesCount(), 0);
+  auto edge_type2 = dba.EdgeType("edge_type2");
+  EXPECT_EQ(dba.EdgesCount(), 0);
 
   auto v1 = AddVertex();
   auto v2 = AddVertex();
-  for (int i = 0; i < 11; ++i) dba->InsertEdge(v1, v2, edge_type);
-  for (int i = 0; i < 17; ++i) dba->InsertEdge(v1, v2, edge_type2);
+  for (int i = 0; i < 11; ++i) dba.InsertEdge(v1, v2, edge_type);
+  for (int i = 0; i < 17; ++i) dba.InsertEdge(v1, v2, edge_type2);
   // even though xxx_count functions in database::GraphDbAccessor can
   // over-estaimate in this situation they should be exact (nothing was ever
   // deleted)
-  EXPECT_EQ(dba->EdgesCount(), 28);
+  EXPECT_EQ(dba.EdgesCount(), 28);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   AddVertex(0);
 
   Commit();
-  dba->BuildIndex(label, property, false);
+  dba.BuildIndex(label, property, false);
   Commit();
 
-  EXPECT_EQ(dba->VerticesCount(label, property), 1);
+  EXPECT_EQ(dba.VerticesCount(label, property), 1);
 
   // confirm there is a differentiation of indexes based on (label, property)
-  auto label2 = dba->Label("label2");
-  auto property2 = dba->Property("property2");
-  dba->BuildIndex(label2, property, false);
-  dba->BuildIndex(label, property2, false);
+  auto label2 = dba.Label("label2");
+  auto property2 = dba.Property("property2");
+  dba.BuildIndex(label2, property, false);
+  dba.BuildIndex(label, property2, false);
   Commit();
 
-  EXPECT_EQ(dba->VerticesCount(label, property), 1);
-  EXPECT_EQ(dba->VerticesCount(label2, property), 0);
-  EXPECT_EQ(dba->VerticesCount(label, property2), 0);
+  EXPECT_EQ(dba.VerticesCount(label, property), 1);
+  EXPECT_EQ(dba.VerticesCount(label2, property), 0);
+  EXPECT_EQ(dba.VerticesCount(label, property2), 0);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexDelete) {
-  dba->BuildIndex(label, property, false);
+  dba.BuildIndex(label, property, false);
   Commit();
-  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+  EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
 
-  dba->DeleteIndex(label, property);
+  dba.DeleteIndex(label, property);
   Commit();
 
-  EXPECT_FALSE(dba->LabelPropertyIndexExists(label, property));
+  EXPECT_FALSE(dba.LabelPropertyIndexExists(label, property));
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuildTwice) {
-  dba->BuildIndex(label, property, false);
-  EXPECT_THROW(dba->BuildIndex(label, property, false), utils::BasicException);
+  dba.BuildIndex(label, property, false);
+  EXPECT_THROW(dba.BuildIndex(label, property, false), utils::BasicException);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
-  dba->BuildIndex(label, property, false);
-  EXPECT_EQ(dba->VerticesCount(label, property), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 0);
+  dba.BuildIndex(label, property, false);
+  EXPECT_EQ(dba.VerticesCount(label, property), 0);
+  EXPECT_EQ(Count(dba.Vertices(label, property, true)), 0);
   for (int i = 0; i < 14; ++i) AddVertex(0);
-  EXPECT_EQ(dba->VerticesCount(label, property), 14);
-  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 14);
+  EXPECT_EQ(dba.VerticesCount(label, property), 14);
+  EXPECT_EQ(Count(dba.Vertices(label, property, true)), 14);
 }
 
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
@@ -158,8 +158,8 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
         auto dba = db.Access();
         try {
           // This could either pass or throw.
-          dba->BuildIndex(dba->Label("l" + std::to_string(index)),
-                          dba->Property("p" + std::to_string(index)), false);
+          dba.BuildIndex(dba.Label("l" + std::to_string(index)),
+                          dba.Property("p" + std::to_string(index)), false);
           // If it throws, make sure the exception is right.
         } catch (const database::IndexTransactionException &e) {
           // Nothing to see here, move along.
@@ -186,7 +186,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
       x, testing::AllOf(testing::Ge(center - 2), testing::Le(center + 2)));
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
-  dba->BuildIndex(label, property, false);
+  dba.BuildIndex(label, property, false);
 
   // add some vertices without the property
   for (int i = 0; i < 20; i++) AddVertex();
@@ -197,11 +197,11 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
   for (int i = 0; i < 1000; i++) AddVertex(30 + i / 100);
 
   // test estimates for exact value count
-  EXPECT_WITH_MARGIN(dba->VerticesCount(label, property, 10), 10);
-  EXPECT_WITH_MARGIN(dba->VerticesCount(label, property, 14), 10);
-  EXPECT_WITH_MARGIN(dba->VerticesCount(label, property, 30), 100);
-  EXPECT_WITH_MARGIN(dba->VerticesCount(label, property, 39), 100);
-  EXPECT_EQ(dba->VerticesCount(label, property, 40), 0);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 10), 10);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 14), 10);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 30), 100);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 39), 100);
+  EXPECT_EQ(dba.VerticesCount(label, property, 40), 0);
 
   // helper functions
   auto Inclusive = [](int64_t value) {
@@ -213,7 +213,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
         utils::MakeBoundExclusive(PropertyValue(value)));
   };
   auto VerticesCount = [this](auto lower, auto upper) {
-    return dba->VerticesCount(label, property, lower, upper);
+    return dba.VerticesCount(label, property, lower, upper);
   };
 
   using std::experimental::nullopt;
@@ -232,27 +232,27 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
 #undef EXPECT_WITH_MARGIN
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
-  dba->BuildIndex(label, property, false);
+  dba.BuildIndex(label, property, false);
   Commit();
 
   // insert 10 verties and and check visibility
   for (int i = 0; i < 10; i++) AddVertex(12);
-  EXPECT_EQ(Count(dba->Vertices(label, property, 12, false)), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, property, 12, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, 12, false)), 0);
+  EXPECT_EQ(Count(dba.Vertices(label, property, 12, true)), 10);
   Commit();
-  EXPECT_EQ(Count(dba->Vertices(label, property, 12, false)), 10);
-  EXPECT_EQ(Count(dba->Vertices(label, property, 12, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, 12, false)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, 12, true)), 10);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
-  dba->BuildIndex(label, property, false);
+  dba.BuildIndex(label, property, false);
   Commit();
 
   std::vector<PropertyValue> expected_property_value(50, 0);
 
   // strings
   for (int i = 0; i < 10; ++i) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property,
                              static_cast<std::string>(std::to_string(i)));
@@ -260,7 +260,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
   }
   // bools - insert in reverse to check for comparison between values.
   for (int i = 9; i >= 0; --i) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, static_cast<bool>(i / 5));
     expected_property_value[10 + i] = vertex_accessor.PropsAt(property);
@@ -268,14 +268,14 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
 
   // integers
   for (int i = 0; i < 10; ++i) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, i);
     expected_property_value[20 + 2 * i] = vertex_accessor.PropsAt(property);
   }
   // doubles
   for (int i = 0; i < 10; ++i) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, static_cast<double>(i + 0.5));
     expected_property_value[20 + 2 * i + 1] = vertex_accessor.PropsAt(property);
@@ -284,7 +284,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
   // lists of ints - insert in reverse to check for comparision between
   // lists.
   for (int i = 9; i >= 0; --i) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     std::vector<PropertyValue> value;
     value.push_back(PropertyValue(i));
@@ -304,16 +304,16 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
   auto shuffled = maps;
   std::random_shuffle(shuffled.begin(), shuffled.end());
   for (const auto &map : shuffled) {
-    auto vertex_accessor = dba->InsertVertex();
+    auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, map);
   }
 
-  EXPECT_EQ(Count(dba->Vertices(label, property, false)), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 54);
+  EXPECT_EQ(Count(dba.Vertices(label, property, false)), 0);
+  EXPECT_EQ(Count(dba.Vertices(label, property, true)), 54);
 
   int cnt = 0;
-  for (auto vertex : dba->Vertices(label, property, true)) {
+  for (auto vertex : dba.Vertices(label, property, true)) {
     const PropertyValue &property_value = vertex.PropsAt(property);
     EXPECT_EQ(property_value.type(), expected_property_value[cnt].type());
     switch (property_value.type()) {
@@ -373,19 +373,19 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
 class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
  protected:
   void SetUp() override {
-    dba->BuildIndex(label, property, false);
+    dba.BuildIndex(label, property, false);
     for (int i = 0; i < 100; i++) AddVertex(i / 10);
 
-    ASSERT_EQ(Count(dba->Vertices(false)), 0);
-    ASSERT_EQ(Count(dba->Vertices(true)), 100);
+    ASSERT_EQ(Count(dba.Vertices(false)), 0);
+    ASSERT_EQ(Count(dba.Vertices(true)), 100);
     Commit();
-    ASSERT_EQ(Count(dba->Vertices(false)), 100);
+    ASSERT_EQ(Count(dba.Vertices(false)), 100);
   }
 
   auto Vertices(std::experimental::optional<utils::Bound<PropertyValue>> lower,
                 std::experimental::optional<utils::Bound<PropertyValue>> upper,
                 bool current_state = false) {
-    return dba->Vertices(label, property, lower, upper, current_state);
+    return dba.Vertices(label, property, lower, upper, current_state);
   }
 
   auto Inclusive(PropertyValue value) {
@@ -456,7 +456,7 @@ TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
 }
 
 TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnInsert) {
-  dba->BuildIndex(label, property, true);
+  dba.BuildIndex(label, property, true);
   Commit();
   AddVertex(0);
   EXPECT_THROW(AddVertex(0), database::IndexConstraintViolationException);
@@ -466,14 +466,14 @@ TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
   AddVertex(0);
   AddVertex(0);
   Commit();
-  EXPECT_THROW(dba->BuildIndex(label, property, true),
+  EXPECT_THROW(dba.BuildIndex(label, property, true),
                database::IndexConstraintViolationException);
 }
 
 TEST_F(GraphDbAccessorIndex, UniqueConstraintUpdateProperty) {
-  dba->BuildIndex(label, property, true);
+  dba.BuildIndex(label, property, true);
   AddVertex(0);
-  auto vertex_accessor = dba->InsertVertex();
+  auto vertex_accessor = dba.InsertVertex();
   vertex_accessor.add_label(label);
   vertex_accessor.PropsSet(property, 10);
 

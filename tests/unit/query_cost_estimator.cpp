@@ -24,9 +24,9 @@ using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
 class QueryCostEstimator : public ::testing::Test {
  protected:
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
-  storage::Label label = dba->Label("label");
-  storage::Property property = dba->Property("property");
+  database::GraphDbAccessor dba{db.Access()};
+  storage::Label label = dba.Label("label");
+  storage::Property property = dba.Property("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -39,7 +39,7 @@ class QueryCostEstimator : public ::testing::Test {
 
   void SetUp() {
     // create the index in the current db accessor and then swap it to a new one
-    dba->BuildIndex(label, property, false);
+    dba.BuildIndex(label, property, false);
     dba = db.Access();
   }
 
@@ -53,16 +53,16 @@ class QueryCostEstimator : public ::testing::Test {
   void AddVertices(int vertex_count, int labeled_count,
                    int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
-      auto vertex = dba->InsertVertex();
+      auto vertex = dba.InsertVertex();
       if (i < labeled_count) vertex.add_label(label);
       if (i < property_count) vertex.PropsSet(property, i);
     }
 
-    dba->AdvanceCommand();
+    dba.AdvanceCommand();
   }
 
   auto Cost() {
-    CostEstimator<database::GraphDbAccessor> cost_estimator(dba.get(), parameters_);
+    CostEstimator<database::GraphDbAccessor> cost_estimator(&dba, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }

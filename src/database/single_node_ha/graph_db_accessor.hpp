@@ -64,20 +64,21 @@ class GraphDbAccessor {
   // concrete GraphDbAccessor type.
 
   /// Creates a new accessor by starting a new transaction.
-  explicit GraphDbAccessor(GraphDb &db);
+  explicit GraphDbAccessor(GraphDb *db);
   /// Creates an accessor for a running transaction.
-  GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id);
+  GraphDbAccessor(GraphDb *db, tx::TransactionId tx_id);
 
-  GraphDbAccessor(GraphDb &db,
+  GraphDbAccessor(GraphDb *db,
                   std::experimental::optional<tx::TransactionId> parent_tx);
 
  public:
   ~GraphDbAccessor();
 
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
-  GraphDbAccessor(GraphDbAccessor &&other) = delete;
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
-  GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
+
+  GraphDbAccessor(GraphDbAccessor &&other);
+  GraphDbAccessor &operator=(GraphDbAccessor &&other);
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is
@@ -164,7 +165,7 @@ class GraphDbAccessor {
         [this](auto id_vlist) {
           return VertexAccessor(id_vlist.second, *this);
         },
-        db_.storage().vertices_.access());
+        db_->storage().vertices_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
@@ -188,7 +189,7 @@ class GraphDbAccessor {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.storage().labels_index_.GetVlists(label, transaction_,
+        db_->storage().labels_index_.GetVlists(label, *transaction_,
                                               current_state));
   }
 
@@ -207,13 +208,13 @@ class GraphDbAccessor {
   auto Vertices(storage::Label label, storage::Property property,
                 bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.storage().label_property_index_.IndexExists(
+    DCHECK(db_->storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.storage().label_property_index_.GetVlists(
-            LabelPropertyIndex::Key(label, property), transaction_,
+        db_->storage().label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), *transaction_,
             current_state));
   }
 
@@ -233,15 +234,15 @@ class GraphDbAccessor {
   auto Vertices(storage::Label label, storage::Property property,
                 const PropertyValue &value, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.storage().label_property_index_.IndexExists(
+    DCHECK(db_->storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     CHECK(value.type() != PropertyValue::Type::Null)
         << "Can't query index for propery value type null.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.storage().label_property_index_.GetVlists(
-            LabelPropertyIndex::Key(label, property), value, transaction_,
+        db_->storage().label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), value, *transaction_,
             current_state));
   }
 
@@ -278,14 +279,14 @@ class GraphDbAccessor {
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.storage().label_property_index_.IndexExists(
+    DCHECK(db_->storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.storage().label_property_index_.GetVlists(
+        db_->storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
-            transaction_, current_state));
+            *transaction_, current_state));
   }
 
   /**
@@ -369,7 +370,7 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) { return EdgeAccessor(id_vlist.second, *this); },
-        db_.storage().edges_.access());
+        db_->storage().edges_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
@@ -448,7 +449,7 @@ class GraphDbAccessor {
   bool LabelPropertyIndexExists(storage::Label label,
                                 storage::Property property) const {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    return db_.storage().label_property_index_.IndexExists(
+    return db_->storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
   }
 
@@ -457,7 +458,7 @@ class GraphDbAccessor {
    */
   std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    return db_.storage().label_property_index_.Keys();
+    return db_->storage().label_property_index_.Keys();
   }
 
   /**
@@ -574,7 +575,7 @@ class GraphDbAccessor {
   /** Return true if transaction is hinted to abort. */
   bool should_abort() const;
 
-  const tx::Transaction &transaction() const { return transaction_; }
+  const tx::Transaction &transaction() const { return *transaction_; }
   raft::RaftInterface *raft();
   auto &db() { return db_; }
   const auto &db() const { return db_; }
@@ -622,8 +623,8 @@ class GraphDbAccessor {
                           const Vertex *const vertex);
 
  private:
-  GraphDb &db_;
-  tx::Transaction &transaction_;
+  GraphDb *db_;
+  tx::Transaction *transaction_;
   // Indicates if this db-accessor started the transaction and should Abort it
   // upon destruction.
   bool transaction_starter_;

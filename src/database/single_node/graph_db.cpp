@@ -64,7 +64,7 @@ GraphDb::GraphDb(Config config) : config_(config) {
     snapshot_creator_->Run(
         "Snapshot", std::chrono::seconds(config_.snapshot_cycle_sec), [this] {
           auto dba = this->Access();
-          this->MakeSnapshot(*dba);
+          this->MakeSnapshot(dba);
         });
   }
 
@@ -95,26 +95,21 @@ GraphDb::~GraphDb() {
 
   if (config_.snapshot_on_exit) {
     auto dba = this->Access();
-    MakeSnapshot(*dba);
+    MakeSnapshot(dba);
   }
 }
 
-std::unique_ptr<GraphDbAccessor> GraphDb::Access() {
-  // NOTE: We are doing a heap allocation to allow polymorphism. If this poses
-  // performance issues, we may want to have a stack allocated GraphDbAccessor
-  // which is constructed with a pointer to some global implementation struct
-  // which contains only pure functions (without any state).
-  return std::unique_ptr<GraphDbAccessor>(new GraphDbAccessor(*this));
+GraphDbAccessor GraphDb::Access() {
+  return GraphDbAccessor(this);
 }
 
-std::unique_ptr<GraphDbAccessor> GraphDb::Access(tx::TransactionId tx_id) {
-  return std::unique_ptr<GraphDbAccessor>(new GraphDbAccessor(*this, tx_id));
+GraphDbAccessor GraphDb::Access(tx::TransactionId tx_id) {
+  return GraphDbAccessor(this, tx_id);
 }
 
-std::unique_ptr<GraphDbAccessor> GraphDb::AccessBlocking(
+GraphDbAccessor GraphDb::AccessBlocking(
     std::experimental::optional<tx::TransactionId> parent_tx) {
-  return std::unique_ptr<GraphDbAccessor>(
-      new GraphDbAccessor(*this, parent_tx));
+  return GraphDbAccessor(this, parent_tx);
 }
 
 Storage &GraphDb::storage() { return *storage_; }

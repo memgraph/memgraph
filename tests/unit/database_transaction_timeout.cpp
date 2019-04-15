@@ -17,16 +17,16 @@ TEST(TransactionTimeout, TransactionTimeout) {
   };
   {
     auto dba = db.Access();
-    interpret(*dba, "MATCH (n) RETURN n");
+    interpret(dba, "MATCH (n) RETURN n");
   }
   {
     auto dba = db.Access();
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    ASSERT_THROW(interpret(*dba, "MATCH (n) RETURN n"),
+    ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"),
                  query::HintedAbortError);
   }
   {
     auto dba = db.Access();
-    interpret(*dba, "MATCH (n) RETURN n");
+    interpret(dba, "MATCH (n) RETURN n");
   }
 }

@@ -21,7 +21,7 @@ class InterpreterTest : public ::testing::Test {
                  const std::map<std::string, PropertyValue> &params = {}) {
     auto dba = db_.Access();
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = interpreter_(query, *dba, params, false);
+    auto results = interpreter_(query, dba, params, false);
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());
@@ -148,17 +148,17 @@ TEST_F(InterpreterTest, Bfs) {
   {
     auto dba = db_.Access();
     auto add_node = [&](int level, bool reachable) {
-      auto node = dba->InsertVertex();
-      node.PropsSet(dba->Property(kId), id++);
-      node.PropsSet(dba->Property(kReachable), reachable);
+      auto node = dba.InsertVertex();
+      node.PropsSet(dba.Property(kId), id++);
+      node.PropsSet(dba.Property(kReachable), reachable);
       levels[level].push_back(node);
       return node;
     };
 
     auto add_edge = [&](VertexAccessor &v1, VertexAccessor &v2,
                         bool reachable) {
-      auto edge = dba->InsertEdge(v1, v2, dba->EdgeType("edge"));
-      edge.PropsSet(dba->Property(kReachable), reachable);
+      auto edge = dba.InsertEdge(v1, v2, dba.EdgeType("edge"));
+      edge.PropsSet(dba.Property(kReachable), reachable);
     };
 
     // Add source node.
@@ -196,7 +196,7 @@ TEST_F(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    dba->Commit();
+    dba.Commit();
   }
 
   auto dba = db_.Access();
@@ -204,7 +204,7 @@ TEST_F(InterpreterTest, Bfs) {
   auto results = interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
       "e.reachable)]->(m) RETURN r",
-      *dba, {}, false);
+      dba, {}, false);
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -225,14 +225,14 @@ TEST_F(InterpreterTest, Bfs) {
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
     EXPECT_EQ(
-        edges[0].from().PropsAt(dba->Property(kId)).template Value<int64_t>(),
+        edges[0].from().PropsAt(dba.Property(kId)).template Value<int64_t>(),
         0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
       EXPECT_EQ(edges[i - 1].to(), edges[i].from());
     }
     auto matched_id =
-        edges.back().to().PropsAt(dba->Property(kId)).Value<int64_t>();
+        edges.back().to().PropsAt(dba.Property(kId)).Value<int64_t>();
     // Check that we didn't match that node already.
     EXPECT_TRUE(matched_ids.insert(matched_id).second);
     // Check that shortest path was found.
@@ -249,7 +249,7 @@ TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
   ResultStreamFaker<query::TypedValue> stream;
   auto dba = db_.Access();
   ASSERT_THROW(
-      interpreter_("CREATE INDEX ON :X(y)", *dba, {}, true).PullAll(stream),
+      interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
       query::IndexInMulticommandTxException);
 }
 
@@ -261,17 +261,17 @@ TEST_F(InterpreterTest, ShortestPath) {
     interpreter_(
         "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
         "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)",
-        *dba, {}, true)
+        dba, {}, true)
         .PullAll(stream);
 
-    dba->Commit();
+    dba.Commit();
   }
 
   ResultStreamFaker<query::TypedValue> stream;
   auto dba = db_.Access();
   auto results =
       interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e",
-                   *dba, {}, false);
+                   dba, {}, false);
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -289,7 +289,7 @@ TEST_F(InterpreterTest, ShortestPath) {
 
     std::vector<std::string> datum;
     for (const auto &edge : edges) {
-      datum.push_back(dba->EdgeTypeName(edge.EdgeType()));
+      datum.push_back(dba.EdgeTypeName(edge.EdgeType()));
     }
 
     bool any_match = false;

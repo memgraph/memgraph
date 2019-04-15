@@ -26,14 +26,13 @@ using namespace nlohmann;
 
 class PrintToJsonTest : public ::testing::Test {
  protected:
-  PrintToJsonTest() : db(), dba_ptr(db.Access()), dba(*dba_ptr) {}
+  PrintToJsonTest() : db(), dba(db.Access()) {}
 
   AstStorage storage;
   SymbolTable symbol_table;
 
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> dba_ptr;
-  database::GraphDbAccessor &dba;
+  database::GraphDbAccessor dba;
 
   Symbol GetSymbol(std::string name) {
     return symbol_table.CreateSymbol(name, true);

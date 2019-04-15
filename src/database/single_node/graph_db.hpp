@@ -92,12 +92,12 @@ class GraphDb {
   GraphDb &operator=(GraphDb &&) = delete;
 
   /// Create a new accessor by starting a new transaction.
-  std::unique_ptr<GraphDbAccessor> Access();
-  std::unique_ptr<GraphDbAccessor> AccessBlocking(
+  GraphDbAccessor Access();
+  GraphDbAccessor AccessBlocking(
       std::experimental::optional<tx::TransactionId> parent_tx =
           std::experimental::nullopt);
   /// Create an accessor for a running transaction.
-  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId);
+  GraphDbAccessor Access(tx::TransactionId);
 
   Storage &storage();
   durability::WriteAheadLog &wal();

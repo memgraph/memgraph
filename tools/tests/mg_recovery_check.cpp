@@ -35,20 +35,20 @@ class RecoveryTest : public ::testing::Test {
 
 TEST_F(RecoveryTest, TestVerticesRecovered) {
   auto dba = db_.Access();
-  EXPECT_EQ(dba->VerticesCount(), 10);
-  EXPECT_EQ(dba->VerticesCount(dba->Label("Comment")), 5);
-  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
-    EXPECT_TRUE(vertex.has_label(dba->Label("Message")));
+  EXPECT_EQ(dba.VerticesCount(), 10);
+  EXPECT_EQ(dba.VerticesCount(dba.Label("Comment")), 5);
+  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
+    EXPECT_TRUE(vertex.has_label(dba.Label("Message")));
   }
-  EXPECT_EQ(dba->VerticesCount(dba->Label("Forum")), 5);
+  EXPECT_EQ(dba.VerticesCount(dba.Label("Forum")), 5);
 }
 
 TEST_F(RecoveryTest, TestPropertyNull) {
   auto dba = db_.Access();
   bool found = false;
-  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
-    auto id_prop = query::TypedValue(vertex.PropsAt(dba->Property("id")));
-    auto browser = query::TypedValue(vertex.PropsAt(dba->Property("browser")));
+  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
+    auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
+    auto browser = query::TypedValue(vertex.PropsAt(dba.Property("browser")));
     if (id_prop.IsString() && id_prop.Value<std::string>() == "2") {
       EXPECT_FALSE(found);
       found = true;
@@ -62,17 +62,17 @@ TEST_F(RecoveryTest, TestPropertyNull) {
 
 TEST_F(RecoveryTest, TestEdgesRecovered) {
   auto dba = db_.Access();
-  EXPECT_EQ(dba->EdgesCount(), 5);
-  for (const auto &edge : dba->Edges(false)) {
-    EXPECT_TRUE(edge.EdgeType() == dba->EdgeType("POSTED_ON"));
+  EXPECT_EQ(dba.EdgesCount(), 5);
+  for (const auto &edge : dba.Edges(false)) {
+    EXPECT_TRUE(edge.EdgeType() == dba.EdgeType("POSTED_ON"));
   }
 }
 
 TEST_F(RecoveryTest, TestQuote) {
   auto dba = db_.Access();
-  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
-    auto id_prop = query::TypedValue(vertex.PropsAt(dba->Property("id")));
-    auto country = query::TypedValue(vertex.PropsAt(dba->Property("country")));
+  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
+    auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
+    auto country = query::TypedValue(vertex.PropsAt(dba.Property("country")));
     if (id_prop.IsString() && id_prop.Value<std::string>() == "1") {
       EXPECT_TRUE(country.IsString());
       EXPECT_EQ(country.Value<std::string>(), "United Kingdom");
@@ -82,17 +82,17 @@ TEST_F(RecoveryTest, TestQuote) {
 
 TEST_F(RecoveryTest, TestNodeLabelFlag) {
   auto dba = db_.Access();
-  for (const auto &vertex : dba->Vertices(false)) {
-    EXPECT_TRUE(vertex.has_label(dba->Label("First")));
-    EXPECT_TRUE(vertex.has_label(dba->Label("Second")));
+  for (const auto &vertex : dba.Vertices(false)) {
+    EXPECT_TRUE(vertex.has_label(dba.Label("First")));
+    EXPECT_TRUE(vertex.has_label(dba.Label("Second")));
   }
 }
 
 TEST_F(RecoveryTest, TestRelationshipType) {
   auto dba = db_.Access();
-  EXPECT_EQ(dba->EdgesCount(), 5);
-  for (const auto &edge : dba->Edges(false)) {
-    EXPECT_TRUE(edge.EdgeType() == dba->EdgeType("TYPE"));
+  EXPECT_EQ(dba.EdgesCount(), 5);
+  for (const auto &edge : dba.Edges(false)) {
+    EXPECT_TRUE(edge.EdgeType() == dba.EdgeType("TYPE"));
   }
 }
 

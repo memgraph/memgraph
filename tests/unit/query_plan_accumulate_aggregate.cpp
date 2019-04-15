@@ -28,8 +28,7 @@ TEST(QueryPlan, Accumulate) {
 
   auto check = [&](bool accumulate) {
     database::GraphDb db;
-    auto dba_ptr = db.Access();
-    auto &dba = *dba_ptr;
+    auto dba = db.Access();
     auto prop = dba.Property("x");
 
     auto v1 = dba.InsertVertex();
@@ -96,7 +95,7 @@ TEST(QueryPlan, AccumulateAdvance) {
     auto accumulate = std::make_shared<Accumulate>(
         create, std::vector<Symbol>{node.symbol}, advance);
     auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
-    auto context = MakeContext(storage, symbol_table, dba.get());
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(advance ? 1 : 0, PullAll(*match.op_, &context));
   };
   check(false);
@@ -146,8 +145,7 @@ std::shared_ptr<Produce> MakeAggregationProduce(
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
-  database::GraphDbAccessor &dba{*dba_ptr};
+  database::GraphDbAccessor dba{db.Access()};
   storage::Property prop = dba.Property("prop");
 
   AstStorage storage;
@@ -286,8 +284,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
 
   // a vector of PropertyValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
@@ -346,8 +343,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   // for different records and assert that we get the correct combination
   // of values in our groups
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
 
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -387,7 +383,7 @@ TEST(QueryPlan, AggregateNoInput) {
   auto two = LITERAL(2);
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
-  auto context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
@@ -405,8 +401,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on both
 
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
   auto prop = dba.Property("prop");
 
   AstStorage storage;
@@ -458,8 +453,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   // type check
 
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.Property("string");
@@ -515,8 +509,7 @@ TEST(QueryPlan, AggregateTypes) {
   // (that logic is defined and tested by TypedValue)
 
   database::GraphDb db;
-  auto dba_ptr = db.Access();
-  auto &dba = *dba_ptr;
+  auto dba = db.Access();
 
   auto p1 = dba.Property("p1");  // has only string props
   dba.InsertVertex().PropsSet(p1, "string");
@@ -592,7 +585,7 @@ TEST(QueryPlan, Unwind) {
                   ->MapTo(symbol_table.CreateSymbol("y_ne", true));
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
-  auto context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(4, results.size());
   const std::vector<int> expected_x_card{3, 3, 3, 1};

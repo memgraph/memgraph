@@ -30,14 +30,14 @@ namespace {
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
   database::GraphDb db;
-  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
+  database::GraphDbAccessor dba{db.Access()};
 
   AstStorage storage;
   EvaluationContext ctx;
   SymbolTable symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, dba.get(),
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba,
                            GraphView::OLD};
 
   Identifier *CreateIdentifierWithValue(std::string name,
@@ -51,8 +51,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   template <class TExpression>
   auto Eval(TExpression *expr) {
-    ctx.properties = NamesToProperties(storage.properties_, dba.get());
-    ctx.labels = NamesToLabels(storage.labels_, dba.get());
+    ctx.properties = NamesToProperties(storage.properties_, &dba);
+    ctx.labels = NamesToLabels(storage.labels_, &dba);
     return expr->Accept(eval);
   }
 };
@@ -410,10 +410,10 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
-  auto edge_type = dba->EdgeType("edge_type");
-  auto prop = dba->Property("prop");
-  auto v1 = dba->InsertVertex();
-  auto e11 = dba->InsertEdge(v1, v1, edge_type);
+  auto edge_type = dba.EdgeType("edge_type");
+  auto prop = dba.Property("prop");
+  auto v1 = dba.InsertVertex();
+  auto e11 = dba.InsertEdge(v1, v1, edge_type);
   v1.PropsSet(prop, 42);
   e11.PropsSet(prop, 43);
 
@@ -624,10 +624,10 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 }
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("ANIMAL"));
-  v1.add_label(dba->Label("DOG"));
-  v1.add_label(dba->Label("NICE_DOG"));
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("ANIMAL"));
+  v1.add_label(dba.Label("DOG"));
+  v1.add_label(dba.Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
@@ -893,9 +893,9 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, storage::Property> prop_age =
-      std::make_pair("age", dba->Property("age"));
+      std::make_pair("age", dba.Property("age"));
   std::pair<std::string, storage::Property> prop_height =
-      std::make_pair("height", dba->Property("height"));
+      std::make_pair("height", dba.Property("height"));
   Identifier *identifier = storage.Create<Identifier>("element");
   Symbol symbol = symbol_table.CreateSymbol("element", true);
 
@@ -909,7 +909,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 };
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-  auto v1 = dba->InsertVertex();
+  auto v1 = dba.InsertVertex();
   v1.PropsSet(prop_age.second, 10);
   frame[symbol] = v1;
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
@@ -917,9 +917,9 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("edge_type"));
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("edge_type"));
   e12.PropsSet(prop_age.second, 10);
   frame[symbol] = e12;
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
@@ -973,14 +973,14 @@ class FunctionTest : public ExpressionEvaluatorTest {
 TEST_F(FunctionTest, EndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("ENDNODE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("ENDNODE", {e})
                   .ValueVertex()
-                  .has_label(dba->Label("label2")));
+                  .has_label(dba.Label("label2")));
   ASSERT_THROW(EvaluateFunction("ENDNODE", {2}), QueryRuntimeException);
 }
 
@@ -998,13 +998,13 @@ TEST_F(FunctionTest, Head) {
 TEST_F(FunctionTest, Properties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("PROPERTIES", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  v1.PropsSet(dba->Property("height"), 5);
-  v1.PropsSet(dba->Property("age"), 10);
-  auto v2 = dba->InsertVertex();
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
-  e.PropsSet(dba->Property("height"), 3);
-  e.PropsSet(dba->Property("age"), 15);
+  auto v1 = dba.InsertVertex();
+  v1.PropsSet(dba.Property("height"), 5);
+  v1.PropsSet(dba.Property("age"), 10);
+  auto v2 = dba.InsertVertex();
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
+  e.PropsSet(dba.Property("height"), 3);
+  e.PropsSet(dba.Property("age"), 15);
 
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
@@ -1047,11 +1047,11 @@ TEST_F(FunctionTest, Size) {
             3);
   ASSERT_THROW(EvaluateFunction("SIZE", {5}), QueryRuntimeException);
 
-  auto v0 = dba->InsertVertex();
+  auto v0 = dba.InsertVertex();
   query::Path path(v0);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 0);
-  auto v1 = dba->InsertVertex();
-  path.Expand(dba->InsertEdge(v0, v1, dba->EdgeType("type")));
+  auto v1 = dba.InsertVertex();
+  path.Expand(dba.InsertEdge(v0, v1, dba.EdgeType("type")));
   path.Expand(v1);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 1);
 }
@@ -1059,25 +1059,25 @@ TEST_F(FunctionTest, Size) {
 TEST_F(FunctionTest, StartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("STARTNODE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("STARTNODE", {e})
                   .ValueVertex()
-                  .has_label(dba->Label("label1")));
+                  .has_label(dba.Label("label1")));
   ASSERT_THROW(EvaluateFunction("STARTNODE", {2}), QueryRuntimeException);
 }
 
 TEST_F(FunctionTest, Degree) {
   ASSERT_THROW(EvaluateFunction("DEGREE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("DEGREE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto v3 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
-  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("DEGREE", {v1}).ValueInt(), 1);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v2}).ValueInt(), 2);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v3}).ValueInt(), 1);
@@ -1088,11 +1088,11 @@ TEST_F(FunctionTest, Degree) {
 TEST_F(FunctionTest, InDegree) {
   ASSERT_THROW(EvaluateFunction("INDEGREE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("INDEGREE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto v3 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
-  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("INDEGREE", {v1}).ValueInt(), 0);
   ASSERT_EQ(EvaluateFunction("INDEGREE", {v2}).ValueInt(), 2);
   ASSERT_EQ(EvaluateFunction("INDEGREE", {v3}).ValueInt(), 0);
@@ -1103,11 +1103,11 @@ TEST_F(FunctionTest, InDegree) {
 TEST_F(FunctionTest, OutDegree) {
   ASSERT_THROW(EvaluateFunction("OUTDEGREE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("OUTDEGREE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto v3 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
-  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v1}).ValueInt(), 1);
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v2}).ValueInt(), 0);
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v3}).ValueInt(), 1);
@@ -1154,11 +1154,11 @@ TEST_F(FunctionTest, ToInteger) {
 TEST_F(FunctionTest, Type) {
   ASSERT_THROW(EvaluateFunction("TYPE", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("TYPE", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
   ASSERT_EQ(EvaluateFunction("TYPE", {e}).ValueString(), "type1");
   ASSERT_THROW(EvaluateFunction("TYPE", {2}), QueryRuntimeException);
 }
@@ -1166,9 +1166,9 @@ TEST_F(FunctionTest, Type) {
 TEST_F(FunctionTest, Labels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("LABELS", {TypedValue::Null}).IsNull());
-  auto v = dba->InsertVertex();
-  v.add_label(dba->Label("label1"));
-  v.add_label(dba->Label("label2"));
+  auto v = dba.InsertVertex();
+  v.add_label(dba.Label("label1"));
+  v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
   auto _labels = EvaluateFunction("LABELS", {v}).ValueList();
   for (auto label : _labels) {
@@ -1185,11 +1185,11 @@ TEST_F(FunctionTest, NodesRelationships) {
   EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue::Null}).IsNull());
 
   {
-    auto v1 = dba->InsertVertex();
-    auto v2 = dba->InsertVertex();
-    auto v3 = dba->InsertVertex();
-    auto e1 = dba->InsertEdge(v1, v2, dba->EdgeType("Type"));
-    auto e2 = dba->InsertEdge(v2, v3, dba->EdgeType("Type"));
+    auto v1 = dba.InsertVertex();
+    auto v2 = dba.InsertVertex();
+    auto v3 = dba.InsertVertex();
+    auto e1 = dba.InsertEdge(v1, v2, dba.EdgeType("Type"));
+    auto e2 = dba.InsertEdge(v2, v3, dba.EdgeType("Type"));
     query::Path path(v1, e1, v2, e2, v3);
 
     auto _nodes = EvaluateFunction("NODES", {path}).ValueList();
@@ -1240,13 +1240,13 @@ TEST_F(FunctionTest, Range) {
 TEST_F(FunctionTest, Keys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("KEYS", {TypedValue::Null}).IsNull());
-  auto v1 = dba->InsertVertex();
-  v1.PropsSet(dba->Property("height"), 5);
-  v1.PropsSet(dba->Property("age"), 10);
-  auto v2 = dba->InsertVertex();
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
-  e.PropsSet(dba->Property("width"), 3);
-  e.PropsSet(dba->Property("age"), 15);
+  auto v1 = dba.InsertVertex();
+  v1.PropsSet(dba.Property("height"), 5);
+  v1.PropsSet(dba.Property("age"), 10);
+  auto v2 = dba.InsertVertex();
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
+  e.PropsSet(dba.Property("width"), 3);
+  e.PropsSet(dba.Property("age"), 15);
 
   auto prop_keys_to_string = [](TypedValue t) {
     std::vector<std::string> keys;
@@ -1482,9 +1482,9 @@ TEST_F(FunctionTest, CounterSet) {
 }
 
 TEST_F(FunctionTest, Id) {
-  auto va = dba->InsertVertex();
-  auto ea = dba->InsertEdge(va, va, dba->EdgeType("edge"));
-  auto vb = dba->InsertVertex();
+  auto va = dba.InsertVertex();
+  auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
+  auto vb = dba.InsertVertex();
   EXPECT_EQ(EvaluateFunction("ID", {va}).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", {ea}).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", {vb}).ValueInt(), 1);
@@ -1495,7 +1495,7 @@ TEST_F(FunctionTest, Id) {
 
 /* TODO: FIXME
 TEST_F(FunctionTest, WorkerIdException) {
-  auto va = dba->InsertVertex();
+  auto va = dba.InsertVertex();
   EXPECT_THROW(EvaluateFunction("WORKERID", {}), QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("WORKERID", {va, va}), QueryRuntimeException);
 }
@@ -1503,7 +1503,7 @@ TEST_F(FunctionTest, WorkerIdException) {
 
 /* TODO: FIXME
 TEST_F(FunctionTest, WorkerIdSingleNode) {
-  auto va = dba->InsertVertex();
+  auto va = dba.InsertVertex();
   EXPECT_EQ(EvaluateFunction("WORKERID", {va}).ValueInt(), 0);
 }
 */

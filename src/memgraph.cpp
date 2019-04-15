@@ -131,7 +131,7 @@ void SingleNodeMain() {
         durability_directory / "telemetry", std::chrono::minutes(10));
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
       auto dba = db.Access();
-      return {{"vertices", dba->VerticesCount()}, {"edges", dba->EdgesCount()}};
+      return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
     });
   }
 

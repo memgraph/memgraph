@@ -166,23 +166,23 @@ TEST(BoltEncoder, VertexAndEdge) {
   // create vertex
   database::GraphDb db;
   auto db_accessor = db.Access();
-  auto va1 = db_accessor->InsertVertex();
-  auto va2 = db_accessor->InsertVertex();
-  auto l1 = db_accessor->Label("label1");
-  auto l2 = db_accessor->Label("label2");
+  auto va1 = db_accessor.InsertVertex();
+  auto va2 = db_accessor.InsertVertex();
+  auto l1 = db_accessor.Label("label1");
+  auto l2 = db_accessor.Label("label2");
   va1.add_label(l1);
   va1.add_label(l2);
-  auto p1 = db_accessor->Property("prop1");
-  auto p2 = db_accessor->Property("prop2");
+  auto p1 = db_accessor.Property("prop1");
+  auto p2 = db_accessor.Property("prop2");
   PropertyValue pv1(12), pv2(200);
   va1.PropsSet(p1, pv1);
   va1.PropsSet(p2, pv2);
 
   // create edge
-  auto et = db_accessor->EdgeType("edgetype");
-  auto ea = db_accessor->InsertEdge(va1, va2, et);
-  auto p3 = db_accessor->Property("prop3");
-  auto p4 = db_accessor->Property("prop4");
+  auto et = db_accessor.EdgeType("edgetype");
+  auto ea = db_accessor.InsertEdge(va1, va2, et);
+  auto p3 = db_accessor.Property("prop3");
+  auto p4 = db_accessor.Property("prop4");
   PropertyValue pv3(42), pv4(1234);
   ea.PropsSet(p3, pv3);
   ea.PropsSet(p4, pv4);

@@ -3,6 +3,7 @@
 #include <kj/std/iostream.h>
 #include <algorithm>
 #include <chrono>
+#include <experimental/optional>
 #include <iostream>
 #include <memory>
 
@@ -982,20 +983,28 @@ void RaftServer::SnapshotThread() {
       // Compare the log size to the config
       if (config_.log_size_snapshot_threshold < committed_log_size) {
         VLOG(40) << "[LogCompaction] Starting log compaction.";
-        // Create a DB accessor for snapshot creation
-        std::unique_ptr<database::GraphDbAccessor> dba = db_->Access();
-        uint64_t last_included_term = GetLogEntry(last_applied_).term;
-        uint64_t last_included_index = last_applied_;
-        std::string snapshot_filename =
-            durability::GetSnapshotFilename(dba->transaction_id());
 
-        lock.unlock();
-        VLOG(40) << "[LogCompaction] Creating snapshot.";
-        bool status = durability::MakeSnapshot(*db_, *dba, durability_dir_,
-                                               snapshot_filename);
+        uint64_t last_included_term = 0;
+        uint64_t last_included_index = 0;
+        std::string snapshot_filename;
+        bool status = false;
 
-        // Raft lock must be released when destroying dba object.
-        dba = nullptr;
+        {
+          // Create a DB accessor for snapshot creation
+          auto dba = db_->Access();
+          last_included_term = GetLogEntry(last_applied_).term;
+          last_included_index = last_applied_;
+          snapshot_filename =
+              durability::GetSnapshotFilename(dba.transaction_id());
+
+          lock.unlock();
+          VLOG(40) << "[LogCompaction] Creating snapshot.";
+          status = durability::MakeSnapshot(*db_, dba, durability_dir_,
+                                            snapshot_filename);
+
+          // Raft lock must be released when destroying dba object.
+          // Destroy the db accessor
+        }
 
         lock.lock();
 
@@ -1187,13 +1196,13 @@ void RaftServer::RecoverSnapshot(const std::string &snapshot_filename) {
 
 void RaftServer::NoOpCreate() {
   auto dba = db_->Access();
-  Emplace(database::StateDelta::NoOp(dba->transaction_id()));
-  dba->Commit();
+  Emplace(database::StateDelta::NoOp(dba.transaction_id()));
+  dba.Commit();
 }
 
 void RaftServer::ApplyStateDeltas(
     const std::vector<database::StateDelta> &deltas) {
-  std::unique_ptr<database::GraphDbAccessor> dba = nullptr;
+  std::experimental::optional<database::GraphDbAccessor> dba;
   for (auto &delta : deltas) {
     switch (delta.type) {
       case database::StateDelta::Type::TRANSACTION_BEGIN:
@@ -1204,7 +1213,7 @@ void RaftServer::ApplyStateDeltas(
         CHECK(dba) << "Missing accessor for transaction"
                    << delta.transaction_id;
         dba->Commit();
-        dba = nullptr;
+        dba = std::experimental::nullopt;
         break;
       case database::StateDelta::Type::TRANSACTION_ABORT:
         LOG(FATAL) << "ApplyStateDeltas shouldn't know about aborted "

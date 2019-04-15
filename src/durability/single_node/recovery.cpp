@@ -206,13 +206,13 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     Value vertex_dv;
     RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, Value::Type::Vertex));
     auto &vertex = vertex_dv.ValueVertex();
-    auto vertex_accessor = dba->InsertVertex(vertex.id.AsUint());
+    auto vertex_accessor = dba.InsertVertex(vertex.id.AsUint());
 
     for (const auto &label : vertex.labels) {
-      vertex_accessor.add_label(dba->Label(label));
+      vertex_accessor.add_label(dba.Label(label));
     }
     for (const auto &property_pair : vertex.properties) {
-      vertex_accessor.PropsSet(dba->Property(property_pair.first),
+      vertex_accessor.PropsSet(dba.Property(property_pair.first),
                                glue::ToPropertyValue(property_pair.second));
     }
     vertices.insert({vertex.id.AsUint(), vertex_accessor});
@@ -226,11 +226,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     auto it_to = vertices.find(edge.to.AsUint());
     RETURN_IF_NOT(it_from != vertices.end() && it_to != vertices.end());
     auto edge_accessor =
-        dba->InsertEdge(it_from->second, it_to->second,
-                        dba->EdgeType(edge.type), edge.id.AsUint());
+        dba.InsertEdge(it_from->second, it_to->second,
+                        dba.EdgeType(edge.type), edge.id.AsUint());
 
     for (const auto &property_pair : edge.properties)
-      edge_accessor.PropsSet(dba->Property(property_pair.first),
+      edge_accessor.PropsSet(dba.Property(property_pair.first),
                              glue::ToPropertyValue(property_pair.second));
   }
 
@@ -239,7 +239,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   reader.ReadType(vertex_count);
   reader.ReadType(edge_count);
   if (!reader.Close() || reader.hash() != hash) {
-    dba->Abort();
+    dba.Abort();
     return false;
   }
 
@@ -250,8 +250,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   tx::TransactionId max_id = recovery_data->snapshooter_tx_id;
   auto &snap = recovery_data->snapshooter_tx_snapshot;
   if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
-  dba->db().tx_engine().EnsureNextIdGreater(max_id);
-  dba->Commit();
+  dba.db().tx_engine().EnsureNextIdGreater(max_id);
+  dba.Commit();
   return true;
 }
 
@@ -384,7 +384,7 @@ RecoveryTransactions::RecoveryTransactions(database::GraphDb *db) : db_(db) {}
 void RecoveryTransactions::Begin(const tx::TransactionId &tx_id) {
   CHECK(accessors_.find(tx_id) == accessors_.end())
       << "Double transaction start";
-  accessors_.emplace(tx_id, db_->Access());
+  accessors_.emplace(tx_id, std::make_unique<database::GraphDbAccessor>(db_->Access()));
 }
 
 void RecoveryTransactions::Abort(const tx::TransactionId &tx_id) {
@@ -599,15 +599,15 @@ void RecoverIndexes(database::GraphDb *db,
                     const std::vector<IndexRecoveryData> &indexes) {
   auto dba = db->Access();
   for (const auto &index : indexes) {
-    auto label = dba->Label(index.label);
-    auto property = dba->Property(index.property);
+    auto label = dba.Label(index.label);
+    auto property = dba.Property(index.property);
     if (index.create) {
-      dba->BuildIndex(label, property, index.unique);
+      dba.BuildIndex(label, property, index.unique);
     } else {
-      dba->DeleteIndex(label, property);
+      dba.DeleteIndex(label, property);
     }
   }
-  dba->Commit();
+  dba.Commit();
 }
 
 void RecoverExistenceConstraints(
@@ -615,17 +615,17 @@ void RecoverExistenceConstraints(
     const std::vector<ExistenceConstraintRecoveryData> &constraints) {
   auto dba = db->Access();
   for (auto &constraint : constraints) {
-    auto label = dba->Label(constraint.label);
+    auto label = dba.Label(constraint.label);
     std::vector<storage::Property> properties;
     properties.reserve(constraint.properties.size());
     for (auto &prop : constraint.properties) {
-      properties.push_back(dba->Property(prop));
+      properties.push_back(dba.Property(prop));
     }
 
     if (constraint.create) {
-      dba->BuildExistenceConstraint(label, properties);
+      dba.BuildExistenceConstraint(label, properties);
     } else {
-      dba->DeleteExistenceConstraint(label, properties);
+      dba.DeleteExistenceConstraint(label, properties);
     }
   }
 }
@@ -635,19 +635,19 @@ void RecoverUniqueConstraints(
     const std::vector<UniqueConstraintRecoveryData> &constraints) {
   auto dba = db->Access();
   for (auto &constraint : constraints) {
-    auto label = dba->Label(constraint.label);
+    auto label = dba.Label(constraint.label);
     std::vector<storage::Property> properties;
     properties.reserve(constraint.properties.size());
     for (auto &prop : constraint.properties) {
-      properties.push_back(dba->Property(prop));
+      properties.push_back(dba.Property(prop));
     }
 
     DCHECK(properties.size() == 1)
         << "Unique constraint with multiple properties is not supported";
     if (constraint.create) {
-      dba->BuildUniqueConstraint(label, properties[0]);
+      dba.BuildUniqueConstraint(label, properties[0]);
     } else {
-      dba->DeleteUniqueConstraint(label, properties[0]);
+      dba.DeleteUniqueConstraint(label, properties[0]);
     }
   }
 }

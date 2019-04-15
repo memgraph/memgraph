@@ -218,24 +218,24 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
   auto dba_b = b.Access();
 
   {
-    auto index_a = dba_a->IndexInfo();
-    auto index_b = dba_b->IndexInfo();
+    auto index_a = dba_a.IndexInfo();
+    auto index_b = dba_b.IndexInfo();
     EXPECT_TRUE(
         index_a.size() == index_b.size() &&
         std::is_permutation(index_a.begin(), index_a.end(), index_b.begin()))
         << "Indexes not equal [" << utils::Join(index_a, ", ") << "] != ["
         << utils::Join(index_b, ", ");
   }
-  EXPECT_TRUE(CompareExistenceConstraints(*dba_a, *dba_b));
-  EXPECT_TRUE(CompareUniqueConstraints(*dba_a, *dba_b));
+  EXPECT_TRUE(CompareExistenceConstraints(dba_a, dba_b));
+  EXPECT_TRUE(CompareUniqueConstraints(dba_a, dba_b));
 
   auto is_permutation_props = [&dba_a, &dba_b](const auto &p1_id,
                                                const auto &p2_id) {
     std::vector<std::pair<std::string, query::TypedValue>> p1;
     std::vector<std::pair<std::string, query::TypedValue>> p2;
 
-    for (auto x : p1_id) p1.push_back({dba_a->PropertyName(x.first), x.second});
-    for (auto x : p2_id) p2.push_back({dba_b->PropertyName(x.first), x.second});
+    for (auto x : p1_id) p1.push_back({dba_a.PropertyName(x.first), x.second});
+    for (auto x : p2_id) p2.push_back({dba_b.PropertyName(x.first), x.second});
 
     // Don't use a binary predicate which depends on different value getters
     // semantics for two containers because is_permutation might call the
@@ -251,37 +251,37 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
 
   {
     int vertices_a_count = 0;
-    for (auto v_a : dba_a->Vertices(false)) {
+    for (auto v_a : dba_a.Vertices(false)) {
       vertices_a_count++;
-      auto v_b = dba_b->FindVertexOptional(v_a.gid(), false);
+      auto v_b = dba_b.FindVertexOptional(v_a.gid(), false);
       ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.gid();
       ASSERT_EQ(v_a.labels().size(), v_b->labels().size());
       std::vector<std::string> v_a_labels;
       std::vector<std::string> v_b_labels;
-      for (auto x : v_a.labels()) v_a_labels.push_back(dba_a->LabelName(x));
-      for (auto x : v_b->labels()) v_b_labels.push_back(dba_b->LabelName(x));
+      for (auto x : v_a.labels()) v_a_labels.push_back(dba_a.LabelName(x));
+      for (auto x : v_b->labels()) v_b_labels.push_back(dba_b.LabelName(x));
       EXPECT_TRUE(std::is_permutation(v_a_labels.begin(), v_a_labels.end(),
                                       v_b_labels.begin()));
       EXPECT_TRUE(is_permutation_props(v_a.Properties(), v_b->Properties()));
     }
-    auto vertices_b = dba_b->Vertices(false);
+    auto vertices_b = dba_b.Vertices(false);
     EXPECT_EQ(std::distance(vertices_b.begin(), vertices_b.end()),
               vertices_a_count);
   }
   {
     int edges_a_count = 0;
-    for (auto e_a : dba_a->Edges(false)) {
+    for (auto e_a : dba_a.Edges(false)) {
       edges_a_count++;
-      auto e_b = dba_b->FindEdgeOptional(e_a.gid(), false);
+      auto e_b = dba_b.FindEdgeOptional(e_a.gid(), false);
       ASSERT_TRUE(e_b);
       ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.gid();
-      EXPECT_EQ(dba_a->EdgeTypeName(e_a.EdgeType()),
-                dba_b->EdgeTypeName(e_b->EdgeType()));
+      EXPECT_EQ(dba_a.EdgeTypeName(e_a.EdgeType()),
+                dba_b.EdgeTypeName(e_b->EdgeType()));
       EXPECT_EQ(e_a.from().gid(), e_b->from().gid());
       EXPECT_EQ(e_a.to().gid(), e_b->to().gid());
       EXPECT_TRUE(is_permutation_props(e_a.Properties(), e_b->Properties()));
     }
-    auto edges_b = dba_b->Edges(false);
+    auto edges_b = dba_b.Edges(false);
     EXPECT_EQ(std::distance(edges_b.begin(), edges_b.end()), edges_a_count);
   }
 }
@@ -327,8 +327,8 @@ void MakeDb(database::GraphDbAccessor &dba, int scale,
 
 void MakeDb(database::GraphDb &db, int scale, std::vector<int> indices = {}) {
   auto dba = db.Access();
-  MakeDb(*dba, scale, indices);
-  dba->Commit();
+  MakeDb(dba, scale, indices);
+  dba.Commit();
 }
 
 class Durability : public ::testing::Test {
@@ -365,7 +365,7 @@ class Durability : public ::testing::Test {
 
   void MakeSnapshot(database::GraphDb &db, int snapshot_max_retained = -1) {
     auto dba = db.Access();
-    ASSERT_TRUE(durability::MakeSnapshot(db, *dba, durability_dir_,
+    ASSERT_TRUE(durability::MakeSnapshot(db, dba, durability_dir_,
                                          snapshot_max_retained));
   }
 
@@ -393,18 +393,18 @@ TEST_F(Durability, WalEncoding) {
     config.durability_enabled = true;
     database::GraphDb db{config};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
-    v0.add_label(dba->Label("l0"));
-    v0.PropsSet(dba->Property("p0"), 42);
-    auto v1 = dba->InsertVertex();
+    v0.add_label(dba.Label("l0"));
+    v0.PropsSet(dba.Property("p0"), 42);
+    auto v1 = dba.InsertVertex();
     ASSERT_EQ(v1.gid(), gid1);
-    auto e0 = dba->InsertEdge(v0, v1, dba->EdgeType("et0"));
+    auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
-    e0.PropsSet(dba->Property("p0"), std::vector<PropertyValue>{1, 2, 3});
-    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"), false);
-    dba->DeleteIndex(dba->Label("l1"), dba->Property("p1"));
-    dba->Commit();
+    e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
+    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"), false);
+    dba.DeleteIndex(dba.Label("l1"), dba.Property("p1"));
+    dba.Commit();
 
     db.wal().Flush();
   }
@@ -478,25 +478,25 @@ TEST_F(Durability, SnapshotEncoding) {
   {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
-    v0.add_label(dba->Label("l0"));
-    v0.PropsSet(dba->Property("p0"), 42);
-    auto v1 = dba->InsertVertex();
+    v0.add_label(dba.Label("l0"));
+    v0.PropsSet(dba.Property("p0"), 42);
+    auto v1 = dba.InsertVertex();
     ASSERT_EQ(v1.gid(), gid1);
-    v1.add_label(dba->Label("l0"));
-    v1.add_label(dba->Label("l1"));
-    auto v2 = dba->InsertVertex();
+    v1.add_label(dba.Label("l0"));
+    v1.add_label(dba.Label("l1"));
+    auto v2 = dba.InsertVertex();
     ASSERT_EQ(v2.gid(), gid2);
-    v2.PropsSet(dba->Property("p0"), true);
-    v2.PropsSet(dba->Property("p1"), "Johnny");
-    auto e0 = dba->InsertEdge(v0, v1, dba->EdgeType("et0"));
+    v2.PropsSet(dba.Property("p0"), true);
+    v2.PropsSet(dba.Property("p1"), "Johnny");
+    auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
-    e0.PropsSet(dba->Property("p0"), std::vector<PropertyValue>{1, 2, 3});
-    auto e1 = dba->InsertEdge(v2, v1, dba->EdgeType("et1"));
+    e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
+    auto e1 = dba.InsertEdge(v2, v1, dba.EdgeType("et1"));
     ASSERT_EQ(e1.gid(), gid1);
-    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"), false);
-    dba->Commit();
+    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"), false);
+    dba.Commit();
     MakeSnapshot(db);
   }
 
@@ -665,33 +665,33 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // The first transaction modifies and commits.
   auto dba_1 = db.Access();
-  MakeDb(*dba_1, 100);
-  dba_1->Commit();
+  MakeDb(dba_1, 100);
+  dba_1.Commit();
 
   // The second transaction will commit after snapshot.
   auto dba_2 = db.Access();
-  MakeDb(*dba_2, 100);
+  MakeDb(dba_2, 100);
 
   // The third transaction modifies and commits.
   auto dba_3 = db.Access();
-  MakeDb(*dba_3, 100);
-  dba_3->Commit();
+  MakeDb(dba_3, 100);
+  dba_3.Commit();
 
   MakeSnapshot(db);  // Snapshooter takes the fourth transaction.
-  dba_2->Commit();
+  dba_2.Commit();
 
   // The fifth transaction starts and commits after snapshot.
   auto dba_5 = db.Access();
-  MakeDb(*dba_5, 100);
-  dba_5->Commit();
+  MakeDb(dba_5, 100);
+  dba_5.Commit();
 
   // The sixth transaction will not commit at all.
   auto dba_6 = db.Access();
-  MakeDb(*dba_6, 100);
+  MakeDb(dba_6, 100);
 
   auto VisibleVertexCount = [](database::GraphDb &db) {
     auto dba = db.Access();
-    auto vertices = dba->Vertices(false);
+    auto vertices = dba.Vertices(false);
     return std::distance(vertices.begin(), vertices.end());
   };
   ASSERT_EQ(VisibleVertexCount(db), 400);
@@ -805,8 +805,8 @@ TEST_F(Durability, WorkerIdRecovery) {
     EXPECT_EQ(recovered.WorkerId(), config.worker_id);
     CompareDbs(db, recovered);
     auto dba = recovered.Access();
-    EXPECT_NE(dba->VerticesCount(), 0);
-    EXPECT_NE(dba->EdgesCount(), 0);
+    EXPECT_NE(dba.VerticesCount(), 0);
+    EXPECT_NE(dba.EdgesCount(), 0);
     recovered.Shutdown();
     EXPECT_TRUE(recovered.AwaitShutdown());
   }
@@ -820,8 +820,8 @@ TEST_F(Durability, WorkerIdRecovery) {
     database::Master recovered{config};
     EXPECT_NE(recovered.WorkerId(), db.WorkerId());
     auto dba = recovered.Access();
-    EXPECT_EQ(dba->VerticesCount(), 0);
-    EXPECT_EQ(dba->EdgesCount(), 0);
+    EXPECT_EQ(dba.VerticesCount(), 0);
+    EXPECT_EQ(dba.EdgesCount(), 0);
     recovered.Shutdown();
     EXPECT_TRUE(recovered.AwaitShutdown());
   }
@@ -843,8 +843,8 @@ TEST_F(Durability, SequentialRecovery) {
 
   auto init_db = [](database::GraphDb &db) {
     auto dba = db.Access();
-    for (int i = 0; i < kNumVertices; ++i) dba->InsertVertex(i);
-    dba->Commit();
+    for (int i = 0; i < kNumVertices; ++i) dba.InsertVertex(i);
+    dba.Commit();
   };
 
   auto run_updates = [&random_int](database::GraphDb &db,
@@ -854,14 +854,14 @@ TEST_F(Durability, SequentialRecovery) {
       threads.emplace_back([&random_int, &db, &keep_running]() {
         while (keep_running) {
           auto dba = db.Access();
-          auto v = dba->FindVertex(random_int(kNumVertices), false);
+          auto v = dba.FindVertex(random_int(kNumVertices), false);
           try {
-            v.PropsSet(dba->Property("prop"), random_int(100));
+            v.PropsSet(dba.Property("prop"), random_int(100));
           } catch (utils::LockTimeoutException &) {
           } catch (mvcc::SerializationError &) {
           }
-          dba->InsertVertex();
-          dba->Commit();
+          dba.InsertVertex();
+          dba.Commit();
         }
       });
     }
@@ -918,7 +918,7 @@ TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
   {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
-    dba->InsertVertex();
+    dba.InsertVertex();
     MakeSnapshot(db);
   }
   ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
@@ -929,8 +929,8 @@ TEST_F(Durability, ContainsDurabilityFilesWal) {
   {
     database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
-    dba->InsertVertex();
-    dba->Commit();
+    dba.InsertVertex();
+    dba.Commit();
     db.wal().Flush();
   }
   ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
@@ -941,7 +941,7 @@ TEST_F(Durability, MoveToBackupSnapshot) {
   {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
-    dba->InsertVertex();
+    dba.InsertVertex();
     MakeSnapshot(db);
   }
 
@@ -955,8 +955,8 @@ TEST_F(Durability, MoveToBackupWal) {
   {
     database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
-    dba->InsertVertex();
-    dba->Commit();
+    dba.InsertVertex();
+    dba.Commit();
     db.wal().Flush();
   }
 
@@ -971,32 +971,32 @@ TEST_F(Durability, UniqueIndexRecoverySnapshotAndWal) {
   database::GraphDb db{config};
   {
     auto dba = db.Access();
-    auto label = dba->Label("A");
-    auto property = dba->Property("x");
+    auto label = dba.Label("A");
+    auto property = dba.Property("x");
 
-    dba->BuildIndex(label, property, true);
+    dba.BuildIndex(label, property, true);
 
-    auto v0 = dba->InsertVertex();
+    auto v0 = dba.InsertVertex();
     v0.add_label(label);
     v0.PropsSet(property, 5);
 
-    dba->Commit();
+    dba.Commit();
   }
   // create snapshot with build index and vertex
   MakeSnapshot(db);
 
   {
     auto dba = db.Access();
-    auto label = dba->Label("A");
-    auto property = dba->Property("x");
+    auto label = dba.Label("A");
+    auto property = dba.Property("x");
 
-    dba->DeleteIndex(label, property);
+    dba.DeleteIndex(label, property);
 
-    auto v0 = dba->InsertVertex();
+    auto v0 = dba.InsertVertex();
     v0.add_label(label);
     v0.PropsSet(property, 5);
 
-    dba->Commit();
+    dba.Commit();
   }
   // create wal with drop index and vertex
   db.wal().Flush();
@@ -1015,22 +1015,22 @@ TEST_F(Durability, UniqueIndexRecoveryWal) {
   database::GraphDb db{config};
   {
     auto dba = db.Access();
-    auto label = dba->Label("A");
-    auto property = dba->Property("x");
+    auto label = dba.Label("A");
+    auto property = dba.Property("x");
 
-    dba->BuildIndex(label, property, true);
+    dba.BuildIndex(label, property, true);
 
-    auto v0 = dba->InsertVertex();
+    auto v0 = dba.InsertVertex();
     v0.add_label(label);
     v0.PropsSet(property, 5);
 
-    dba->DeleteIndex(label, property);
+    dba.DeleteIndex(label, property);
 
-    auto v1 = dba->InsertVertex();
+    auto v1 = dba.InsertVertex();
     v1.add_label(label);
     v1.PropsSet(property, 5);
 
-    dba->Commit();
+    dba.Commit();
   }
   db.wal().Flush();
   {
@@ -1047,21 +1047,21 @@ TEST_F(Durability, ExistenceConstraintRecoveryWal) {
   {
     // Fill database with some data
     auto dba = db.Access();
-    DbGenerator gen(*dba);
-    dba->InsertVertex();
+    DbGenerator gen(dba);
+    dba.InsertVertex();
     gen.InsertVertex();
     gen.InsertVertex();
-    auto l1 = dba->Label("l1");
-    std::vector<storage::Property> p1{dba->Property("p1"),  dba->Property("p2")};
-    dba->BuildExistenceConstraint(l1, p1);
+    auto l1 = dba.Label("l1");
+    std::vector<storage::Property> p1{dba.Property("p1"),  dba.Property("p2")};
+    dba.BuildExistenceConstraint(l1, p1);
     gen.InsertEdge();
-    auto l2 = dba->Label("l2");
-    std::vector<storage::Property> p2{dba->Property("p3"),  dba->Property("p4")};
-    dba->BuildExistenceConstraint(l2, p2);
+    auto l2 = dba.Label("l2");
+    std::vector<storage::Property> p2{dba.Property("p3"),  dba.Property("p4")};
+    dba.BuildExistenceConstraint(l2, p2);
     gen.InsertVertex();
     gen.InsertEdge();
-    dba->DeleteExistenceConstraint(l1, p1);
-    dba->Commit();
+    dba.DeleteExistenceConstraint(l1, p1);
+    dba.Commit();
   }
   {
     // Recover and compare
@@ -1078,34 +1078,34 @@ TEST_F(Durability, ExistenceConstraintRecoverySnapshotAndWal) {
   {
     // Fill database with some data
     auto dba = db.Access();
-    DbGenerator gen(*dba);
-    dba->InsertVertex();
+    DbGenerator gen(dba);
+    dba.InsertVertex();
     gen.InsertVertex();
     gen.InsertVertex();
-    auto l1 = dba->Label("l1");
-    std::vector<storage::Property> p1{dba->Property("p1"),  dba->Property("p2")};
-    dba->BuildExistenceConstraint(l1, p1);
+    auto l1 = dba.Label("l1");
+    std::vector<storage::Property> p1{dba.Property("p1"),  dba.Property("p2")};
+    dba.BuildExistenceConstraint(l1, p1);
     gen.InsertEdge();
-    auto l2 = dba->Label("l2");
-    std::vector<storage::Property> p2{dba->Property("p3"),  dba->Property("p4")};
-    dba->BuildExistenceConstraint(l2, p2);
+    auto l2 = dba.Label("l2");
+    std::vector<storage::Property> p2{dba.Property("p3"),  dba.Property("p4")};
+    dba.BuildExistenceConstraint(l2, p2);
     gen.InsertVertex();
     gen.InsertEdge();
-    dba->DeleteExistenceConstraint(l1, p1);
-    dba->Commit();
+    dba.DeleteExistenceConstraint(l1, p1);
+    dba.Commit();
   }
   // create snapshot with build existence constraint
   MakeSnapshot(db);
   {
     auto dba = db.Access();
-    DbGenerator gen(*dba);
+    DbGenerator gen(dba);
     gen.InsertVertex();
     gen.InsertVertex();
 
-    auto l3 = dba->Label("l3");
-    std::vector<storage::Property> p3{dba->Property("p5"),  dba->Property("p6")};
-    dba->BuildExistenceConstraint(l3, p3);
-    dba->Commit();
+    auto l3 = dba.Label("l3");
+    std::vector<storage::Property> p3{dba.Property("p5"),  dba.Property("p6")};
+    dba.BuildExistenceConstraint(l3, p3);
+    dba.Commit();
   }
   {
     // Recover and compare
@@ -1122,21 +1122,21 @@ TEST_F(Durability, UniqueConstraintRecoveryWal) {
   {
     // Fill database with some data
     auto dba = db.Access();
-    DbGenerator gen(*dba);
-    dba->InsertVertex();
+    DbGenerator gen(dba);
+    dba.InsertVertex();
     gen.InsertVertex();
     gen.InsertVertex();
-    auto l1 = dba->Label("l1");
-    auto p1 = dba->Property("p1");
-    dba->BuildUniqueConstraint(l1, p1);
+    auto l1 = dba.Label("l1");
+    auto p1 = dba.Property("p1");
+    dba.BuildUniqueConstraint(l1, p1);
     gen.InsertEdge();
-    auto l2 = dba->Label("l2");
-    auto p2 = dba->Property("p2");
-    dba->BuildUniqueConstraint(l2, p2);
+    auto l2 = dba.Label("l2");
+    auto p2 = dba.Property("p2");
+    dba.BuildUniqueConstraint(l2, p2);
     gen.InsertVertex();
     gen.InsertEdge();
-    dba->DeleteUniqueConstraint(l1, p1);
-    dba->Commit();
+    dba.DeleteUniqueConstraint(l1, p1);
+    dba.Commit();
   }
   {
     // Recover and compare
@@ -1153,34 +1153,34 @@ TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
   {
     // Fill database with some data
     auto dba = db.Access();
-    DbGenerator gen(*dba);
-    dba->InsertVertex();
+    DbGenerator gen(dba);
+    dba.InsertVertex();
     gen.InsertVertex();
     gen.InsertVertex();
-    auto l1 = dba->Label("l1");
-    auto p1 = dba->Property("p1");
-    dba->BuildUniqueConstraint(l1, p1);
+    auto l1 = dba.Label("l1");
+    auto p1 = dba.Property("p1");
+    dba.BuildUniqueConstraint(l1, p1);
     gen.InsertEdge();
-    auto l2 = dba->Label("l2");
-    auto p2 = dba->Property("p2");
-    dba->BuildUniqueConstraint(l2, p2);
+    auto l2 = dba.Label("l2");
+    auto p2 = dba.Property("p2");
+    dba.BuildUniqueConstraint(l2, p2);
     gen.InsertVertex();
     gen.InsertEdge();
-    dba->DeleteUniqueConstraint(l1, p1);
-    dba->Commit();
+    dba.DeleteUniqueConstraint(l1, p1);
+    dba.Commit();
   }
   // create snapshot with build unique constraint
   MakeSnapshot(db);
   {
     auto dba = db.Access();
-    DbGenerator gen(*dba);
+    DbGenerator gen(dba);
     gen.InsertVertex();
     gen.InsertVertex();
 
-    auto l3 = dba->Label("l3");
-    auto p3 = dba->Property("p3");
-    dba->BuildUniqueConstraint(l3, p3);
-    dba->Commit();
+    auto l3 = dba.Label("l3");
+    auto p3 = dba.Property("p3");
+    dba.BuildUniqueConstraint(l3, p3);
+    dba.Commit();
   }
   {
     // Recover and compare

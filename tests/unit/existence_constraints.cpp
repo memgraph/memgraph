@@ -9,11 +9,11 @@ class ExistenceConstraintsTest : public ::testing::Test {
  public:
   void SetUp() override {
     auto dba = db_.Access();
-    label_ = dba->Label("label");
-    property_ = dba->Property("property");
+    label_ = dba.Label("label");
+    property_ = dba.Property("property");
     properties_ = {property_};
     rule_ = {label_, properties_};
-    dba->Commit();
+    dba.Commit();
   }
 
   storage::constraints::ExistenceConstraints constraints_;
@@ -27,33 +27,33 @@ class ExistenceConstraintsTest : public ::testing::Test {
 TEST_F(ExistenceConstraintsTest, BuildDrop) {
   {
     auto dba = db_.Access();
-    EXPECT_FALSE(dba->ExistenceConstraintExists(label_, properties_));
-    dba->Commit();
+    EXPECT_FALSE(dba.ExistenceConstraintExists(label_, properties_));
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label_, properties_);
-    EXPECT_TRUE(dba->ExistenceConstraintExists(label_, properties_));
-    dba->Commit();
+    dba.BuildExistenceConstraint(label_, properties_);
+    EXPECT_TRUE(dba.ExistenceConstraintExists(label_, properties_));
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    dba->DeleteExistenceConstraint(label_, properties_);
-    EXPECT_FALSE(dba->ExistenceConstraintExists(label_, properties_));
-    dba->Commit();
+    dba.DeleteExistenceConstraint(label_, properties_);
+    EXPECT_FALSE(dba.ExistenceConstraintExists(label_, properties_));
+    dba.Commit();
   }
 }
 
 TEST_F(ExistenceConstraintsTest, BuildWithViolation) {
   {
     auto dba = db_.Access();
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     v.add_label(label_);
-    dba->Commit();
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    EXPECT_THROW(dba->BuildExistenceConstraint(label_, properties_),
+    EXPECT_THROW(dba.BuildExistenceConstraint(label_, properties_),
                  database::IndexConstraintViolationException);
   }
 }
@@ -61,12 +61,12 @@ TEST_F(ExistenceConstraintsTest, BuildWithViolation) {
 TEST_F(ExistenceConstraintsTest, InsertFail) {
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label_, properties_);
-    dba->Commit();
+    dba.BuildExistenceConstraint(label_, properties_);
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     EXPECT_THROW(v.add_label(label_),
                  database::IndexConstraintViolationException);
   }
@@ -75,36 +75,36 @@ TEST_F(ExistenceConstraintsTest, InsertFail) {
 TEST_F(ExistenceConstraintsTest, InsertPass) {
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label_, properties_);
-    dba->Commit();
+    dba.BuildExistenceConstraint(label_, properties_);
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     v.PropsSet(property_, PropertyValue("Something"));
     v.add_label(label_);
-    dba->Commit();
+    dba.Commit();
   }
 }
 
 TEST_F(ExistenceConstraintsTest, RemoveFail) {
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label_, properties_);
-    dba->Commit();
+    dba.BuildExistenceConstraint(label_, properties_);
+    dba.Commit();
   }
   gid::Gid gid;
   {
     auto dba = db_.Access();
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     v.PropsSet(property_, PropertyValue("Something"));
     v.add_label(label_);
     gid = v.gid();
-    dba->Commit();
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    auto v = dba->FindVertex(gid, false);
+    auto v = dba.FindVertex(gid, false);
     EXPECT_THROW(v.PropsErase(property_),
         database::IndexConstraintViolationException);
   }
@@ -113,24 +113,24 @@ TEST_F(ExistenceConstraintsTest, RemoveFail) {
 TEST_F(ExistenceConstraintsTest, RemovePass) {
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label_, properties_);
-    dba->Commit();
+    dba.BuildExistenceConstraint(label_, properties_);
+    dba.Commit();
   }
   gid::Gid gid;
   {
     auto dba = db_.Access();
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     v.PropsSet(property_, PropertyValue("Something"));
     v.add_label(label_);
     gid = v.gid();
-    dba->Commit();
+    dba.Commit();
   }
   {
     auto dba = db_.Access();
-    auto v = dba->FindVertex(gid, false);
+    auto v = dba.FindVertex(gid, false);
     v.remove_label(label_);
     v.PropsErase(property_);
-    dba->Commit();
+    dba.Commit();
   }
 }
 
