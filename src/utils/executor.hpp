@@ -28,8 +28,8 @@ class Executor {
     scheduler_.Stop();
   }
 
-  Executor(Executor &&e) = default;
-  Executor &operator=(Executor &&) = default;
+  Executor(Executor &&e) = delete;
+  Executor &operator=(Executor &&) = delete;
   Executor(const Executor &e) = delete;
   Executor &operator=(const Executor &) = delete;
 

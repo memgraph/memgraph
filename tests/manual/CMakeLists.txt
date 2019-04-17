@@ -46,8 +46,6 @@ endif()
 add_manual_test(distributed_repl.cpp)
 target_link_libraries(${test_prefix}distributed_repl mg-distributed kvstore_dummy_lib gtest readline)
 
-add_manual_test(endinan.cpp)
-
 add_manual_test(generate_snapshot.cpp)
 target_link_libraries(${test_prefix}generate_snapshot mg-distributed kvstore_dummy_lib)
 

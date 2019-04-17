@@ -769,7 +769,7 @@ class SkipList : private utils::Lockable<lock_t> {
    */
   template <class It, class K>
   It find_or_larger(const K &item) const {
-    Node *node, *pred = header;
+    Node *node = nullptr, *pred = header;
     int h = static_cast<int>(pred->height) - 1;
 
     while (true) {

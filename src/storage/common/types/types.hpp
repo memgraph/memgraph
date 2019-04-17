@@ -36,8 +36,8 @@ class Label final {
   }
 
   IdT Id() const { return static_cast<IdT>(id_ & IdMask); }
-  Location Location() const {
-    return static_cast<enum Location>(id_ & IdNotMask);
+  storage::Location Location() const {
+    return static_cast<storage::Location>(id_ & IdNotMask);
   }
 
   friend bool operator==(const Label &a, const Label &b) {
@@ -78,8 +78,8 @@ class EdgeType final {
   }
 
   IdT Id() const { return static_cast<IdT>(id_ & IdMask); }
-  Location Location() const {
-    return static_cast<enum Location>(id_ & IdNotMask);
+  storage::Location Location() const {
+    return static_cast<storage::Location>(id_ & IdNotMask);
   }
 
   friend bool operator==(const EdgeType &a, const EdgeType &b) {
@@ -120,8 +120,8 @@ class Property final {
   }
 
   IdT Id() const { return static_cast<IdT>(id_ & IdMask); }
-  Location Location() const {
-    return static_cast<enum Location>(id_ & IdNotMask);
+  storage::Location Location() const {
+    return static_cast<storage::Location>(id_ & IdNotMask);
   }
 
   friend bool operator==(const Property &a, const Property &b) {

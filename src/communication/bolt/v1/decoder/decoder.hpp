@@ -213,8 +213,7 @@ class Decoder {
       return false;
     }
     value = utils::Bswap(value);
-    // cppcheck-suppress invalidPointerCast
-    ret = *reinterpret_cast<double *>(&value);
+    ret = utils::MemcpyCast<double>(value);
     *data = Value(ret);
     return true;
   }

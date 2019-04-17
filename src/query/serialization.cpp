@@ -380,7 +380,7 @@ void Load(query::TypedValueVectorCompare *comparator, slk::Reader *reader) {
 
 
 void Save(const query::GraphView &graph_view, slk::Builder *builder) {
-  uint8_t enum_value;
+  uint8_t enum_value = 0;
   switch (graph_view) {
     case query::GraphView::OLD:
       enum_value = 0;
