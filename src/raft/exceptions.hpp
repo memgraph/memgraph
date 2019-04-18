@@ -78,4 +78,15 @@ class ReplicationTimeoutException : public RaftException {
       : RaftException("Raft Log replication is taking too long. ") {}
 };
 
+/// This exception is thrown when a client tries to execute a query on a server
+/// that isn't a leader.
+class CantExecuteQueries : public RaftException {
+ public:
+  using RaftException::RaftException;
+  CantExecuteQueries()
+      : RaftException(
+            "Memgraph High Availability: Can't execute queries if not "
+            "leader.") {}
+};
+
 }  // namespace raft

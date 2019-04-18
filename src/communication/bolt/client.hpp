@@ -19,7 +19,17 @@ namespace communication::bolt {
 class ClientQueryException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+
   ClientQueryException() : utils::BasicException("Couldn't execute query!") {}
+
+  template <class... Args>
+  ClientQueryException(const std::string &code, Args &&... args)
+      : utils::BasicException(std::forward<Args>(args)...), code_(code) {}
+
+  const std::string &code() const { return code_; }
+
+ private:
+  std::string code_;
 };
 
 /// This exception is thrown whenever a fatal error occurs during query
@@ -154,7 +164,13 @@ class Client final {
       auto &tmp = fields.ValueMap();
       auto it = tmp.find("message");
       if (it != tmp.end()) {
-        throw ClientQueryException(it->second.ValueString());
+        auto it_code = tmp.find("code");
+        if (it_code != tmp.end()) {
+          throw ClientQueryException(it_code->second.ValueString(),
+                                     it->second.ValueString());
+        } else {
+          throw ClientQueryException("", it->second.ValueString());
+        }
       }
       throw ClientQueryException();
     } else if (signature != Signature::Success) {
@@ -192,7 +208,13 @@ class Client final {
         auto &tmp = data.ValueMap();
         auto it = tmp.find("message");
         if (it != tmp.end()) {
-          throw ClientQueryException(it->second.ValueString());
+          auto it_code = tmp.find("code");
+          if (it_code != tmp.end()) {
+            throw ClientQueryException(it_code->second.ValueString(),
+                                       it->second.ValueString());
+          } else {
+            throw ClientQueryException("", it->second.ValueString());
+          }
         }
         throw ClientQueryException();
       } else {

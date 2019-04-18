@@ -18,6 +18,9 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#ifdef MG_SINGLE_NODE_HA
+#include "raft/exceptions.hpp"
+#endif
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
@@ -719,8 +722,7 @@ Interpreter::Results Interpreter::operator()(
     if (!db_accessor.raft()->IsLeader() &&
         (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
          info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
-      throw QueryException(
-          "Memgraph High Availability: Can't execute queries if not leader.");
+      throw raft::CantExecuteQueries();
     }
   }
 #endif
