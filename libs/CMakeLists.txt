@@ -92,7 +92,9 @@ import_external_library(antlr4 STATIC
 # Setup google benchmark.
 import_external_library(benchmark STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/lib/libbenchmark.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
+  # Skip testing. The tests don't compile with Clang 8.
+  CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
 # setup fmt format
 import_external_library(fmt STATIC
@@ -208,6 +210,7 @@ import_external_library(rocksdb STATIC
                      -j${NPROC}
                      CC=${CMAKE_C_COMPILER}
                      CXX=${CMAKE_CXX_COMPILER}
+                     DISABLE_WARNING_AS_ERROR=1
   INSTALL_COMMAND true)
 
 # Setup Cap'n Proto

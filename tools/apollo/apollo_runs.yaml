@@ -1,5 +1,8 @@
 - name: cppcheck
-  commands: TIMEOUT=2400 ./cppcheck
+  commands: |
+    export PATH=/opt/toolchain-v1/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/toolchain-v1/lib:/opt/toolchain-v1/lib64
+    TIMEOUT=2400 ./cppcheck
   infiles:
     - cppcheck # cppcheck script
     - ../../src # src source dir
@@ -14,7 +17,10 @@
   project: ^NEVER$ # TODO (mferencevic): remove when the coverage is split into two (single node and distributed)
   type: data process
   require_runs: ^unit__.+ # regex to match all unit runs
-  commands: TIMEOUT=300 ./coverage_convert
+  commands: |
+    export PATH=/opt/toolchain-v1/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/toolchain-v1/lib:/opt/toolchain-v1/lib64
+    TIMEOUT=300 ./coverage_convert
   infiles:
     - coverage_convert # coverage_convert script
     - coverage_parse_export # coverage_parse_export script

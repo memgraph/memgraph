@@ -31,6 +31,8 @@ find_program(CLANGXX_FOUND clang++)
 if (CLANG_FOUND AND CLANGXX_FOUND)
   set(CMAKE_C_COMPILER ${CLANG_FOUND})
   set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
+else()
+  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
 endif()
 
 # Get current commit hash.
@@ -74,9 +76,9 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
 # Statically link libgcc and libstdc++, the GCC allows this according to:
+# https://gcc.gnu.org/onlinedocs/gcc-8.3.0/libstdc++/manual/manual/license.html
 # https://www.gnu.org/licenses/gcc-exception-faq.html
-# Last checked for gcc-7.3, we are using gcc-6.3 on build machines (license is
-# valid there also).
+# Last checked for gcc-8.3 which we are using on the build machines.
 # ** If we change versions, recheck this! **
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")

@@ -1,6 +1,11 @@
 - name: Diff build
   project: ^mg-master-diff$
   commands: |
+    # Activate toolchain
+    export ORIG_PATH=$PATH
+    export PATH=/opt/toolchain-v1/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/toolchain-v1/lib:/opt/toolchain-v1/lib64
+
     # Copy untouched repository to parent folder.
     cd ..
     cp -r memgraph parent
@@ -21,13 +26,15 @@
 
     # Build coverage binaries.
     cd ..
-    mkdir build_coverage
-    cd build_coverage
-    cmake -DTEST_COVERAGE=ON ..
-    TIMEOUT=1200 make -j$THREADS memgraph__unit
+    # TODO: uncomment this build once single node, ha and distributed are split
+    # mkdir build_coverage
+    # cd build_coverage
+    # cmake -DTEST_COVERAGE=ON ..
+    # TIMEOUT=1200 make -j$THREADS memgraph__unit
+    ln -s build_debug build_coverage
 
     # Build release binaries.
-    cd ..
+    # cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
@@ -37,6 +44,10 @@
     cd ../tests/distributed/card_fraud
     ./generate_dataset.sh
     cd ../../..
+
+    # Deactivate environment
+    export PATH=$ORIG_PATH
+    export LD_LIBRARY_PATH=""
 
     # Checkout to parent commit and initialize.
     cd ../parent
@@ -53,6 +64,11 @@
 # release build is the default one
 - name: Release build
   commands: |
+    # Activate toolchain
+    export PATH=/opt/toolchain-v1/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/toolchain-v1/lib:/opt/toolchain-v1/lib64
+
+    # Initialize and create documentation.
     TIMEOUT=1200 ./init
     doxygen Doxyfile
 
@@ -67,13 +83,15 @@
 
     # Build coverage binaries.
     cd ..
-    mkdir build_coverage
-    cd build_coverage
-    cmake -DTEST_COVERAGE=ON ..
-    TIMEOUT=1200 make -j$THREADS memgraph__unit
+    # TODO: uncomment this build once single node, ha and distributed are split
+    # mkdir build_coverage
+    # cd build_coverage
+    # cmake -DTEST_COVERAGE=ON ..
+    # TIMEOUT=1200 make -j$THREADS memgraph__unit
+    ln -s build_debug build_coverage
 
     # Build release binaries.
-    cd ..
+    # cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..

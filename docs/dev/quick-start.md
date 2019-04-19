@@ -32,8 +32,8 @@ In your terminal, position yourself in the obtained memgraph directory.
 
 ### Installing Dependencies
 
-On Debian systems, all of the dependencies should be setup by running the
-`init` script:
+On Debian systems, dependencies that are required by the codebase should be
+setup by running the `init` script:
 
     ./init -s
 
@@ -47,12 +47,31 @@ install via your favorite package manager. For example, `pacman` on ArchLinux.
 After installing the packages, issue the following commands:
 
     mkdir -p build
-    ./libs/setups.sh
+    ./libs/setup.sh
 
 ### Compiling
 
-With all of the dependencies installed, you need to configure the build
-system. To do that, execute the following:
+Memgraph is compiled using our own custom toolchain that can be obtained from
+[Toolchain repository](https://deps.memgraph.io/toolchain).  You should read
+the `README.txt` file in the repository and install the apropriate toolchain
+for your distribution.  After you have installed the toolchain you should read
+the instructions for the toolchain in the toolchain install directory
+(`/opt/toolchain-vXYZ/README.md`) and install dependencies that are necessary
+to run the toolchain.
+
+When you want to compile Memgraph you should activate the toolchain using the
+prepared toolchain activation script that is also described in the toolchain
+`README`.
+
+NOTE: You *must* activate the toolchain every time you want to compile
+Memgraph!
+
+You should now activate the toolchain in your console.
+
+    source /opt/toolchain-vXYZ/activate
+
+With all of the dependencies installed and the build environment set-up, you
+need to configure the build system. To do that, execute the following:
 
     cd build
     cmake ..

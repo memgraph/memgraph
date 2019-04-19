@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 required_pkgs=(git arcanist # source code control
-               cmake clang-3.9 llvm-3.9 pkg-config # build system
+               make pkg-config # build system
                curl wget # for downloading libs
                uuid-dev default-jre-headless # required by antlr
                libreadline-dev # for memgraph console
@@ -14,8 +14,7 @@ required_pkgs=(git arcanist # source code control
                sbcl # for custom Lisp C++ preprocessing
               )
 
-optional_pkgs=(clang-format # source code formatting
-               doxygen graphviz # source documentation generators
+optional_pkgs=(doxygen graphviz # source documentation generators
                php-cli # for user technical documentation generators
                mono-runtime mono-mcs nodejs # for driver tests
               )

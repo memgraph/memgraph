@@ -50,6 +50,8 @@ wget -nv -O ${antlr_generator_filename} http://deps.memgraph.io/${antlr_generato
 # git clone https://github.com/antlr/antlr4.git
 antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
 clone git://deps.memgraph.io/antlr4.git antlr4 $antlr4_tag
+# fix missing include
+sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp/runtime/src/support/CPPUtils.h
 
 # cppitertools
 # Use our fork that uses experimental/optional instead of unique_ptr in
@@ -123,8 +125,10 @@ clone git://deps.memgraph.io/bzip2.git bzip2 $bzip2_tag
 zlib_tag="cacf7f1d4e3d44d871b605da3b647f07d718623f" # v1.2.11.
 clone git://deps.memgraph.io/zlib.git zlib $zlib_tag
 
-rocksdb_tag="dbd8fa09b823826dd2a30bc119dad7a6fa9a4c6d" # v5.11.3 Mar 12, 2018
+rocksdb_tag="641fae60f63619ed5d0c9d9e4c4ea5a0ffa3e253" # v5.18.3 Feb 11, 2019
 clone git://deps.memgraph.io/rocksdb.git rocksdb $rocksdb_tag
+# fix compilation flags to work with clang 8
+sed -i 's/-Wshadow/-Wno-defaulted-function-deleted/' rocksdb/Makefile
 
 # Cap'n Proto serialization (and RPC) lib
 wget -nv http://deps.memgraph.io/capnproto-c++-0.6.1.tar.gz -O capnproto.tar.gz
