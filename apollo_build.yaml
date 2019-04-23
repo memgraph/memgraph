@@ -2,7 +2,6 @@
   project: ^mg-master-diff$
   commands: |
     # Activate toolchain
-    export ORIG_PATH=$PATH
     export PATH=/opt/toolchain-v1/bin:$PATH
     export LD_LIBRARY_PATH=/opt/toolchain-v1/lib:/opt/toolchain-v1/lib64
 
@@ -44,10 +43,6 @@
     cd ../tests/distributed/card_fraud
     ./generate_dataset.sh
     cd ../../..
-
-    # Deactivate environment
-    export PATH=$ORIG_PATH
-    export LD_LIBRARY_PATH=""
 
     # Checkout to parent commit and initialize.
     cd ../parent
