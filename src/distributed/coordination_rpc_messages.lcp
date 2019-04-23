@@ -1,7 +1,7 @@
 #>cpp
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <unordered_map>
 
 #include "communication/rpc/messages.hpp"
@@ -28,7 +28,7 @@ cpp<#
   (:response
    ((registration-successful :bool)
     (durability-error :bool)
-    (snapshot-to-recover "std::experimental::optional<std::pair<int64_t, tx::TransactionId>>"
+    (snapshot-to-recover "std::optional<std::pair<int64_t, tx::TransactionId>>"
                          :capnp-type "Utils.Optional(Utils.Pair(Utils.BoxUInt64, Utils.BoxUInt64))"
                          :capnp-save
                          (lambda (builder member capnp-name)
@@ -92,7 +92,7 @@ cpp<#
 (lcp:define-rpc notify-worker-recovered
     (:request
      ((worker-id :int16_t)
-      (recovery-info "std::experimental::optional<durability::RecoveryInfo>"
+      (recovery-info "std::optional<durability::RecoveryInfo>"
                      :capnp-type "Utils.Optional(Dur.RecoveryInfo)")))
   (:response ()))
 

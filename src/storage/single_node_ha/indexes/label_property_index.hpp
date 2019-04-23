@@ -1,13 +1,13 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "storage/single_node_ha/mvcc/version_list.hpp"
 #include "storage/common/index.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
 #include "storage/single_node_ha/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
@@ -281,11 +281,10 @@ class LabelPropertyIndex {
    * @return iterable collection of mvcc:VersionLists pointers that
    * satisfy the bounds and are visible to the given transaction.
    */
-  auto GetVlists(
-      const Key &key,
-      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper,
-      const tx::Transaction &transaction, bool current_state) {
+  auto GetVlists(const Key &key,
+                 const std::optional<utils::Bound<PropertyValue>> lower,
+                 const std::optional<utils::Bound<PropertyValue>> upper,
+                 const tx::Transaction &transaction, bool current_state) {
     DCHECK(IndexExists(key)) << "Index not yet ready.";
 
     auto type = [](const auto &bound) { return bound.value().value().type(); };

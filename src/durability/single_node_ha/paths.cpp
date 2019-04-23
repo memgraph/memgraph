@@ -1,7 +1,7 @@
 #include "durability/single_node_ha/paths.hpp"
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 #include "glog/logging.h"
@@ -12,7 +12,7 @@
 
 namespace durability {
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 std::string GetSnapshotFilename(tx::TransactionId tx_id) {
   std::string date_str =
@@ -26,9 +26,9 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir,
   return durability_dir / kSnapshotDir / snapshot_filename;
 }
 
-std::experimental::optional<tx::TransactionId>
-TransactionIdFromSnapshotFilename(const std::string &name) {
-  auto nullopt = std::experimental::nullopt;
+std::optional<tx::TransactionId> TransactionIdFromSnapshotFilename(
+    const std::string &name) {
+  auto nullopt = std::nullopt;
   auto file_name_split = utils::RSplit(name, "_tx_", 1);
   if (file_name_split.size() != 2) {
     LOG(WARNING) << "Unable to parse snapshot file name: " << name;

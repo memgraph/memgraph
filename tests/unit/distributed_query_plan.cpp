@@ -715,10 +715,10 @@ class Planner {
           PlanningContext<TDbAccessor> context)
       : plan_(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
             single_query_parts, &context)) {
-        query::Parameters parameters;
-        PostProcessor post_processor(parameters);
-        plan_ = post_processor.Rewrite(std::move(plan_), &context);
-      }
+    query::Parameters parameters;
+    PostProcessor post_processor(parameters);
+    plan_ = post_processor.Rewrite(std::move(plan_), &context);
+  }
 
   auto &plan() { return *plan_; }
 
@@ -1873,16 +1873,15 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   // We still expect indexed lookup by label property range above lower bound,
   // because upper bound depends on Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-                       label, prop, lower_bound, std::experimental::nullopt),
-                   ExpectPullRemote({sym_b}));
+  auto right_cart = MakeCheckers(
+      ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+      ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-          label, prop, lower_bound, std::experimental::nullopt)));
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(label, prop, lower_bound,
+                                                     std::nullopt)));
   std::vector<storage::Property> properties_by_ix;
   for (const auto &prop : storage.properties_) {
     properties_by_ix.push_back(dba.Property(prop));
@@ -1918,16 +1917,15 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   // We still expect indexed lookup by label property range below upper bound,
   // because lower bound depends on Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-                       label, prop, std::experimental::nullopt, upper_bound),
-                   ExpectPullRemote({sym_b}));
+  auto right_cart = MakeCheckers(
+      ExpectScanAllByLabelPropertyRange(label, prop, std::nullopt, upper_bound),
+      ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-          label, prop, std::experimental::nullopt, upper_bound)));
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(label, prop, std::nullopt,
+                                                     upper_bound)));
   std::vector<storage::Property> properties_by_ix;
   for (const auto &prop : storage.properties_) {
     properties_by_ix.push_back(dba.Property(prop));

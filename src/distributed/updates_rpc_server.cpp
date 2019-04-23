@@ -62,9 +62,8 @@ template <typename TRecordAccessor>
 CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, PropertyValue> &properties,
-    std::experimental::optional<int64_t> cypher_id) {
-  auto result =
-      db_accessor_->InsertVertex(std::experimental::nullopt, cypher_id);
+    std::optional<int64_t> cypher_id) {
+  auto result = db_accessor_->InsertVertex(std::nullopt, cypher_id);
   for (auto &label : labels) result.add_label(label);
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
   std::lock_guard<utils::SpinLock> guard{lock_};
@@ -76,13 +75,13 @@ CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
 template <typename TRecordAccessor>
 CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
     gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type,
-    int worker_id, std::experimental::optional<int64_t> cypher_id) {
+    int worker_id, std::optional<int64_t> cypher_id) {
   auto &db = db_accessor_->db();
   auto from_addr = db.storage().LocalizedAddressIfPossible(
       storage::VertexAddress(from, worker_id));
   auto to_addr = db.storage().LocalizedAddressIfPossible(to);
-  auto edge = db_accessor_->InsertOnlyEdge(
-      from_addr, to_addr, edge_type, std::experimental::nullopt, cypher_id);
+  auto edge = db_accessor_->InsertOnlyEdge(from_addr, to_addr, edge_type,
+                                           std::nullopt, cypher_id);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<DeltaPair>{}));

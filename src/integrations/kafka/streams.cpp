@@ -1,8 +1,8 @@
 #include "integrations/kafka/streams.hpp"
 
 #include <cstdio>
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 
 #include <json/json.hpp>
 
@@ -12,7 +12,7 @@
 
 namespace integrations::kafka {
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const std::string kMetadataDir = "metadata";
 const std::string kTransformDir = "transform";
@@ -71,7 +71,7 @@ StreamInfo Deserialize(const nlohmann::json &data) {
   if (data["batch_interval_in_ms"].is_number()) {
     info.batch_interval_in_ms = data["batch_interval_in_ms"];
   } else if (data["batch_interval_in_ms"].is_null()) {
-    info.batch_interval_in_ms = std::experimental::nullopt;
+    info.batch_interval_in_ms = std::nullopt;
   } else {
     throw StreamDeserializationException();
   }
@@ -79,7 +79,7 @@ StreamInfo Deserialize(const nlohmann::json &data) {
   if (data["batch_size"].is_number()) {
     info.batch_size = data["batch_size"];
   } else if (data["batch_size"].is_null()) {
-    info.batch_size = std::experimental::nullopt;
+    info.batch_size = std::nullopt;
   } else {
     throw StreamDeserializationException();
   }
@@ -90,7 +90,7 @@ StreamInfo Deserialize(const nlohmann::json &data) {
   if (data["limit_batches"].is_number()) {
     info.limit_batches = data["limit_batches"];
   } else if (data["limit_batches"].is_null()) {
-    info.limit_batches = std::experimental::nullopt;
+    info.limit_batches = std::nullopt;
   } else {
     throw StreamDeserializationException();
   }
@@ -185,7 +185,7 @@ void Streams::Drop(const std::string &stream_name) {
 }
 
 void Streams::Start(const std::string &stream_name,
-                    std::experimental::optional<int64_t> limit_batches) {
+                    std::optional<int64_t> limit_batches) {
   std::lock_guard<std::mutex> g(mutex_);
   auto find_it = consumers_.find(stream_name);
   if (find_it == consumers_.end())
@@ -254,7 +254,7 @@ std::vector<StreamStatus> Streams::Show() {
 std::vector<
     std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
 Streams::Test(const std::string &stream_name,
-              std::experimental::optional<int64_t> limit_batches) {
+              std::optional<int64_t> limit_batches) {
   std::lock_guard<std::mutex> g(mutex_);
   auto find_it = consumers_.find(stream_name);
   if (find_it == consumers_.end())

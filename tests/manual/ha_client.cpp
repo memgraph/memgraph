@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 
 void Execute(const std::vector<std::string> &queries) {
   communication::ClientContext context(FLAGS_use_ssl);
-  std::experimental::optional<communication::bolt::Client> client;
+  std::optional<communication::bolt::Client> client;
   communication::bolt::QueryData result;
 
   for (size_t k = 0; k < queries.size();) {
@@ -41,11 +41,11 @@ void Execute(const std::vector<std::string> &queries) {
             result = client->Execute(queries[k], {});
           } catch (const communication::bolt::ClientQueryException &) {
             // This one is not the leader, continue.
-            client = std::experimental::nullopt;
+            client = std::nullopt;
             continue;
           } catch (const communication::bolt::ClientFatalException &) {
             // This one seems to be down, continue.
-            client = std::experimental::nullopt;
+            client = std::nullopt;
             continue;
           }
         }
@@ -66,10 +66,10 @@ void Execute(const std::vector<std::string> &queries) {
       try {
         result = client->Execute(queries[k], {});
       } catch (const communication::bolt::ClientQueryException &) {
-        client = std::experimental::nullopt;
+        client = std::nullopt;
         continue;
       } catch (const communication::bolt::ClientFatalException &e) {
-        client = std::experimental::nullopt;
+        client = std::nullopt;
         continue;
       }
     }

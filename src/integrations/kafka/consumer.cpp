@@ -106,11 +106,10 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 
   // Set limit_batches to nullopt since it's not running anymore.
-  info_.limit_batches = std::experimental::nullopt;
+  info_.limit_batches = std::nullopt;
 }
 
-void Consumer::StartConsuming(
-    std::experimental::optional<int64_t> limit_batches) {
+void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   info_.limit_batches = limit_batches;
   is_running_.store(true);
 
@@ -153,7 +152,7 @@ void Consumer::StartConsuming(
         break;
       }
 
-      if (limit_batches != std::experimental::nullopt) {
+      if (limit_batches != std::nullopt) {
         if (limit_batches <= ++batch_count) {
           is_running_.store(false);
           break;
@@ -209,7 +208,7 @@ std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
   return batch;
 }
 
-void Consumer::Start(std::experimental::optional<int64_t> limit_batches) {
+void Consumer::Start(std::optional<int64_t> limit_batches) {
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);
   }
@@ -239,7 +238,7 @@ void Consumer::StartIfStopped() {
   }
 
   if (!is_running_) {
-    StartConsuming(std::experimental::nullopt);
+    StartConsuming(std::nullopt);
   }
 }
 
@@ -255,7 +254,7 @@ void Consumer::StopIfRunning() {
 
 std::vector<
     std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
-Consumer::Test(std::experimental::optional<int64_t> limit_batches) {
+Consumer::Test(std::optional<int64_t> limit_batches) {
   // All exceptions thrown here are handled by the Bolt protocol.
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);

@@ -293,18 +293,18 @@ class ScanAllCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    vertices_ = std::experimental::nullopt;
-    vertices_it_ = std::experimental::nullopt;
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
   }
 
  private:
   const Symbol output_symbol_;
   const std::unique_ptr<Cursor> input_cursor_;
   TVerticesFun get_vertices_;
-  std::experimental::optional<typename std::result_of<TVerticesFun(
+  std::optional<typename std::result_of<TVerticesFun(
       Frame &, ExecutionContext &)>::type::value_type>
       vertices_;
-  std::experimental::optional<decltype(vertices_.value().begin())> vertices_it_;
+  std::optional<decltype(vertices_.value().begin())> vertices_it_;
   database::GraphDbAccessor &db_;
 };
 
@@ -319,8 +319,7 @@ ACCEPT_WITH_INPUT(ScanAll)
 std::unique_ptr<Cursor> ScanAll::MakeCursor(
     database::GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &, ExecutionContext &) {
-    return std::experimental::make_optional(
-        db.Vertices(graph_view_ == GraphView::NEW));
+    return std::make_optional(db.Vertices(graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
@@ -342,7 +341,7 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(
     database::GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &, ExecutionContext &) {
-    return std::experimental::make_optional(
+    return std::make_optional(
         db.Vertices(label_, graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
@@ -352,9 +351,8 @@ std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
     storage::Label label, storage::Property property,
-    const std::string &property_name,
-    std::experimental::optional<Bound> lower_bound,
-    std::experimental::optional<Bound> upper_bound, GraphView graph_view)
+    const std::string &property_name, std::optional<Bound> lower_bound,
+    std::optional<Bound> upper_bound, GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view),
       label_(label),
       property_(property),
@@ -369,18 +367,18 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     database::GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &frame, ExecutionContext &context)
-      -> std::experimental::optional<decltype(
-          db.Vertices(label_, property_, std::experimental::nullopt,
-                      std::experimental::nullopt, false))> {
+      -> std::optional<decltype(
+          db.Vertices(label_, property_, std::nullopt, std::nullopt, false))> {
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
                                   context.db_accessor, graph_view_);
-    auto convert = [&evaluator](const auto &bound)
-        -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
+    auto convert =
+        [&evaluator](
+            const auto &bound) -> std::optional<utils::Bound<PropertyValue>> {
+      if (!bound) return std::nullopt;
       auto value = bound->value()->Accept(evaluator);
       try {
-        return std::experimental::make_optional(
+        return std::make_optional(
             utils::Bound<PropertyValue>(PropertyValue(value), bound->type()));
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.",
@@ -391,13 +389,11 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     auto maybe_upper = convert(upper_bound_);
     // If any bound is null, then the comparison would result in nulls. This
     // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull())
-      return std::experimental::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull())
-      return std::experimental::nullopt;
-    return std::experimental::make_optional(
-        db.Vertices(label_, property_, maybe_lower, maybe_upper,
-                    graph_view_ == GraphView::NEW));
+    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
+    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    return std::make_optional(db.Vertices(label_, property_, maybe_lower,
+                                          maybe_upper,
+                                          graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
@@ -421,20 +417,20 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
     database::GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &frame, ExecutionContext &context)
-      -> std::experimental::optional<decltype(
+      -> std::optional<decltype(
           db.Vertices(label_, property_, PropertyValue::Null, false))> {
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
                                   context.db_accessor, graph_view_);
     auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::experimental::nullopt;
+    if (value.IsNull()) return std::nullopt;
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                   value.type());
     }
-    return std::experimental::make_optional(
-        db.Vertices(label_, property_, PropertyValue(value),
-                    graph_view_ == GraphView::NEW));
+    return std::make_optional(db.Vertices(label_, property_,
+                                          PropertyValue(value),
+                                          graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
@@ -533,10 +529,10 @@ void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Expand::ExpandCursor::Reset() {
   input_cursor_->Reset();
-  in_edges_ = std::experimental::nullopt;
-  in_edges_it_ = std::experimental::nullopt;
-  out_edges_ = std::experimental::nullopt;
-  out_edges_it_ = std::experimental::nullopt;
+  in_edges_ = std::nullopt;
+  in_edges_it_ = std::nullopt;
+  out_edges_ = std::nullopt;
+  out_edges_it_ = std::nullopt;
 }
 
 bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
@@ -596,15 +592,16 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   }
 }
 
-ExpandVariable::ExpandVariable(
-    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
-    EdgeAtom::Direction direction,
-    const std::vector<storage::EdgeType> &edge_types, bool is_reverse,
-    Expression *lower_bound, Expression *upper_bound, bool existing_node,
-    ExpansionLambda filter_lambda,
-    std::experimental::optional<ExpansionLambda> weight_lambda,
-    std::experimental::optional<Symbol> total_weight)
+ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input,
+                               Symbol input_symbol, Symbol node_symbol,
+                               Symbol edge_symbol, EdgeAtom::Type type,
+                               EdgeAtom::Direction direction,
+                               const std::vector<storage::EdgeType> &edge_types,
+                               bool is_reverse, Expression *lower_bound,
+                               Expression *upper_bound, bool existing_node,
+                               ExpansionLambda filter_lambda,
+                               std::optional<ExpansionLambda> weight_lambda,
+                               std::optional<Symbol> total_weight)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
@@ -975,8 +972,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   using VertexEdgeMapT =
-      std::unordered_map<VertexAccessor,
-                         std::experimental::optional<EdgeAccessor>>;
+      std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
   void ReconstructPath(const VertexAccessor &midpoint,
                        const VertexEdgeMapT &in_edge,
@@ -1048,9 +1044,9 @@ class STShortestPathCursor : public query::plan::Cursor {
     size_t current_length = 0;
 
     source_frontier.emplace_back(source);
-    in_edge[source] = std::experimental::nullopt;
+    in_edge[source] = std::nullopt;
     sink_frontier.emplace_back(sink);
-    out_edge[sink] = std::experimental::nullopt;
+    out_edge[sink] = std::nullopt;
 
     while (true) {
       if (dba.should_abort()) throw HintedAbortError();
@@ -1240,7 +1236,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
 
         auto vertex = vertex_value.Value<VertexAccessor>();
-        processed_.emplace(vertex, std::experimental::nullopt);
+        processed_.emplace(vertex, std::nullopt);
         expand_from_vertex(vertex);
 
         // go back to loop start and see if we expanded anything
@@ -1303,8 +1299,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // maps vertices to the edge they got expanded from. it is an optional
   // edge because the root does not get expanded from anything.
   // contains visited vertices as well as those scheduled to be visited.
-  std::unordered_map<VertexAccessor, std::experimental::optional<EdgeAccessor>>
-      processed_;
+  std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
   // edge/vertex pairs we have yet to visit, for current and next depth
   std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
   std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
@@ -1319,9 +1314,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table, context.evaluation_context,
-        context.db_accessor, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, GraphView::OLD);
     auto create_state = [this](VertexAccessor vertex, int depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1416,7 +1411,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.push({0.0, 0, vertex, std::experimental::nullopt});
+        pq_.push({0.0, 0, vertex, std::nullopt});
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -1429,8 +1424,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         double current_weight = std::get<0>(current);
         int current_depth = std::get<1>(current);
         VertexAccessor current_vertex = std::get<2>(current);
-        std::experimental::optional<EdgeAccessor> current_edge =
-            std::get<3>(current);
+        std::optional<EdgeAccessor> current_edge = std::get<3>(current);
         pq_.pop();
 
         auto current_state = create_state(current_vertex, current_depth);
@@ -1522,7 +1516,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
   // Maps vertices to edges used to reach them.
   std::unordered_map<std::pair<VertexAccessor, int>,
-                     std::experimental::optional<EdgeAccessor>, WspStateHash>
+                     std::optional<EdgeAccessor>, WspStateHash>
       previous_;
 
   // Keeps track of vertices for which we yielded a path already.
@@ -1531,20 +1525,18 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(
-        const std::tuple<double, int, VertexAccessor,
-                         std::experimental::optional<EdgeAccessor>> &lhs,
-        const std::tuple<double, int, VertexAccessor,
-                         std::experimental::optional<EdgeAccessor>> &rhs) {
+    bool operator()(const std::tuple<double, int, VertexAccessor,
+                                     std::optional<EdgeAccessor>> &lhs,
+                    const std::tuple<double, int, VertexAccessor,
+                                     std::optional<EdgeAccessor>> &rhs) {
       return std::get<0>(lhs) > std::get<0>(rhs);
     }
   };
 
   std::priority_queue<
-      std::tuple<double, int, VertexAccessor,
-                 std::experimental::optional<EdgeAccessor>>,
-      std::vector<std::tuple<double, int, VertexAccessor,
-                             std::experimental::optional<EdgeAccessor>>>,
+      std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>,
+      std::vector<
+          std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>>,
       PriorityQueueComparator>
       pq_;
 

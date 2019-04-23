@@ -25,8 +25,7 @@ Transaction *Engine::Begin() {
   return BeginTransaction(false);
 }
 
-Transaction *Engine::BeginBlocking(
-    std::experimental::optional<TransactionId> parent_tx) {
+Transaction *Engine::BeginBlocking(std::optional<TransactionId> parent_tx) {
   Snapshot wait_for_txs;
   {
     std::lock_guard<utils::SpinLock> guard(lock_);

@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
@@ -51,8 +51,8 @@ class VertexCountCache {
 
   int64_t VerticesCount(
       storage::Label label, storage::Property property,
-      const std::experimental::optional<utils::Bound<PropertyValue>> &lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> &upper) {
+      const std::optional<utils::Bound<PropertyValue>> &lower,
+      const std::optional<utils::Bound<PropertyValue>> &upper) {
     auto label_prop = std::make_pair(label, property);
     auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
@@ -77,8 +77,8 @@ class VertexCountCache {
     }
   };
 
-  typedef std::pair<std::experimental::optional<utils::Bound<PropertyValue>>,
-                    std::experimental::optional<utils::Bound<PropertyValue>>>
+  typedef std::pair<std::optional<utils::Bound<PropertyValue>>,
+                    std::optional<utils::Bound<PropertyValue>>>
       BoundsKey;
 
   struct BoundsHash {
@@ -112,7 +112,7 @@ class VertexCountCache {
   };
 
   TDbAccessor *db_;
-  std::experimental::optional<int64_t> vertices_count_;
+  std::optional<int64_t> vertices_count_;
   std::unordered_map<storage::Label, int64_t> label_vertex_count_;
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash>
       label_property_vertex_count_;

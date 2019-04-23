@@ -3,9 +3,9 @@
 #include <kj/std/iostream.h>
 #include <algorithm>
 #include <chrono>
-#include <experimental/optional>
 #include <iostream>
 #include <memory>
+#include <optional>
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
@@ -24,7 +24,7 @@
 namespace raft {
 
 using namespace std::literals::chrono_literals;
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const std::string kCurrentTermKey = "current_term";
 const std::string kVotedForKey = "voted_for";
@@ -330,11 +330,10 @@ void RaftServer::Shutdown() {
 void RaftServer::SetCurrentTerm(uint64_t new_current_term) {
   current_term_ = new_current_term;
   disk_storage_.Put(kCurrentTermKey, std::to_string(new_current_term));
-  SetVotedFor(std::experimental::nullopt);
+  SetVotedFor(std::nullopt);
 }
 
-void RaftServer::SetVotedFor(
-    std::experimental::optional<uint16_t> new_voted_for) {
+void RaftServer::SetVotedFor(std::optional<uint16_t> new_voted_for) {
   voted_for_ = new_voted_for;
   if (new_voted_for)
     disk_storage_.Put(kVotedForKey, std::to_string(new_voted_for.value()));
@@ -347,11 +346,10 @@ void RaftServer::SetLogSize(uint64_t new_log_size) {
   disk_storage_.Put(kLogSizeKey, std::to_string(new_log_size));
 }
 
-std::experimental::optional<SnapshotMetadata>
-RaftServer::GetSnapshotMetadata() {
+std::optional<SnapshotMetadata> RaftServer::GetSnapshotMetadata() {
   auto opt_value = disk_storage_.Get(kSnapshotMetadataKey);
-  if (opt_value == std::experimental::nullopt) {
-    return std::experimental::nullopt;
+  if (opt_value == std::nullopt) {
+    return std::nullopt;
   }
 
   ::capnp::MallocMessageBuilder message;
@@ -365,7 +363,7 @@ RaftServer::GetSnapshotMetadata() {
       message.getRoot<capnp::SnapshotMetadata>().asReader();
   SnapshotMetadata deserialized;
   Load(&deserialized, reader);
-  return std::experimental::make_optional(deserialized);
+  return std::make_optional(deserialized);
 }
 
 void RaftServer::PersistSnapshotMetadata(
@@ -505,7 +503,7 @@ void RaftServer::RecoverPersistentData() {
 
   auto opt_voted_for = disk_storage_.Get(kVotedForKey);
   if (!opt_voted_for) {
-    voted_for_ = std::experimental::nullopt;
+    voted_for_ = std::nullopt;
   } else {
     voted_for_ = {std::stoul(opt_voted_for.value())};
   }
@@ -684,8 +682,7 @@ void RaftServer::SendEntries(uint16_t peer_id,
 }
 
 void RaftServer::SendLogEntries(
-    uint16_t peer_id,
-    const std::experimental::optional<SnapshotMetadata> &snapshot_metadata,
+    uint16_t peer_id, const std::optional<SnapshotMetadata> &snapshot_metadata,
     std::unique_lock<std::mutex> *lock) {
   uint64_t request_term = current_term_;
   uint64_t request_prev_log_index = next_index_[peer_id] - 1;
@@ -1100,7 +1097,7 @@ bool RaftServer::OutOfSync(uint64_t reply_term) {
 
 LogEntry RaftServer::GetLogEntry(int index) {
   auto opt_value = disk_storage_.Get(LogEntryKey(index));
-  DCHECK(opt_value != std::experimental::nullopt)
+  DCHECK(opt_value != std::nullopt)
       << "Log index (" << index << ") out of bounds.";
   return DeserializeLogEntry(opt_value.value());
 }
@@ -1202,7 +1199,7 @@ void RaftServer::NoOpCreate() {
 
 void RaftServer::ApplyStateDeltas(
     const std::vector<database::StateDelta> &deltas) {
-  std::experimental::optional<database::GraphDbAccessor> dba;
+  std::optional<database::GraphDbAccessor> dba;
   for (auto &delta : deltas) {
     switch (delta.type) {
       case database::StateDelta::Type::TRANSACTION_BEGIN:
@@ -1213,7 +1210,7 @@ void RaftServer::ApplyStateDeltas(
         CHECK(dba) << "Missing accessor for transaction"
                    << delta.transaction_id;
         dba->Commit();
-        dba = std::experimental::nullopt;
+        dba = std::nullopt;
         break;
       case database::StateDelta::Type::TRANSACTION_ABORT:
         LOG(FATAL) << "ApplyStateDeltas shouldn't know about aborted "

@@ -1,6 +1,6 @@
 #include <atomic>
 #include <chrono>
-#include <experimental/optional>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -18,7 +18,7 @@ TEST(Queue, PushMaybePop) {
   Queue<int> q;
   q.Push(1);
   EXPECT_EQ(*q.MaybePop(), 1);
-  EXPECT_EQ(q.MaybePop(), std::experimental::nullopt);
+  EXPECT_EQ(q.MaybePop(), std::nullopt);
 
   q.Push(2);
   q.Push(3);
@@ -29,7 +29,7 @@ TEST(Queue, PushMaybePop) {
   EXPECT_EQ(*q.MaybePop(), 3);
   EXPECT_EQ(*q.MaybePop(), 4);
   EXPECT_EQ(*q.MaybePop(), 5);
-  EXPECT_EQ(q.MaybePop(), std::experimental::nullopt);
+  EXPECT_EQ(q.MaybePop(), std::nullopt);
 }
 
 TEST(Queue, Emplace) {
@@ -90,14 +90,14 @@ TEST(Queue, AwaitPop) {
     q.Shutdown();
   });
   std::this_thread::sleep_for(200ms);
-  EXPECT_EQ(q.AwaitPop(), std::experimental::nullopt);
+  EXPECT_EQ(q.AwaitPop(), std::nullopt);
   t2.join();
 }
 
 TEST(Queue, AwaitPopTimeout) {
   std::this_thread::sleep_for(1000ms);
   Queue<int> q;
-  EXPECT_EQ(q.AwaitPop(100ms), std::experimental::nullopt);
+  EXPECT_EQ(q.AwaitPop(100ms), std::nullopt);
 }
 
 TEST(Queue, Concurrent) {
@@ -140,7 +140,7 @@ TEST(Queue, Concurrent) {
     t.join();
   }
 
-  EXPECT_EQ(q.MaybePop(), std::experimental::nullopt);
+  EXPECT_EQ(q.MaybePop(), std::nullopt);
 
   std::set<int> all_elements;
   for (auto &r : retrieved) {
@@ -151,4 +151,4 @@ TEST(Queue, Concurrent) {
   EXPECT_EQ(*all_elements.rbegin(),
             kNumProducers * kNumElementsPerProducer - 1);
 }
-}
+}  // namespace

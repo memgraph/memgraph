@@ -42,7 +42,7 @@ struct Branch {
   // parent_end is pointer, because we may only change its input.
   LogicalOperator *parent_end{nullptr};
   // Minimum index of the branch this parent depends on.
-  std::experimental::optional<int64_t> depends_on;
+  std::optional<int64_t> depends_on;
 };
 
 // Find the subtree parent, below which no operator uses symbols found in the
@@ -105,9 +105,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(ScanAllByLabelPropertyRange &scan) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    auto find_forbidden =
-        [this](auto maybe_bound) -> std::experimental::optional<int64_t> {
-      if (!maybe_bound) return std::experimental::nullopt;
+    auto find_forbidden = [this](auto maybe_bound) -> std::optional<int64_t> {
+      if (!maybe_bound) return std::nullopt;
       UsedSymbolsCollector collector(*symbol_table_);
       maybe_bound->value()->Accept(collector);
       return this->ContainsForbidden(collector.symbols_);
@@ -158,7 +157,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
         // Case 1.a)
         new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
             scan.input(), scan.output_symbol_, scan.label_, scan.property_,
-            scan.property_name_, std::experimental::nullopt, scan.upper_bound_,
+            scan.property_name_, std::nullopt, scan.upper_bound_,
             scan.graph_view_);
       }
     }
@@ -188,8 +187,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
           // Case 1.a)
           new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
               scan.input(), scan.output_symbol_, scan.label_, scan.property_,
-              scan.property_name_, scan.lower_bound_,
-              std::experimental::nullopt, scan.graph_view_);
+              scan.property_name_, scan.lower_bound_, std::nullopt,
+              scan.graph_view_);
         } else {
           // Case 1.b)
           new_scan = std::make_shared<ScanAllByLabel>(
@@ -698,25 +697,24 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   AstStorage *storage_;
 
   template <class TCollection>
-  std::experimental::optional<int64_t> ContainsForbidden(
-      const TCollection &symbols) {
+  std::optional<int64_t> ContainsForbidden(const TCollection &symbols) {
     for (int64_t i = 0; i < forbidden_symbols_.size(); ++i) {
       for (const auto &symbol : symbols) {
         if (utils::Contains(forbidden_symbols_[i], symbol)) {
-          return std::experimental::make_optional(i);
+          return std::make_optional(i);
         }
       }
     }
-    return std::experimental::nullopt;
+    return std::nullopt;
   }
 
-  std::experimental::optional<int64_t> FindForbidden(const Symbol &symbol) {
+  std::optional<int64_t> FindForbidden(const Symbol &symbol) {
     for (int64_t i = 0; i < forbidden_symbols_.size(); ++i) {
       if (utils::Contains(forbidden_symbols_[i], symbol)) {
-        return std::experimental::make_optional(i);
+        return std::make_optional(i);
       }
     }
-    return std::experimental::nullopt;
+    return std::nullopt;
   }
 
   void SetBranch(std::shared_ptr<LogicalOperator> subtree,

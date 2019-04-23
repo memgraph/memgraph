@@ -15,7 +15,7 @@ Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
   // Check if the connection is broken (if we haven't used the client for a
   // long time the server could have died).
   if (client_ && client_->ErrorStatus()) {
-    client_ = std::experimental::nullopt;
+    client_ = std::nullopt;
   }
 
   // Connect to the remote server.
@@ -23,7 +23,7 @@ Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
     client_.emplace(&context_);
     if (!client_->Connect(endpoint_)) {
       DLOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
-      client_ = std::experimental::nullopt;
+      client_ = std::nullopt;
       throw RpcFailedException(endpoint_);
     }
   }
@@ -40,20 +40,20 @@ Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
   if (!client_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
     DLOG(ERROR) << "Couldn't send request size to " << client_->endpoint();
-    client_ = std::experimental::nullopt;
+    client_ = std::nullopt;
     throw RpcFailedException(endpoint_);
   }
 
   if (!client_->Write(request_bytes.begin(), request_bytes.size())) {
     DLOG(ERROR) << "Couldn't send request data to " << client_->endpoint();
-    client_ = std::experimental::nullopt;
+    client_ = std::nullopt;
     throw RpcFailedException(endpoint_);
   }
 
   // Receive response data size.
   if (!client_->Read(sizeof(MessageSize))) {
     DLOG(ERROR) << "Couldn't get response from " << client_->endpoint();
-    client_ = std::experimental::nullopt;
+    client_ = std::nullopt;
     throw RpcFailedException(endpoint_);
   }
   MessageSize response_data_size =
@@ -63,7 +63,7 @@ Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
   // Receive response data.
   if (!client_->Read(response_data_size)) {
     DLOG(ERROR) << "Couldn't get response from " << client_->endpoint();
-    client_ = std::experimental::nullopt;
+    client_ = std::nullopt;
     throw RpcFailedException(endpoint_);
   }
 
@@ -84,7 +84,7 @@ void Client::Abort() {
   // We need to call Shutdown on the client to abort any pending read or
   // write operations.
   client_->Shutdown();
-  client_ = std::experimental::nullopt;
+  client_ = std::nullopt;
 }
 
 }  // namespace communication::rpc

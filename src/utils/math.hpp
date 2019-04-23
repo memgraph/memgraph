@@ -1,14 +1,14 @@
 #pragma once
 
 #include <cstdint>
-#include <experimental/type_traits>
+#include <type_traits>
 
 #include <glog/logging.h>
 
 namespace utils {
 
 static_assert(
-    std::experimental::is_same_v<uint64_t, unsigned long>,
+    std::is_same_v<uint64_t, unsigned long>,
     "utils::Log requires uint64_t to be implemented as unsigned long.");
 
 /// This function computes the log2 function on integer types. It is faster than

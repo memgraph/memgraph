@@ -75,8 +75,7 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
+    std::optional<gid::Gid> requested_gid, std::optional<int64_t> cypher_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   auto gid = db_.storage().vertex_generator_.Next(requested_gid);
@@ -94,11 +93,11 @@ VertexAccessor GraphDbAccessor::InsertVertex(
   return va;
 }
 
-std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
+std::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
   auto record_accessor = FindVertexRaw(gid);
   if (!record_accessor.Visible(transaction(), current_state))
-    return std::experimental::nullopt;
+    return std::nullopt;
   return record_accessor;
 }
 
@@ -113,11 +112,11 @@ VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
   return *found;
 }
 
-std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
+std::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
   auto record_accessor = FindEdgeRaw(gid);
   if (!record_accessor.Visible(transaction(), current_state))
-    return std::experimental::nullopt;
+    return std::nullopt;
   return record_accessor;
 }
 
@@ -281,9 +280,8 @@ int64_t GraphDbAccessor::VerticesCount(storage::Label label,
 
 int64_t GraphDbAccessor::VerticesCount(
     storage::Label label, storage::Property property,
-    const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-    const std::experimental::optional<utils::Bound<PropertyValue>> upper)
-    const {
+    const std::optional<utils::Bound<PropertyValue>> lower,
+    const std::optional<utils::Bound<PropertyValue>> upper) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   const LabelPropertyIndex::Key key(label, property);
   DCHECK(db_.storage().label_property_index_.IndexExists(key))
@@ -367,10 +365,11 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   RemoveVertex(vertex_accessor, false);
 }
 
-EdgeAccessor GraphDbAccessor::InsertEdge(
-    VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
+EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
+                                         VertexAccessor &to,
+                                         storage::EdgeType edge_type,
+                                         std::optional<gid::Gid> requested_gid,
+                                         std::optional<int64_t> cypher_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   auto edge_address =
@@ -384,8 +383,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
     VertexAccessor *from, VertexAccessor *to,
     const storage::EdgeType &edge_type,
-    const std::experimental::optional<gid::Gid> &requested_gid,
-    const std::experimental::optional<int64_t> &cypher_id) {
+    const std::optional<gid::Gid> &requested_gid,
+    const std::optional<int64_t> &cypher_id) {
   if (from->is_local()) {
     auto edge_accessor = InsertOnlyEdge(from->address(), to->address(),
                                         edge_type, requested_gid, cypher_id);
@@ -458,9 +457,8 @@ void GraphDbAccessor::InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
 
 EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
     storage::VertexAddress from, storage::VertexAddress to,
-    storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
+    storage::EdgeType edge_type, std::optional<gid::Gid> requested_gid,
+    std::optional<int64_t> cypher_id) {
   CHECK(from.is_local())
       << "`from` address should be local when calling InsertOnlyEdge";
   auto gid = db_.storage().edge_generator_.Next(requested_gid);

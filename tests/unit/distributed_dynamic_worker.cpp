@@ -8,7 +8,7 @@
 #include "io/network/endpoint.hpp"
 #include "query_plan_common.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 using namespace std::literals::chrono_literals;
 
 class DistributedDynamicWorker : public ::testing::Test {

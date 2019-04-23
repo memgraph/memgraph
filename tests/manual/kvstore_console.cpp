@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
 
   CHECK(FLAGS_path != "") << "Please specify a path to the KVStore!";
 
-  storage::KVStore kvstore(std::experimental::filesystem::path{FLAGS_path});
+  storage::KVStore kvstore(std::filesystem::path{FLAGS_path});
 
   while (true) {
     std::string s;
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
         std::cout << "`get' takes exactly one argument!" << std::endl;
       }
       auto item = kvstore.Get(split[1]);
-      if (item != std::experimental::nullopt) {
+      if (item != std::nullopt) {
         std::cout << split[1] << " --> " << *item << std::endl;
       } else {
         std::cout << "Key doesn't exist in the database!" << std::endl;

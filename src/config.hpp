@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -14,7 +14,7 @@
 ///   2) ~/.memgraph/config
 ///   3) env - MEMGRAPH_CONFIG
 void LoadConfig() {
-  namespace fs = std::experimental::filesystem;
+  namespace fs = std::filesystem;
   std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
   if (getenv("HOME") != nullptr)
     configs.emplace_back(fs::path(getenv("HOME")) /
@@ -53,4 +53,3 @@ void LoadConfig() {
   for (int i = 0; i < custom_argc; ++i) free(custom_argv[i]);
   delete[] custom_argv;
 }
-

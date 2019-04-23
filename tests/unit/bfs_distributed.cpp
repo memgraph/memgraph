@@ -49,7 +49,7 @@ class DistributedDb : public Database {
       } else {
         auto vertex = database::InsertVertexIntoRemote(
             dba, vertex_locations[id], {}, {{dba->Property("id"), (int64_t)id}},
-            std::experimental::nullopt);
+            std::nullopt);
         vertex_addr.push_back(vertex.GlobalAddress());
       }
     }

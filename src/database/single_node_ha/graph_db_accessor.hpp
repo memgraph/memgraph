@@ -2,10 +2,10 @@
 
 #pragma once
 
-#include <experimental/optional>
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
-#include <map>
 
 #include <glog/logging.h>
 #include <cppitertools/filter.hpp>
@@ -68,8 +68,7 @@ class GraphDbAccessor {
   /// Creates an accessor for a running transaction.
   GraphDbAccessor(GraphDb *db, tx::TransactionId tx_id);
 
-  GraphDbAccessor(GraphDb *db,
-                  std::experimental::optional<tx::TransactionId> parent_tx);
+  GraphDbAccessor(GraphDb *db, std::optional<tx::TransactionId> parent_tx);
 
  public:
   ~GraphDbAccessor();
@@ -96,8 +95,8 @@ class GraphDbAccessor {
    *
    * @return See above.
    */
-  VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
-                                  requested_gid = std::experimental::nullopt);
+  VertexAccessor InsertVertex(
+      std::optional<gid::Gid> requested_gid = std::nullopt);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -133,8 +132,8 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<VertexAccessor> FindVertexOptional(
-      gid::Gid gid, bool current_state);
+  std::optional<VertexAccessor> FindVertexOptional(gid::Gid gid,
+                                                   bool current_state);
 
   /**
    * Obtains the vertex for the given ID. If there is no vertex for the given
@@ -273,11 +272,10 @@ class GraphDbAccessor {
    * @return iterable collection of record accessors
    * satisfy the bounds and are visible to the current transaction.
    */
-  auto Vertices(
-      storage::Label label, storage::Property property,
-      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper,
-      bool current_state) {
+  auto Vertices(storage::Label label, storage::Property property,
+                const std::optional<utils::Bound<PropertyValue>> lower,
+                const std::optional<utils::Bound<PropertyValue>> upper,
+                bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     DCHECK(db_->storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
@@ -310,8 +308,7 @@ class GraphDbAccessor {
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
                           storage::EdgeType type,
-                          std::experimental::optional<gid::Gid> requested_gid =
-                              std::experimental::nullopt);
+                          std::optional<gid::Gid> requested_gid = std::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -339,8 +336,8 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<EdgeAccessor> FindEdgeOptional(
-      gid::Gid gid, bool current_state);
+  std::optional<EdgeAccessor> FindEdgeOptional(gid::Gid gid,
+                                               bool current_state);
 
   /**
    * Obtains the edge for the given ID. If there is no edge for the given
@@ -398,15 +395,14 @@ class GraphDbAccessor {
    * @tparam TAccessor Either VertexAccessor or EdgeAccessor
    */
   template <typename TAccessor>
-  std::experimental::optional<TAccessor> Transfer(const TAccessor &accessor) {
-    if (accessor.db_accessor_ == this)
-      return std::experimental::make_optional(accessor);
+  std::optional<TAccessor> Transfer(const TAccessor &accessor) {
+    if (accessor.db_accessor_ == this) return std::make_optional(accessor);
 
     TAccessor accessor_in_this(accessor.address(), *this);
     if (accessor_in_this.current_)
-      return std::experimental::make_optional(std::move(accessor_in_this));
+      return std::make_optional(std::move(accessor_in_this));
     else
-      return std::experimental::nullopt;
+      return std::nullopt;
   }
 
   /**
@@ -514,9 +510,8 @@ class GraphDbAccessor {
    */
   int64_t VerticesCount(
       storage::Label label, storage::Property property,
-      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper)
-      const;
+      const std::optional<utils::Bound<PropertyValue>> lower,
+      const std::optional<utils::Bound<PropertyValue>> upper) const;
 
   /**
    * Obtains the Label for the label's name.

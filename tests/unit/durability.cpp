@@ -1,6 +1,6 @@
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
 #include <functional>
+#include <optional>
 #include <random>
 #include <thread>
 #include <unordered_map>
@@ -33,7 +33,7 @@ DECLARE_string(durability_directory);
 
 using namespace std::literals::chrono_literals;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 // Helper class for performing random CRUD ops on a database.
 class DbGenerator {
@@ -1083,7 +1083,7 @@ TEST_F(Durability, ExistenceConstraintRecoverySnapshotAndWal) {
     gen.InsertVertex();
     gen.InsertVertex();
     auto l1 = dba.Label("l1");
-    std::vector<storage::Property> p1{dba.Property("p1"),  dba.Property("p2")};
+    std::vector<storage::Property> p1{dba.Property("p1"), dba.Property("p2")};
     dba.BuildExistenceConstraint(l1, p1);
     gen.InsertEdge();
     auto l2 = dba.Label("l2");

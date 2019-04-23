@@ -2,9 +2,9 @@
 #pragma once
 
 #include <csignal>
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 
 #include <gflags/gflags.h>
@@ -75,7 +75,7 @@ class BoltSession final
 
   query::TransactionEngine transaction_engine_;
   auth::Auth *auth_;
-  std::experimental::optional<auth::User> user_;
+  std::optional<auth::User> user_;
   audit::Log *audit_log_;
   io::network::Endpoint endpoint_;
 };
@@ -123,5 +123,4 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun);
 /// `memgraph_main` functions which does that. You should take care to call
 /// `InitSignalHandlers` with appropriate function to shutdown the server you
 /// started.
-int WithInit(int argc, char **argv,
-             const std::function<void()> &memgraph_main);
+int WithInit(int argc, char **argv, const std::function<void()> &memgraph_main);

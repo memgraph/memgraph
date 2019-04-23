@@ -2,9 +2,9 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -26,10 +26,10 @@ struct StreamInfo {
   std::string stream_uri;
   std::string stream_topic;
   std::string transform_uri;
-  std::experimental::optional<int64_t> batch_interval_in_ms;
-  std::experimental::optional<int64_t> batch_size;
+  std::optional<int64_t> batch_interval_in_ms;
+  std::optional<int64_t> batch_size;
 
-  std::experimental::optional<int64_t> limit_batches;
+  std::optional<int64_t> limit_batches;
 
   bool is_running = false;
 };
@@ -81,7 +81,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerNotAvailableException if the consumer isn't initialized
   /// @throws ConsumerRunningException if the consumer is already running
-  void Start(std::experimental::optional<int64_t> limit_batches);
+  void Start(std::optional<int64_t> limit_batches);
 
   /// Stops importing data from a stream to the db.
   ///
@@ -108,7 +108,7 @@ class Consumer final : public RdKafka::EventCb {
   /// @throws ConsumerRunningException if the consumer is alredy running.
   std::vector<
       std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
-  Test(std::experimental::optional<int64_t> limit_batches);
+  Test(std::optional<int64_t> limit_batches);
 
   /// Returns the current status of a stream.
   StreamStatus Status();
@@ -135,7 +135,7 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  void StartConsuming(std::experimental::optional<int64_t> limit_batches);
+  void StartConsuming(std::optional<int64_t> limit_batches);
 
   std::vector<std::unique_ptr<RdKafka::Message>> GetBatch();
 };

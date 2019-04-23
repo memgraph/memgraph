@@ -2,7 +2,7 @@
 // that's not easily testable with single-phase testing. instead, for
 // easy testing and latter readability they are tested end-to-end.
 
-#include <experimental/optional>
+#include <optional>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -16,8 +16,8 @@ DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::experimental::optional<database::GraphDb> db_;
-  std::experimental::optional<database::GraphDbAccessor> dba_;
+  std::optional<database::GraphDb> db_;
+  std::optional<database::GraphDbAccessor> dba_;
 
   void SetUp() {
     db_.emplace();
@@ -25,8 +25,8 @@ class QueryExecution : public testing::Test {
   }
 
   void TearDown() {
-    dba_ = std::experimental::nullopt;
-    db_ = std::experimental::nullopt;
+    dba_ = std::nullopt;
+    db_ = std::nullopt;
   }
 
   /** Commits the current transaction and refreshes the dba_

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <experimental/optional>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include <glog/logging.h>
 
-#include "utils/algorithm.hpp"
 #include "rpc/serialization.capnp.h"
+#include "utils/algorithm.hpp"
 
 namespace utils {
 
@@ -93,7 +93,7 @@ void LoadMap(
 
 template <typename TCapnp, typename T>
 inline void SaveOptional(
-    const std::experimental::optional<T> &data,
+    const std::optional<T> &data,
     typename capnp::Optional<TCapnp>::Builder *builder,
     const std::function<void(typename TCapnp::Builder *, const T &)> &save) {
   if (data) {
@@ -105,15 +105,15 @@ inline void SaveOptional(
 }
 
 template <typename TCapnp, typename T>
-inline std::experimental::optional<T> LoadOptional(
+inline std::optional<T> LoadOptional(
     const typename capnp::Optional<TCapnp>::Reader &reader,
     const std::function<T(const typename TCapnp::Reader &reader)> &load) {
   switch (reader.which()) {
     case capnp::Optional<TCapnp>::NULLOPT:
-      return std::experimental::nullopt;
+      return std::nullopt;
     case capnp::Optional<TCapnp>::VALUE:
       auto value_reader = reader.getValue();
-      return std::experimental::optional<T>{load(value_reader)};
+      return std::optional<T>{load(value_reader)};
   }
 }
 

@@ -1,6 +1,6 @@
 #include "durability/distributed/recovery.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <limits>
 #include <unordered_map>
 
@@ -18,7 +18,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/file.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 namespace durability {
 
@@ -372,8 +372,7 @@ std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
 RecoveryInfo RecoverOnlySnapshot(
     const fs::path &durability_dir, database::GraphDb *db,
     RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
-    int worker_id) {
+    std::optional<tx::TransactionId> required_snapshot_tx_id, int worker_id) {
   // Attempt to recover from snapshot files in reverse order (from newest
   // backwards).
   const auto snapshot_dir = durability_dir / kSnapshotDir;

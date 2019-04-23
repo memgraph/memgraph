@@ -1,5 +1,5 @@
 #include <chrono>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -20,7 +20,7 @@ DEFINE_VALIDATED_int32(worker_count, 1,
 DECLARE_int32(min_log_level);
 DECLARE_string(durability_directory);
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const std::string kLocal = "127.0.0.1";
 

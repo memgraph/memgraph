@@ -1,4 +1,4 @@
-#include <experimental/optional>
+#include <optional>
 #include <thread>
 
 #include <benchmark/benchmark.h>
@@ -42,10 +42,10 @@ DEFINE_int32(server_port, 0, "Server port");
 DEFINE_bool(run_server, true, "Set to false to use external server");
 DEFINE_bool(run_benchmark, true, "Set to false to only run server");
 
-std::experimental::optional<communication::rpc::Server> server;
-std::experimental::optional<communication::rpc::Client> clients[kThreadsNum];
-std::experimental::optional<communication::rpc::ClientPool> client_pool;
-std::experimental::optional<utils::ThreadPool> thread_pool;
+std::optional<communication::rpc::Server> server;
+std::optional<communication::rpc::Client> clients[kThreadsNum];
+std::optional<communication::rpc::ClientPool> client_pool;
+std::optional<utils::ThreadPool> thread_pool;
 
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');

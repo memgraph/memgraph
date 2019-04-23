@@ -71,17 +71,16 @@ TEST(Edges, Filtering) {
   edges.emplace(va3, ea6, t2);
   edge_gid++;
 
-  auto edge_addresses =
-      [edges](std::experimental::optional<storage::VertexAddress> dest,
-              std::vector<storage::EdgeType> *edge_types) {
-        std::vector<storage::EdgeAddress> ret;
-        for (auto it = edges.begin(dest, edge_types); it != edges.end(); ++it)
-          ret.push_back(it->edge);
-        return ret;
-      };
+  auto edge_addresses = [edges](std::optional<storage::VertexAddress> dest,
+                                std::vector<storage::EdgeType> *edge_types) {
+    std::vector<storage::EdgeAddress> ret;
+    for (auto it = edges.begin(dest, edge_types); it != edges.end(); ++it)
+      ret.push_back(it->edge);
+    return ret;
+  };
 
   {  // no filtering
-    EXPECT_THAT(edge_addresses(std::experimental::nullopt, nullptr),
+    EXPECT_THAT(edge_addresses(std::nullopt, nullptr),
                 ::testing::UnorderedElementsAre(ea1, ea2, ea3, ea4, ea5, ea6));
   }
   {
@@ -100,11 +99,11 @@ TEST(Edges, Filtering) {
     std::vector<storage::EdgeType> f2{t2};
     std::vector<storage::EdgeType> f3{t1, t2};
 
-    EXPECT_THAT(edge_addresses(std::experimental::nullopt, &f1),
+    EXPECT_THAT(edge_addresses(std::nullopt, &f1),
                 ::testing::UnorderedElementsAre(ea1, ea3, ea5));
-    EXPECT_THAT(edge_addresses(std::experimental::nullopt, &f2),
+    EXPECT_THAT(edge_addresses(std::nullopt, &f2),
                 ::testing::UnorderedElementsAre(ea2, ea4, ea6));
-    EXPECT_THAT(edge_addresses(std::experimental::nullopt, &f3),
+    EXPECT_THAT(edge_addresses(std::nullopt, &f3),
                 ::testing::UnorderedElementsAre(ea1, ea2, ea3, ea4, ea5, ea6));
   }
 

@@ -1,8 +1,8 @@
 /// @file
 #pragma once
 
-#include <experimental/optional>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #include "integrations/kafka/consumer.hpp"
@@ -69,8 +69,7 @@ class Streams final {
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   void Start(const std::string &stream_name,
-             std::experimental::optional<int64_t> batch_limit =
-                 std::experimental::nullopt);
+             std::optional<int64_t> batch_limit = std::nullopt);
 
   /// Stop consuming from a stream.
   ///
@@ -106,8 +105,7 @@ class Streams final {
   std::vector<
       std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
   Test(const std::string &stream_name,
-       std::experimental::optional<int64_t> batch_limit =
-           std::experimental::nullopt);
+       std::optional<int64_t> batch_limit = std::nullopt);
 
  private:
   std::string streams_directory_;

@@ -119,9 +119,8 @@ ScanAllTuple MakeScanAllByLabel(
 ScanAllTuple MakeScanAllByLabelPropertyRange(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
     storage::Label label, storage::Property property,
-    const std::string &property_name,
-    std::experimental::optional<Bound> lower_bound,
-    std::experimental::optional<Bound> upper_bound,
+    const std::string &property_name, std::optional<Bound> lower_bound,
+    std::optional<Bound> upper_bound,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);

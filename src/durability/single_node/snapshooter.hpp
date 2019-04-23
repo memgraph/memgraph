@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include "database/single_node/graph_db.hpp"
 
@@ -14,7 +14,7 @@ namespace durability {
  * @param snapshot_max_retained - maximum number of snapshots to retain.
  */
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  const std::experimental::filesystem::path &durability_dir,
+                  const std::filesystem::path &durability_dir,
                   int snapshot_max_retained);
 
 }  // namespace durability

@@ -2,8 +2,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "storage/distributed/edges_iterator.hpp"
 #include "distributed_common.hpp"
+#include "storage/distributed/edges_iterator.hpp"
 
 class EdgesIterableTest : public DistributedGraphDbTest {
  public:
@@ -39,39 +39,39 @@ class EdgesIterableTest : public DistributedGraphDbTest {
   }
 
   // master
-  std::experimental::optional<storage::VertexAddress> v;
+  std::optional<storage::VertexAddress> v;
 
   // worker 1 vertices
-  std::experimental::optional<storage::VertexAddress> w1_v1_out;
-  std::experimental::optional<storage::VertexAddress> w1_v2_out;
-  std::experimental::optional<storage::VertexAddress> w1_v3_out;
-  std::experimental::optional<storage::VertexAddress> w1_v1_in;
-  std::experimental::optional<storage::VertexAddress> w1_v2_in;
-  std::experimental::optional<storage::VertexAddress> w1_v3_in;
+  std::optional<storage::VertexAddress> w1_v1_out;
+  std::optional<storage::VertexAddress> w1_v2_out;
+  std::optional<storage::VertexAddress> w1_v3_out;
+  std::optional<storage::VertexAddress> w1_v1_in;
+  std::optional<storage::VertexAddress> w1_v2_in;
+  std::optional<storage::VertexAddress> w1_v3_in;
 
   // worker 1 edges
-  std::experimental::optional<storage::EdgeAddress> w1_e1_out;
-  std::experimental::optional<storage::EdgeAddress> w1_e2_out;
-  std::experimental::optional<storage::EdgeAddress> w1_e3_out;
-  std::experimental::optional<storage::EdgeAddress> w1_e1_in;
-  std::experimental::optional<storage::EdgeAddress> w1_e2_in;
-  std::experimental::optional<storage::EdgeAddress> w1_e3_in;
+  std::optional<storage::EdgeAddress> w1_e1_out;
+  std::optional<storage::EdgeAddress> w1_e2_out;
+  std::optional<storage::EdgeAddress> w1_e3_out;
+  std::optional<storage::EdgeAddress> w1_e1_in;
+  std::optional<storage::EdgeAddress> w1_e2_in;
+  std::optional<storage::EdgeAddress> w1_e3_in;
 
   // worker 2 vertices
-  std::experimental::optional<storage::VertexAddress> w2_v1_out;
-  std::experimental::optional<storage::VertexAddress> w2_v2_out;
-  std::experimental::optional<storage::VertexAddress> w2_v3_out;
-  std::experimental::optional<storage::VertexAddress> w2_v1_in;
-  std::experimental::optional<storage::VertexAddress> w2_v2_in;
-  std::experimental::optional<storage::VertexAddress> w2_v3_in;
+  std::optional<storage::VertexAddress> w2_v1_out;
+  std::optional<storage::VertexAddress> w2_v2_out;
+  std::optional<storage::VertexAddress> w2_v3_out;
+  std::optional<storage::VertexAddress> w2_v1_in;
+  std::optional<storage::VertexAddress> w2_v2_in;
+  std::optional<storage::VertexAddress> w2_v3_in;
 
   // worker 2 edges
-  std::experimental::optional<storage::EdgeAddress> w2_e1_out;
-  std::experimental::optional<storage::EdgeAddress> w2_e2_out;
-  std::experimental::optional<storage::EdgeAddress> w2_e3_out;
-  std::experimental::optional<storage::EdgeAddress> w2_e1_in;
-  std::experimental::optional<storage::EdgeAddress> w2_e2_in;
-  std::experimental::optional<storage::EdgeAddress> w2_e3_in;
+  std::optional<storage::EdgeAddress> w2_e1_out;
+  std::optional<storage::EdgeAddress> w2_e2_out;
+  std::optional<storage::EdgeAddress> w2_e3_out;
+  std::optional<storage::EdgeAddress> w2_e1_in;
+  std::optional<storage::EdgeAddress> w2_e2_in;
+  std::optional<storage::EdgeAddress> w2_e3_in;
 
   // types
   std::string type1{"type1"};

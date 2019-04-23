@@ -108,7 +108,7 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
         nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
-        "prop", std::experimental::nullopt,
+        "prop", std::nullopt,
         utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     Check(last_op.get(), R"(
@@ -130,7 +130,7 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
         nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
         "prop", utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
-        std::experimental::nullopt);
+        std::nullopt);
 
     Check(last_op.get(), R"(
         {
@@ -273,7 +273,7 @@ TEST_F(PrintToJsonTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP("inner_node", dba.Property("unblocked"))},
-      std::experimental::nullopt, std::experimental::nullopt);
+      std::nullopt, std::nullopt);
 
   Check(last_op.get(), R"sep(
           {

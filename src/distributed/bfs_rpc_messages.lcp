@@ -107,7 +107,7 @@ cpp<#
 (lcp:define-rpc subcursor-pull
   (:request ((member :int64_t)))
   (:response
-    ((vertex "std::experimental::optional<VertexAccessor>"
+    ((vertex "std::optional<VertexAccessor>"
              :slk-save (lambda (member)
                          #>cpp
                          slk::Save(static_cast<bool>(self.${member}), builder);
@@ -161,10 +161,10 @@ cpp<#
 (lcp:define-rpc reconstruct-path
     (:request
      ((subcursor-id :int64_t)
-      (vertex "std::experimental::optional<storage::VertexAddress>"
+      (vertex "std::optional<storage::VertexAddress>"
               :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::VertexAddress")
               :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::VertexAddress"))
-      (edge "std::experimental::optional<storage::EdgeAddress>"
+      (edge "std::optional<storage::EdgeAddress>"
             :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
             :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
      (:public
@@ -176,11 +176,11 @@ cpp<#
       ReconstructPathReq(int64_t subcursor_id, storage::VertexAddress vertex)
           : subcursor_id(subcursor_id),
             vertex(vertex),
-            edge(std::experimental::nullopt) {}
+            edge(std::nullopt) {}
 
       ReconstructPathReq(int64_t subcursor_id, storage::EdgeAddress edge)
           : subcursor_id(subcursor_id),
-            vertex(std::experimental::nullopt),
+            vertex(std::nullopt),
             edge(edge) {}
       cpp<#))
   (:response
@@ -213,10 +213,10 @@ cpp<#
                                               "[dba, data_manager](const auto &reader) {
                                                  return storage::LoadEdgeAccessor(reader, dba, data_manager);
                                               }"))
-    (next-vertex "std::experimental::optional<storage::VertexAddress>"
+    (next-vertex "std::optional<storage::VertexAddress>"
                  :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::VertexAddress")
                  :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::VertexAddress"))
-    (next-edge "std::experimental::optional<storage::EdgeAddress>"
+    (next-edge "std::optional<storage::EdgeAddress>"
                :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
                :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
    (:serialize (:slk :save-args '((worker-id :int16_t))
@@ -234,8 +234,8 @@ cpp<#
 
     ReconstructPathRes(
         const std::vector<EdgeAccessor> &edges,
-        std::experimental::optional<storage::VertexAddress> next_vertex,
-        std::experimental::optional<storage::EdgeAddress> next_edge)
+        std::optional<storage::VertexAddress> next_vertex,
+        std::optional<storage::EdgeAddress> next_edge)
         : edges(edges), next_vertex(std::move(next_vertex)), next_edge(std::move(next_edge)) {
       CHECK(!static_cast<bool>(next_vertex) || !static_cast<bool>(next_edge))
           << "At most one of `next_vertex` and `next_edge` should be set";

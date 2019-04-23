@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/optional>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include "auth/exceptions.hpp"
@@ -36,8 +36,8 @@ class Auth final {
    *
    * @return a user when the username and password match, nullopt otherwise
    */
-  std::experimental::optional<User> Authenticate(const std::string &username,
-                                                 const std::string &password);
+  std::optional<User> Authenticate(const std::string &username,
+                                   const std::string &password);
 
   /**
    * Gets a user from the storage.
@@ -46,7 +46,7 @@ class Auth final {
    *
    * @return a user when the user exists, nullopt otherwise
    */
-  std::experimental::optional<User> GetUser(const std::string &username);
+  std::optional<User> GetUser(const std::string &username);
 
   /**
    * Saves a user object to the storage.
@@ -63,10 +63,9 @@ class Auth final {
    *
    * @return a user when the user is created, nullopt if the user exists
    */
-  std::experimental::optional<User> AddUser(
+  std::optional<User> AddUser(
       const std::string &username,
-      const std::experimental::optional<std::string> &password =
-          std::experimental::nullopt);
+      const std::optional<std::string> &password = std::nullopt);
 
   /**
    * Removes a user from the storage.
@@ -99,7 +98,7 @@ class Auth final {
    *
    * @return a role when the role exists, nullopt otherwise
    */
-  std::experimental::optional<Role> GetRole(const std::string &rolename);
+  std::optional<Role> GetRole(const std::string &rolename);
 
   /**
    * Saves a role object to the storage.
@@ -115,7 +114,7 @@ class Auth final {
    *
    * @return a role when the role is created, nullopt if the role exists
    */
-  std::experimental::optional<Role> AddRole(const std::string &rolename);
+  std::optional<Role> AddRole(const std::string &rolename);
 
   /**
    * Removes a role from the storage.

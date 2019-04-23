@@ -3,9 +3,9 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
-#include <experimental/optional>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <utility>
 
@@ -169,7 +169,7 @@ class SkipListGc final {
       free(head);
       head = prev;
     }
-    std::experimental::optional<TDeleted> item;
+    std::optional<TDeleted> item;
     while ((item = deleted_.Pop())) {
       item->second->~TNode();
       free(item->second);
@@ -265,7 +265,7 @@ class SkipListGc final {
       tail = next;
     }
     TStack leftover;
-    std::experimental::optional<TDeleted> item;
+    std::optional<TDeleted> item;
     while ((item = deleted_.Pop())) {
       if (item->first < last_dead) {
         item->second->~TNode();
@@ -640,8 +640,8 @@ class SkipList final {
     /// @return uint64_t estimated count of items in the range in the list
     template <typename TKey>
     uint64_t estimate_range_count(
-        const std::experimental::optional<utils::Bound<TKey>> &lower,
-        const std::experimental::optional<utils::Bound<TKey>> &upper,
+        const std::optional<utils::Bound<TKey>> &lower,
+        const std::optional<utils::Bound<TKey>> &upper,
         int max_layer_for_estimation =
             kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->template estimate_range_count(lower, upper,
@@ -730,8 +730,8 @@ class SkipList final {
 
     template <typename TKey>
     uint64_t estimate_range_count(
-        const std::experimental::optional<utils::Bound<TKey>> &lower,
-        const std::experimental::optional<utils::Bound<TKey>> &upper,
+        const std::optional<utils::Bound<TKey>> &lower,
+        const std::optional<utils::Bound<TKey>> &upper,
         int max_layer_for_estimation =
             kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->template estimate_range_count(lower, upper,
@@ -946,10 +946,9 @@ class SkipList final {
   }
 
   template <typename TKey>
-  uint64_t estimate_range_count(
-      const std::experimental::optional<utils::Bound<TKey>> &lower,
-      const std::experimental::optional<utils::Bound<TKey>> &upper,
-      int max_layer_for_estimation) const {
+  uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
+                                const std::optional<utils::Bound<TKey>> &upper,
+                                int max_layer_for_estimation) const {
     CHECK(max_layer_for_estimation >= 1 &&
           max_layer_for_estimation <= kSkipListMaxHeight)
         << "Invalid layer for SkipList count estimation!";

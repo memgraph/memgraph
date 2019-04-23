@@ -2,7 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
-#include <experimental/optional>
+#include <optional>
 
 #include "glog/logging.h"
 
@@ -32,8 +32,7 @@ class Generator {
    * @param requested_gid - The desired gid. If given, it will be returned and
    * this generator's state updated accordingly.
    */
-  gid::Gid Next(std::experimental::optional<gid::Gid> requested_gid =
-                    std::experimental::nullopt) {
+  gid::Gid Next(std::optional<gid::Gid> requested_gid = std::nullopt) {
     if (requested_gid) {
       utils::EnsureAtomicGe(next_local_id_, *requested_gid + 1);
       return *requested_gid;

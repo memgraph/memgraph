@@ -1,7 +1,7 @@
 #include <atomic>
 #include <chrono>
-#include <experimental/optional>
 #include <fstream>
+#include <optional>
 #include <random>
 #include <thread>
 
@@ -29,7 +29,7 @@ DEFINE_string(output_file, "", "Output file where the results should be.");
 DEFINE_int32(nodes, 1000, "Number of nodes in DB");
 DEFINE_int32(edges, 5000, "Number of edges in DB");
 
-std::experimental::optional<io::network::Endpoint> GetLeaderEndpoint() {
+std::optional<io::network::Endpoint> GetLeaderEndpoint() {
   for (int retry = 0; retry < 10; ++retry) {
     for (int i = 0; i < FLAGS_cluster_size; ++i) {
       try {
@@ -44,7 +44,7 @@ std::experimental::optional<io::network::Endpoint> GetLeaderEndpoint() {
         client.Close();
 
         // If we succeeded with the above query, we found the current leader.
-        return std::experimental::make_optional(endpoint);
+        return std::make_optional(endpoint);
 
       } catch (const communication::bolt::ClientQueryException &) {
         // This one is not the leader, continue.
@@ -58,7 +58,7 @@ std::experimental::optional<io::network::Endpoint> GetLeaderEndpoint() {
     std::this_thread::sleep_for(1s);
   }
 
-  return std::experimental::nullopt;
+  return std::nullopt;
 }
 
 int main(int argc, char **argv) {

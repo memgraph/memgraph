@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <string>
 
 #include "io/network/endpoint.hpp"
@@ -11,7 +11,7 @@ namespace io::network {
 std::string ResolveHostname(std::string hostname);
 
 /// Gets hostname
-std::experimental::optional<std::string> GetHostname();
+std::optional<std::string> GetHostname();
 
 // Try to establish a connection to a remote host
 bool CanEstablishConnection(const Endpoint &endpoint);

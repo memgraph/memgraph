@@ -1,4 +1,4 @@
-#include <experimental/filesystem>
+#include <filesystem>
 #include <memory>
 #include <thread>
 
@@ -15,7 +15,7 @@
 
 DECLARE_string(durability_directory);
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 class WorkerInThread {
  public:

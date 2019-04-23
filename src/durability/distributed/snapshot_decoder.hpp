@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "durability/distributed/snapshot_value.hpp"
@@ -13,7 +13,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
   explicit SnapshotDecoder(Buffer &buffer)
       : communication::bolt::Decoder<Buffer>(buffer) {}
 
-  std::experimental::optional<SnapshotVertex> ReadSnapshotVertex() {
+  std::optional<SnapshotVertex> ReadSnapshotVertex() {
     communication::bolt::Value dv;
     SnapshotVertex vertex;
 
@@ -21,7 +21,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
             &dv, communication::bolt::Value::Type::Vertex)) {
       DLOG(WARNING) << "Unable to read snapshot vertex";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     auto &read_vertex = dv.ValueVertex();
     vertex.gid = read_vertex.id.AsUint();
@@ -32,7 +32,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
             &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "Unable to read vertex cypher_id";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     vertex.cypher_id = dv.ValueInt();
 
@@ -41,11 +41,11 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
             &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of in "
                        "edges in vertex!";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     for (int i = 0; i < dv.ValueInt(); ++i) {
       auto edge = ReadSnapshotEdge();
-      if (!edge) return std::experimental::nullopt;
+      if (!edge) return std::nullopt;
       vertex.in.emplace_back(*edge);
     }
 
@@ -54,11 +54,11 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
             &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of out "
                        "edges in vertex!";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     for (int i = 0; i < dv.ValueInt(); ++i) {
       auto edge = ReadSnapshotEdge();
-      if (!edge) return std::experimental::nullopt;
+      if (!edge) return std::nullopt;
       vertex.out.emplace_back(*edge);
     }
 
@@ -67,7 +67,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
   }
 
  private:
-  std::experimental::optional<InlinedVertexEdge> ReadSnapshotEdge() {
+  std::optional<InlinedVertexEdge> ReadSnapshotEdge() {
     communication::bolt::Value dv;
     InlinedVertexEdge edge;
 
@@ -77,7 +77,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
             &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read Global ID!";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     edge.address = storage::EdgeAddress(static_cast<uint64_t>(dv.ValueInt()));
 
@@ -86,7 +86,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
             &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read from/to address!";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     edge.vertex = storage::VertexAddress(static_cast<uint64_t>(dv.ValueInt()));
 
@@ -94,7 +94,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
             &dv, communication::bolt::Value::Type::String)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read type!";
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     edge.type = dv.ValueString();
 

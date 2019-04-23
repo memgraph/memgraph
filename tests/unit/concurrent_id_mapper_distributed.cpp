@@ -1,4 +1,4 @@
-#include <experimental/optional>
+#include <optional>
 
 #include <gtest/gtest.h>
 
@@ -15,12 +15,9 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
 
  protected:
   TestMasterCoordination coordination_;
-  std::experimental::optional<communication::rpc::ClientPool>
-      master_client_pool_;
-  std::experimental::optional<storage::MasterConcurrentIdMapper<TId>>
-      master_mapper_;
-  std::experimental::optional<storage::WorkerConcurrentIdMapper<TId>>
-      worker_mapper_;
+  std::optional<communication::rpc::ClientPool> master_client_pool_;
+  std::optional<storage::MasterConcurrentIdMapper<TId>> master_mapper_;
+  std::optional<storage::WorkerConcurrentIdMapper<TId>> worker_mapper_;
 
   void SetUp() override {
     master_mapper_.emplace(&coordination_);
@@ -29,10 +26,10 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
     worker_mapper_.emplace(&master_client_pool_.value());
   }
   void TearDown() override {
-    worker_mapper_ = std::experimental::nullopt;
-    master_client_pool_ = std::experimental::nullopt;
+    worker_mapper_ = std::nullopt;
+    master_client_pool_ = std::nullopt;
     coordination_.Stop();
-    master_mapper_ = std::experimental::nullopt;
+    master_mapper_ = std::nullopt;
   }
 };
 

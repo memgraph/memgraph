@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -89,8 +89,7 @@ class PropertyFilter {
                  Type);
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx,
-                 const std::experimental::optional<Bound> &,
-                 const std::experimental::optional<Bound> &);
+                 const std::optional<Bound> &, const std::optional<Bound> &);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -102,8 +101,8 @@ class PropertyFilter {
   /// equal or regex match depending on type_.
   Expression *value_ = nullptr;
   /// Expressions which produce lower and upper bounds for a property.
-  std::experimental::optional<Bound> lower_bound_{};
-  std::experimental::optional<Bound> upper_bound_{};
+  std::optional<Bound> lower_bound_{};
+  std::optional<Bound> upper_bound_{};
 };
 
 /// Stores additional information for a filter expression.
@@ -122,7 +121,7 @@ struct FilterInfo {
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels;
   /// Property information for Type::Property filtering.
-  std::experimental::optional<PropertyFilter> property_filter;
+  std::optional<PropertyFilter> property_filter;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.

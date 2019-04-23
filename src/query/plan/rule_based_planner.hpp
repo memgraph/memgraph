@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "gflags/gflags.h"
 
@@ -415,8 +415,8 @@ class RuleBasedPlanner {
           edge_types.push_back(GetEdgeType(type));
         }
         if (edge->IsVariable()) {
-          std::experimental::optional<ExpansionLambda> weight_lambda;
-          std::experimental::optional<Symbol> total_weight;
+          std::optional<ExpansionLambda> weight_lambda;
+          std::optional<Symbol> total_weight;
 
           if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
             weight_lambda.emplace(ExpansionLambda{

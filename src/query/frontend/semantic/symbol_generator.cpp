@@ -4,7 +4,7 @@
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 
-#include <experimental/optional>
+#include <optional>
 #include <unordered_set>
 
 #include "glog/logging.h"
@@ -471,11 +471,10 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 
 void SymbolGenerator::VisitWithIdentifiers(
     Expression *expr, const std::vector<Identifier *> &identifiers) {
-  std::vector<std::pair<std::experimental::optional<Symbol>, Identifier *>>
-      prev_symbols;
+  std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;
   // Collect previous symbols if they exist.
   for (const auto &identifier : identifiers) {
-    std::experimental::optional<Symbol> prev_symbol;
+    std::optional<Symbol> prev_symbol;
     auto prev_symbol_it = scope_.symbols.find(identifier->name_);
     if (prev_symbol_it != scope_.symbols.end()) {
       prev_symbol = prev_symbol_it->second;

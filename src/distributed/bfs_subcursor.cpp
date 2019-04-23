@@ -45,7 +45,7 @@ void ExpandBfsSubcursor::Reset() {
 void ExpandBfsSubcursor::SetSource(storage::VertexAddress source_address) {
   Reset();
   auto source = VertexAccessor(source_address, *dba_);
-  processed_.emplace(source, std::experimental::nullopt);
+  processed_.emplace(source, std::nullopt);
   ExpandFromVertex(source);
 }
 
@@ -69,11 +69,10 @@ bool ExpandBfsSubcursor::ExpandLevel() {
   return expanded;
 }
 
-std::experimental::optional<VertexAccessor> ExpandBfsSubcursor::Pull() {
+std::optional<VertexAccessor> ExpandBfsSubcursor::Pull() {
   return pull_index_ < to_visit_next_.size()
-             ? std::experimental::make_optional(
-                   to_visit_next_[pull_index_++].second)
-             : std::experimental::nullopt;
+             ? std::make_optional(to_visit_next_[pull_index_++].second)
+             : std::nullopt;
 }
 
 bool ExpandBfsSubcursor::ExpandToLocalVertex(storage::EdgeAddress edge,

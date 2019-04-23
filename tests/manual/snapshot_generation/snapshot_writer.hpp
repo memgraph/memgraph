@@ -130,9 +130,8 @@ class SnapshotWriter {
 
 void WriteToSnapshot(GraphState &state, const std::string &path) {
   for (int worker_id = 0; worker_id < state.NumWorkers(); ++worker_id) {
-    const std::experimental::filesystem::path durability_dir =
-        path / std::experimental::filesystem::path("worker_" +
-                                                   std::to_string(worker_id));
+    const std::filesystem::path durability_dir =
+        path / std::filesystem::path("worker_" + std::to_string(worker_id));
     if (!utils::EnsureDir(durability_dir / "snapshots")) {
       LOG(ERROR) << "Unable to create durability directory!";
       exit(0);

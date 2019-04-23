@@ -1,5 +1,5 @@
 #include <chrono>
-#include <experimental/optional>
+#include <optional>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -33,7 +33,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   }
 
   void TearDown() override {
-    interpreter_ = std::experimental::nullopt;
+    interpreter_ = std::nullopt;
     DistributedGraphDbTest::TearDown();
   }
 
@@ -55,7 +55,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   }
 
  private:
-  std::experimental::optional<query::DistributedInterpreter> interpreter_;
+  std::optional<query::DistributedInterpreter> interpreter_;
 };
 
 TEST_F(DistributedInterpretationTest, PullTest) {

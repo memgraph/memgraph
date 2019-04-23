@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <unordered_map>
 
 namespace utils {
@@ -103,15 +103,15 @@ class LruCache {
   LruCache &operator=(LruCache &&) = delete;
   ~LruCache() = default;
 
-  std::experimental::optional<TValue> Find(const TKey &key) {
+  std::optional<TValue> Find(const TKey &key) {
     auto found = access_map_.find(key);
     if (found == access_map_.end()) {
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
 
     // move the page to front
     lru_order_.MovePageToHead(found->second);
-    return std::experimental::make_optional(found->second->value);
+    return std::make_optional(found->second->value);
   }
 
   /// Inserts given key, value pair to cache. If key already exists in a

@@ -32,14 +32,15 @@ class BfsRpcClients {
       const query::SymbolTable &symbol_table,
       const query::EvaluationContext &evaluation_context);
 
+
   void RegisterSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
   void ResetSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
-  std::experimental::optional<VertexAccessor> Pull(
-      int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba);
+  std::optional<VertexAccessor> Pull(int16_t worker_id, int64_t subcursor_id,
+                                     database::GraphDbAccessor *dba);
 
   bool ExpandLevel(const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 

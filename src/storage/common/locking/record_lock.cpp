@@ -2,7 +2,7 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <experimental/optional>
+#include <optional>
 #include <stack>
 #include <unordered_set>
 
@@ -17,7 +17,7 @@ namespace {
 // transaction in that cycle. If start transaction is not in a cycle nullopt is
 // returned.
 template <typename TAccessor>
-std::experimental::optional<tx::TransactionId> FindOldestTxInLockCycle(
+std::optional<tx::TransactionId> FindOldestTxInLockCycle(
     tx::TransactionId start, TAccessor &graph_accessor) {
   std::vector<tx::TransactionId> path;
   std::unordered_set<tx::TransactionId> visited;
@@ -28,7 +28,7 @@ std::experimental::optional<tx::TransactionId> FindOldestTxInLockCycle(
     visited.insert(current);
     path.push_back(current);
     auto it = graph_accessor.find(current);
-    if (it == graph_accessor.end()) return std::experimental::nullopt;
+    if (it == graph_accessor.end()) return std::nullopt;
     current = it->second;
   } while (visited.find(current) == visited.end());
 
@@ -40,7 +40,7 @@ std::experimental::optional<tx::TransactionId> FindOldestTxInLockCycle(
 
   // There is a cycle, but start is not a part of it. Some transaction that is
   // in a cycle will find it and abort oldest transaction.
-  return std::experimental::nullopt;
+  return std::nullopt;
 }
 
 }  // namespace

@@ -820,15 +820,15 @@
                                }
                              }"))
       (subtest "optional"
-        (single-member-test (member "std::experimental::optional<int32_t>")
+        (single-member-test (member "std::optional<int32_t>")
                             "object.member_ = member_;")
-        (single-member-test (member "std::experimental::optional<Klondike>")
+        (single-member-test (member "std::optional<Klondike>")
                             "if (member_) {
                                Klondike value1;
                                value1 = (*member_).Clone();
                                object.member_.emplace(std::move(value1));
                              } else {
-                               object.member_ = std::experimental::nullopt;
+                               object.member_ = std::nullopt;
                              }"))
       (subtest "unordered_map"
         (single-member-test (member "std::unordered_map<int32_t, std::string>")

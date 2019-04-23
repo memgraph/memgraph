@@ -1,6 +1,6 @@
 #include <atomic>
-#include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -205,18 +205,16 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
 
   // helper functions
   auto Inclusive = [](int64_t value) {
-    return std::experimental::make_optional(
-        utils::MakeBoundInclusive(PropertyValue(value)));
+    return std::make_optional(utils::MakeBoundInclusive(PropertyValue(value)));
   };
   auto Exclusive = [](int64_t value) {
-    return std::experimental::make_optional(
-        utils::MakeBoundExclusive(PropertyValue(value)));
+    return std::make_optional(utils::MakeBoundExclusive(PropertyValue(value)));
   };
   auto VerticesCount = [this](auto lower, auto upper) {
     return dba.VerticesCount(label, property, lower, upper);
   };
 
-  using std::experimental::nullopt;
+  using std::nullopt;
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   EXPECT_DEATH(VerticesCount(nullopt, nullopt), "bound must be provided");
   EXPECT_WITH_MARGIN(VerticesCount(nullopt, Exclusive(4)), 40);
@@ -382,25 +380,23 @@ class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
     ASSERT_EQ(Count(dba.Vertices(false)), 100);
   }
 
-  auto Vertices(std::experimental::optional<utils::Bound<PropertyValue>> lower,
-                std::experimental::optional<utils::Bound<PropertyValue>> upper,
+  auto Vertices(std::optional<utils::Bound<PropertyValue>> lower,
+                std::optional<utils::Bound<PropertyValue>> upper,
                 bool current_state = false) {
     return dba.Vertices(label, property, lower, upper, current_state);
   }
 
   auto Inclusive(PropertyValue value) {
-    return std::experimental::make_optional(
-        utils::MakeBoundInclusive(PropertyValue(value)));
+    return std::make_optional(utils::MakeBoundInclusive(PropertyValue(value)));
   }
 
   auto Exclusive(int value) {
-    return std::experimental::make_optional(
-        utils::MakeBoundExclusive(PropertyValue(value)));
+    return std::make_optional(utils::MakeBoundExclusive(PropertyValue(value)));
   }
 };
 
 TEST_F(GraphDbAccessorIndexRange, RangeIteration) {
-  using std::experimental::nullopt;
+  using std::nullopt;
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 80);
   EXPECT_EQ(Count(Vertices(nullopt, Exclusive(7))), 70);
   EXPECT_EQ(Count(Vertices(Inclusive(7), nullopt)), 30);
@@ -413,7 +409,7 @@ TEST_F(GraphDbAccessorIndexRange, RangeIteration) {
 }
 
 TEST_F(GraphDbAccessorIndexRange, RangeIterationCurrentState) {
-  using std::experimental::nullopt;
+  using std::nullopt;
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 80);
   for (int i = 0; i < 20; i++) AddVertex(2);
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 80);
@@ -423,7 +419,7 @@ TEST_F(GraphDbAccessorIndexRange, RangeIterationCurrentState) {
 }
 
 TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
-  using std::experimental::nullopt;
+  using std::nullopt;
 
   // using PropertyValue::Null as a bound fails with an assertion
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";

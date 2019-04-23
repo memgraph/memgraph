@@ -1,6 +1,6 @@
 #include "storage/common/types/property_value_store.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -10,7 +10,7 @@
 #include "glue/communication.hpp"
 #include "storage/common/pod_buffer.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 using namespace communication::bolt;
 

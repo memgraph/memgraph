@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -56,7 +56,7 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
  */
 bool RecoverSnapshot(database::GraphDb *db,
                      durability::RecoveryData *recovery_data,
-                     const std::experimental::filesystem::path &durability_dir,
+                     const std::filesystem::path &durability_dir,
                      const std::string &snapshot_filename);
 
 void RecoverIndexes(database::GraphDb *db,

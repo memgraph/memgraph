@@ -62,8 +62,7 @@ class MasterAccessor final : public GraphDbAccessor {
         worker_id_(db->WorkerId()) {}
 
   void PostCreateIndex(const LabelPropertyIndex::Key &key) override {
-    std::experimental::optional<std::vector<utils::Future<bool>>>
-        index_rpc_completions;
+    std::optional<std::vector<utils::Future<bool>>> index_rpc_completions;
 
     // Notify all workers to create the index
     index_rpc_completions.emplace(coordination_->ExecuteOnWorkers<bool>(
@@ -98,8 +97,7 @@ class MasterAccessor final : public GraphDbAccessor {
       const LabelPropertyIndex::Key &key) override {
     // Notify all workers to start populating an index if we are the master
     // since they don't have to wait anymore
-    std::experimental::optional<std::vector<utils::Future<bool>>>
-        index_rpc_completions;
+    std::optional<std::vector<utils::Future<bool>>> index_rpc_completions;
     index_rpc_completions.emplace(coordination_->ExecuteOnWorkers<bool>(
         worker_id_, [this, &key](int worker_id,
                                  communication::rpc::ClientPool &client_pool) {
@@ -412,7 +410,7 @@ void Master::Start() {
   // Durability recovery.
   {
     // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+    std::optional<durability::RecoveryInfo> recovery_info;
 
     durability::RecoveryData recovery_data;
     // Recover only if necessary.
@@ -422,15 +420,15 @@ void Master::Start() {
              "current version of Memgraph binary!";
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
-          std::experimental::nullopt, impl_->config_.worker_id);
+          std::nullopt, impl_->config_.worker_id);
     }
 
     // Post-recovery setup and checking.
     impl_->coordination_.SetRecoveredSnapshot(
-        recovery_info ? std::experimental::make_optional(
+        recovery_info ? std::make_optional(
                             std::make_pair(recovery_info->durability_version,
                                            recovery_info->snapshot_tx_id))
-                      : std::experimental::nullopt);
+                      : std::nullopt);
 
     // Wait till workers report back their recoverable wal txs
     if (recovery_info) {
@@ -598,7 +596,7 @@ VertexAccessor InsertVertexIntoRemote(
     GraphDbAccessor *dba, int worker_id,
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, PropertyValue> &properties,
-    std::experimental::optional<int64_t> cypher_id) {
+    std::optional<int64_t> cypher_id) {
   auto *db = &dba->db();
   CHECK(db);
   CHECK(worker_id != db->WorkerId())
@@ -788,7 +786,7 @@ void Worker::Start() {
     auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 
     // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+    std::optional<durability::RecoveryInfo> recovery_info;
 
     durability::RecoveryData recovery_data;
     // Recover only if necessary.

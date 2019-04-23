@@ -2,10 +2,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <experimental/optional>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -72,7 +72,7 @@ class TestClient {
  protected:
   virtual void Step() = 0;
 
-  std::experimental::optional<communication::bolt::QueryData> Execute(
+  std::optional<communication::bolt::QueryData> Execute(
       const std::string &query, const std::map<std::string, Value> &params,
       const std::string &query_name = "") {
     communication::bolt::QueryData result;
@@ -83,7 +83,7 @@ class TestClient {
           ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
     } catch (const utils::BasicException &e) {
       serialization_errors.Bump(MAX_RETRIES);
-      return std::experimental::nullopt;
+      return std::nullopt;
     }
     auto wall_time = timer.Elapsed();
     auto metadata = result.metadata;

@@ -9,7 +9,7 @@
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const std::vector<std::string> kDirsAll = {
     "existing_dir_777", "existing_dir_770", "existing_dir_700",
@@ -114,8 +114,8 @@ class UtilsFileTest : public ::testing::Test {
           ASSERT_EQ(dir_status.permissions() & fs::perms::all,
                     GetPermsFromFilename(dir));
         }
-        fs::permissions(storage / dir,
-                        fs::perms::add_perms | fs::perms::owner_all);
+        fs::permissions(storage / dir, fs::perms::owner_all,
+                        fs::perm_options::add);
       }
       for (const auto &file : kFilesAll) {
         ASSERT_TRUE(fs::exists(storage / dir / file));
@@ -137,9 +137,8 @@ class UtilsFileTest : public ::testing::Test {
     if (fs::exists(storage)) {
       for (auto &file : fs::recursive_directory_iterator(storage)) {
         std::error_code error_code;  // For exception suppression.
-        fs::permissions(file.path(),
-                        fs::perms::add_perms | fs::perms::owner_all,
-                        error_code);
+        fs::permissions(file.path(), fs::perms::owner_all,
+                        fs::perm_options::add, error_code);
       }
       fs::remove_all(storage);
     }

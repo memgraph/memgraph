@@ -3,7 +3,7 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
+#include <optional>
 #include <unordered_map>
 
 #include "durability/distributed/wal.hpp"

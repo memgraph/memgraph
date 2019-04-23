@@ -65,8 +65,7 @@ DECLARE_int32(worker_id);
 void MasterMain() {
   google::SetUsageMessage("Memgraph distributed master");
 
-  auto durability_directory =
-      std::experimental::filesystem::path(FLAGS_durability_directory);
+  auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   auth::Init();
   auth::Auth auth{durability_directory / "auth"};

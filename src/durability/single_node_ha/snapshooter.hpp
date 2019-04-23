@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include "database/single_node_ha/graph_db.hpp"
 
@@ -13,11 +13,10 @@ namespace durability {
 /// @param durability_dir - directory where durability data is stored.
 /// @param snapshot_filename - filename for the snapshot.
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  const std::experimental::filesystem::path &durability_dir,
+                  const std::filesystem::path &durability_dir,
                   const std::string &snapshot_filename);
 
 /// Remove all snapshots inside the snapshot durability directory.
-void RemoveAllSnapshots(
-    const std::experimental::filesystem::path &durability_dir);
+void RemoveAllSnapshots(const std::filesystem::path &durability_dir);
 
 }  // namespace durability

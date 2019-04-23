@@ -1,6 +1,6 @@
 #include "distributed/cluster_discovery_worker.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include "distributed/coordination_rpc_messages.hpp"
 #include "utils/file.hpp"
@@ -24,7 +24,7 @@ void ClusterDiscoveryWorker::RegisterWorker(
   // Create and find out what is our durability directory.
   utils::EnsureDirOrDie(durability_directory);
   auto full_durability_directory =
-      std::experimental::filesystem::canonical(durability_directory);
+      std::filesystem::canonical(durability_directory);
 
   // Register to the master.
   try {
@@ -49,8 +49,7 @@ void ClusterDiscoveryWorker::RegisterWorker(
 }
 
 void ClusterDiscoveryWorker::NotifyWorkerRecovered(
-    const std::experimental::optional<durability::RecoveryInfo>
-        &recovery_info) {
+    const std::optional<durability::RecoveryInfo> &recovery_info) {
   CHECK(worker_id_ >= 0)
       << "Workers id is not yet assigned, preform registration before "
          "notifying that the recovery finished";

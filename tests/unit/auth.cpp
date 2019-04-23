@@ -11,7 +11,7 @@
 #include "utils/file.hpp"
 
 using namespace auth;
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 DECLARE_bool(auth_password_permit_null);
 DECLARE_string(auth_password_strength_regex);
@@ -69,7 +69,7 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_FALSE(auth.HasUsers());
 
   auto user = auth.AddUser("test");
-  ASSERT_NE(user, std::experimental::nullopt);
+  ASSERT_NE(user, std::nullopt);
   ASSERT_TRUE(auth.HasUsers());
 
   ASSERT_TRUE(auth.Authenticate("test", "123"));
@@ -77,19 +77,18 @@ TEST_F(AuthWithStorage, Authenticate) {
   user->UpdatePassword("123");
   auth.SaveUser(*user);
 
-  ASSERT_NE(auth.Authenticate("test", "123"), std::experimental::nullopt);
+  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
 
-  ASSERT_EQ(auth.Authenticate("test", "456"), std::experimental::nullopt);
-  ASSERT_NE(auth.Authenticate("test", "123"), std::experimental::nullopt);
+  ASSERT_EQ(auth.Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
 
   user->UpdatePassword();
   auth.SaveUser(*user);
 
-  ASSERT_NE(auth.Authenticate("test", "123"), std::experimental::nullopt);
-  ASSERT_NE(auth.Authenticate("test", "456"), std::experimental::nullopt);
+  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(auth.Authenticate("test", "456"), std::nullopt);
 
-  ASSERT_EQ(auth.Authenticate("nonexistant", "123"),
-            std::experimental::nullopt);
+  ASSERT_EQ(auth.Authenticate("nonexistant", "123"), std::nullopt);
 }
 
 TEST_F(AuthWithStorage, UserRolePermissions) {
@@ -98,7 +97,7 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
   ASSERT_TRUE(auth.HasUsers());
 
   auto user = auth.GetUser("test");
-  ASSERT_NE(user, std::experimental::nullopt);
+  ASSERT_NE(user, std::nullopt);
 
   // Test initial user permissions.
   ASSERT_EQ(user->permissions().Has(Permission::MATCH),
@@ -127,7 +126,7 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
   // Create role.
   ASSERT_TRUE(auth.AddRole("admin"));
   auto role = auth.GetRole("admin");
-  ASSERT_NE(role, std::experimental::nullopt);
+  ASSERT_NE(role, std::nullopt);
 
   // Assign permissions to role and role to user.
   role->permissions().Grant(Permission::DELETE);

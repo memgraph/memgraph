@@ -1,16 +1,16 @@
 #include <algorithm>
 #include <cstdio>
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
 #include <fstream>
+#include <optional>
 #include <unordered_map>
 
-#include <cppitertools/chain.hpp>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <cppitertools/chain.hpp>
 
-#include "config.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "config.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/single_node/paths.hpp"
 #include "durability/single_node/snapshooter.hpp"
@@ -145,9 +145,9 @@ struct hash<NodeId> {
 
 class MemgraphNodeIdMap {
  public:
-  std::experimental::optional<int64_t> Get(const NodeId &node_id) const {
+  std::optional<int64_t> Get(const NodeId &node_id) const {
     auto found_it = node_id_to_mg_.find(node_id);
-    if (found_it == node_id_to_mg_.end()) return std::experimental::nullopt;
+    if (found_it == node_id_to_mg_.end()) return std::nullopt;
     return found_it->second;
   }
 
@@ -274,7 +274,7 @@ void WriteNodeRow(
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const std::vector<std::string> &additional_labels,
     MemgraphNodeIdMap &node_id_map) {
-  std::experimental::optional<gid::Gid> id;
+  std::optional<gid::Gid> id;
   std::vector<std::string> labels;
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
@@ -334,9 +334,9 @@ void WriteRelationshipsRow(
     communication::bolt::BaseEncoder<HashedFileWriter> *encoder,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id) {
-  std::experimental::optional<int64_t> start_id;
-  std::experimental::optional<int64_t> end_id;
-  std::experimental::optional<std::string> relationship_type;
+  std::optional<int64_t> start_id;
+  std::optional<int64_t> end_id;
+  std::optional<std::string> relationship_type;
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
@@ -467,12 +467,12 @@ std::string GetOutputPath() {
                   "provide the 'out' flag";
   try {
     auto snapshot_dir = durability_dir + "/snapshots";
-    if (!std::experimental::filesystem::exists(snapshot_dir) &&
-        !std::experimental::filesystem::create_directories(snapshot_dir)) {
+    if (!std::filesystem::exists(snapshot_dir) &&
+        !std::filesystem::create_directories(snapshot_dir)) {
       LOG(FATAL) << fmt::format("Cannot create snapshot directory '{}'",
                                 snapshot_dir);
     }
-  } catch (const std::experimental::filesystem::filesystem_error &error) {
+  } catch (const std::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
   // TODO: Remove this stupid hack which deletes WAL files just to make snapshot
@@ -480,9 +480,9 @@ std::string GetOutputPath() {
   // detected in memgraph and correctly recovered (or error reported).
   try {
     auto wal_dir = durability_dir + "/wal";
-    if (std::experimental::filesystem::exists(wal_dir)) {
+    if (std::filesystem::exists(wal_dir)) {
       for ([[gnu::unused]] const auto &wal_file :
-           std::experimental::filesystem::directory_iterator(wal_dir)) {
+           std::filesystem::directory_iterator(wal_dir)) {
         if (!FLAGS_overwrite) {
           LOG(FATAL) << "Durability directory isn't empty. Pass --overwrite to "
                         "remove the old recovery data";
@@ -490,9 +490,9 @@ std::string GetOutputPath() {
         break;
       }
       LOG(WARNING) << "Removing old recovery data!";
-      std::experimental::filesystem::remove_all(wal_dir);
+      std::filesystem::remove_all(wal_dir);
     }
-  } catch (const std::experimental::filesystem::filesystem_error &error) {
+  } catch (const std::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
   return std::string(
@@ -507,7 +507,7 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   std::string output_path(GetOutputPath());
-  if (std::experimental::filesystem::exists(output_path) && !FLAGS_overwrite) {
+  if (std::filesystem::exists(output_path) && !FLAGS_overwrite) {
     LOG(FATAL) << fmt::format(
         "File exists: '{}'. Pass --overwrite if you want to overwrite.",
         output_path);

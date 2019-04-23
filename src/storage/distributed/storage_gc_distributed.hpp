@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "storage/distributed/storage_gc.hpp"
 #include "transactions/type.hpp"
@@ -45,7 +45,7 @@ class StorageGcDistributed {
 
   void CollectGarbage() { storage_gc_->CollectGarbage(); }
 
-  std::experimental::optional<tx::TransactionId> GetClogSafeTransaction(
+  std::optional<tx::TransactionId> GetClogSafeTransaction(
       tx::TransactionId oldest_active) {
     return storage_gc_->GetClogSafeTransaction(oldest_active);
   }

@@ -212,8 +212,8 @@ class VaryMatchingStart {
     // being at the end. When there are no nodes, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
     // start_nodes_it_ to end signifies the end of our iteration.
-    std::experimental::optional<std::unordered_set<NodeAtom *, NodeSymbolHash,
-                                                   NodeSymbolEqual>::iterator>
+    std::optional<std::unordered_set<NodeAtom *, NodeSymbolHash,
+                                     NodeSymbolEqual>::iterator>
         start_nodes_it_;
   };
 

@@ -32,8 +32,7 @@ class UpdatesRpcClients {
       int worker_id, tx::TransactionId tx_id,
       const std::vector<storage::Label> &labels,
       const std::unordered_map<storage::Property, PropertyValue> &properties,
-      std::experimental::optional<int64_t> cypher_id =
-          std::experimental::nullopt);
+      std::optional<int64_t> cypher_id = std::nullopt);
 
   /// Creates an edge on the given worker and returns it's address. If the `to`
   /// vertex is on the same worker as `from`, then all remote CRUD will be
@@ -43,8 +42,7 @@ class UpdatesRpcClients {
   CreatedEdgeInfo CreateEdge(int this_worker_id, tx::TransactionId tx_id,
                              VertexAccessor &from, VertexAccessor &to,
                              storage::EdgeType edge_type,
-                             std::experimental::optional<int64_t> cypher_id =
-                                 std::experimental::nullopt);
+                             std::optional<int64_t> cypher_id = std::nullopt);
   // TODO (buda): Another machine in the cluster is asked to create an edge.
   // cypher_id should be generated in that process. It probably doesn't make
   // sense to have optional cypher id here. Maybe for the recovery purposes.

@@ -7,12 +7,12 @@
 namespace storage {
 
 struct KVStore::impl {
-  std::experimental::filesystem::path storage;
+  std::filesystem::path storage;
   std::unique_ptr<rocksdb::DB> db;
   rocksdb::Options options;
 };
 
-KVStore::KVStore(std::experimental::filesystem::path storage)
+KVStore::KVStore(std::filesystem::path storage)
     : pimpl_(std::make_unique<impl>()) {
   pimpl_->storage = storage;
   if (!utils::EnsureDir(pimpl_->storage))
@@ -50,11 +50,10 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
   return s.ok();
 }
 
-std::experimental::optional<std::string> KVStore::Get(
-    const std::string &key) const noexcept {
+std::optional<std::string> KVStore::Get(const std::string &key) const noexcept {
   std::string value;
   auto s = pimpl_->db->Get(rocksdb::ReadOptions(), key, &value);
-  if (!s.ok()) return std::experimental::nullopt;
+  if (!s.ok()) return std::nullopt;
   return value;
 }
 

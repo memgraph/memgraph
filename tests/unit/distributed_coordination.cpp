@@ -1,6 +1,6 @@
 #include <atomic>
-#include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -18,7 +18,7 @@
 using namespace distributed;
 using namespace std::literals::chrono_literals;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const int kWorkerCount = 5;
 const std::string kLocal = "127.0.0.1";
@@ -49,7 +49,7 @@ class WorkerCoordinationInThread {
           // shutdown by the master. We only wait for the shutdown to be
           // finished.
           EXPECT_TRUE(worker->coord.AwaitShutdown());
-          worker = std::experimental::nullopt;
+          worker = std::nullopt;
         });
 
     while (!init_done) std::this_thread::sleep_for(10ms);
@@ -63,13 +63,13 @@ class WorkerCoordinationInThread {
   auto worker_ids() { return worker->coord.GetWorkerIds(); }
   void join() { worker_thread_.join(); }
   void NotifyWorkerRecovered() {
-    std::experimental::optional<durability::RecoveryInfo> no_recovery_info;
+    std::optional<durability::RecoveryInfo> no_recovery_info;
     worker->discovery.NotifyWorkerRecovered(no_recovery_info);
   }
 
  private:
   std::thread worker_thread_;
-  std::experimental::optional<Worker> worker;
+  std::optional<Worker> worker;
 };
 
 class Distributed : public ::testing::Test {
@@ -93,7 +93,7 @@ TEST_F(Distributed, Coordination) {
   MasterCoordination master_coord({kLocal, 0});
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
-  master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
+  master_coord.SetRecoveredSnapshot(std::nullopt);
 
   for (int i = 1; i <= kWorkerCount; ++i)
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
@@ -124,7 +124,7 @@ TEST_F(Distributed, DesiredAndUniqueId) {
   MasterCoordination master_coord({kLocal, 0});
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
-  master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
+  master_coord.SetRecoveredSnapshot(std::nullopt);
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
       master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
@@ -147,7 +147,7 @@ TEST_F(Distributed, CoordinationWorkersId) {
   MasterCoordination master_coord({kLocal, 0});
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
-  master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
+  master_coord.SetRecoveredSnapshot(std::nullopt);
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
       master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
@@ -173,7 +173,7 @@ TEST_F(Distributed, ClusterDiscovery) {
   MasterCoordination master_coord({kLocal, 0});
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
-  master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
+  master_coord.SetRecoveredSnapshot(std::nullopt);
   std::vector<int> ids;
   int worker_count = 10;
 
@@ -204,7 +204,7 @@ TEST_F(Distributed, KeepsTrackOfRecovered) {
   MasterCoordination master_coord({kLocal, 0});
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
-  master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
+  master_coord.SetRecoveredSnapshot(std::nullopt);
   int worker_count = 10;
   for (int i = 1; i <= worker_count; ++i) {
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(

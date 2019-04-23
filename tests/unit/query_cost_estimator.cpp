@@ -84,11 +84,10 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto InclusiveBound(Expression *expression) {
-    return std::experimental::make_optional(
-        utils::MakeBoundInclusive(expression));
+    return std::make_optional(utils::MakeBoundInclusive(expression));
   };
 
-  const std::experimental::nullopt_t nullopt = std::experimental::nullopt;
+  const std::nullopt_t nullopt = std::nullopt;
 };
 
 // multiply with 1 to avoid linker error (possibly fixed in CLang >= 3.81)
@@ -151,12 +150,11 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   }
 }
 
-
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
-    auto bound = std::experimental::make_optional(
-        utils::MakeBoundInclusive(static_cast<Expression *>(
+    auto bound =
+        std::make_optional(utils::MakeBoundInclusive(static_cast<Expression *>(
             storage_.Create<UnaryPlusOperator>(const_val))));
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property,
                                         "property", bound, nullopt);
@@ -173,12 +171,12 @@ TEST_F(QueryCostEstimator, Expand) {
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
-  MakeOp<ExpandVariable>(
-      last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
-      EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
-      std::vector<storage::EdgeType>{}, false, nullptr, nullptr, false,
-      ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
-      std::experimental::nullopt, std::experimental::nullopt);
+  MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
+                         EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
+                         std::vector<storage::EdgeType>{}, false, nullptr,
+                         nullptr, false,
+                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
+                         std::nullopt, std::nullopt);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 

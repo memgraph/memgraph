@@ -26,8 +26,8 @@ class BfsRpcClients;
 /// information necessary to continue path reconstruction on another worker.
 struct PathSegment {
   std::vector<EdgeAccessor> edges;
-  std::experimental::optional<storage::VertexAddress> next_vertex;
-  std::experimental::optional<storage::EdgeAddress> next_edge;
+  std::optional<storage::VertexAddress> next_vertex;
+  std::optional<storage::EdgeAddress> next_edge;
 };
 
 /// Class storing the worker-local state of distributed BFS traversal. For each
@@ -69,7 +69,7 @@ class ExpandBfsSubcursor {
   bool ExpandLevel();
 
   /// Pulls the next vertex in the current BFS frontier, if there is one.
-  std::experimental::optional<VertexAccessor> Pull();
+  std::optional<VertexAccessor> Pull();
 
   /// Expands to a local vertex, if it wasn't already visited. Returns true if
   /// expansion was successful.
@@ -133,8 +133,7 @@ class ExpandBfsSubcursor {
 
   /// List of visited vertices and their incoming edges. Local address is stored
   /// for local edges, global address for remote edges.
-  std::unordered_map<VertexAccessor,
-                     std::experimental::optional<storage::EdgeAddress>>
+  std::unordered_map<VertexAccessor, std::optional<storage::EdgeAddress>>
       processed_;
 
   /// List of vertices at the current expansion level.

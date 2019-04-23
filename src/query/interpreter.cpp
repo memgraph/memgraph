@@ -113,9 +113,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
 
         std::lock_guard<std::mutex> lock(auth->WithLock());
         auto user = auth->AddUser(
-            username, password.IsString() ? std::experimental::make_optional(
-                                                password.ValueString())
-                                          : std::experimental::nullopt);
+            username, password.IsString()
+                          ? std::make_optional(password.ValueString())
+                          : std::nullopt);
         if (!user) {
           throw QueryRuntimeException("User or role '{}' already exists.",
                                       username);
@@ -145,10 +145,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
         if (!user) {
           throw QueryRuntimeException("User '{}' doesn't exist.", username);
         }
-        user->UpdatePassword(
-            password.IsString()
-                ? std::experimental::make_optional(password.ValueString())
-                : std::experimental::nullopt);
+        user->UpdatePassword(password.IsString()
+                                 ? std::make_optional(password.ValueString())
+                                 : std::nullopt);
         auth->SaveUser(*user);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -419,14 +418,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
         info.stream_uri = stream_uri.ValueString();
         info.stream_topic = stream_topic.ValueString();
         info.transform_uri = transform_uri.ValueString();
-        info.batch_interval_in_ms = batch_interval_in_ms.IsInt()
-                                        ? std::experimental::make_optional(
-                                              batch_interval_in_ms.ValueInt())
-                                        : std::experimental::nullopt;
-        info.batch_size =
-            batch_size.IsInt()
-                ? std::experimental::make_optional(batch_size.ValueInt())
-                : std::experimental::nullopt;
+        info.batch_interval_in_ms =
+            batch_interval_in_ms.IsInt()
+                ? std::make_optional(batch_interval_in_ms.ValueInt())
+                : std::nullopt;
+        info.batch_size = batch_size.IsInt()
+                              ? std::make_optional(batch_size.ValueInt())
+                              : std::nullopt;
 
         try {
           streams->Create(info);
@@ -463,10 +461,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
         CHECK(limit_batches.IsInt() || limit_batches.IsNull());
 
         try {
-          streams->Start(stream_name, limit_batches.IsInt()
-                                          ? std::experimental::make_optional(
-                                                limit_batches.ValueInt())
-                                          : std::experimental::nullopt);
+          streams->Start(stream_name,
+                         limit_batches.IsInt()
+                             ? std::make_optional(limit_batches.ValueInt())
+                             : std::nullopt);
         } catch (integrations::kafka::KafkaStreamException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -511,10 +509,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
         std::vector<std::vector<TypedValue>> rows;
         try {
           auto results = streams->Test(
-              stream_name,
-              limit_batches.IsInt()
-                  ? std::experimental::make_optional(limit_batches.ValueInt())
-                  : std::experimental::nullopt);
+              stream_name, limit_batches.IsInt()
+                               ? std::make_optional(limit_batches.ValueInt())
+                               : std::nullopt);
           for (const auto &result : results) {
             std::map<std::string, TypedValue> params;
             for (const auto &param : result.second) {

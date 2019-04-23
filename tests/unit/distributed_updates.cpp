@@ -77,8 +77,8 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertex) {
   gid::Gid gid;
   {
     auto dba = worker(1).Access();
-    auto v = database::InsertVertexIntoRemote(dba.get(), 2, {}, {},
-                                              std::experimental::nullopt);
+    auto v =
+        database::InsertVertexIntoRemote(dba.get(), 2, {}, {}, std::nullopt);
     gid = v.gid();
     dba->Commit();
   }
@@ -94,8 +94,8 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithUpdate) {
   storage::Property prop;
   {
     auto dba = worker(1).Access();
-    auto v = database::InsertVertexIntoRemote(dba.get(), 2, {}, {},
-                                              std::experimental::nullopt);
+    auto v =
+        database::InsertVertexIntoRemote(dba.get(), 2, {}, {}, std::nullopt);
     gid = v.gid();
     prop = dba->Property("prop");
     v.PropsSet(prop, 42);
@@ -120,8 +120,8 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithData) {
     l1 = dba->Label("l1");
     l2 = dba->Label("l2");
     prop = dba->Property("prop");
-    auto v = database::InsertVertexIntoRemote(
-        dba.get(), 2, {l1, l2}, {{prop, 42}}, std::experimental::nullopt);
+    auto v = database::InsertVertexIntoRemote(dba.get(), 2, {l1, l2},
+                                              {{prop, 42}}, std::nullopt);
     gid = v.gid();
 
     // Check local visibility before commit.

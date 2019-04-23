@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <map>
 #include <string>
 
@@ -12,7 +12,7 @@
 namespace integrations::kafka {
 
 struct TargetArguments {
-  std::experimental::filesystem::path transform_script_path;
+  std::filesystem::path transform_script_path;
   int pipe_to_python{-1};
   int pipe_from_python{-1};
 };

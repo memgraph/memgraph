@@ -35,7 +35,7 @@ void VertexMigrator::MigrateVertex(VertexAccessor &vertex, int destination) {
     // machine owns the edge.
     auto new_out_edge =
         dba_->InsertEdge(relocated_vertex, to, out_edge.EdgeType(),
-                         std::experimental::nullopt, out_edge.CypherId());
+                         std::nullopt, out_edge.CypherId());
     for (auto prop : get_props(out_edge)) {
       new_out_edge.PropsSet(prop.first, prop.second);
     }
@@ -51,7 +51,7 @@ void VertexMigrator::MigrateVertex(VertexAccessor &vertex, int destination) {
     // doesn't own the edge.
     auto new_in_edge =
         dba_->InsertEdge(from, relocated_vertex, in_edge.EdgeType(),
-                         std::experimental::nullopt, in_edge.CypherId());
+                         std::nullopt, in_edge.CypherId());
     for (auto prop : get_props(in_edge)) {
       new_in_edge.PropsSet(prop.first, prop.second);
     }

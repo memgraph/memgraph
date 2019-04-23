@@ -1,14 +1,14 @@
 #pragma once
 
-#include <experimental/type_traits>
+#include <type_traits>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/bswap.hpp"
 #include "utils/cast.hpp"
 
-static_assert(std::experimental::is_same_v<std::uint8_t, char> ||
-                  std::experimental::is_same_v<std::uint8_t, unsigned char>,
+static_assert(std::is_same_v<std::uint8_t, char> ||
+                  std::is_same_v<std::uint8_t, unsigned char>,
               "communication::bolt::Encoder requires uint8_t to be "
               "implemented as char or unsigned char.");
 

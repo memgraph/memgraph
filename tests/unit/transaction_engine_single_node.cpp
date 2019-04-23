@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 
-#include <experimental/optional>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -56,7 +56,7 @@ TEST(Engine, ConcurrentBegin) {
   std::vector<std::thread> threads;
   SkipList<TransactionId> tx_ids;
   for (int i = 0; i < 10; ++i) {
-    threads.emplace_back([&engine, accessor = tx_ids.access() ]() mutable {
+    threads.emplace_back([&engine, accessor = tx_ids.access()]() mutable {
       for (int j = 0; j < 100; ++j) {
         auto t = engine.Begin();
         accessor.insert(t->id_);
@@ -109,7 +109,7 @@ TEST(Engine, BlockingTransaction) {
   threads.emplace_back([&engine, &blocking_started, &blocking_finished]() {
     // This should block until other transactions end.
     blocking_started.store(true);
-    auto t = engine.BeginBlocking(std::experimental::nullopt);
+    auto t = engine.BeginBlocking(std::nullopt);
     engine.Commit(*t);
     blocking_finished.store(true);
   });
@@ -125,7 +125,7 @@ TEST(Engine, BlockingTransaction) {
 
   // Make sure we can't start any new transaction
   EXPECT_THROW(engine.Begin(), TransactionEngineError);
-  EXPECT_THROW(engine.BeginBlocking(std::experimental::nullopt), TransactionEngineError);
+  EXPECT_THROW(engine.BeginBlocking(std::nullopt), TransactionEngineError);
 
   // Release regular transactions. This will cause the blocking transaction to
   // end also.
@@ -146,7 +146,7 @@ TEST(Engine, BlockingTransaction) {
     engine.Commit(*t);
   }
   {
-    auto t = engine.BeginBlocking(std::experimental::nullopt);
+    auto t = engine.BeginBlocking(std::nullopt);
     EXPECT_NE(t, nullptr);
     engine.Commit(*t);
   }

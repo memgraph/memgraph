@@ -1,8 +1,8 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 
 #include "data_structures/ring_buffer.hpp"
 #include "storage/common/types/property_value.hpp"
@@ -27,8 +27,8 @@ class Log {
   };
 
  public:
-  Log(const std::experimental::filesystem::path &storage_directory,
-      int32_t buffer_size, int32_t buffer_flush_interval_millis);
+  Log(const std::filesystem::path &storage_directory, int32_t buffer_size,
+      int32_t buffer_flush_interval_millis);
 
   ~Log();
 
@@ -52,12 +52,12 @@ class Log {
  private:
   void Flush();
 
-  std::experimental::filesystem::path storage_directory_;
+  std::filesystem::path storage_directory_;
   int32_t buffer_size_;
   int32_t buffer_flush_interval_millis_;
   std::atomic<bool> started_;
 
-  std::experimental::optional<RingBuffer<Item>> buffer_;
+  std::optional<RingBuffer<Item>> buffer_;
   utils::Scheduler scheduler_;
 
   utils::LogFile log_;

@@ -109,7 +109,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process,
   ProcessedPlan last_plan;
 
   for (const auto &query_part : query_parts.query_parts) {
-    std::experimental::optional<ProcessedPlan> curr_plan;
+    std::optional<ProcessedPlan> curr_plan;
     double min_cost = std::numeric_limits<double>::max();
 
     if (use_variable_planner) {

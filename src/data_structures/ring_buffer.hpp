@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <chrono>
-#include <experimental/optional>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -61,12 +61,11 @@ class RingBuffer {
    * Removes and returns the oldest element from the buffer. If the buffer is
    * empty, nullopt is returned.
    */
-  std::experimental::optional<TElement> pop() {
+  std::optional<TElement> pop() {
     std::lock_guard<utils::SpinLock> guard(lock_);
-    if (size_ == 0) return std::experimental::nullopt;
+    if (size_ == 0) return std::nullopt;
     size_--;
-    std::experimental::optional<TElement> result(
-        std::move(buffer_[read_pos_++]));
+    std::optional<TElement> result(std::move(buffer_[read_pos_++]));
     read_pos_ %= capacity_;
     return result;
   }

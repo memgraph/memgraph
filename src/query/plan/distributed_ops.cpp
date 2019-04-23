@@ -712,8 +712,8 @@ class PullRemoteOrderByCursor : public Cursor {
           output.emplace_back(frame[symbol]);
         }
 
-        merge_.push_back(MergeResultItem{std::experimental::nullopt, output,
-                                         evaluate_result()});
+        merge_.push_back(
+            MergeResultItem{std::nullopt, output, evaluate_result()});
       }
       missing_master_result_ = false;
     }
@@ -799,7 +799,7 @@ class PullRemoteOrderByCursor : public Cursor {
 
  private:
   struct MergeResultItem {
-    std::experimental::optional<int> worker_id;
+    std::optional<int> worker_id;
     std::vector<TypedValue> remote_result;
     std::vector<TypedValue> order_by;
   };
@@ -953,10 +953,10 @@ class DistributedExpandCursor : public query::plan::Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    in_edges_ = std::experimental::nullopt;
-    in_edges_it_ = std::experimental::nullopt;
-    out_edges_ = std::experimental::nullopt;
-    out_edges_it_ = std::experimental::nullopt;
+    in_edges_ = std::nullopt;
+    in_edges_it_ = std::nullopt;
+    out_edges_ = std::nullopt;
+    out_edges_it_ = std::nullopt;
     // Explicitly get all of the requested RPC futures, so that we register any
     // exceptions.
     for (auto &future_expand : future_expands_) {
@@ -1040,10 +1040,10 @@ class DistributedExpandCursor : public query::plan::Cursor {
   // The iterable over edges and the current edge iterator are referenced via
   // optional because they can not be initialized in the constructor of
   // this class. They are initialized once for each pull from the input.
-  std::experimental::optional<InEdgeT> in_edges_;
-  std::experimental::optional<InEdgeIteratorT> in_edges_it_;
-  std::experimental::optional<OutEdgeT> out_edges_;
-  std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
+  std::optional<InEdgeT> in_edges_;
+  std::optional<InEdgeIteratorT> in_edges_it_;
+  std::optional<OutEdgeT> out_edges_;
+  std::optional<OutEdgeIteratorT> out_edges_it_;
   // Stores the last frame before we yield the frame for future edge. It needs
   // to be restored afterward.
   std::vector<TypedValue> last_frame_;
@@ -1125,9 +1125,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
           // worker queried for its path segment owned the crossing edge,
           // `current_vertex_addr` will be set. Otherwise, `current_edge_addr`
           // will be set.
-          std::experimental::optional<storage::VertexAddress>
-              current_vertex_addr = last_vertex.ValueVertex().GlobalAddress();
-          std::experimental::optional<storage::EdgeAddress> current_edge_addr;
+          std::optional<storage::VertexAddress> current_vertex_addr =
+              last_vertex.ValueVertex().GlobalAddress();
+          std::optional<storage::EdgeAddress> current_edge_addr;
 
           while (true) {
             DCHECK(static_cast<bool>(current_edge_addr) ^
@@ -1274,9 +1274,8 @@ VertexAccessor &CreateVertexOnWorker(int worker_id,
     properties.emplace(kv.first, std::move(value));
   }
 
-  auto new_node =
-      database::InsertVertexIntoRemote(&dba, worker_id, node_info.labels,
-                                       properties, std::experimental::nullopt);
+  auto new_node = database::InsertVertexIntoRemote(
+      &dba, worker_id, node_info.labels, properties, std::nullopt);
   frame[node_info.symbol] = new_node;
   return frame[node_info.symbol].ValueVertex();
 }

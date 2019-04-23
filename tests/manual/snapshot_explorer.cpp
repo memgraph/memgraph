@@ -1,4 +1,4 @@
-#include <experimental/filesystem>
+#include <filesystem>
 #include <iostream>
 
 #include <gflags/gflags.h>
@@ -12,7 +12,7 @@
 DEFINE_string(snapshot_file, "", "Snapshot file location");
 
 using communication::bolt::Value;
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);

@@ -10,7 +10,7 @@
 
 namespace raft {
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 Coordination::Coordination(
     uint16_t server_workers_count, uint16_t client_workers_count,

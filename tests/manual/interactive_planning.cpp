@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <cstdlib>
-#include <experimental/optional>
+#include <optional>
 #include <string>
 
 #include <gflags/gflags.h>
@@ -40,9 +40,9 @@ DEFINE_string(load_mock_db_file, "",
  * @param prompt The prompt to display.
  * @return  A single command the user entered, or nullopt on EOF.
  */
-std::experimental::optional<std::string> ReadLine(const std::string &prompt) {
+std::optional<std::string> ReadLine(const std::string &prompt) {
   char *line = readline(prompt.c_str());
-  if (!line) return std::experimental::nullopt;
+  if (!line) return std::nullopt;
 
   if (*line) add_history(line);
   std::string r_val(line);
@@ -52,11 +52,11 @@ std::experimental::optional<std::string> ReadLine(const std::string &prompt) {
 
 #else
 
-std::experimental::optional<std::string> ReadLine(const std::string &prompt) {
+std::optional<std::string> ReadLine(const std::string &prompt) {
   std::cout << prompt;
   std::string line;
   std::getline(std::cin, line);
-  if (std::cin.eof()) return std::experimental::nullopt;
+  if (std::cin.eof()) return std::nullopt;
   return line;
 }
 
@@ -181,8 +181,8 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount(
       storage::Label label_id, storage::Property property_id,
-      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper) {
+      const std::optional<utils::Bound<PropertyValue>> lower,
+      const std::optional<utils::Bound<PropertyValue>> upper) {
     auto label = dba_->LabelName(label_id);
     auto property = dba_->PropertyName(property_id);
     std::stringstream range_string;
@@ -490,8 +490,7 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
 
 void RunInteractivePlanning(database::GraphDbAccessor *dba) {
   auto in_db_filename = utils::Trim(FLAGS_load_mock_db_file);
-  if (!in_db_filename.empty() &&
-      !std::experimental::filesystem::exists(in_db_filename)) {
+  if (!in_db_filename.empty() && !std::filesystem::exists(in_db_filename)) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
   }

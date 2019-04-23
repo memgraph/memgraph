@@ -3,7 +3,7 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
+#include <optional>
 #include <unordered_map>
 
 #include "durability/single_node/wal.hpp"
@@ -34,8 +34,7 @@ class Engine final {
   /// run (besides this one). This is the reason why this transactions blocks the
   /// engine from creating new transactions and waits for the existing ones to
   /// finish.
-  Transaction *BeginBlocking(
-      std::experimental::optional<TransactionId> parent_tx);
+  Transaction *BeginBlocking(std::optional<TransactionId> parent_tx);
   CommandId Advance(TransactionId id);
   CommandId UpdateCommand(TransactionId id);
   void Commit(const Transaction &t);

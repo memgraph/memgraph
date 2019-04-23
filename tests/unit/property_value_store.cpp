@@ -10,7 +10,7 @@
 
 using Location = storage::Location;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 DECLARE_string(durability_directory);
 DECLARE_string(properties_on_disk);
@@ -250,8 +250,9 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
 }
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
-  Set(0, Location::Disk, std::vector<PropertyValue>{1, true, 2.5, "something",
-                                                    PropertyValue::Null});
+  Set(0, Location::Disk,
+      std::vector<PropertyValue>{1, true, 2.5, "something",
+                                 PropertyValue::Null});
   auto p = At(0, Location::Disk);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);

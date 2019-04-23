@@ -1,8 +1,8 @@
 #pragma once
 
-#include <experimental/optional>
 #include <functional>
 #include <iostream>
+#include <optional>
 
 #include "io/network/endpoint.hpp"
 
@@ -82,7 +82,7 @@ class Socket {
    *
    * @return socket if accepted, nullopt otherwise.
    */
-  std::experimental::optional<Socket> Accept();
+  std::optional<Socket> Accept();
 
   /**
    * Sets the socket to non-blocking.

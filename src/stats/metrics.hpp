@@ -7,10 +7,10 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include "fmt/format.h"
@@ -38,7 +38,7 @@ class Metric {
    * return the metric value aggregated since the last flush call or nullopt
    * if there were no updates.
    */
-  virtual std::experimental::optional<int64_t> Flush() = 0;
+  virtual std::optional<int64_t> Flush() = 0;
 
   explicit Metric(int64_t start_value = 0);
 
@@ -61,7 +61,7 @@ class Counter : public Metric {
   void Bump(int64_t delta = 1);
 
   /** Returns the current value of the counter. **/
-  std::experimental::optional<int64_t> Flush() override;
+  std::optional<int64_t> Flush() override;
 
   /** Returns the current value of the counter. **/
   int64_t Value();
@@ -94,7 +94,7 @@ class Gauge : public Metric {
   void Set(int64_t value);
 
   /** Returns the current gauge value. **/
-  std::experimental::optional<int64_t> Flush() override;
+  std::optional<int64_t> Flush() override;
 };
 
 /**
@@ -124,7 +124,7 @@ class IntervalMin : public Metric {
    * Returns the minimum value encountered since the last flush period,
    * or nullopt if no values were added.
    */
-  std::experimental::optional<int64_t> Flush() override;
+  std::optional<int64_t> Flush() override;
 };
 
 /**
@@ -150,7 +150,7 @@ class IntervalMax : public Metric {
    * Returns the maximum value encountered since the last flush period,
    * or nullopt if no values were added.
    */
-  std::experimental::optional<int64_t> Flush() override;
+  std::optional<int64_t> Flush() override;
 };
 
 /**

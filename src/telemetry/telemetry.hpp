@@ -24,7 +24,7 @@ namespace telemetry {
 class Telemetry final {
  public:
   Telemetry(const std::string &url,
-            const std::experimental::filesystem::path &storage_directory,
+            const std::filesystem::path &storage_directory,
             std::chrono::duration<long long> refresh_interval =
                 std::chrono::minutes(10),
             const uint64_t send_every_n = 10);

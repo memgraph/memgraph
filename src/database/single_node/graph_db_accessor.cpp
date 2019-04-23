@@ -26,8 +26,8 @@ GraphDbAccessor::GraphDbAccessor(GraphDb *db, tx::TransactionId tx_id)
       transaction_(db->tx_engine().RunningTransaction(tx_id)),
       transaction_starter_{false} {}
 
-GraphDbAccessor::GraphDbAccessor(
-    GraphDb *db, std::experimental::optional<tx::TransactionId> parent_tx)
+GraphDbAccessor::GraphDbAccessor(GraphDb *db,
+                                 std::optional<tx::TransactionId> parent_tx)
     : db_(db),
       transaction_(db->tx_engine().BeginBlocking(parent_tx)),
       transaction_starter_{true} {}
@@ -92,7 +92,7 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_->wal(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<gid::Gid> requested_gid) {
+    std::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   auto gid = db_->storage().vertex_generator_.Next(requested_gid);
@@ -108,12 +108,12 @@ VertexAccessor GraphDbAccessor::InsertVertex(
   return va;
 }
 
-std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
+std::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
   VertexAccessor record_accessor(db_->storage().LocalAddress<Vertex>(gid),
                                  *this);
   if (!record_accessor.Visible(transaction(), current_state))
-    return std::experimental::nullopt;
+    return std::nullopt;
   return record_accessor;
 }
 
@@ -123,11 +123,11 @@ VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
   return *found;
 }
 
-std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
+std::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
   EdgeAccessor record_accessor(db_->storage().LocalAddress<Edge>(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
-    return std::experimental::nullopt;
+    return std::nullopt;
   return record_accessor;
 }
 
@@ -150,8 +150,7 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   }
 
   try {
-    auto dba =
-        db_->AccessBlocking(std::experimental::make_optional(transaction_->id_));
+    auto dba = db_->AccessBlocking(std::make_optional(transaction_->id_));
 
     dba.PopulateIndex(key);
     dba.EnableIndex(key);
@@ -193,8 +192,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
 
   LabelPropertyIndex::Key key(label, property);
   try {
-    auto dba =
-        db_->AccessBlocking(std::experimental::make_optional(transaction_->id_));
+    auto dba = db_->AccessBlocking(std::make_optional(transaction_->id_));
 
     db_->storage().label_property_index_.DeleteIndex(key);
     dba.wal().Emplace(database::StateDelta::DropIndex(
@@ -210,8 +208,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
 void GraphDbAccessor::BuildUniqueConstraint(storage::Label label,
                                             storage::Property property) {
   try {
-    auto dba =
-        db_->AccessBlocking(std::experimental::make_optional(transaction().id_));
+    auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
     if (!db_->storage().unique_label_property_constraints_.AddConstraint(
             label, property, dba.transaction())) {
       // Already exists
@@ -250,8 +247,7 @@ void GraphDbAccessor::BuildUniqueConstraint(storage::Label label,
 void GraphDbAccessor::DeleteUniqueConstraint(storage::Label label,
                                              storage::Property property) {
   try {
-    auto dba =
-        db_->AccessBlocking(std::experimental::make_optional(transaction().id_));
+    auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
 
     if (!db_->storage().unique_label_property_constraints_.RemoveConstraint(
             label, property)) {
@@ -339,8 +335,7 @@ void GraphDbAccessor::UpdateOnRemoveProperty(
 
 void GraphDbAccessor::BuildExistenceConstraint(
     storage::Label label, const std::vector<storage::Property> &properties) {
-  auto dba =
-      db_->AccessBlocking(std::experimental::make_optional(transaction().id_));
+  auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
   storage::constraints::ExistenceRule rule{label, properties};
 
   for (auto v : dba.Vertices(false)) {
@@ -368,8 +363,7 @@ void GraphDbAccessor::BuildExistenceConstraint(
 
 void GraphDbAccessor::DeleteExistenceConstraint(
     storage::Label label, const std::vector<storage::Property> &properties) {
-  auto dba =
-      db_->AccessBlocking(std::experimental::make_optional(transaction().id_));
+  auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
   storage::constraints::ExistenceRule rule{label, properties};
   if (!db_->storage().existence_constraints_.RemoveConstraint(rule)) {
     // Nothing was deleted
@@ -431,9 +425,8 @@ int64_t GraphDbAccessor::VerticesCount(storage::Label label,
 
 int64_t GraphDbAccessor::VerticesCount(
     storage::Label label, storage::Property property,
-    const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-    const std::experimental::optional<utils::Bound<PropertyValue>> upper)
-    const {
+    const std::optional<utils::Bound<PropertyValue>> lower,
+    const std::optional<utils::Bound<PropertyValue>> upper) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   const LabelPropertyIndex::Key key(label, property);
   DCHECK(db_->storage().label_property_index_.IndexExists(key))
@@ -508,7 +501,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    std::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto gid = db_->storage().edge_generator_.Next(requested_gid);
   auto edge_vlist = new mvcc::VersionList<Edge>(

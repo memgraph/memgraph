@@ -28,7 +28,7 @@ class SingleNodeDb : public Database {
     return std::make_unique<ExpandVariable>(
         input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
         direction, edge_types, false, lower_bound, upper_bound, existing_node,
-        filter_lambda, std::experimental::nullopt, std::experimental::nullopt);
+        filter_lambda, std::nullopt, std::nullopt);
   }
 
   std::pair<std::vector<VertexAddress>, std::vector<EdgeAddress>> BuildGraph(

@@ -66,8 +66,7 @@ void SingleNodeMain() {
 
   // Begin enterprise features initialization
 
-  auto durability_directory =
-      std::experimental::filesystem::path(FLAGS_durability_directory);
+  auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   // Auth
   auth::Init();
@@ -124,7 +123,7 @@ void SingleNodeMain() {
                  service_name, FLAGS_num_workers);
 
   // Setup telemetry
-  std::experimental::optional<telemetry::Telemetry> telemetry;
+  std::optional<telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",

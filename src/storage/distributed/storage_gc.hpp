@@ -150,9 +150,9 @@ class StorageGc final {
    * (otherwise that transaction could still be waiting for a resolution of
    * the query to the commit log about some old transaction)
    */
-  std::experimental::optional<tx::TransactionId> GetClogSafeTransaction(
+  std::optional<tx::TransactionId> GetClogSafeTransaction(
       tx::TransactionId oldest_active) {
-    std::experimental::optional<tx::TransactionId> safe_to_delete;
+    std::optional<tx::TransactionId> safe_to_delete;
     while (!gc_txid_ranges_.empty() &&
            gc_txid_ranges_.front().second < oldest_active) {
       safe_to_delete = gc_txid_ranges_.front().first;

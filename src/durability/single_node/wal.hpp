@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -26,7 +26,7 @@ namespace durability {
 /// indeterminism.
 class WriteAheadLog {
  public:
-  WriteAheadLog(const std::experimental::filesystem::path &durability_dir,
+  WriteAheadLog(const std::filesystem::path &durability_dir,
                 bool durability_enabled, bool synchronous_commit);
   ~WriteAheadLog();
 
@@ -47,7 +47,7 @@ class WriteAheadLog {
   /// Groups the logic of WAL file handling (flushing, naming, rotating)
   class WalFile {
    public:
-    explicit WalFile(const std::experimental::filesystem::path &durability_dir);
+    explicit WalFile(const std::filesystem::path &durability_dir);
     ~WalFile();
 
     /// Initializes the WAL file. Must be called before first flush. Can be
@@ -61,13 +61,13 @@ class WriteAheadLog {
    private:
     /// Mutex used for flushing wal data
     std::mutex flush_mutex_;
-    const std::experimental::filesystem::path wal_dir_;
+    const std::filesystem::path wal_dir_;
     HashedFileWriter writer_;
     communication::bolt::BaseEncoder<HashedFileWriter> encoder_{writer_};
 
     /// The file to which the WAL flushes data. The path is fixed, the file gets
     /// moved when the WAL gets rotated.
-    std::experimental::filesystem::path current_wal_file_;
+    std::filesystem::path current_wal_file_;
 
     /// Number of deltas in the current wal file.
     int current_wal_file_delta_count_{0};

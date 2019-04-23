@@ -43,28 +43,28 @@ TEST(Metrics, Gauge) {
 
 TEST(Metrics, IntervalMin) {
   IntervalMin &x = GetIntervalMin("min");
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
   x.Add(5);
   x.Add(3);
   EXPECT_EQ(*x.Flush(), 3);
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
   x.Add(3);
   x.Add(5);
   EXPECT_EQ(*x.Flush(), 3);
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
 }
 
 TEST(Metrics, IntervalMax) {
   IntervalMax &x = GetIntervalMax("max");
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
   x.Add(5);
   x.Add(3);
   EXPECT_EQ(*x.Flush(), 5);
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
   x.Add(3);
   x.Add(5);
   EXPECT_EQ(*x.Flush(), 5);
-  EXPECT_EQ(x.Flush(), std::experimental::nullopt);
+  EXPECT_EQ(x.Flush(), std::nullopt);
 }
 
 TEST(Metrics, Stopwatch) {

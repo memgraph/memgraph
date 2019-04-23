@@ -36,7 +36,7 @@ CreatedVertexInfo UpdatesRpcClients::CreateVertex(
     int worker_id, tx::TransactionId tx_id,
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, PropertyValue> &properties,
-    std::experimental::optional<int64_t> cypher_id) {
+    std::optional<int64_t> cypher_id) {
   auto res = coordination_->GetClientPool(worker_id)->Call<CreateVertexRpc>(
       CreateVertexReqData{tx_id, labels, properties, cypher_id});
   CHECK(res.member.result == UpdateResult::DONE)
@@ -44,10 +44,10 @@ CreatedVertexInfo UpdatesRpcClients::CreateVertex(
   return CreatedVertexInfo(res.member.cypher_id, res.member.gid);
 }
 
-CreatedEdgeInfo UpdatesRpcClients::CreateEdge(int this_worker_id,
-    tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
-    storage::EdgeType edge_type,
-    std::experimental::optional<int64_t> cypher_id) {
+CreatedEdgeInfo UpdatesRpcClients::CreateEdge(
+    int this_worker_id, tx::TransactionId tx_id, VertexAccessor &from,
+    VertexAccessor &to, storage::EdgeType edge_type,
+    std::optional<int64_t> cypher_id) {
   CHECK(from.address().is_remote()) << "In CreateEdge `from` must be remote";
   int from_worker = from.address().worker_id();
   auto res =

@@ -190,8 +190,7 @@ bool User::CheckPassword(const std::string &password) {
   return VerifyPassword(password, password_hash_);
 }
 
-void User::UpdatePassword(
-    const std::experimental::optional<std::string> &password) {
+void User::UpdatePassword(const std::optional<std::string> &password) {
   if (password) {
     std::regex re(FLAGS_auth_password_strength_regex);
     if (!std::regex_match(*password, re)) {
@@ -211,7 +210,7 @@ void User::UpdatePassword(
 
 void User::SetRole(const Role &role) { role_.emplace(role); }
 
-void User::ClearRole() { role_ = std::experimental::nullopt; }
+void User::ClearRole() { role_ = std::nullopt; }
 
 const Permissions User::GetPermissions() const {
   if (role_) {
@@ -226,7 +225,7 @@ const std::string &User::username() const { return username_; }
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
 
-std::experimental::optional<Role> User::role() const { return role_; }
+std::optional<Role> User::role() const { return role_; }
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();

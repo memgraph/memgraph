@@ -3,14 +3,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <experimental/optional>
-#include <experimental/type_traits>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -23,8 +23,8 @@
 namespace slk {
 
 // Static assert for the assumption made in this library.
-static_assert(std::experimental::is_same_v<std::uint8_t, char> ||
-                  std::experimental::is_same_v<std::uint8_t, unsigned char>,
+static_assert(std::is_same_v<std::uint8_t, char> ||
+                  std::is_same_v<std::uint8_t, unsigned char>,
               "The slk library requires uint8_t to be implemented as char or "
               "unsigned char.");
 
@@ -68,9 +68,9 @@ void Load(std::unique_ptr<T> *obj, Reader *reader,
           const std::function<void(std::unique_ptr<T> *, Reader *)> &load);
 
 template <typename T>
-void Save(const std::experimental::optional<T> &obj, Builder *builder);
+void Save(const std::optional<T> &obj, Builder *builder);
 template <typename T>
-void Load(std::experimental::optional<T> *obj, Reader *reader);
+void Load(std::optional<T> *obj, Reader *reader);
 
 template <typename T>
 void Save(const std::shared_ptr<T> &obj, Builder *builder,
@@ -278,8 +278,8 @@ inline void Load(
 }
 
 template <typename T>
-inline void Save(const std::experimental::optional<T> &obj, Builder *builder) {
-  if (obj == std::experimental::nullopt) {
+inline void Save(const std::optional<T> &obj, Builder *builder) {
+  if (obj == std::nullopt) {
     bool exists = false;
     Save(exists, builder);
   } else {
@@ -290,7 +290,7 @@ inline void Save(const std::experimental::optional<T> &obj, Builder *builder) {
 }
 
 template <typename T>
-inline void Load(std::experimental::optional<T> *obj, Reader *reader) {
+inline void Load(std::optional<T> *obj, Reader *reader) {
   bool exists = false;
   Load(&exists, reader);
   if (exists) {
@@ -298,7 +298,7 @@ inline void Load(std::experimental::optional<T> *obj, Reader *reader) {
     Load(&item, reader);
     obj->emplace(std::move(item));
   } else {
-    *obj = std::experimental::nullopt;
+    *obj = std::nullopt;
   }
 }
 
@@ -435,9 +435,9 @@ inline void Load(std::vector<T> *obj, Reader *reader,
 }
 
 template <typename T>
-inline void Save(const std::experimental::optional<T> &obj, Builder *builder,
+inline void Save(const std::optional<T> &obj, Builder *builder,
                  std::function<void(const T &, Builder *)> item_save_function) {
-  if (obj == std::experimental::nullopt) {
+  if (obj == std::nullopt) {
     bool exists = false;
     Save(exists, builder);
   } else {
@@ -448,7 +448,7 @@ inline void Save(const std::experimental::optional<T> &obj, Builder *builder,
 }
 
 template <typename T>
-inline void Load(std::experimental::optional<T> *obj, Reader *reader,
+inline void Load(std::optional<T> *obj, Reader *reader,
                  std::function<void(T *, Reader *)> item_load_function) {
   bool exists = false;
   Load(&exists, reader);
@@ -457,7 +457,7 @@ inline void Load(std::experimental::optional<T> *obj, Reader *reader,
     item_load_function(&item, reader);
     obj->emplace(std::move(item));
   } else {
-    *obj = std::experimental::nullopt;
+    *obj = std::nullopt;
   }
 }
 }  // namespace slk

@@ -26,13 +26,13 @@ EdgesIterable::EdgesIterable(
     const std::vector<storage::EdgeType> *edge_types) {
   auto sptr = std::make_shared<VertexAccessor>(va);
   sptr->HoldCachedData();
-  begin_.emplace(GetBegin(sptr, from, std::experimental::nullopt, edge_types));
+  begin_.emplace(GetBegin(sptr, from, std::nullopt, edge_types));
   end_.emplace(GetEnd(sptr, from));
 }
 
 EdgeAccessorIterator EdgesIterable::GetBegin(
     std::shared_ptr<VertexAccessor> va, bool from,
-    std::experimental::optional<storage::VertexAddress> dest,
+    std::optional<storage::VertexAddress> dest,
     const std::vector<storage::EdgeType> *edge_types) {
   const Edges *edges;
 

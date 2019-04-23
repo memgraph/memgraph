@@ -271,10 +271,8 @@ class ExpectScanAllByLabelPropertyRange
  public:
   ExpectScanAllByLabelPropertyRange(
       storage::Label label, storage::Property property,
-      std::experimental::optional<ScanAllByLabelPropertyRange::Bound>
-          lower_bound,
-      std::experimental::optional<ScanAllByLabelPropertyRange::Bound>
-          upper_bound)
+      std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
+      std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
       : label_(label),
         property_(property),
         lower_bound_(lower_bound),
@@ -303,8 +301,8 @@ class ExpectScanAllByLabelPropertyRange
  private:
   storage::Label label_;
   storage::Property property_;
-  std::experimental::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
-  std::experimental::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
+  std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
+  std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
 };
 
 class ExpectCartesian : public OpChecker<Cartesian> {

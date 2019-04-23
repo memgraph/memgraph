@@ -1,15 +1,15 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "glog/logging.h"
 
-#include "storage/distributed/mvcc/version_list.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/distributed/address.hpp"
 #include "storage/distributed/address_types.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 #include "utils/algorithm.hpp"
 
 /**
@@ -50,7 +50,7 @@ class Edges {
      */
     Iterator(std::vector<Element>::const_iterator position,
              std::vector<Element>::const_iterator end,
-             std::experimental::optional<storage::VertexAddress> vertex,
+             std::optional<storage::VertexAddress> vertex,
              const std::vector<storage::EdgeType> *edge_types)
         : position_(position),
           end_(end),
@@ -81,7 +81,7 @@ class Edges {
 
     // Optional predicates. If set they define which edges are skipped by the
     // iterator.
-    std::experimental::optional<storage::VertexAddress> vertex_;
+    std::optional<storage::VertexAddress> vertex_;
     // For edge types we use a vector pointer because it's optional.
     const std::vector<storage::EdgeType> *edge_types_ = nullptr;
 
@@ -146,7 +146,7 @@ class Edges {
    * @param edge_types - The edge types at least one of which must be matched.
    * If nullptr edges are not filtered on type.
    */
-  auto begin(std::experimental::optional<storage::VertexAddress> vertex,
+  auto begin(std::optional<storage::VertexAddress> vertex,
              const std::vector<storage::EdgeType> *edge_types) const {
     if (edge_types && edge_types->empty()) edge_types = nullptr;
     return Iterator(storage_.begin(), storage_.end(), vertex, edge_types);

@@ -273,10 +273,10 @@ void StateDelta::Encode(
   if (!decoder.ReadValue(&dv)) return nullopt;    \
   r_val.member = static_cast<type>(dv.value_f());
 
-std::experimental::optional<StateDelta> StateDelta::Decode(
+std::optional<StateDelta> StateDelta::Decode(
     HashedFileReader &reader,
     communication::bolt::Decoder<HashedFileReader> &decoder) {
-  using std::experimental::nullopt;
+  using std::nullopt;
 
   StateDelta r_val;
   // The decoded value used as a temporary while decoding.

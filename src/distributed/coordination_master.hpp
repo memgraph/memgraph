@@ -1,9 +1,9 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <unordered_map>
 
@@ -44,16 +44,15 @@ class MasterCoordination final : public Coordination {
    * recovered workers alongside with its recovery_info.
    */
   void WorkerRecoveredSnapshot(
-      int worker_id, const std::experimental::optional<durability::RecoveryInfo>
-                         &recovery_info);
+      int worker_id,
+      const std::optional<durability::RecoveryInfo> &recovery_info);
 
   /// Sets the recovery info. nullopt indicates nothing was recovered.
   void SetRecoveredSnapshot(
-      std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
-          recovered_snapshot);
+      std::optional<std::pair<int64_t, tx::TransactionId>> recovered_snapshot);
 
-  std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
-  RecoveredSnapshotTx() const;
+  std::optional<std::pair<int64_t, tx::TransactionId>> RecoveredSnapshotTx()
+      const;
 
   int CountRecoveredWorkers() const;
 
@@ -89,11 +88,9 @@ class MasterCoordination final : public Coordination {
   // Indicates if the recovery phase is done.
   bool recovery_done_{false};
   // Set of workers that finished sucesfully recovering snapshot
-  std::map<int, std::experimental::optional<durability::RecoveryInfo>>
-      recovered_workers_;
+  std::map<int, std::optional<durability::RecoveryInfo>> recovered_workers_;
   // If nullopt nothing was recovered.
-  std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
-      recovered_snapshot_tx_;
+  std::optional<std::pair<int64_t, tx::TransactionId>> recovered_snapshot_tx_;
 
   // Scheduler that is used to periodically ping all registered workers.
   utils::Scheduler scheduler_;

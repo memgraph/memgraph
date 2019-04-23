@@ -20,7 +20,7 @@ class TransactionEngine final {
   Interpret(const std::string &query,
             const std::map<std::string, PropertyValue> &params) {
     // Clear pending results.
-    results_ = std::experimental::nullopt;
+    results_ = std::nullopt;
 
     // Check the query for transaction commands.
     auto query_upper = utils::Trim(utils::ToUpperCase(query));
@@ -103,13 +103,13 @@ class TransactionEngine final {
   }
 
   void Abort() {
-    results_ = std::experimental::nullopt;
+    results_ = std::nullopt;
     expect_rollback_ = false;
     in_explicit_transaction_ = false;
     if (!db_accessor_) return;
     db_accessor_->Abort();
 #ifndef MG_DISTRIBUTED
-    db_accessor_ = std::experimental::nullopt;
+    db_accessor_ = std::nullopt;
 #else
     db_accessor_ = nullptr;
 #endif
@@ -119,7 +119,7 @@ class TransactionEngine final {
   database::GraphDb *db_{nullptr};
   Interpreter *interpreter_{nullptr};
 #ifndef MG_DISTRIBUTED
-  std::experimental::optional<database::GraphDbAccessor> db_accessor_;
+  std::optional<database::GraphDbAccessor> db_accessor_;
 #else
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
 #endif
@@ -127,29 +127,29 @@ class TransactionEngine final {
   // `database::GraphDbAccessor` is destroyed because the `Results` object holds
   // references to the `GraphDb` object and will crash the database when
   // destructed if you are not careful.
-  std::experimental::optional<query::Interpreter::Results> results_;
+  std::optional<query::Interpreter::Results> results_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
   void Commit() {
-    results_ = std::experimental::nullopt;
+    results_ = std::nullopt;
     if (!db_accessor_) return;
     db_accessor_->Commit();
 #ifndef MG_DISTRIBUTED
-    db_accessor_ = std::experimental::nullopt;
+    db_accessor_ = std::nullopt;
 #else
     db_accessor_ = nullptr;
 #endif
   }
 
   void AdvanceCommand() {
-    results_ = std::experimental::nullopt;
+    results_ = std::nullopt;
     if (!db_accessor_) return;
     db_accessor_->AdvanceCommand();
   }
 
   void AbortCommand() {
-    results_ = std::experimental::nullopt;
+    results_ = std::nullopt;
     if (in_explicit_transaction_) {
       expect_rollback_ = true;
     } else {

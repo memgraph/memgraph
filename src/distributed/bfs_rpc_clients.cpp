@@ -68,7 +68,7 @@ void BfsRpcClients::ResetSubcursors(
   }
 }
 
-std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
+std::optional<VertexAccessor> BfsRpcClients::Pull(
     int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba) {
   if (worker_id == db_->WorkerId()) {
     return subcursor_storage_->Get(subcursor_id)->Pull();

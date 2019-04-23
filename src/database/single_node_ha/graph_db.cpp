@@ -1,6 +1,6 @@
 #include "database/single_node_ha/graph_db.hpp"
 
-#include <experimental/optional>
+#include <optional>
 
 #include <glog/logging.h>
 
@@ -60,7 +60,7 @@ GraphDbAccessor GraphDb::Access(tx::TransactionId tx_id) {
 }
 
 GraphDbAccessor GraphDb::AccessBlocking(
-    std::experimental::optional<tx::TransactionId> parent_tx) {
+    std::optional<tx::TransactionId> parent_tx) {
   return GraphDbAccessor(this, parent_tx);
 }
 

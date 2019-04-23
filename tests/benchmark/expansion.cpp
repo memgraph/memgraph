@@ -12,7 +12,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
   // GraphDb shouldn't be global constructed/destructed. See
   // documentation in database/single_node/graph_db.hpp for details.
-  std::experimental::optional<database::GraphDb> db_;
+  std::optional<database::GraphDb> db_;
   query::Interpreter interpreter_;
 
   void SetUp(const benchmark::State &state) override {
@@ -35,7 +35,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     auto dba = db_->Access();
     for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
     dba.Commit();
-    db_ = std::experimental::nullopt;
+    db_ = std::nullopt;
   }
 
   auto &interpreter() { return interpreter_; }

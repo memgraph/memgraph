@@ -1,9 +1,9 @@
 #pragma once
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,7 +30,7 @@ class KVStore final {
    * NOTE: Don't instantiate more instances of a KVStore with the same
    *       storage directory because that will lead to undefined behaviour.
    */
-  explicit KVStore(std::experimental::filesystem::path storage);
+  explicit KVStore(std::filesystem::path storage);
 
   KVStore(const KVStore &other) = delete;
   KVStore(KVStore &&other);
@@ -69,8 +69,7 @@ class KVStore final {
    * @return Value for the given key. std::nullopt in case of any error
    *         OR the value doesn't exist.
    */
-  std::experimental::optional<std::string> Get(const std::string &key) const
-      noexcept;
+  std::optional<std::string> Get(const std::string &key) const noexcept;
 
   /**
    * Deletes the key and corresponding value from storage.

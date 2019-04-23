@@ -3,7 +3,7 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -78,7 +78,7 @@ class RaftServer final : public RaftInterface {
 
   /// Setter for `voted for` member. It updates the persistent storage as well
   /// as its in-memory copy.
-  void SetVotedFor(std::experimental::optional<uint16_t> new_voted_for);
+  void SetVotedFor(std::optional<uint16_t> new_voted_for);
 
   /// Setter for `log size` member. It updates the persistent storage as well
   /// as its in-memory copy.
@@ -87,7 +87,7 @@ class RaftServer final : public RaftInterface {
   /// Retrieves persisted snapshot metadata or nullopt if not present.
   /// Snapshot metadata is a triplet consisting of the last included term, last
   /// last included log entry index and the snapshot filename.
-  std::experimental::optional<SnapshotMetadata> GetSnapshotMetadata();
+  std::optional<SnapshotMetadata> GetSnapshotMetadata();
 
   /// Persists snapshot metadata.
   void PersistSnapshotMetadata(const SnapshotMetadata &snapshot_metadata);
@@ -167,10 +167,9 @@ class RaftServer final : public RaftInterface {
   database::GraphDb *db_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
-  std::atomic<Mode> mode_;  ///< Server's current mode.
-  uint16_t server_id_;      ///< ID of the current server.
-  std::experimental::filesystem::path
-      durability_dir_;          ///< Durability directory.
+  std::atomic<Mode> mode_;                ///< Server's current mode.
+  uint16_t server_id_;                    ///< ID of the current server.
+  std::filesystem::path durability_dir_;  ///< Durability directory.
   bool db_recover_on_startup_;  ///< Flag indicating if recovery should happen
                                 ///< on startup.
   uint64_t commit_index_;       ///< Index of the highest known committed entry.
@@ -254,7 +253,7 @@ class RaftServer final : public RaftInterface {
 
   storage::KVStore disk_storage_;
 
-  std::experimental::optional<uint16_t> voted_for_;
+  std::optional<uint16_t> voted_for_;
 
   std::atomic<uint64_t> current_term_;
   uint64_t log_size_;
@@ -289,10 +288,9 @@ class RaftServer final : public RaftInterface {
   /// @param snapshot_metadata metadata of the last snapshot, if any.
   /// @param lock Lock from the peer thread (released while waiting for
   ///             response)
-  void SendLogEntries(
-      uint16_t peer_id,
-      const std::experimental::optional<SnapshotMetadata> &snapshot_metadata,
-      std::unique_lock<std::mutex> *lock);
+  void SendLogEntries(uint16_t peer_id,
+                      const std::optional<SnapshotMetadata> &snapshot_metadata,
+                      std::unique_lock<std::mutex> *lock);
 
   /// Send Snapshot to peer. This function should only be called in leader
   /// mode.

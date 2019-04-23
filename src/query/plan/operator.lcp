@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -728,7 +728,7 @@ given label.
   bool has_bound;
   slk::Load(&has_bound, reader);
   if (!has_bound) {
-    self->${member} = std::experimental::nullopt;
+    self->${member} = std::nullopt;
     return;
   }
   uint8_t bound_type_value;
@@ -786,7 +786,7 @@ given label.
                     ${source}->value()->Clone(storage),
                     ${source}->type()));
   } else {
-    ${dest} = std::experimental::nullopt;
+    ${dest} = std::nullopt;
   }
   cpp<#)
 
@@ -794,14 +794,14 @@ given label.
   ((label "storage::Label" :scope :public)
    (property "storage::Property" :scope :public)
    (property-name "std::string" :scope :public)
-   (lower-bound "std::experimental::optional<Bound>" :scope :public
+   (lower-bound "std::optional<Bound>" :scope :public
                 :slk-save #'slk-save-optional-bound
                 :slk-load #'slk-load-optional-bound
                 :capnp-save #'save-optional-bound
                 :capnp-load #'load-optional-bound
                 :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
                 :clone #'clone-optional-bound)
-   (upper-bound "std::experimental::optional<Bound>" :scope :public
+   (upper-bound "std::optional<Bound>" :scope :public
                 :slk-save #'slk-save-optional-bound
                 :slk-load #'slk-load-optional-bound
                 :capnp-save #'save-optional-bound
@@ -838,8 +838,8 @@ property value which is inside a range (inclusive or exlusive).
                                Symbol output_symbol, storage::Label label,
                                storage::Property property,
                                const std::string &property_name,
-                               std::experimental::optional<Bound> lower_bound,
-                               std::experimental::optional<Bound> upper_bound,
+                               std::optional<Bound> lower_bound,
+                               std::optional<Bound> upper_bound,
                                GraphView graph_view = GraphView::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1003,10 +1003,10 @@ pulled.")
      // The iterable over edges and the current edge iterator are referenced via
      // optional because they can not be initialized in the constructor of
      // this class. They are initialized once for each pull from the input.
-     std::experimental::optional<InEdgeT> in_edges_;
-     std::experimental::optional<InEdgeIteratorT> in_edges_it_;
-     std::experimental::optional<OutEdgeT> out_edges_;
-     std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
+     std::optional<InEdgeT> in_edges_;
+     std::optional<InEdgeIteratorT> in_edges_it_;
+     std::optional<OutEdgeT> out_edges_;
+     std::optional<OutEdgeIteratorT> out_edges_it_;
 
      bool InitEdges(Frame &, ExecutionContext &);
    };
@@ -1077,13 +1077,13 @@ pulled.")
                                 #>cpp
                                 Load(&${member}, ${reader}, &helper->ast_storage);
                                 cpp<#))
-   (weight-lambda "std::experimental::optional<ExpansionLambda>" :scope :public
+   (weight-lambda "std::optional<ExpansionLambda>" :scope :public
                   :slk-load (lambda (member)
                               #>cpp
                               bool has_value;
                               slk::Load(&has_value, reader);
                               if (!has_value) {
-                                self->${member} = std::experimental::nullopt;
+                                self->${member} = std::nullopt;
                                 return;
                               }
                               query::plan::ExpansionLambda lambda;
@@ -1100,7 +1100,7 @@ pulled.")
                                   Load(&val, reader, &helper->ast_storage);
                                   return val;
                                 }"))
-   (total-weight "std::experimental::optional<Symbol>" :scope :public
+   (total-weight "std::optional<Symbol>" :scope :public
                  :capnp-save (lcp:capnp-save-optional "::query::capnp::Symbol" "Symbol")
                  :capnp-load (lcp:capnp-load-optional "::query::capnp::Symbol" "Symbol")))
   (:documentation
@@ -1157,8 +1157,8 @@ pulled.")
                    bool is_reverse, Expression *lower_bound,
                    Expression *upper_bound, bool existing_node,
                    ExpansionLambda filter_lambda,
-                   std::experimental::optional<ExpansionLambda> weight_lambda,
-                   std::experimental::optional<Symbol> total_weight);
+                   std::optional<ExpansionLambda> weight_lambda,
+                   std::optional<Symbol> total_weight);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(

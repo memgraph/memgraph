@@ -6,7 +6,7 @@
 #include "storage/common/kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 class KVStore : public ::testing::Test {
  protected:
@@ -52,11 +52,13 @@ TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
-  storage::KVStore kvstore(test_folder_ / "PutMultipleGetPutAndDeleteMultipleGet");
+  storage::KVStore kvstore(test_folder_ /
+                           "PutMultipleGetPutAndDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
-  ASSERT_TRUE(kvstore.PutAndDeleteMultiple({{"key3", "value3"}}, {"key1", "key2"}));
+  ASSERT_TRUE(
+      kvstore.PutAndDeleteMultiple({{"key3", "value3"}}, {"key1", "key2"}));
   ASSERT_FALSE(static_cast<bool>(kvstore.Get("key1")));
   ASSERT_FALSE(static_cast<bool>(kvstore.Get("key2")));
   ASSERT_EQ(kvstore.Get("key3").value(), "value3");

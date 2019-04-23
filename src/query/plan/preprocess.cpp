@@ -163,8 +163,8 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
 
 PropertyFilter::PropertyFilter(
     const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
-    const std::experimental::optional<PropertyFilter::Bound> &lower_bound,
-    const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
+    const std::optional<PropertyFilter::Bound> &lower_bound,
+    const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
       property_(property),
       type_(Type::RANGE),
@@ -389,18 +389,18 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(
-          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-          Bound(expr2, bound_type), std::experimental::nullopt);
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident),
+                                     prop_lookup->property_,
+                                     Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
     if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(
-          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-          std::experimental::nullopt, Bound(expr1, bound_type));
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident),
+                                     prop_lookup->property_, std::nullopt,
+                                     Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }

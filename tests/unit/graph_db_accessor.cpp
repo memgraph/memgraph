@@ -1,4 +1,4 @@
-#include <experimental/optional>
+#include <optional>
 
 #include <gtest/gtest.h>
 
@@ -379,8 +379,8 @@ TEST(GraphDbAccessorTest, Transfer) {
 
   // make dba2 that has dba1 in it's snapshot, so data isn't visible
   auto dba2 = db.Access();
-  EXPECT_EQ(dba2.Transfer(v1), std::experimental::nullopt);
-  EXPECT_EQ(dba2.Transfer(e12), std::experimental::nullopt);
+  EXPECT_EQ(dba2.Transfer(v1), std::nullopt);
+  EXPECT_EQ(dba2.Transfer(e12), std::nullopt);
 
   // make dba3 that does not have dba1 in it's snapshot
   dba1.Commit();

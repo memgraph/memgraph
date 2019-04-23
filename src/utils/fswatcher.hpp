@@ -19,8 +19,8 @@
 #include <thread>
 #include <vector>
 
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <glog/logging.h>
 
@@ -328,7 +328,6 @@ class FSWatcher {
 
     // run separate thread
     dispatch_thread_ = std::thread([this]() {
-
       DLOG(INFO) << "dispatch thread - start";
 
       while (is_running_.load()) {

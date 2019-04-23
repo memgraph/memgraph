@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <random>
 #include <unordered_map>
 
@@ -31,7 +31,7 @@ class ValueGenerator {
   }
 
   // Generates a single value based on the given config.
-  std::experimental::optional<PropertyValue> MakeValue(const json &config) {
+  std::optional<PropertyValue> MakeValue(const json &config) {
     if (config.is_object()) {
       const std::string &type = config["type"];
       const auto &param = config["param"];
@@ -91,11 +91,10 @@ class ValueGenerator {
 
   // Returns a value specified by config with some probability, and nullopt
   // otherwise
-  std::experimental::optional<PropertyValue> Optional(const json &config) {
+  std::optional<PropertyValue> Optional(const json &config) {
     CHECK(config.is_array() && config.size() == 2)
         << "Optional value gen config must be a list with 2 elements";
-    return Bernoulli(config[0]) ? MakeValue(config[1])
-                                : std::experimental::nullopt;
+    return Bernoulli(config[0]) ? MakeValue(config[1]) : std::nullopt;
   }
 
  private:

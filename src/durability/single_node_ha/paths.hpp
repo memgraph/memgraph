@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 
 #include "transactions/type.hpp"
 
@@ -15,12 +15,12 @@ const std::string kBackupDir = ".backup";
 std::string GetSnapshotFilename(tx::TransactionId tx_id);
 
 /// Generates a full path for a DB snapshot.
-std::experimental::filesystem::path MakeSnapshotPath(
-    const std::experimental::filesystem::path &durability_dir,
+std::filesystem::path MakeSnapshotPath(
+    const std::filesystem::path &durability_dir,
     const std::string &snapshot_filename);
 
 /// Returns the transaction id contained in the file name. If the filename is
 /// not a parseable snapshot file name, nullopt is returned.
-std::experimental::optional<tx::TransactionId>
-TransactionIdFromSnapshotFilename(const std::string &name);
+std::optional<tx::TransactionId> TransactionIdFromSnapshotFilename(
+    const std::string &name);
 }  // namespace durability

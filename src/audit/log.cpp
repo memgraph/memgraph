@@ -48,8 +48,8 @@ inline nlohmann::json PropertyValueToJson(const PropertyValue &pv) {
   return ret;
 }
 
-Log::Log(const std::experimental::filesystem::path &storage_directory,
-         int32_t buffer_size, int32_t buffer_flush_interval_millis)
+Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size,
+         int32_t buffer_flush_interval_millis)
     : storage_directory_(storage_directory),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),

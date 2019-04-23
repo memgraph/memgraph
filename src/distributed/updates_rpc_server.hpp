@@ -58,15 +58,13 @@ class UpdatesRpcServer {
     CreatedInfo CreateVertex(
         const std::vector<storage::Label> &labels,
         const std::unordered_map<storage::Property, PropertyValue> &properties,
-        std::experimental::optional<int64_t> cypher_id =
-            std::experimental::nullopt);
+        std::optional<int64_t> cypher_id = std::nullopt);
 
     /// Creates a new edge and returns it's cypher_id and gid. Does not update
     /// vertices at the end of the edge.
     CreatedInfo CreateEdge(gid::Gid from, storage::VertexAddress to,
                            storage::EdgeType edge_type, int worker_id,
-                           std::experimental::optional<int64_t> cypher_id =
-                               std::experimental::nullopt);
+                           std::optional<int64_t> cypher_id = std::nullopt);
 
     /// Applies all the deltas on the record.
     UpdateResult Apply();

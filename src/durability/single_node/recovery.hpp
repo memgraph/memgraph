@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -91,8 +91,7 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
  * @return - True if snapshot and WAL versions are compatible with
  *  `        current memgraph binary.
  */
-bool VersionConsistency(
-    const std::experimental::filesystem::path &durability_dir);
+bool VersionConsistency(const std::filesystem::path &durability_dir);
 
 /**
  * Checks whether the current memgraph binary (on a worker) is
@@ -111,15 +110,14 @@ bool DistributedVersionConsistency(const int64_t master_version);
  * @return - True if durability directory contains either a snapshot
  *           or WAL file.
  */
-bool ContainsDurabilityFiles(
-    const std::experimental::filesystem::path &durabilty_dir);
+bool ContainsDurabilityFiles(const std::filesystem::path &durabilty_dir);
 
 /**
  * Backup snapshots and WAL files to a backup folder.
  *
  * @param durability_dir - Path to durability directory.
  */
-void MoveToBackup(const std::experimental::filesystem::path &durability_dir);
+void MoveToBackup(const std::filesystem::path &durability_dir);
 
 /**
  * Recovers database from the latest possible snapshot. If recovering fails,
@@ -134,9 +132,9 @@ void MoveToBackup(const std::experimental::filesystem::path &durability_dir);
  * @return - recovery info
  */
 RecoveryInfo RecoverOnlySnapshot(
-    const std::experimental::filesystem::path &durability_dir,
-    database::GraphDb *db, durability::RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id);
+    const std::filesystem::path &durability_dir, database::GraphDb *db,
+    durability::RecoveryData *recovery_data,
+    std::optional<tx::TransactionId> required_snapshot_tx_id);
 
 /** Interface for accessing transactions during WAL recovery. */
 class RecoveryTransactions {
@@ -160,7 +158,7 @@ class RecoveryTransactions {
       accessors_;
 };
 
-void RecoverWal(const std::experimental::filesystem::path &durability_dir,
+void RecoverWal(const std::filesystem::path &durability_dir,
                 database::GraphDb *db, RecoveryData *recovery_data,
                 RecoveryTransactions *transactions);
 

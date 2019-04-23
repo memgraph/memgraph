@@ -20,9 +20,8 @@ DEFINE_VALIDATED_HIDDEN_int32(wal_buffer_size, 4096,
 
 namespace durability {
 
-WriteAheadLog::WriteAheadLog(
-    const std::experimental::filesystem::path &durability_dir,
-    bool durability_enabled, bool synchronous_commit)
+WriteAheadLog::WriteAheadLog(const std::filesystem::path &durability_dir,
+                             bool durability_enabled, bool synchronous_commit)
     : deltas_{FLAGS_wal_buffer_size},
       wal_file_{durability_dir},
       durability_enabled_(durability_enabled),
@@ -39,8 +38,7 @@ WriteAheadLog::~WriteAheadLog() {
   }
 }
 
-WriteAheadLog::WalFile::WalFile(
-    const std::experimental::filesystem::path &durability_dir)
+WriteAheadLog::WalFile::WalFile(const std::filesystem::path &durability_dir)
     : wal_dir_{durability_dir / kWalDir} {}
 
 WriteAheadLog::WalFile::~WalFile() {
@@ -50,7 +48,7 @@ WriteAheadLog::WalFile::~WalFile() {
 void WriteAheadLog::WalFile::Init() {
   if (!utils::EnsureDir(wal_dir_)) {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
-    current_wal_file_ = std::experimental::filesystem::path();
+    current_wal_file_ = std::filesystem::path();
   } else {
     current_wal_file_ = WalFilenameForTransactionId(wal_dir_);
     // TODO: Fix error handling, the encoder_ returns `true` or `false`.
@@ -63,7 +61,7 @@ void WriteAheadLog::WalFile::Init() {
     } catch (std::ios_base::failure &) {
       LOG(ERROR) << "Failed to open write-ahead log file: "
                  << current_wal_file_;
-      current_wal_file_ = std::experimental::filesystem::path();
+      current_wal_file_ = std::filesystem::path();
     }
   }
   latest_tx_ = 0;
@@ -93,7 +91,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
     LOG(ERROR) << "Failed to write to write-ahead log, discarding data.";
     buffer.clear();
     return;
-  } catch (std::experimental::filesystem::filesystem_error &) {
+  } catch (std::filesystem::filesystem_error &) {
     LOG(ERROR) << "Failed to rotate write-ahead log.";
     buffer.clear();
     return;
@@ -103,9 +101,8 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
 void WriteAheadLog::WalFile::RotateFile() {
   writer_.Flush();
   writer_.Close();
-  std::experimental::filesystem::rename(
-      current_wal_file_,
-      WalFilenameForTransactionId(wal_dir_, latest_tx_));
+  std::filesystem::rename(current_wal_file_,
+                          WalFilenameForTransactionId(wal_dir_, latest_tx_));
   Init();
 }
 

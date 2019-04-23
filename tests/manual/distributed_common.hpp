@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chrono>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <vector>
 
 #include <gflags/gflags.h>
@@ -17,7 +17,7 @@
 
 DECLARE_string(durability_directory);
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 class WorkerInThread {
  public:

@@ -110,8 +110,7 @@ class GraphState {
   gid::Gid CreateNode(
       int worker_id, const std::vector<std::string> &labels,
       const std::unordered_map<std::string, PropertyValue> &props) {
-    auto node_gid =
-        node_generators_[worker_id]->Next(std::experimental::nullopt);
+    auto node_gid = node_generators_[worker_id]->Next(std::nullopt);
     nodes_[node_gid] = {node_gid, labels, props, {}, {}};
 
     for (const auto &label : labels) {
@@ -125,8 +124,7 @@ class GraphState {
       gid::Gid from, gid::Gid to, const std::string &type,
       const std::unordered_map<std::string, PropertyValue> &props) {
     int worker_id = gid::CreatorWorker(from);
-    auto edge_gid =
-        edge_generators_[worker_id]->Next(std::experimental::nullopt);
+    auto edge_gid = edge_generators_[worker_id]->Next(std::nullopt);
     nodes_[from].out_edges.emplace_back(edge_gid);
     nodes_[to].in_edges.emplace_back(edge_gid);
     edges_[edge_gid] = Edge{edge_gid, from, to, type, props};

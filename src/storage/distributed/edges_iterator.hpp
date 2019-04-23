@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "storage/distributed/edge_accessor.hpp"
 #include "storage/distributed/edges.hpp"
@@ -71,14 +71,14 @@ class EdgeAccessorIterator {
     }
   }
 
-  void ResetAccessor() { edge_accessor_ = std::experimental::nullopt; }
+  void ResetAccessor() { edge_accessor_ = std::nullopt; }
 
   void CreateOut(const Edges::Element &e);
 
   void CreateIn(const Edges::Element &e);
 
   std::shared_ptr<VertexAccessor> va_;
-  std::experimental::optional<EdgeAccessor> edge_accessor_;
+  std::optional<EdgeAccessor> edge_accessor_;
   Edges::Iterator iter_;
   bool from_;
 };
@@ -95,8 +95,7 @@ class EdgesIterable {
   /// be filtered on destination
   /// @param edge_types - the edge types at least one of which must be matched,
   /// if nullptr edges are not filtered on type
-  EdgesIterable(const VertexAccessor &va, bool from,
-                const VertexAccessor &dest,
+  EdgesIterable(const VertexAccessor &va, bool from, const VertexAccessor &dest,
                 const std::vector<storage::EdgeType> *edge_types = nullptr);
 
   /// Creates new iterable that will skip edges whose type is not in edge_types.
@@ -113,11 +112,11 @@ class EdgesIterable {
  private:
   EdgeAccessorIterator GetBegin(
       std::shared_ptr<VertexAccessor> va, bool from,
-      std::experimental::optional<storage::VertexAddress> dest,
+      std::optional<storage::VertexAddress> dest,
       const std::vector<storage::EdgeType> *edge_types = nullptr);
 
   EdgeAccessorIterator GetEnd(std::shared_ptr<VertexAccessor> va, bool from);
 
-  std::experimental::optional<EdgeAccessorIterator> begin_;
-  std::experimental::optional<EdgeAccessorIterator> end_;
+  std::optional<EdgeAccessorIterator> begin_;
+  std::optional<EdgeAccessorIterator> end_;
 };

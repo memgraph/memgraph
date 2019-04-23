@@ -1,7 +1,7 @@
 #include "durability/distributed/paths.hpp"
 
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 #include "glog/logging.h"
@@ -12,11 +12,11 @@
 
 namespace durability {
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
-std::experimental::optional<tx::TransactionId> TransactionIdFromWalFilename(
+std::optional<tx::TransactionId> TransactionIdFromWalFilename(
     const std::string &name) {
-  auto nullopt = std::experimental::nullopt;
+  auto nullopt = std::nullopt;
   // Get the max_transaction_id from the file name that has format
   // "XXXXX__max_transaction_<MAX_TRANS_ID>_worker_<Worker_ID>"
   auto file_name_split = utils::RSplit(name, "__", 1);
@@ -56,9 +56,9 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id,
 /// Generates a file path for a write-ahead log file. If given a transaction ID
 /// the file name will contain it. Otherwise the file path is for the "current"
 /// WAL file for which the max tx id is still unknown.
-fs::path WalFilenameForTransactionId(
-    const std::experimental::filesystem::path &wal_dir, int worker_id,
-    std::experimental::optional<tx::TransactionId> tx_id) {
+fs::path WalFilenameForTransactionId(const std::filesystem::path &wal_dir,
+                                     int worker_id,
+                                     std::optional<tx::TransactionId> tx_id) {
   auto file_name = utils::Timestamp::Now().ToIso8601();
   if (tx_id) {
     file_name += "__max_transaction_" + std::to_string(*tx_id);
@@ -69,9 +69,9 @@ fs::path WalFilenameForTransactionId(
   return wal_dir / file_name;
 }
 
-std::experimental::optional<tx::TransactionId>
-TransactionIdFromSnapshotFilename(const std::string &name) {
-  auto nullopt = std::experimental::nullopt;
+std::optional<tx::TransactionId> TransactionIdFromSnapshotFilename(
+    const std::string &name) {
+  auto nullopt = std::nullopt;
   auto file_name_split = utils::RSplit(name, "_tx_", 1);
   if (file_name_split.size() != 2) {
     LOG(WARNING) << "Unable to parse snapshot file name: " << name;

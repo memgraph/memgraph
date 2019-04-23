@@ -25,7 +25,6 @@
 
 #include <map>
 #include <sstream>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -222,8 +221,7 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name,
 ///
 /// Name is used to create the Identifier which is assigned to the node.
 auto GetNode(AstStorage &storage, const std::string &name,
-             std::experimental::optional<std::string> label =
-                 std::experimental::nullopt) {
+             std::optional<std::string> label = std::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;

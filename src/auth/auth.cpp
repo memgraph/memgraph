@@ -139,9 +139,10 @@ std::string LdapEscapeString(const std::string &src) {
 /// searching all first level children of the `role_base_dn` and finding that
 /// item that has a `mapping` attribute to the given `user_dn`. The found item's
 /// `cn` is used as the role name.
-std::experimental::optional<std::string> LdapFindRole(
-    LDAP *ld, const std::string &role_base_dn, const std::string &user_dn,
-    const std::string &username) {
+std::optional<std::string> LdapFindRole(LDAP *ld,
+                                        const std::string &role_base_dn,
+                                        const std::string &user_dn,
+                                        const std::string &username) {
   auto ldap_user_dn = LdapConvertString(user_dn);
 
   char *attrs[1] = {nullptr};
@@ -155,7 +156,7 @@ std::experimental::optional<std::string> LdapFindRole(
   if (ret != LDAP_SUCCESS) {
     LOG(WARNING) << "Couldn't find role for user '" << username
                  << "' using LDAP due to error: " << ldap_err2string(ret);
-    return std::experimental::nullopt;
+    return std::nullopt;
   }
 
   if (ret == LDAP_SUCCESS && msg != nullptr) {
@@ -171,17 +172,17 @@ std::experimental::optional<std::string> LdapFindRole(
           LOG(WARNING) << "Couldn't find role for user '" << username
                        << "' using LDAP because to the role object doesn't "
                           "have a unique CN attribute!";
-          return std::experimental::nullopt;
+          return std::nullopt;
         }
         return std::string(values[0]->bv_val, values[0]->bv_len);
       } else if (ret != LDAP_COMPARE_FALSE) {
         LOG(WARNING) << "Couldn't find role for user '" << username
                      << "' using LDAP due to error: " << ldap_err2string(ret);
-        return std::experimental::nullopt;
+        return std::nullopt;
       }
     }
   }
-  return std::experimental::nullopt;
+  return std::nullopt;
 }
 
 #define LDAP_EXIT_ON_ERROR(expr, username)                                 \
@@ -190,12 +191,12 @@ std::experimental::optional<std::string> LdapFindRole(
     if (r != LDAP_SUCCESS) {                                               \
       LOG(WARNING) << "Couldn't authenticate user '" << username           \
                    << "' using LDAP due to error: " << ldap_err2string(r); \
-      return std::experimental::nullopt;                                   \
+      return std::nullopt;                                                 \
     }                                                                      \
   }
 
-std::experimental::optional<User> Auth::Authenticate(
-    const std::string &username, const std::string &password) {
+std::optional<User> Auth::Authenticate(const std::string &username,
+                                       const std::string &password) {
   if (FLAGS_auth_ldap_enabled) {
     LDAP *ld = nullptr;
 
@@ -237,7 +238,7 @@ std::experimental::optional<User> Auth::Authenticate(
     }
 
     // Find role name.
-    std::experimental::optional<std::string> rolename;
+    std::optional<std::string> rolename;
     if (!FLAGS_auth_ldap_role_mapping_root_dn.empty()) {
       rolename = LdapFindRole(ld, FLAGS_auth_ldap_role_mapping_root_dn,
                               distinguished_name, username);
@@ -252,12 +253,12 @@ std::experimental::optional<User> Auth::Authenticate(
           LOG(WARNING)
               << "Couldn't authenticate user '" << username
               << "' using LDAP because the user already exists as a role!";
-          return std::experimental::nullopt;
+          return std::nullopt;
         }
       } else {
         LOG(WARNING) << "Couldn't authenticate user '" << username
                      << "' using LDAP because the user doesn't exist!";
-        return std::experimental::nullopt;
+        return std::nullopt;
       }
     } else {
       user->UpdatePassword(password);
@@ -271,14 +272,14 @@ std::experimental::optional<User> Auth::Authenticate(
             LOG(WARNING) << "Couldn't authenticate user '" << username
                          << "' using LDAP because the user's role '"
                          << *rolename << "' already exists as a user!";
-            return std::experimental::nullopt;
+            return std::nullopt;
           }
           SaveRole(*role);
         } else {
           LOG(WARNING) << "Couldn't authenticate user '" << username
                        << "' using LDAP because the user's role '" << *rolename
                        << "' doesn't exist!";
-          return std::experimental::nullopt;
+          return std::nullopt;
         }
       }
       user->SetRole(*role);
@@ -289,17 +290,16 @@ std::experimental::optional<User> Auth::Authenticate(
     return user;
   } else {
     auto user = GetUser(username);
-    if (!user) return std::experimental::nullopt;
-    if (!user->CheckPassword(password)) return std::experimental::nullopt;
+    if (!user) return std::nullopt;
+    if (!user->CheckPassword(password)) return std::nullopt;
     return user;
   }
 }
 
-std::experimental::optional<User> Auth::GetUser(
-    const std::string &username_orig) {
+std::optional<User> Auth::GetUser(const std::string &username_orig) {
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
-  if (!existing_user) return std::experimental::nullopt;
+  if (!existing_user) return std::nullopt;
 
   nlohmann::json data;
   try {
@@ -336,13 +336,12 @@ void Auth::SaveUser(const User &user) {
   }
 }
 
-std::experimental::optional<User> Auth::AddUser(
-    const std::string &username,
-    const std::experimental::optional<std::string> &password) {
+std::optional<User> Auth::AddUser(const std::string &username,
+                                  const std::optional<std::string> &password) {
   auto existing_user = GetUser(username);
-  if (existing_user) return std::experimental::nullopt;
+  if (existing_user) return std::nullopt;
   auto existing_role = GetRole(username);
-  if (existing_role) return std::experimental::nullopt;
+  if (existing_role) return std::nullopt;
   auto new_user = User(username);
   new_user.UpdatePassword(password);
   SaveUser(new_user);
@@ -378,11 +377,10 @@ bool Auth::HasUsers() {
   return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix);
 }
 
-std::experimental::optional<Role> Auth::GetRole(
-    const std::string &rolename_orig) {
+std::optional<Role> Auth::GetRole(const std::string &rolename_orig) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
-  if (!existing_role) return std::experimental::nullopt;
+  if (!existing_role) return std::nullopt;
 
   nlohmann::json data;
   try {
@@ -400,11 +398,11 @@ void Auth::SaveRole(const Role &role) {
   }
 }
 
-std::experimental::optional<Role> Auth::AddRole(const std::string &rolename) {
+std::optional<Role> Auth::AddRole(const std::string &rolename) {
   auto existing_role = GetRole(rolename);
-  if (existing_role) return std::experimental::nullopt;
+  if (existing_role) return std::nullopt;
   auto existing_user = GetUser(rolename);
-  if (existing_user) return std::experimental::nullopt;
+  if (existing_user) return std::nullopt;
   auto new_role = Role(rolename);
   SaveRole(new_role);
   return new_role;

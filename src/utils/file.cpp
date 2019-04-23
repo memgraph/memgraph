@@ -11,8 +11,7 @@
 
 namespace utils {
 
-std::vector<std::string> ReadLines(
-    const std::experimental::filesystem::path &path) noexcept {
+std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   std::vector<std::string> lines;
 
   std::ifstream stream(path.c_str());
@@ -26,30 +25,29 @@ std::vector<std::string> ReadLines(
   return lines;
 }
 
-bool EnsureDir(const std::experimental::filesystem::path &dir) noexcept {
+bool EnsureDir(const std::filesystem::path &dir) noexcept {
   std::error_code error_code;  // For exception suppression.
-  if (std::experimental::filesystem::exists(dir, error_code))
-    return std::experimental::filesystem::is_directory(dir, error_code);
-  return std::experimental::filesystem::create_directories(dir, error_code);
+  if (std::filesystem::exists(dir, error_code))
+    return std::filesystem::is_directory(dir, error_code);
+  return std::filesystem::create_directories(dir, error_code);
 }
 
-void EnsureDirOrDie(const std::experimental::filesystem::path &dir) {
+void EnsureDirOrDie(const std::filesystem::path &dir) {
   CHECK(EnsureDir(dir)) << "Couldn't create directory '" << dir
                         << "' due to a permission issue or the path exists and "
                            "isn't a directory!";
 }
 
-bool DeleteDir(const std::experimental::filesystem::path &dir) noexcept {
+bool DeleteDir(const std::filesystem::path &dir) noexcept {
   std::error_code error_code;  // For exception suppression.
-  if (!std::experimental::filesystem::is_directory(dir, error_code))
-    return false;
-  return std::experimental::filesystem::remove_all(dir, error_code) > 0;
+  if (!std::filesystem::is_directory(dir, error_code)) return false;
+  return std::filesystem::remove_all(dir, error_code) > 0;
 }
 
-bool CopyFile(const std::experimental::filesystem::path &src,
-              const std::experimental::filesystem::path &dst) noexcept {
+bool CopyFile(const std::filesystem::path &src,
+              const std::filesystem::path &dst) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::experimental::filesystem::copy_file(src, dst, error_code);
+  return std::filesystem::copy_file(src, dst, error_code);
 }
 
 LogFile::~LogFile() {
@@ -79,7 +77,7 @@ LogFile &LogFile::operator=(LogFile &&other) {
   return *this;
 }
 
-void LogFile::Open(const std::experimental::filesystem::path &path) {
+void LogFile::Open(const std::filesystem::path &path) {
   CHECK(!IsOpen())
       << "While trying to open " << path
       << " for writing the database used a handle that already has " << path_
@@ -108,9 +106,7 @@ void LogFile::Open(const std::experimental::filesystem::path &path) {
 
 bool LogFile::IsOpen() const { return fd_ != -1; }
 
-const std::experimental::filesystem::path &LogFile::path() const {
-  return path_;
-}
+const std::filesystem::path &LogFile::path() const { return path_; }
 
 void LogFile::Write(const char *data, size_t size) {
   while (size > 0) {

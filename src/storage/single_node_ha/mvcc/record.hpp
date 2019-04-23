@@ -1,15 +1,15 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
 #include <iostream>
+#include <optional>
 
 #include "transactions/commit_log.hpp"
 #include "transactions/single_node_ha/engine.hpp"
 #include "transactions/transaction.hpp"
 
-#include "storage/common/mvcc/version.hpp"
 #include "storage/common/locking/record_lock.hpp"
+#include "storage/common/mvcc/version.hpp"
 
 // the mvcc implementation used here is very much like postgresql's
 // more info: https://momjian.us/main/writings/pgsql/mvcc.pdf
@@ -246,8 +246,7 @@ class Record : public Version<T> {
    */
   bool populate_hint_if_possible(
       const tx::Engine &engine, const uint8_t mask,
-      const std::experimental::optional<tx::TransactionId> tx_cutoff =
-          std::experimental::nullopt) const {
+      const std::optional<tx::TransactionId> tx_cutoff = std::nullopt) const {
     DCHECK(mask == Hints::kCre || mask == Hints::kExp)
         << "Mask should be either for creation or expiration";
     if (hints_.Get(mask)) return true;

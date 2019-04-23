@@ -1,4 +1,4 @@
-#include <experimental/optional>
+#include <optional>
 #include <string>
 
 #include <gflags/gflags.h>
@@ -23,7 +23,7 @@ class RecoveryTest : public ::testing::Test {
     std::string durability_dir(FLAGS_durability_dir);
     durability::RecoveryData recovery_data;
     durability::RecoverOnlySnapshot(durability_dir, &db_, &recovery_data,
-                                    std::experimental::nullopt);
+                                    std::nullopt);
     durability::RecoveryTransactions recovery_transactions(&db_);
     durability::RecoverWal(durability_dir, &db_, &recovery_data,
                                &recovery_transactions);

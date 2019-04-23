@@ -1,6 +1,6 @@
-#include <experimental/optional>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -486,8 +486,8 @@ class QueryPlanExpandVariable : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  // using std::experimental::nullopt
-  std::experimental::nullopt_t nullopt = std::experimental::nullopt;
+  // using std::nullopt
+  std::nullopt_t nullopt = std::nullopt;
 
   void SetUp() {
     // create the graph
@@ -533,8 +533,7 @@ class QueryPlanExpandVariable : public testing::Test {
       std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
       int layer, EdgeAtom::Direction direction,
       const std::vector<storage::EdgeType> &edge_types,
-      std::experimental::optional<size_t> lower,
-      std::experimental::optional<size_t> upper, Symbol edge_sym,
+      std::optional<size_t> lower, std::optional<size_t> upper, Symbol edge_sym,
       const std::string &node_to, GraphView graph_view,
       bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
@@ -550,7 +549,7 @@ class QueryPlanExpandVariable : public testing::Test {
 
     if (std::is_same<TExpansionOperator, ExpandVariable>::value) {
       // convert optional ints to optional expressions
-      auto convert = [this](std::experimental::optional<size_t> bound) {
+      auto convert = [this](std::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
       CHECK(graph_view == GraphView::OLD)
@@ -563,7 +562,7 @@ class QueryPlanExpandVariable : public testing::Test {
           ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
                           symbol_table.CreateSymbol("inner_node", false),
                           nullptr},
-          std::experimental::nullopt, std::experimental::nullopt);
+          std::nullopt, std::nullopt);
     } else
       return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym,
                                       edge_sym, direction, edge_types, false,
@@ -619,9 +618,8 @@ class QueryPlanExpandVariable : public testing::Test {
 
 TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::experimental::optional<size_t> lower,
-                         std::experimental::optional<size_t> upper,
-                         bool reverse) {
+                         std::optional<size_t> lower,
+                         std::optional<size_t> upper, bool reverse) {
     auto e = Edge("r", direction);
     return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower,
@@ -677,8 +675,8 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::experimental::optional<size_t> lower,
-                         std::experimental::optional<size_t> upper,
+                         std::optional<size_t> lower,
+                         std::optional<size_t> upper,
                          bool single_expansion_before,
                          bool add_uniqueness_check) {
     std::shared_ptr<LogicalOperator> last_op{nullptr};
@@ -723,25 +721,24 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
 }
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
-  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::experimental::optional<size_t> lower,
-                         std::experimental::optional<size_t> upper,
-                         bool add_uniqueness_check) {
-    auto e1 = Edge("r1", direction);
-    auto first =
-        AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower,
-                                 upper, e1, "m1", GraphView::OLD);
-    auto e2 = Edge("r2", direction);
-    auto last_op =
-        AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
-                                 upper, e2, "m2", GraphView::OLD);
-    if (add_uniqueness_check) {
-      last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2,
-                                                       std::vector<Symbol>{e1});
-    }
+  auto test_expand =
+      [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
+          std::optional<size_t> upper, bool add_uniqueness_check) {
+        auto e1 = Edge("r1", direction);
+        auto first =
+            AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower,
+                                     upper, e1, "m1", GraphView::OLD);
+        auto e2 = Edge("r2", direction);
+        auto last_op =
+            AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
+                                     upper, e2, "m2", GraphView::OLD);
+        if (add_uniqueness_check) {
+          last_op = std::make_shared<EdgeUniquenessFilter>(
+              last_op, e2, std::vector<Symbol>{e1});
+        }
 
-    return GetEdgeListSizes(last_op, e2);
-  };
+        return GetEdgeListSizes(last_op, e2);
+      };
 
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false),
             (map_int{{2, 8 * 8}}));
@@ -853,9 +850,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // params returns a vector of pairs. each pair is (vector-of-edges,
   // vertex)
   auto ExpandWShortest(EdgeAtom::Direction direction,
-                       std::experimental::optional<int> max_depth,
-                       Expression *where,
-                       std::experimental::optional<int> node_id = 0,
+                       std::optional<int> max_depth, Expression *where,
+                       std::optional<int> node_id = 0,
                        ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
     auto n =
@@ -1019,25 +1015,24 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
-  auto ExpandPreceeding =
-      [this](std::experimental::optional<int> preceeding_node_id) {
-        // scan the nodes optionally filtering on property value
-        auto n0 = MakeScanAll(storage, symbol_table, "n0");
-        if (preceeding_node_id) {
-          auto filter = std::make_shared<Filter>(
-              n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
-                         LITERAL(*preceeding_node_id)));
-          // inject the filter op into the ScanAllTuple. that way the filter
-          // op can be passed into the ExpandWShortest function without too
-          // much refactor
-          n0.op_ = filter;
-        }
+  auto ExpandPreceeding = [this](std::optional<int> preceeding_node_id) {
+    // scan the nodes optionally filtering on property value
+    auto n0 = MakeScanAll(storage, symbol_table, "n0");
+    if (preceeding_node_id) {
+      auto filter = std::make_shared<Filter>(
+          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
+                     LITERAL(*preceeding_node_id)));
+      // inject the filter op into the ScanAllTuple. that way the filter
+      // op can be passed into the ExpandWShortest function without too
+      // much refactor
+      n0.op_ = filter;
+    }
 
-        return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                               std::experimental::nullopt, &n0);
-      };
+    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
+                           std::nullopt, &n0);
+  };
 
-  EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 20);
+  EXPECT_EQ(ExpandPreceeding(std::nullopt).size(), 20);
   {
     auto results = ExpandPreceeding(3);
     ASSERT_EQ(results.size(), 4);
@@ -1047,8 +1042,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH,
-                                   std::experimental::nullopt, LITERAL(true));
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1742,17 +1737,15 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     // Lower bound isn't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
         storage, symbol_table, "n", label, prop, "prop",
-        Bound{ident_m, Bound::Type::INCLUSIVE}, std::experimental::nullopt,
-        scan_all.op_);
+        Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Upper bound isn't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, "prop",
-        std::experimental::nullopt, Bound{ident_m, Bound::Type::INCLUSIVE},
-        scan_all.op_);
+        storage, symbol_table, "n", label, prop, "prop", std::nullopt,
+        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }

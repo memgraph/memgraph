@@ -1,6 +1,6 @@
 #include "database/single_node/graph_db.hpp"
 
-#include <experimental/optional>
+#include <optional>
 
 #include <glog/logging.h>
 
@@ -27,12 +27,11 @@ GraphDb::GraphDb(Config config) : config_(config) {
            "current version of Memgraph binary!";
 
     // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+    std::optional<durability::RecoveryInfo> recovery_info;
     durability::RecoveryData recovery_data;
 
     recovery_info = durability::RecoverOnlySnapshot(
-        config_.durability_directory, this, &recovery_data,
-        std::experimental::nullopt);
+        config_.durability_directory, this, &recovery_data, std::nullopt);
 
     // Post-recovery setup and checking.
     if (recovery_info) {
@@ -108,7 +107,7 @@ GraphDbAccessor GraphDb::Access(tx::TransactionId tx_id) {
 }
 
 GraphDbAccessor GraphDb::AccessBlocking(
-    std::experimental::optional<tx::TransactionId> parent_tx) {
+    std::optional<tx::TransactionId> parent_tx) {
   return GraphDbAccessor(this, parent_tx);
 }
 

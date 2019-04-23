@@ -1,6 +1,6 @@
 #include "telemetry/telemetry.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -15,11 +15,10 @@ namespace telemetry {
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(
-    const std::string &url,
-    const std::experimental::filesystem::path &storage_directory,
-    std::chrono::duration<long long> refresh_interval,
-    const uint64_t send_every_n)
+Telemetry::Telemetry(const std::string &url,
+                     const std::filesystem::path &storage_directory,
+                     std::chrono::duration<long long> refresh_interval,
+                     const uint64_t send_every_n)
     : url_(url),
       uuid_(utils::GenerateUUID()),
       send_every_n_(send_every_n),

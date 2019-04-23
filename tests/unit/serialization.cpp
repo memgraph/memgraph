@@ -1,4 +1,4 @@
-#include <experimental/optional>
+#include <optional>
 #include <sstream>
 
 #include "gtest/gtest.h"
@@ -6,12 +6,12 @@
 #include "capnp/message.h"
 #include "rpc/serialization.hpp"
 
-using std::experimental::optional;
+using std::optional;
 using std::string_literals::operator""s;
 
-void CheckOptionalInt(const std::experimental::optional<int> &x1) {
+void CheckOptionalInt(const std::optional<int> &x1) {
   ::capnp::MallocMessageBuilder message;
-  std::experimental::optional<int> y1;
+  std::optional<int> y1;
   {
     auto builder =
         message.initRoot<utils::capnp::Optional<utils::capnp::BoxInt32>>();
@@ -34,16 +34,15 @@ void CheckOptionalInt(const std::experimental::optional<int> &x1) {
 }
 
 TEST(Serialization, CapnpOptional) {
-  std::experimental::optional<int> x1 = {};
-  std::experimental::optional<int> x2 = 42;
+  std::optional<int> x1 = {};
+  std::optional<int> x2 = 42;
 
   CheckOptionalInt(x1);
   CheckOptionalInt(x2);
 }
 
 TEST(Serialization, CapnpOptionalNonCopyable) {
-  std::experimental::optional<std::unique_ptr<int>> data =
-      std::make_unique<int>(5);
+  std::optional<std::unique_ptr<int>> data = std::make_unique<int>(5);
   ::capnp::MallocMessageBuilder message;
   {
     auto builder = message.initRoot<utils::capnp::Optional<
@@ -58,7 +57,7 @@ TEST(Serialization, CapnpOptionalNonCopyable) {
     utils::SaveOptional<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
                         std::unique_ptr<int>>(data, &builder, save);
   }
-  std::experimental::optional<std::unique_ptr<int>> element;
+  std::optional<std::unique_ptr<int>> element;
   {
     auto reader = message.getRoot<utils::capnp::Optional<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();

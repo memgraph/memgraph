@@ -8,7 +8,7 @@ namespace storage {
 
 struct KVStore::impl {};
 
-KVStore::KVStore(std::experimental::filesystem::path storage) {}
+KVStore::KVStore(std::filesystem::path storage) {}
 
 KVStore::~KVStore() {}
 
@@ -22,8 +22,7 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
                   "dummy kvstore";
 }
 
-std::experimental::optional<std::string> KVStore::Get(
-    const std::string &key) const noexcept {
+std::optional<std::string> KVStore::Get(const std::string &key) const noexcept {
   CHECK(false)
       << "Unsupported operation (KVStore::Get) -- this is a dummy kvstore";
 }

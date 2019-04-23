@@ -1,8 +1,8 @@
 #pragma once
 
-#include <experimental/optional>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include <capnp/message.h>
 #include <capnp/serialize.h>
@@ -69,7 +69,7 @@ class Client {
       // Since message_id was checked in private Call function, this means
       // something is very wrong (probably on the server side).
       LOG(ERROR) << "Message response was of unexpected type";
-      client_ = std::experimental::nullopt;
+      client_ = std::nullopt;
       throw RpcFailedException(endpoint_);
     }
 
@@ -90,7 +90,7 @@ class Client {
   io::network::Endpoint endpoint_;
   // TODO (mferencevic): currently the RPC client is hardcoded not to use SSL
   communication::ClientContext context_;
-  std::experimental::optional<communication::Client> client_;
+  std::optional<communication::Client> client_;
 
   std::mutex mutex_;
 };

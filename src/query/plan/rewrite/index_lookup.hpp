@@ -6,8 +6,8 @@
 #pragma once
 
 #include <algorithm>
-#include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -437,7 +437,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Finds the label-property combination which has indexed the lowest amount of
   // vertices. If the index cannot be found, nullopt is returned.
-  std::experimental::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(
+  std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(
       const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
@@ -447,7 +447,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       return true;
     };
-    std::experimental::optional<LabelPropertyIndex> found;
+    std::optional<LabelPropertyIndex> found;
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
         if (filter.property_filter->is_symbol_in_value_ ||
@@ -496,8 +496,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `nullptr` is returned and `input` is not chained.
   std::unique_ptr<ScanAll> GenScanByIndex(
       const ScanAll &scan,
-      const std::experimental::optional<int64_t> &max_vertex_count =
-          std::experimental::nullopt) {
+      const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &graph_view = scan.graph_view_;
@@ -541,8 +540,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
-            std::experimental::make_optional(lower_bound),
-            std::experimental::nullopt, graph_view);
+            std::make_optional(lower_bound), std::nullopt, graph_view);
       } else {
         CHECK(prop_filter.value_) << "Property filter should either have "
                                      "bounds or a value expression.";

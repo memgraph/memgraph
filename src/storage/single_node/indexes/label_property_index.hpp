@@ -1,13 +1,13 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "storage/single_node/mvcc/version_list.hpp"
 #include "storage/common/index.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node/edge.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
@@ -75,9 +75,7 @@ class LabelPropertyIndex {
   /**
    * Returns if it succeeded in deleting the index and freeing the index memory
    */
-  void DeleteIndex(const Key &key) {
-    indices_.access().remove(key);
-  }
+  void DeleteIndex(const Key &key) { indices_.access().remove(key); }
 
   /** NOTE: All update methods aren't supporting the case where two threads
    * try to update the index with the same value. If both of them conclude that
@@ -281,11 +279,10 @@ class LabelPropertyIndex {
    * @return iterable collection of mvcc:VersionLists pointers that
    * satisfy the bounds and are visible to the given transaction.
    */
-  auto GetVlists(
-      const Key &key,
-      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper,
-      const tx::Transaction &transaction, bool current_state) {
+  auto GetVlists(const Key &key,
+                 const std::optional<utils::Bound<PropertyValue>> lower,
+                 const std::optional<utils::Bound<PropertyValue>> upper,
+                 const tx::Transaction &transaction, bool current_state) {
     DCHECK(IndexExists(key)) << "Index not yet ready.";
 
     auto type = [](const auto &bound) { return bound.value().value().type(); };

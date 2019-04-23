@@ -46,10 +46,10 @@ std::string ResolveHostname(std::string hostname) {
 }
 
 /// Gets hostname
-std::experimental::optional<std::string> GetHostname() {
+std::optional<std::string> GetHostname() {
   char hostname[HOST_NAME_MAX + 1];
   int result = gethostname(hostname, sizeof(hostname));
-  if (result) return std::experimental::nullopt;
+  if (result) return std::nullopt;
   return std::string(hostname);
 }
 

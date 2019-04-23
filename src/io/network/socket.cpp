@@ -184,7 +184,7 @@ int Socket::ErrorStatus() const {
 
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
-std::experimental::optional<Socket> Socket::Accept() {
+std::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
@@ -192,7 +192,7 @@ std::experimental::optional<Socket> Socket::Accept() {
   unsigned short port;
 
   int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
-  if (UNLIKELY(sfd == -1)) return std::experimental::nullopt;
+  if (UNLIKELY(sfd == -1)) return std::nullopt;
 
   if (addr.ss_family == AF_INET) {
     addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);

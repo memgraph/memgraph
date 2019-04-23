@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::vector<bool> found;
     found.resize(FLAGS_max_value);
-    std::experimental::optional<uint64_t> item;
+    std::optional<uint64_t> item;
     while (run || (item = stack.Pop())) {
       if (item) {
         CHECK(*item < FLAGS_max_value);

@@ -37,8 +37,7 @@ void SingleNodeHAMain() {
   google::SetUsageMessage(
       "Memgraph high availability single-node database server");
 
-  auto durability_directory =
-      std::experimental::filesystem::path(FLAGS_durability_directory);
+  auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   database::GraphDb db;
   query::Interpreter interpreter;

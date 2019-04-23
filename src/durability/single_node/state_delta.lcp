@@ -89,7 +89,7 @@ omitted in the comment."))
 
      /** Attempts to decode a StateDelta from the given decoder. Returns the
       * decoded value if successful, otherwise returns nullopt. */
-     static std::experimental::optional<StateDelta> Decode(
+     static std::optional<StateDelta> Decode(
          HashedFileReader &reader,
          communication::bolt::Decoder<HashedFileReader> &decoder);
 

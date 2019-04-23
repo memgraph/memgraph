@@ -178,52 +178,52 @@ TEST(SlkCore, UniquePtrFull) {
 }
 
 TEST(SlkCore, OptionalPrimitiveEmpty) {
-  std::experimental::optional<int> original;
+  std::optional<int> original;
   slk::Builder builder;
   slk::Save(original, &builder);
   ASSERT_EQ(builder.size(), sizeof(bool));
-  std::experimental::optional<int> decoded = 5;
-  ASSERT_NE(decoded, std::experimental::nullopt);
+  std::optional<int> decoded = 5;
+  ASSERT_NE(decoded, std::nullopt);
   slk::Reader reader(builder.data(), builder.size());
   slk::Load(&decoded, &reader);
-  ASSERT_EQ(decoded, std::experimental::nullopt);
+  ASSERT_EQ(decoded, std::nullopt);
 }
 
 TEST(SlkCore, OptionalPrimitiveFull) {
-  std::experimental::optional<int> original = 5;
+  std::optional<int> original = 5;
   slk::Builder builder;
   slk::Save(original, &builder);
   ASSERT_EQ(builder.size(), sizeof(bool) + sizeof(int));
-  std::experimental::optional<int> decoded;
-  ASSERT_EQ(decoded, std::experimental::nullopt);
+  std::optional<int> decoded;
+  ASSERT_EQ(decoded, std::nullopt);
   slk::Reader reader(builder.data(), builder.size());
   slk::Load(&decoded, &reader);
-  ASSERT_NE(decoded, std::experimental::nullopt);
+  ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
 }
 
 TEST(SlkCore, OptionalStringEmpty) {
-  std::experimental::optional<std::string> original;
+  std::optional<std::string> original;
   slk::Builder builder;
   slk::Save(original, &builder);
   ASSERT_EQ(builder.size(), sizeof(bool));
-  std::experimental::optional<std::string> decoded = "nandare!";
-  ASSERT_NE(decoded, std::experimental::nullopt);
+  std::optional<std::string> decoded = "nandare!";
+  ASSERT_NE(decoded, std::nullopt);
   slk::Reader reader(builder.data(), builder.size());
   slk::Load(&decoded, &reader);
-  ASSERT_EQ(decoded, std::experimental::nullopt);
+  ASSERT_EQ(decoded, std::nullopt);
 }
 
 TEST(SlkCore, OptionalStringFull) {
-  std::experimental::optional<std::string> original = "nandare!";
+  std::optional<std::string> original = "nandare!";
   slk::Builder builder;
   slk::Save(original, &builder);
   ASSERT_EQ(builder.size(), sizeof(bool) + sizeof(uint64_t) + original->size());
-  std::experimental::optional<std::string> decoded;
-  ASSERT_EQ(decoded, std::experimental::nullopt);
+  std::optional<std::string> decoded;
+  ASSERT_EQ(decoded, std::nullopt);
   slk::Reader reader(builder.data(), builder.size());
   slk::Load(&decoded, &reader);
-  ASSERT_NE(decoded, std::experimental::nullopt);
+  ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
 }
 
@@ -329,11 +329,10 @@ TEST(SlkCore, SharedPtrMultiple) {
 }
 
 TEST(SlkCore, Complex) {
-  std::unique_ptr<std::vector<std::experimental::optional<std::string>>>
-      original = std::make_unique<
-          std::vector<std::experimental::optional<std::string>>>();
+  std::unique_ptr<std::vector<std::optional<std::string>>> original =
+      std::make_unique<std::vector<std::optional<std::string>>>();
   original.get()->push_back("nandare!");
-  original.get()->push_back(std::experimental::nullopt);
+  original.get()->push_back(std::nullopt);
   original.get()->push_back("hai hai hai");
 
   slk::Builder builder;
@@ -348,8 +347,7 @@ TEST(SlkCore, Complex) {
                 sizeof(bool) + sizeof(uint64_t) + (*original.get())[2]->size());
   // clang-format on
 
-  std::unique_ptr<std::vector<std::experimental::optional<std::string>>>
-      decoded;
+  std::unique_ptr<std::vector<std::optional<std::string>>> decoded;
   ASSERT_EQ(decoded.get(), nullptr);
   slk::Reader reader(builder.data(), builder.size());
   slk::Load(&decoded, &reader);
@@ -359,7 +357,7 @@ TEST(SlkCore, Complex) {
 
 struct Foo {
   std::string name;
-  std::experimental::optional<int> value;
+  std::optional<int> value;
 };
 
 bool operator==(const Foo &a, const Foo &b) {
@@ -381,7 +379,7 @@ void Load(Foo *obj, Reader *reader) {
 TEST(SlkCore, VectorStruct) {
   std::vector<Foo> original;
   original.push_back({"hai hai hai", 5});
-  original.push_back({"nandare!", std::experimental::nullopt});
+  original.push_back({"nandare!", std::nullopt});
 
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -446,7 +444,7 @@ TEST(SlkCore, VectorSharedPtr) {
 }
 
 TEST(SlkCore, OptionalSharedPtr) {
-  std::experimental::optional<std::shared_ptr<std::string>> original =
+  std::optional<std::shared_ptr<std::string>> original =
       std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
@@ -456,7 +454,7 @@ TEST(SlkCore, OptionalSharedPtr) {
         Save(item, builder, &saved);
       });
 
-  std::experimental::optional<std::shared_ptr<std::string>> decoded;
+  std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   slk::Reader reader(builder.data(), builder.size());
@@ -464,7 +462,7 @@ TEST(SlkCore, OptionalSharedPtr) {
       &decoded, &reader,
       [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
-  ASSERT_NE(decoded, std::experimental::nullopt);
+  ASSERT_NE(decoded, std::nullopt);
 
   ASSERT_EQ(saved.size(), 1);
   ASSERT_EQ(loaded.size(), 1);

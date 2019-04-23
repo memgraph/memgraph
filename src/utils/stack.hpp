@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/optional>
 #include <mutex>
+#include <optional>
 
 #include <glog/logging.h>
 
@@ -90,10 +90,10 @@ class Stack {
     }
   }
 
-  std::experimental::optional<TObj> Pop() {
+  std::optional<TObj> Pop() {
     std::lock_guard<SpinLock> guard(lock_);
     while (true) {
-      if (head_ == nullptr) return std::experimental::nullopt;
+      if (head_ == nullptr) return std::nullopt;
       CHECK(head_->used <= TSize) << "utils::Stack has more elements in a "
                                      "Block than the block has space!";
       if (head_->used == 0) {

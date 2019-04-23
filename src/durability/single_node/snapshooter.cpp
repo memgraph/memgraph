@@ -12,7 +12,7 @@
 #include "glue/communication.hpp"
 #include "utils/file.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 namespace durability {
 

@@ -6,30 +6,29 @@
  */
 #pragma once
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 namespace utils {
 
 /// Reads all lines from the file specified by path. If the file doesn't exist
 /// or there is an access error the function returns an empty list.
-std::vector<std::string> ReadLines(
-    const std::experimental::filesystem::path &path) noexcept;
+std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept;
 
 /// Ensures that the given directory either exists after this call. If the
 /// directory didn't exist prior to the call it is created, if it existed prior
 /// to the call it is left as is.
-bool EnsureDir(const std::experimental::filesystem::path &dir) noexcept;
+bool EnsureDir(const std::filesystem::path &dir) noexcept;
 
 /// Calls `EnsureDir` and terminates the program if the call failed. It prints
 /// an error message for which directory the ensuring failed.
-void EnsureDirOrDie(const std::experimental::filesystem::path &dir);
+void EnsureDirOrDie(const std::filesystem::path &dir);
 
 /// Deletes everything from the given directory including the directory.
-bool DeleteDir(const std::experimental::filesystem::path &dir) noexcept;
+bool DeleteDir(const std::filesystem::path &dir) noexcept;
 
 /// Copies the file from `src` to `dst`.
-bool CopyFile(const std::experimental::filesystem::path &src,
-              const std::experimental::filesystem::path &dst) noexcept;
+bool CopyFile(const std::filesystem::path &src,
+              const std::filesystem::path &dst) noexcept;
 
 /// This class implements a file handler that is used for mission critical files
 /// that need to be written and synced to permanent storage. Typical usage for
@@ -68,14 +67,14 @@ class LogFile {
   /// it is created and if the file exists data is appended to the file to
   /// ensure that no data is ever lost. Files are created with a restrictive
   /// permission mask (0640). On failure and misuse it crashes the program.
-  void Open(const std::experimental::filesystem::path &path);
+  void Open(const std::filesystem::path &path);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
 
   /// Returns the path to the currently opened file. If a file isn't opened the
   /// path is empty.
-  const std::experimental::filesystem::path &path() const;
+  const std::filesystem::path &path() const;
 
   /// Writes data to the currently opened file. On failure and misuse it crashes
   /// the program.
@@ -94,7 +93,7 @@ class LogFile {
  private:
   int fd_{-1};
   size_t written_since_last_sync_{0};
-  std::experimental::filesystem::path path_;
+  std::filesystem::path path_;
 };
 
 }  // namespace utils

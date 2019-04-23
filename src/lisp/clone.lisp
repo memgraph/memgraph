@@ -175,7 +175,7 @@ Usage example:
                ~A
                ~A.emplace(std::move(~A));
              } else {
-               ~A = std::experimental::nullopt;
+               ~A = std::nullopt;
              }"
           source-name
           (lcp::cpp-type-decl value-type) value-var

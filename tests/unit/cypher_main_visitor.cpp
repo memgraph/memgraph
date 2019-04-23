@@ -51,8 +51,7 @@ class Base {
   }
 
   void CheckLiteral(Expression *expression, const TypedValue &expected,
-                    const std::experimental::optional<int> &token_position =
-                        std::experimental::nullopt) {
+                    const std::optional<int> &token_position = std::nullopt) {
     TypedValue value;
     if (!expected.IsNull() && context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
@@ -2147,7 +2146,7 @@ TEST_P(CypherMainVisitorTest, UnionAll) {
 void check_auth_query(Base *ast_generator, std::string input,
                       AuthQuery::Action action, std::string user,
                       std::string role, std::string user_or_role,
-                      std::experimental::optional<TypedValue> password,
+                      std::optional<TypedValue> password,
                       std::vector<AuthQuery::Privilege> privileges) {
   auto *auth_query =
       dynamic_cast<AuthQuery *>(ast_generator->ParseQuery(input));
@@ -2372,8 +2371,8 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
       [this](std::string input, const std::string &stream_name,
              const std::string &stream_uri, const std::string &stream_topic,
              const std::string &transform_uri,
-             std::experimental::optional<int64_t> batch_interval_in_ms,
-             std::experimental::optional<int64_t> batch_size) {
+             std::optional<int64_t> batch_interval_in_ms,
+             std::optional<int64_t> batch_size) {
         auto &ast_generator = *GetParam();
         auto *stream_query =
             dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
@@ -2409,22 +2408,20 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
       "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
       "WITH TOPIC 'tropika' "
       "WITH TRANSFORM 'localhost/test.py'",
-      "stream", "localhost", "tropika", "localhost/test.py",
-      std::experimental::nullopt, std::experimental::nullopt);
+      "stream", "localhost", "tropika", "localhost/test.py", std::nullopt,
+      std::nullopt);
 
   check_create_stream(
       "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
       "WitH TopIC 'tropika' "
       "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168",
-      "stream", "localhost", "tropika", "localhost/test.py", 168,
-      std::experimental::nullopt);
+      "stream", "localhost", "tropika", "localhost/test.py", 168, std::nullopt);
 
   check_create_stream(
       "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
       "WITH TopIC 'tropika' "
       "WITH TRAnsFORM 'localhost/test.py' bAtCH SizE 17",
-      "stream", "localhost", "tropika", "localhost/test.py",
-      std::experimental::nullopt, 17);
+      "stream", "localhost", "tropika", "localhost/test.py", std::nullopt, 17);
 
   check_create_stream(
       "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
@@ -2436,42 +2433,42 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                    "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 'jedan' ",
                    "stream", "localhost", "tropika", "localhost/test.py", 168,
-                   std::experimental::nullopt),
+                   std::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH SIZE 'jedan' ",
                    "stream", "localhost", "tropika", "localhost/test.py",
-                   std::experimental::nullopt, 17),
+                   std::nullopt, 17),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM 123 AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 168 ",
                    "stream", "localhost", "tropika", "localhost/test.py", 168,
-                   std::experimental::nullopt),
+                   std::nullopt),
                SyntaxException);
-  EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM stream AS LOAD DATA KAFKA localhost "
-                   "WITH TOPIC 'tropika' "
-                   "WITH TRANSFORM 'localhost/test.py'",
-                   "stream", "localhost", "tropika", "localhost/test.py",
-                   std::experimental::nullopt, std::experimental::nullopt),
-               SyntaxException);
+  EXPECT_THROW(
+      check_create_stream("CREATE STREAM stream AS LOAD DATA KAFKA localhost "
+                          "WITH TOPIC 'tropika' "
+                          "WITH TRANSFORM 'localhost/test.py'",
+                          "stream", "localhost", "tropika", "localhost/test.py",
+                          std::nullopt, std::nullopt),
+      SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 2"
                    "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
                    "stream", "localhost", "tropika", "localhost/test.py", 168,
-                   std::experimental::nullopt),
+                   std::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika'"
                    "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
                    "stream", "localhost", "tropika", "localhost/test.py", 168,
-                   std::experimental::nullopt),
+                   std::nullopt),
                SyntaxException);
 }
 
@@ -2511,47 +2508,45 @@ TEST_P(CypherMainVisitorTest, ShowStreams) {
 }
 
 TEST_P(CypherMainVisitorTest, StartStopStream) {
-  auto check_start_stop_stream =
-      [this](std::string input, const std::string &stream_name, bool is_start,
-             std::experimental::optional<int64_t> limit_batches) {
-        auto &ast_generator = *GetParam();
-        auto *stream_query =
-            dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
-        ASSERT_TRUE(stream_query);
+  auto check_start_stop_stream = [this](std::string input,
+                                        const std::string &stream_name,
+                                        bool is_start,
+                                        std::optional<int64_t> limit_batches) {
+    auto &ast_generator = *GetParam();
+    auto *stream_query =
+        dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
+    ASSERT_TRUE(stream_query);
 
-        EXPECT_EQ(stream_query->stream_name_, stream_name);
-        EXPECT_EQ(stream_query->action_,
-                  is_start ? StreamQuery::Action::START_STREAM
-                           : StreamQuery::Action::STOP_STREAM);
+    EXPECT_EQ(stream_query->stream_name_, stream_name);
+    EXPECT_EQ(stream_query->action_, is_start
+                                         ? StreamQuery::Action::START_STREAM
+                                         : StreamQuery::Action::STOP_STREAM);
 
-        if (limit_batches) {
-          ASSERT_TRUE(is_start);
-          ASSERT_TRUE(stream_query->limit_batches_);
-          ast_generator.CheckLiteral(stream_query->limit_batches_,
-                                     TypedValue(*limit_batches));
-        } else {
-          EXPECT_EQ(stream_query->limit_batches_, nullptr);
-        }
-      };
+    if (limit_batches) {
+      ASSERT_TRUE(is_start);
+      ASSERT_TRUE(stream_query->limit_batches_);
+      ast_generator.CheckLiteral(stream_query->limit_batches_,
+                                 TypedValue(*limit_batches));
+    } else {
+      EXPECT_EQ(stream_query->limit_batches_, nullptr);
+    }
+  };
 
-  check_start_stop_stream("stARt STreaM STREAM", "STREAM", true,
-                          std::experimental::nullopt);
-  check_start_stop_stream("stARt STreaM strim", "strim", true,
-                          std::experimental::nullopt);
+  check_start_stop_stream("stARt STreaM STREAM", "STREAM", true, std::nullopt);
+  check_start_stop_stream("stARt STreaM strim", "strim", true, std::nullopt);
   check_start_stop_stream("StARt STreAM strim LimIT 10 BATchES", "strim", true,
                           10);
 
-  check_start_stop_stream("StoP StrEAM strim", "strim", false,
-                          std::experimental::nullopt);
+  check_start_stop_stream("StoP StrEAM strim", "strim", false, std::nullopt);
 
   EXPECT_THROW(check_start_stop_stream("staRT STReaM 'strim'", "strim", true,
-                                       std::experimental::nullopt),
+                                       std::nullopt),
                SyntaxException);
   EXPECT_THROW(check_start_stop_stream("sTART STReaM strim LImiT 'dva' BATCheS",
                                        "strim", true, 2),
                SyntaxException);
   EXPECT_THROW(check_start_stop_stream("StoP STreAM 'strim'", "strim", false,
-                                       std::experimental::nullopt),
+                                       std::nullopt),
                SyntaxException);
   EXPECT_THROW(check_start_stop_stream("STOp sTREAM strim LIMit 2 baTCHES",
                                        "strim", false, 2),
@@ -2581,39 +2576,37 @@ TEST_P(CypherMainVisitorTest, StartStopAllStreams) {
 }
 
 TEST_P(CypherMainVisitorTest, TestStream) {
-  auto check_test_stream =
-      [this](std::string input, const std::string &stream_name,
-             std::experimental::optional<int64_t> limit_batches) {
-        auto &ast_generator = *GetParam();
-        auto *stream_query =
-            dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
-        ASSERT_TRUE(stream_query);
-        EXPECT_EQ(stream_query->stream_name_, stream_name);
-        EXPECT_EQ(stream_query->action_, StreamQuery::Action::TEST_STREAM);
+  auto check_test_stream = [this](std::string input,
+                                  const std::string &stream_name,
+                                  std::optional<int64_t> limit_batches) {
+    auto &ast_generator = *GetParam();
+    auto *stream_query =
+        dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
+    ASSERT_TRUE(stream_query);
+    EXPECT_EQ(stream_query->stream_name_, stream_name);
+    EXPECT_EQ(stream_query->action_, StreamQuery::Action::TEST_STREAM);
 
-        if (limit_batches) {
-          ASSERT_TRUE(stream_query->limit_batches_);
-          ast_generator.CheckLiteral(stream_query->limit_batches_,
-                                     TypedValue(*limit_batches));
-        } else {
-          EXPECT_EQ(stream_query->limit_batches_, nullptr);
-        }
-      };
+    if (limit_batches) {
+      ASSERT_TRUE(stream_query->limit_batches_);
+      ast_generator.CheckLiteral(stream_query->limit_batches_,
+                                 TypedValue(*limit_batches));
+    } else {
+      EXPECT_EQ(stream_query->limit_batches_, nullptr);
+    }
+  };
 
-  check_test_stream("TesT STreaM strim", "strim", std::experimental::nullopt);
-  check_test_stream("TesT STreaM STREAM", "STREAM", std::experimental::nullopt);
+  check_test_stream("TesT STreaM strim", "strim", std::nullopt);
+  check_test_stream("TesT STreaM STREAM", "STREAM", std::nullopt);
   check_test_stream("tESt STreAM STREAM LimIT 10 BATchES", "STREAM", 10);
 
-  check_test_stream("Test StrEAM STREAM", "STREAM", std::experimental::nullopt);
+  check_test_stream("Test StrEAM STREAM", "STREAM", std::nullopt);
 
-  EXPECT_THROW(check_test_stream("tEST STReaM 'strim'", "strim",
-                                 std::experimental::nullopt),
+  EXPECT_THROW(check_test_stream("tEST STReaM 'strim'", "strim", std::nullopt),
                SyntaxException);
   EXPECT_THROW(
       check_test_stream("test STReaM strim LImiT 'dva' BATCheS", "strim", 2),
       SyntaxException);
-  EXPECT_THROW(check_test_stream("test STreAM 'strim'", "strim",
-                                 std::experimental::nullopt),
+  EXPECT_THROW(check_test_stream("test STreAM 'strim'", "strim", std::nullopt),
                SyntaxException);
 }
 

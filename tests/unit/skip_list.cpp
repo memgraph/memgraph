@@ -519,22 +519,20 @@ TEST(SkipList, EstimateCount) {
     }                                                                       \
   }
 
-#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks) \
-  {                                                                     \
-    auto acc = list.access();                                           \
-    uint64_t count = acc.estimate_range_count<int64_t>(                 \
-        std::experimental::nullopt,                                     \
-        {{upper_value, utils::BoundType::upper_type}}, 1);              \
-    ASSERT_EQ(count, kElementMembers *blocks);                          \
+#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)  \
+  {                                                                      \
+    auto acc = list.access();                                            \
+    uint64_t count = acc.estimate_range_count<int64_t>(                  \
+        std::nullopt, {{upper_value, utils::BoundType::upper_type}}, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                           \
   }
 
-#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks) \
-  {                                                                     \
-    auto acc = list.access();                                           \
-    uint64_t count = acc.estimate_range_count<int64_t>(                 \
-        {{lower_value, utils::BoundType::lower_type}},                  \
-        std::experimental::nullopt, 1);                                 \
-    ASSERT_EQ(count, kElementMembers *blocks);                          \
+#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)  \
+  {                                                                      \
+    auto acc = list.access();                                            \
+    uint64_t count = acc.estimate_range_count<int64_t>(                  \
+        {{lower_value, utils::BoundType::lower_type}}, std::nullopt, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                           \
   }
 
 TEST(SkipList, EstimateRangeCount) {
@@ -564,7 +562,7 @@ TEST(SkipList, EstimateRangeCount) {
     utils::Timer timer;
     for (int64_t i = 0; i < kMaxElements; ++i) {
       uint64_t count = acc.estimate_range_count<int64_t>(
-          std::experimental::nullopt, {{i, utils::BoundType::INCLUSIVE}});
+          std::nullopt, {{i, utils::BoundType::INCLUSIVE}});
       uint64_t must_have = kElementMembers * (i + 1);
       uint64_t delta =
           count >= must_have ? count - must_have : must_have - count;
@@ -604,8 +602,8 @@ TEST(SkipList, EstimateRangeCount) {
 
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_range_count<int64_t>(
-        std::experimental::nullopt, std::experimental::nullopt, 1);
+    uint64_t count =
+        acc.estimate_range_count<int64_t>(std::nullopt, std::nullopt, 1);
     ASSERT_EQ(count, kMaxElements * kElementMembers);
   }
 }

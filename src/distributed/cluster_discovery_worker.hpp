@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
@@ -34,8 +34,7 @@ class ClusterDiscoveryWorker final {
    * worker was already registered with master.
    */
   void NotifyWorkerRecovered(
-      const std::experimental::optional<durability::RecoveryInfo>
-          &recovery_info);
+      const std::optional<durability::RecoveryInfo> &recovery_info);
 
   /** Returns the snapshot that should be recovered on workers. Valid only after
    * registration. */
@@ -45,7 +44,7 @@ class ClusterDiscoveryWorker final {
   int worker_id_{-1};
   distributed::WorkerCoordination *coordination_;
   communication::rpc::ClientPool *client_pool_;
-  std::experimental::optional<std::pair<int64_t, tx::TransactionId>> snapshot_to_recover_;
+  std::optional<std::pair<int64_t, tx::TransactionId>> snapshot_to_recover_;
 };
 
 }  // namespace distributed

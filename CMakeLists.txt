@@ -1,6 +1,6 @@
 # MemGraph CMake configuration
 
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.8)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -64,11 +64,9 @@ add_custom_target(clean_all
 
 # build flags -----------------------------------------------------------------
 
-# TODO: set here 17 once it will be available in the cmake version (3.8)
-# set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# For now, explicitly set -std= flag for C++17.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall \
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.

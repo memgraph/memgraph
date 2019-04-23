@@ -1087,7 +1087,7 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
         std::make_pair(GREATER(lit_42, n_prop), Bound::Type::EXCLUSIVE),
         std::make_pair(GREATER_EQ(lit_42, n_prop), Bound::Type::INCLUSIVE)};
     for (const auto &rel_op : upper_bound_rel_op) {
-      check_planned_range(rel_op.first, std::experimental::nullopt,
+      check_planned_range(rel_op.first, std::nullopt,
                           Bound(lit_42, rel_op.second));
     }
   }
@@ -1100,7 +1100,7 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
         std::make_pair(GREATER_EQ(n_prop, lit_42), Bound::Type::INCLUSIVE)};
     for (const auto &rel_op : lower_bound_rel_op) {
       check_planned_range(rel_op.first, Bound(lit_42, rel_op.second),
-                          std::experimental::nullopt);
+                          std::nullopt);
     }
   }
 }
@@ -1388,10 +1388,10 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   Bound lower_bound(LITERAL(""), Bound::Type::INCLUSIVE);
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, prop, lower_bound,
-                                              std::experimental::nullopt),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
@@ -1464,10 +1464,10 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
   Bound lower_bound(lit_42, Bound::Type::EXCLUSIVE);
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, prop, lower_bound,
-                                              std::experimental::nullopt),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+      ExpectFilter(), ExpectProduce());
 }
 
 }  // namespace

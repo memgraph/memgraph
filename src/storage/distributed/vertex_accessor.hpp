@@ -1,7 +1,7 @@
 #pragma once
 
-#include <experimental/optional>
 #include <limits>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -56,8 +56,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  EdgesIterable in(const VertexAccessor &dest,
-          const std::vector<storage::EdgeType> *edge_types = nullptr) const {
+  EdgesIterable in(
+      const VertexAccessor &dest,
+      const std::vector<storage::EdgeType> *edge_types = nullptr) const {
     return EdgesIterable(*this, false, dest, edge_types);
   }
 

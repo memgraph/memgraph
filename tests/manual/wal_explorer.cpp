@@ -1,4 +1,4 @@
-#include <experimental/filesystem>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 
@@ -15,7 +15,7 @@
 DEFINE_string(wal_file, "", "WAL file location");
 
 using communication::bolt::Value;
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 std::string StateDeltaTypeToString(database::StateDelta::Type type) {
   switch (type) {

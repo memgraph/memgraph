@@ -88,7 +88,7 @@ cpp<#
                        return std::make_pair(prop, value);
                      });
                  cpp<#))
-   (cypher-id "std::experimental::optional<int64_t>"
+   (cypher-id "std::optional<int64_t>"
      :capnp-type "Utils.Optional(Utils.BoxInt64)"
      :capnp-save
      (lambda (builder member capnp-name)
@@ -120,7 +120,7 @@ cpp<#
    (to "storage::VertexAddress")
    (edge-type "storage::EdgeType")
    (tx-id "tx::TransactionId")
-   (cypher-id "std::experimental::optional<int64_t>"
+   (cypher-id "std::optional<int64_t>"
      :capnp-type "Utils.Optional(Utils.BoxInt64)"
      :capnp-save
      (lambda (builder member capnp-name)

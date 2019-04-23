@@ -26,7 +26,7 @@ Counter::Counter(int64_t start_value) : Metric(start_value) {}
 
 void Counter::Bump(int64_t delta) { value_ += delta; }
 
-std::experimental::optional<int64_t> Counter::Flush() { return value_; }
+std::optional<int64_t> Counter::Flush() { return value_; }
 
 int64_t Counter::Value() { return value_; }
 
@@ -34,7 +34,7 @@ Gauge::Gauge(int64_t start_value) : Metric(start_value) {}
 
 void Gauge::Set(int64_t value) { value_ = value; }
 
-std::experimental::optional<int64_t> Gauge::Flush() { return value_; }
+std::optional<int64_t> Gauge::Flush() { return value_; }
 
 IntervalMin::IntervalMin(int64_t start_value) : Metric(start_value) {}
 
@@ -44,12 +44,11 @@ void IntervalMin::Add(int64_t value) {
     ;
 }
 
-std::experimental::optional<int64_t> IntervalMin::Flush() {
+std::optional<int64_t> IntervalMin::Flush() {
   int64_t curr = value_;
   value_.compare_exchange_weak(curr, std::numeric_limits<int64_t>::max());
-  return curr == std::numeric_limits<int64_t>::max()
-             ? std::experimental::nullopt
-             : std::experimental::make_optional(curr);
+  return curr == std::numeric_limits<int64_t>::max() ? std::nullopt
+                                                     : std::make_optional(curr);
 }
 
 IntervalMax::IntervalMax(int64_t start_value) : Metric(start_value) {}
@@ -60,12 +59,11 @@ void IntervalMax::Add(int64_t value) {
     ;
 }
 
-std::experimental::optional<int64_t> IntervalMax::Flush() {
+std::optional<int64_t> IntervalMax::Flush() {
   int64_t curr = value_;
   value_.compare_exchange_weak(curr, std::numeric_limits<int64_t>::min());
-  return curr == std::numeric_limits<int64_t>::min()
-             ? std::experimental::nullopt
-             : std::experimental::make_optional(curr);
+  return curr == std::numeric_limits<int64_t>::min() ? std::nullopt
+                                                     : std::make_optional(curr);
 }
 
 template <class T>

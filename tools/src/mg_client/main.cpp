@@ -7,7 +7,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <algorithm>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <thread>
 #include <unordered_set>
 
@@ -23,7 +23,7 @@
 #include "utils/timer.hpp"
 #include "version.hpp"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 volatile sig_atomic_t is_shutting_down = 0;
 
@@ -246,14 +246,13 @@ static char **Completer(const char *text, int start, int end) {
 ///
 /// @param prompt The prompt to display.
 /// @return  User input line, or nullopt on EOF.
-static std::experimental::optional<std::string> ReadLine(
-    const std::string &prompt) {
+static std::optional<std::string> ReadLine(const std::string &prompt) {
   if (default_text.size() > 0) {
     // Initialize text with remainder of previous query.
     rl_startup_hook = SetDefaultText;
   }
   char *line = readline(prompt.c_str());
-  if (!line) return std::experimental::nullopt;
+  if (!line) return std::nullopt;
 
   std::string r_val(line);
   if (!utils::Trim(r_val).empty()) add_history(line);
@@ -267,12 +266,11 @@ static std::experimental::optional<std::string> ReadLine(
 /// using getline.
 /// @param prompt The prompt to display.
 /// @return User input line, or nullopt on EOF.
-static std::experimental::optional<std::string> ReadLine(
-    const std::string &prompt) {
+static std::optional<std::string> ReadLine(const std::string &prompt) {
   std::cout << prompt << default_text;
   std::string line;
   std::getline(std::cin, line);
-  if (std::cin.eof()) return std::experimental::nullopt;
+  if (std::cin.eof()) return std::nullopt;
   line = default_text + line;
   default_text = "";
   return line;
@@ -280,10 +278,10 @@ static std::experimental::optional<std::string> ReadLine(
 
 #endif  // HAS_READLINE
 
-static std::experimental::optional<std::string> GetLine() {
+static std::optional<std::string> GetLine() {
   std::string line;
   std::getline(std::cin, line);
-  if (std::cin.eof()) return std::experimental::nullopt;
+  if (std::cin.eof()) return std::nullopt;
   line = default_text + line;
   default_text = "";
   return line;
@@ -320,7 +318,7 @@ static std::pair<std::string, bool> ParseLine(const std::string &line,
   return std::make_pair(parsed_line.str(), is_done);
 }
 
-static std::experimental::optional<std::string> GetQuery() {
+static std::optional<std::string> GetQuery() {
   char quote = '\0';
   bool escaped = false;
   auto ret = ParseLine(default_text, &quote, &escaped);
@@ -330,7 +328,7 @@ static std::experimental::optional<std::string> GetQuery() {
     return ret.first;
   }
   std::stringstream query;
-  std::experimental::optional<std::string> line;
+  std::optional<std::string> line;
   int line_cnt = 0;
   auto is_done = false;
   while (!is_done) {
@@ -341,7 +339,7 @@ static std::experimental::optional<std::string> GetQuery() {
       if (line_cnt == 0 && line && line->size() > 0 && (*line)[0] == ':') {
         auto trimmed_line = utils::Trim(*line);
         if (trimmed_line == kCommandQuit) {
-          return std::experimental::nullopt;
+          return std::nullopt;
         } else if (trimmed_line == kCommandHelp) {
           PrintHelp();
           return "";
@@ -352,7 +350,7 @@ static std::experimental::optional<std::string> GetQuery() {
         }
       }
     }
-    if (!line) return std::experimental::nullopt;
+    if (!line) return std::nullopt;
     if (line->empty()) continue;
     auto ret = ParseLine(*line, &quote, &escaped);
     query << ret.first;

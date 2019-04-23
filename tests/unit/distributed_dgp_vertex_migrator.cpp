@@ -6,8 +6,8 @@
 
 #include "gtest/gtest.h"
 
-#include "distributed/updates_rpc_clients.hpp"
 #include "distributed/dgp/vertex_migrator.hpp"
+#include "distributed/updates_rpc_clients.hpp"
 
 using namespace distributed;
 using namespace database;
@@ -133,25 +133,25 @@ class DistributedVertexMigratorTest : public DistributedGraphDbTest {
   /**
    * Find vertex with a given cypher_id within a given database.
    */
-  std::experimental::optional<VertexAccessor> FindVertex(
-      database::GraphDbAccessor *dba, int64_t cypher_id) {
+  std::optional<VertexAccessor> FindVertex(database::GraphDbAccessor *dba,
+                                           int64_t cypher_id) {
     for (auto &vertex : dba->Vertices(false)) {
       if (vertex.CypherId() == cypher_id)
-        return std::experimental::optional<VertexAccessor>(vertex);
+        return std::optional<VertexAccessor>(vertex);
     }
-    return std::experimental::nullopt;
+    return std::nullopt;
   }
 
   /**
    * Find edge with a given cypher_id within a given database.
    */
-  std::experimental::optional<EdgeAccessor> FindEdge(
-      database::GraphDbAccessor *dba, int64_t cypher_id) {
+  std::optional<EdgeAccessor> FindEdge(database::GraphDbAccessor *dba,
+                                       int64_t cypher_id) {
     for (auto &edge : dba->Edges(false)) {
       if (edge.CypherId() == cypher_id)
-        return std::experimental::optional<EdgeAccessor>(edge);
+        return std::optional<EdgeAccessor>(edge);
     }
-    return std::experimental::nullopt;
+    return std::nullopt;
   }
 };
 

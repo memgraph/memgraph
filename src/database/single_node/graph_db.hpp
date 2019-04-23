@@ -2,8 +2,8 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "database/single_node/counters.hpp"
@@ -94,8 +94,7 @@ class GraphDb {
   /// Create a new accessor by starting a new transaction.
   GraphDbAccessor Access();
   GraphDbAccessor AccessBlocking(
-      std::experimental::optional<tx::TransactionId> parent_tx =
-          std::experimental::nullopt);
+      std::optional<tx::TransactionId> parent_tx = std::nullopt);
   /// Create an accessor for a running transaction.
   GraphDbAccessor Access(tx::TransactionId);
 

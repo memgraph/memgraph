@@ -1,13 +1,13 @@
 #pragma once
 
 #include <atomic>
-#include <experimental/optional>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "storage/common/kvstore/kvstore.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/common/kvstore/kvstore.hpp"
 
 /**
  * A collection of properties accessed in a map-like way using a key of type
@@ -126,8 +126,8 @@ class PropertyValueStore {
    private:
     const PropertyValueStore *pvs_;
     std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it_;
-    std::experimental::optional<storage::KVStore::iterator> disk_it_;
-    std::experimental::optional<std::pair<Property, PropertyValue>> disk_prop_;
+    std::optional<storage::KVStore::iterator> disk_it_;
+    std::optional<std::pair<Property, PropertyValue>> disk_prop_;
   };
 
   size_t size() const;

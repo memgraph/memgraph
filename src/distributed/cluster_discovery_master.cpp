@@ -1,6 +1,6 @@
 #include "distributed/cluster_discovery_master.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include "distributed/coordination_rpc_messages.hpp"
 #include "io/network/endpoint.hpp"
@@ -28,7 +28,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     // Create and find out what is our durability directory.
     utils::EnsureDirOrDie(durability_directory_);
     auto full_durability_directory =
-        std::experimental::filesystem::canonical(durability_directory_);
+        std::filesystem::canonical(durability_directory_);
 
     // Check whether the worker is running on the same host (detected when it
     // connects to us over the loopback interface) and whether it has the same

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <experimental/optional>
+#include <optional>
 #include <string>
 
 #include <json/json.hpp>
@@ -108,8 +108,8 @@ class User final {
 
   bool CheckPassword(const std::string &password);
 
-  void UpdatePassword(const std::experimental::optional<std::string> &password =
-                          std::experimental::nullopt);
+  void UpdatePassword(
+      const std::optional<std::string> &password = std::nullopt);
 
   void SetRole(const Role &role);
 
@@ -122,7 +122,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  std::experimental::optional<Role> role() const;
+  std::optional<Role> role() const;
 
   nlohmann::json Serialize() const;
 
@@ -134,7 +134,7 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
-  std::experimental::optional<Role> role_;
+  std::optional<Role> role_;
 };
 
 bool operator==(const User &first, const User &second);

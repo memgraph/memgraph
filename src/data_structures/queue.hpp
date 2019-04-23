@@ -3,9 +3,9 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
-#include <experimental/optional>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 
@@ -49,9 +49,8 @@ class Queue {
   // Block until there is an element in the queue and then pop it from the queue
   // and return it. Function can return nullopt if Queue is signaled via
   // Shutdown function or if there is no element to pop after timeout elapses.
-  std::experimental::optional<T> AwaitPop(
-      std::chrono::system_clock::duration timeout =
-          std::chrono::system_clock::duration::max()) {
+  std::optional<T> AwaitPop(std::chrono::system_clock::duration timeout =
+                                std::chrono::system_clock::duration::max()) {
     std::unique_lock<std::mutex> guard(mutex_);
     auto now = std::chrono::system_clock::now();
     auto until = std::chrono::system_clock::time_point::max() - timeout > now
@@ -59,17 +58,17 @@ class Queue {
                      : std::chrono::system_clock::time_point::max();
     cvar_.wait_until(guard, until,
                      [this] { return !queue_.empty() || !alive_; });
-    if (queue_.empty() || !alive_) return std::experimental::nullopt;
-    std::experimental::optional<T> x(std::move(queue_.front()));
+    if (queue_.empty() || !alive_) return std::nullopt;
+    std::optional<T> x(std::move(queue_.front()));
     queue_.pop();
     return x;
   }
 
   // Nonblocking version of above function.
-  std::experimental::optional<T> MaybePop() {
+  std::optional<T> MaybePop() {
     std::unique_lock<std::mutex> guard(mutex_);
-    if (queue_.empty()) return std::experimental::nullopt;
-    std::experimental::optional<T> x(std::move(queue_.front()));
+    if (queue_.empty()) return std::nullopt;
+    std::optional<T> x(std::move(queue_.front()));
     queue_.pop();
     return x;
   }

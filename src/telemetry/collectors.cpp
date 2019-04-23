@@ -1,6 +1,6 @@
 #include "telemetry/collectors.hpp"
 
-#include <experimental/filesystem>
+#include <filesystem>
 #include <string>
 #include <utility>
 
@@ -60,11 +60,10 @@ const nlohmann::json GetResourceUsage() {
 
   // Find all threads.
   std::string task_file = fmt::format("/proc/{}/task", pid);
-  if (!std::experimental::filesystem::exists(task_file)) {
+  if (!std::filesystem::exists(task_file)) {
     return nlohmann::json::object();
   }
-  for (auto &file :
-       std::experimental::filesystem::directory_iterator(task_file)) {
+  for (auto &file : std::filesystem::directory_iterator(task_file)) {
     auto split = utils::Split(file.path().string(), "/");
     if (split.size() < 1) continue;
     pid_t tid = std::stoi(split[split.size() - 1]);

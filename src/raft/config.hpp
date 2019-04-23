@@ -3,7 +3,7 @@
 #pragma once
 
 #include <chrono>
-#include <experimental/filesystem>
+#include <filesystem>
 #include <ratio>
 
 #include <json/json.hpp>
@@ -23,7 +23,7 @@ struct Config {
   int64_t log_size_snapshot_threshold;
 
   static Config LoadFromFile(const std::string &raft_config_file) {
-    if (!std::experimental::filesystem::exists(raft_config_file))
+    if (!std::filesystem::exists(raft_config_file))
       throw RaftConfigException(raft_config_file);
 
     nlohmann::json data;
