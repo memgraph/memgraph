@@ -64,6 +64,10 @@ add_custom_target(clean_all
 
 # build flags -----------------------------------------------------------------
 
+# Export the compile commands so that we can use clang-tidy. Additional benefit
+# is easier debugging of compilation and linker flags.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \

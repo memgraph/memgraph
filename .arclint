@@ -1,0 +1,9 @@
+{
+  "linters": {
+    "clang-tidy": {
+      "type": "script-and-regex",
+      "script-and-regex.script": "./tools/arc-clang-tidy",
+      "script-and-regex.regex": "/^(?P<file>.*):(?P<line>\\d+):(?P<char>\\d+): (?P<severity>warning|error): (?P<message>.*)$/m"
+    }
+  }
+}
