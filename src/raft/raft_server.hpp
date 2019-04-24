@@ -258,6 +258,8 @@ class RaftServer final : public RaftInterface {
   std::atomic<uint64_t> current_term_;
   uint64_t log_size_;
 
+  std::map<uint64_t, LogEntry> log_;
+
   /// Recovers persistent data from disk and stores its in-memory copies
   /// that insure faster read-only operations. This method should be called
   /// on start-up. If parts of persistent data are missing, the method won't

@@ -269,6 +269,7 @@ void RaftServer::Start() {
 
         // Discard the all logs. We keep the one at index 0.
         VLOG(40) << "[InstallSnapshotRpc] Discarding logs.";
+        log_.clear();
         for (uint64_t i = 1; i < log_size_; ++i)
           disk_storage_.Delete(LogEntryKey(i));
 
@@ -399,6 +400,7 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   rlog_->set_active(tx_id);
   LogEntry new_entry(current_term_, deltas);
 
+  log_[log_size_] = new_entry;
   disk_storage_.Put(LogEntryKey(log_size_), SerializeLogEntry(new_entry));
   SetLogSize(log_size_ + 1);
 
@@ -1000,6 +1002,7 @@ void RaftServer::SnapshotThread() {
                    << last_included_index;
           for (int i = log_compaction_start_index; i <= last_included_index;
                ++i) {
+            log_.erase(i);
             disk_storage_.Delete(LogEntryKey(i));
           }
           // After we deleted entries from the persistent store, make sure we
@@ -1074,6 +1077,9 @@ bool RaftServer::OutOfSync(uint64_t reply_term) {
 }
 
 LogEntry RaftServer::GetLogEntry(int index) {
+  auto it = log_.find(index);
+  if (it != log_.end())
+    return it->second; // retrieve in-mem if possible
   auto opt_value = disk_storage_.Get(LogEntryKey(index));
   DCHECK(opt_value != std::nullopt)
       << "Log index (" << index << ") out of bounds.";
@@ -1083,8 +1089,10 @@ LogEntry RaftServer::GetLogEntry(int index) {
 void RaftServer::DeleteLogSuffix(int starting_index) {
   DCHECK(0 <= starting_index && starting_index < log_size_)
       << "Log index out of bounds.";
-  for (int i = starting_index; i < log_size_; ++i)
+  for (int i = starting_index; i < log_size_; ++i) {
+    log_.erase(i);
     disk_storage_.Delete(LogEntryKey(i));
+  }
   SetLogSize(starting_index);
 }
 
@@ -1109,6 +1117,7 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
     }
     DCHECK(log_size_ >= current_index) << "Current Log index out of bounds.";
     if (log_size_ == current_index) {
+      log_[log_size_] = new_entries[i];
       disk_storage_.Put(LogEntryKey(log_size_),
                         SerializeLogEntry(new_entries[i]));
       SetLogSize(log_size_ + 1);
