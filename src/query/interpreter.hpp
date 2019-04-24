@@ -90,7 +90,7 @@ class Interpreter {
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
             std::vector<AuthQuery::Privilege> privileges,
-            bool is_profile_query = false)
+            bool is_profile_query = false, bool should_abort_query = false)
         : ctx_{db_accessor},
           plan_(plan),
           cursor_(plan_->plan().MakeCursor(*db_accessor)),
@@ -98,7 +98,8 @@ class Interpreter {
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          privileges_(std::move(privileges)) {
+          privileges_(std::move(privileges)),
+          should_abort_query_(should_abort_query) {
       ctx_.is_profile_query = is_profile_query;
       ctx_.symbol_table = plan_->symbol_table();
       ctx_.evaluation_context.timestamp =
@@ -170,7 +171,7 @@ class Interpreter {
       return privileges_;
     }
 
-    bool IsProfileQuery() const { return ctx_.is_profile_query; }
+    bool ShouldAbortQuery() const { return should_abort_query_; }
 
    private:
     ExecutionContext ctx_;
@@ -185,6 +186,8 @@ class Interpreter {
     double execution_time_{0};
 
     std::vector<AuthQuery::Privilege> privileges_;
+
+    bool should_abort_query_;
   };
 
   Interpreter();

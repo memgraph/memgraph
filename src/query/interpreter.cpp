@@ -73,6 +73,7 @@ std::string Interpreter::PlanToJson(const database::GraphDbAccessor &dba,
 struct Callback {
   std::vector<std::string> header;
   std::function<std::vector<std::vector<TypedValue>>()> fn;
+  bool should_abort_query{false};
 };
 
 TypedValue EvaluateOptionalExpression(Expression *expression,
@@ -640,6 +641,9 @@ Callback HandleInfoQuery(InfoQuery *info_query,
              {"term_id", static_cast<int64_t>(db_accessor->raft()->TermId())}});
         return results;
       };
+      // It is critical to abort this query because it can be executed on
+      // machines that aren't the leader.
+      callback.should_abort_query = true;
 #else
       throw utils::NotYetImplemented("raft info");
 #endif
@@ -896,7 +900,7 @@ Interpreter::Results Interpreter::operator()(
 
     return Results(&db_accessor, parameters, plan, output_symbols, header,
                    summary, parsed_query.required_privileges,
-                   /* is_profile_query */ true);
+                   /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
   Callback callback;
@@ -964,7 +968,8 @@ Interpreter::Results Interpreter::operator()(
   summary["cost_estimate"] = 0.0;
 
   return Results(&db_accessor, parameters, plan, output_symbols,
-                 callback.header, summary, parsed_query.required_privileges);
+                 callback.header, summary, parsed_query.required_privileges,
+                 /* is_profile_query */ false, callback.should_abort_query);
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(

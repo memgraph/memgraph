@@ -88,7 +88,7 @@ class TransactionEngine final {
       // `results_` object.
       auto summary = results_->summary();
       if (!in_explicit_transaction_) {
-        if (results_->IsProfileQuery()) {
+        if (results_->ShouldAbortQuery()) {
           Abort();
         } else {
           Commit();
