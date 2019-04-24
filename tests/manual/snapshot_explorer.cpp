@@ -53,12 +53,6 @@ int main(int argc, char *argv[]) {
       << ", got " << dv.ValueInt() << " expected " << durability::kVersion;
 
   decoder.ReadValue(&dv, Value::Type::Int);
-  LOG(INFO) << "Vertex generator last id: " << dv.ValueInt();
-
-  decoder.ReadValue(&dv, Value::Type::Int);
-  LOG(INFO) << "Edge generator last id: " << dv.ValueInt();
-
-  decoder.ReadValue(&dv, Value::Type::Int);
   LOG(INFO) << "Transactional ID of the snapshooter " << dv.ValueInt();
 
   decoder.ReadValue(&dv, Value::Type::List);
