@@ -63,9 +63,10 @@ std::vector<std::pair<int, int>> GetEdgeList(
       for (auto &e : ret) std::swap(e.first, e.second);
       break;
     case query::EdgeAtom::Direction::BOTH:
-      std::transform(
-          ret.begin(), ret.end(), std::back_inserter(ret),
-          [](const auto &e) { return std::make_pair(e.second, e.first); });
+      auto ret_copy = ret;
+      for (const auto &e : ret_copy) {
+        ret.emplace_back(e.second, e.first);
+      }
       break;
   }
   return ret;
