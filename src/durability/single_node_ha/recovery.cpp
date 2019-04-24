@@ -137,7 +137,9 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   // that does not interfere with that found in previous snapshots.
   tx::TransactionId max_id = recovery_data->snapshooter_tx_id;
   auto &snap = recovery_data->snapshooter_tx_snapshot;
-  if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
+  if (!snap.empty()) {
+    max_id = std::max(max_id, *std::max_element(snap.begin(), snap.end()));
+  }
   dba.db()->tx_engine().EnsureNextIdGreater(max_id);
   dba.Commit();
   return true;
