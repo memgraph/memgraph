@@ -5,13 +5,15 @@
 #include <atomic>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
 
-#include "communication/rpc/client_pool.hpp"
+#include "communication/rpc/client.hpp"
 #include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/exceptions.hpp"
@@ -57,36 +59,48 @@ class Coordination final {
   /// Returns all workers ids.
   std::vector<int> GetWorkerIds();
 
-  /// Returns a cached `ClientPool` for the given `worker_id`.
-  communication::rpc::ClientPool *GetClientPool(int worker_id);
-
   uint16_t WorkerCount();
 
-  /// Asynchronously executes the given function on the RPC client for the
-  /// given worker id. Returns an `std::future` of the given `execute`
-  /// function's return type.
-  template <typename TResult>
-  auto ExecuteOnWorker(
-      int worker_id,
-      const std::function<TResult(int worker_id,
-                                  communication::rpc::ClientPool &)> &execute) {
-    auto client_pool = GetClientPool(worker_id);
-    return thread_pool_.Run(execute, worker_id, std::ref(*client_pool));
-  }
-  /// Asynchroniously executes the `execute` function on all worker rpc clients
-  /// except the one whose id is `skip_worker_id`. Returns a vector of futures
-  /// contaning the results of the `execute` function.
-  template <typename TResult>
-  auto ExecuteOnWorkers(
-      int skip_worker_id,
-      const std::function<TResult(int worker_id,
-                                  communication::rpc::ClientPool &)> &execute) {
-    std::vector<std::future<TResult>> futures;
-    for (auto &worker_id : GetWorkerIds()) {
-      if (worker_id == skip_worker_id) continue;
-      futures.emplace_back(std::move(ExecuteOnWorker(worker_id, execute)));
+  /// Executes a RPC on another worker in the cluster. If the RPC execution
+  /// fails (because of underlying network issues) it returns a `std::nullopt`.
+  template <class TRequestResponse, class... Args>
+  std::optional<typename TRequestResponse::Response> ExecuteOnOtherWorker(
+      uint16_t worker_id, Args &&... args) {
+    CHECK(worker_id != worker_id_) << "Trying to execute RPC on self!";
+
+    communication::rpc::Client *client = nullptr;
+    std::mutex *client_lock = nullptr;
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+
+      auto found = clients_.find(worker_id);
+      if (found != clients_.end()) {
+        client = &found->second;
+      } else {
+        auto found_endpoint = workers_.find(worker_id);
+        CHECK(found_endpoint != workers_.end())
+            << "No endpoint registered for worker id: " << worker_id;
+        auto &endpoint = found_endpoint->second;
+        auto it = clients_.emplace(worker_id, endpoint);
+        client = &it.first->second;
+      }
+
+      auto lock_found = client_locks_.find(worker_id);
+      CHECK(lock_found != client_locks_.end())
+          << "No client lock for worker id: " << worker_id;
+      client_lock = lock_found->second.get();
     }
-    return futures;
+
+    try {
+      std::lock_guard<std::mutex> guard(*client_lock);
+      return client->Call<TRequestResponse>(std::forward<Args>(args)...);
+    } catch (...) {
+      // Invalidate the client so that we reconnect next time.
+      std::lock_guard<std::mutex> guard(lock_);
+      CHECK(clients_.erase(worker_id) == 1)
+          << "Couldn't remove client for worker id: " << worker_id;
+      return std::nullopt;
+    }
   }
 
   template <class TRequestResponse>
@@ -131,8 +145,8 @@ class Coordination final {
   mutable std::mutex lock_;
   std::unordered_map<uint16_t, io::network::Endpoint> workers_;
 
-  std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
-  utils::ThreadPool thread_pool_;
+  std::unordered_map<uint16_t, communication::rpc::Client> clients_;
+  std::unordered_map<uint16_t, std::unique_ptr<std::mutex>> client_locks_;
 
   // Flags used for shutdown.
   std::atomic<bool> alive_{true};

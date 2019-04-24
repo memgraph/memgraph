@@ -326,7 +326,7 @@ class RaftServer final : public RaftInterface {
   void SetNextElectionTimePoint();
 
   /// Checks if the current server obtained enough votes to become a leader.
-  bool HasMajortyVote();
+  bool HasMajorityVote();
 
   /// Returns relevant metadata about the last entry in this server's Raft Log.
   /// More precisely, returns a pair consisting of an index of the last entry

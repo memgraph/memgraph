@@ -14,8 +14,6 @@ using namespace std::literals::chrono_literals;
 using Clock = std::chrono::system_clock;
 using TimePoint = std::chrono::system_clock::time_point;
 
-const std::chrono::duration<int64_t> kRpcTimeout = 1s;
-
 StorageInfo::StorageInfo(database::GraphDb *db, Coordination *coordination,
                          uint16_t server_id)
     : db_(db), coordination_(coordination), server_id_(server_id) {
@@ -56,44 +54,19 @@ StorageInfo::GetLocalStorageInfo() const {
 std::map<std::string, std::vector<std::pair<std::string, std::string>>>
 StorageInfo::GetStorageInfo() const {
   std::map<std::string, std::vector<std::pair<std::string, std::string>>> info;
-  std::map<uint16_t, utils::Future<StorageInfoRes>> remote_storage_info_futures;
-  std::map<uint16_t, bool> received_reply;
 
   auto peers = coordination_->GetWorkerIds();
 
   for (auto id : peers) {
-    received_reply[id] = false;
     if (id == server_id_) {
       info.emplace(std::to_string(id), GetLocalStorageInfo());
-      received_reply[id] = true;
     } else {
-      remote_storage_info_futures.emplace(
-          id, coordination_->ExecuteOnWorker<StorageInfoRes>(
-                  id, [&](int worker_id, auto &client) {
-                    try {
-                      auto res = client.template Call<StorageInfoRpc>();
-                      return res;
-                    } catch (...) {
-                      return StorageInfoRes(id, {});
-                    }
-                  }));
-    }
-  }
-
-  int16_t waiting_for = peers.size() - 1;
-
-  TimePoint start = Clock::now();
-  while (Clock::now() - start <= kRpcTimeout && waiting_for > 0) {
-    for (auto id : peers) {
-      if (received_reply[id]) continue;
-      auto &future = remote_storage_info_futures[id];
-      if (!future.IsReady()) continue;
-
-      auto reply = future.get();
-      info.emplace(std::to_string(reply.server_id),
-                   std::move(reply.storage_info));
-      received_reply[id] = true;
-      waiting_for--;
+      auto reply = coordination_->ExecuteOnOtherWorker<StorageInfoRpc>(id);
+      if (reply) {
+        info[std::to_string(id)] = std::move(reply->storage_info);
+      } else {
+        info[std::to_string(id)] = {};
+      }
     }
   }
 

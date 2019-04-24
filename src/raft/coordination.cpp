@@ -18,8 +18,11 @@ Coordination::Coordination(
     std::unordered_map<uint16_t, io::network::Endpoint> workers)
     : server_(workers[worker_id], server_workers_count),
       worker_id_(worker_id),
-      workers_(workers),
-      thread_pool_(client_workers_count, "RPC client") {}
+      workers_(workers) {
+  for (const auto &worker : workers_) {
+    client_locks_[worker.first] = std::make_unique<std::mutex>();
+  }
+}
 
 Coordination::~Coordination() {
   CHECK(!alive_) << "You must call Shutdown and AwaitShutdown on Coordination!";
@@ -71,24 +74,7 @@ std::vector<int> Coordination::GetWorkerIds() {
   return worker_ids;
 }
 
-communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
-  std::lock_guard<std::mutex> guard(lock_);
-  auto found = client_pools_.find(worker_id);
-  if (found != client_pools_.end()) return &found->second;
-  auto found_endpoint = workers_.find(worker_id);
-  CHECK(found_endpoint != workers_.end())
-      << "No endpoint registered for worker id: " << worker_id;
-  auto &endpoint = found_endpoint->second;
-  return &client_pools_
-              .emplace(std::piecewise_construct,
-                       std::forward_as_tuple(worker_id),
-                       std::forward_as_tuple(endpoint))
-              .first->second;
-}
-
-uint16_t Coordination::WorkerCount() {
-  return workers_.size();
-}
+uint16_t Coordination::WorkerCount() { return workers_.size(); }
 
 bool Coordination::Start() {
   if (!server_.Start()) return false;

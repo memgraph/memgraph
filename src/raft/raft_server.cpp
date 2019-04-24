@@ -576,7 +576,7 @@ void RaftServer::Transition(const Mode &new_mode) {
 
       mode_ = Mode::CANDIDATE;
 
-      if (HasMajortyVote()) {
+      if (HasMajorityVote()) {
         Transition(Mode::LEADER);
         state_changed_.notify_all();
         return;
@@ -699,29 +699,20 @@ void RaftServer::SendLogEntries(
   if (next_index_[peer_id] <= log_size_ - 1)
     GetLogSuffix(next_index_[peer_id], request_entries);
 
-  bool unreachable_peer = false;
-  auto peer_future = coordination_->ExecuteOnWorker<AppendEntriesRes>(
-      peer_id, [&](int worker_id, auto &client) {
-        try {
-          auto res = client.template Call<AppendEntriesRpc>(
-              server_id_, commit_index_, request_term, request_prev_log_index,
-              request_prev_log_term, request_entries);
-          return res;
-        } catch (...) {
-          // not being able to connect to peer means we need to retry.
-          // TODO(ipaljak): Consider backoff.
-          unreachable_peer = true;
-          return AppendEntriesRes(false, request_term);
-        }
-      });
+  // Copy all internal variables before releasing the lock.
+  auto server_id = server_id_;
+  auto commit_index = commit_index_;
 
   VLOG(40) << "Entries size: " << request_entries.size();
 
-  lock->unlock();  // Release lock while waiting for response.
-  auto reply = peer_future.get();
+  // Execute the RPC.
+  lock->unlock();
+  auto reply = coordination_->ExecuteOnOtherWorker<AppendEntriesRpc>(
+      peer_id, server_id, commit_index, request_term, request_prev_log_index,
+      request_prev_log_term, request_entries);
   lock->lock();
 
-  if (unreachable_peer) {
+  if (!reply) {
     next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
     return;
   }
@@ -730,7 +721,7 @@ void RaftServer::SendLogEntries(
     return;
   }
 
-  if (OutOfSync(reply.term)) {
+  if (OutOfSync(reply->term)) {
     state_changed_.notify_all();
     return;
   }
@@ -738,13 +729,13 @@ void RaftServer::SendLogEntries(
   DCHECK(mode_ == Mode::LEADER)
       << "Elected leader for term should never change.";
 
-  if (reply.term != current_term_) {
+  if (reply->term != current_term_) {
     VLOG(40) << "Server " << server_id_
              << ": Ignoring stale AppendEntriesRPC reply from " << peer_id;
     return;
   }
 
-  if (!reply.success) {
+  if (!reply->success) {
     // Replication can fail for the first log entry if the peer that we're
     // sending the entry is in the process of shutting down.
     next_index_[peer_id] = std::max(next_index_[peer_id] - 1, 1UL);
@@ -786,25 +777,17 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
 
   VLOG(40) << "Snapshot size: " << snapshot_size << " bytes.";
 
-  bool unreachable_peer = false;
-  auto peer_future = coordination_->ExecuteOnWorker<InstallSnapshotRes>(
-      peer_id, [&](int worker_id, auto &client) {
-        try {
-          auto res = client.template Call<InstallSnapshotRpc>(
-              server_id_, request_term, snapshot_metadata, std::move(snapshot),
-              snapshot_size);
-          return res;
-        } catch (...) {
-          unreachable_peer = true;
-          return InstallSnapshotRes(request_term);
-        }
-      });
+  // Copy all internal variables before releasing the lock.
+  auto server_id = server_id_;
 
+  // Execute the RPC.
   lock->unlock();
-  auto reply = peer_future.get();
+  auto reply = coordination_->ExecuteOnOtherWorker<InstallSnapshotRpc>(
+      peer_id, server_id, request_term, snapshot_metadata, std::move(snapshot),
+      snapshot_size);
   lock->lock();
 
-  if (unreachable_peer) {
+  if (!reply) {
     next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
     return;
   }
@@ -813,12 +796,12 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
     return;
   }
 
-  if (OutOfSync(reply.term)) {
+  if (OutOfSync(reply->term)) {
     state_changed_.notify_all();
     return;
   }
 
-  if (reply.term != current_term_) {
+  if (reply->term != current_term_) {
     VLOG(40) << "Server " << server_id_
              << ": Ignoring stale InstallSnapshotRpc reply from " << peer_id;
     return;
@@ -874,30 +857,25 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
           // TODO(ipaljak): Consider backoff.
           wait_until = TimePoint::max();
 
+          // Copy all internal variables before releasing the lock.
+          auto server_id = server_id_;
           auto request_term = current_term_.load();
-          auto peer_future = coordination_->ExecuteOnWorker<RequestVoteRes>(
-              peer_id, [&](int worker_id, auto &client) {
-                auto last_entry_data = LastEntryData();
-                try {
-                  auto res = client.template Call<RequestVoteRpc>(
-                      server_id_, request_term, last_entry_data.first,
-                      last_entry_data.second);
-                  return res;
-                } catch (...) {
-                  // not being able to connect to peer defaults to a vote
-                  // being denied from that peer. This is correct but not
-                  // optimal.
-                  //
-                  // TODO(ipaljak): reconsider this decision :)
-                  return RequestVoteRes(false, request_term);
-                }
-              });
+          auto last_entry_data = LastEntryData();
 
           vote_requested_[peer_id] = true;
 
+          // Execute the RPC.
           lock.unlock();  // Release lock while waiting for response
-          auto reply = peer_future.get();
+          auto reply = coordination_->ExecuteOnOtherWorker<RequestVoteRpc>(
+              peer_id, server_id, request_term, last_entry_data.first,
+              last_entry_data.second);
           lock.lock();
+
+          // If the peer isn't reachable, it is the same as if he didn't grant
+          // us his vote.
+          if (!reply) {
+            reply = RequestVoteRes(false, request_term);
+          }
 
           if (current_term_ != request_term || mode_ != Mode::CANDIDATE ||
               exiting_) {
@@ -906,16 +884,16 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
             break;
           }
 
-          if (OutOfSync(reply.term)) {
+          if (OutOfSync(reply->term)) {
             state_changed_.notify_all();
             continue;
           }
 
-          if (reply.vote_granted) {
+          if (reply->vote_granted) {
             VLOG(40) << "Server " << server_id_ << ": Got vote from "
                      << peer_id;
             ++granted_votes_;
-            if (HasMajortyVote()) Transition(Mode::LEADER);
+            if (HasMajorityVote()) Transition(Mode::LEADER);
           } else {
             VLOG(40) << "Server " << server_id_ << ": Denied vote from "
                      << peer_id;
@@ -1049,7 +1027,7 @@ void RaftServer::SetNextElectionTimePoint() {
   next_election_ = Clock::now() + wait_interval;
 }
 
-bool RaftServer::HasMajortyVote() {
+bool RaftServer::HasMajorityVote() {
   if (2 * granted_votes_ > coordination_->WorkerCount()) {
     VLOG(40) << "Server " << server_id_
              << ": Obtained majority vote (Term: " << current_term_ << ")";
