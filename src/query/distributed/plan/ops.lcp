@@ -74,7 +74,7 @@ time on data transfer. It gives no guarantees on result order.")
        : input_(input), plan_id_(plan_id), symbols_(symbols) {}
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -160,7 +160,7 @@ Logic of the synchronize operator is:
          advance_command_(advance_command) {}
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    std::vector<Symbol> OutputSymbols(
@@ -209,7 +209,7 @@ by having only one result from each worker.")
        const std::vector<SortItem> &order_by, const std::vector<Symbol> &symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
 
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -255,7 +255,7 @@ by having only one result from each worker.")
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -318,7 +318,7 @@ by having only one result from each worker.")
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -355,7 +355,7 @@ by having only one result from each worker.")
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -403,7 +403,7 @@ by having only one result from each worker.")
                            Symbol input_symbol, bool existing_node);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
+       database::GraphDbAccessor *, utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }

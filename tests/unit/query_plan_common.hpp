@@ -42,7 +42,8 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(*context->db_accessor);
+  auto cursor =
+      produce.query::plan::LogicalOperator::MakeCursor(*context->db_accessor);
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;

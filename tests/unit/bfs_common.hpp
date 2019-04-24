@@ -110,8 +110,9 @@ class Yield : public query::plan::LogicalOperator {
         values_(values) {}
 
   std::unique_ptr<query::plan::Cursor> MakeCursor(
-      database::GraphDbAccessor &dba) const override {
-    return std::make_unique<YieldCursor>(this, input_->MakeCursor(dba));
+      database::GraphDbAccessor *dba,
+      utils::MemoryResource *mem) const override {
+    return std::make_unique<YieldCursor>(this, input_->MakeCursor(dba, mem));
   }
   std::vector<query::Symbol> ModifiedSymbols(
       const query::SymbolTable &) const override {
