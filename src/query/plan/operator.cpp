@@ -3042,11 +3042,23 @@ void Unwind::UnwindCursor::Reset() {
   input_value_it_ = input_value_.end();
 }
 
+struct TypedValueVectorAllocatorEqual {
+  bool operator()(
+      const std::vector<TypedValue, utils::Allocator<TypedValue>> &left,
+      const std::vector<TypedValue, utils::Allocator<TypedValue>> &right)
+      const {
+    return std::equal(left.begin(), left.end(), right.begin(), right.end(),
+                      TypedValue::BoolEqual());
+  }
+};
+
 class DistinctCursor : public Cursor {
  public:
   DistinctCursor(const Distinct &self, database::GraphDbAccessor *db,
                  utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(db, mem)) {}
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(db, mem)),
+        seen_rows_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Distinct");
@@ -3054,7 +3066,8 @@ class DistinctCursor : public Cursor {
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      std::vector<TypedValue> row;
+      std::vector<TypedValue, utils::Allocator<TypedValue>> row(
+          seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
       for (const auto &symbol : self_.value_symbols_)
         row.emplace_back(frame[symbol]);
@@ -3073,12 +3086,14 @@ class DistinctCursor : public Cursor {
   const Distinct &self_;
   const std::unique_ptr<Cursor> input_cursor_;
   // a set of already seen rows
-  std::unordered_set<std::vector<TypedValue>,
-                     // use FNV collection hashing specialized for a vector of
-                     // TypedValues
-                     utils::FnvCollection<std::vector<TypedValue>, TypedValue,
-                                          TypedValue::Hash>,
-                     TypedValueVectorEqual>
+  std::unordered_set<
+      std::vector<TypedValue, utils::Allocator<TypedValue>>,
+      // use FNV collection hashing specialized for a vector of TypedValue
+      utils::FnvCollection<
+          std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
+          TypedValue::Hash>,
+      TypedValueVectorAllocatorEqual,
+      utils::Allocator<std::vector<TypedValue, utils::Allocator<TypedValue>>>>
       seen_rows_;
 };
 
