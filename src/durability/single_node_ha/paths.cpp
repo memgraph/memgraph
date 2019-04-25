@@ -1,12 +1,5 @@
 #include "durability/single_node_ha/paths.hpp"
 
-#include <filesystem>
-#include <optional>
-#include <string>
-
-#include "glog/logging.h"
-
-#include "transactions/type.hpp"
 #include "utils/string.hpp"
 #include "utils/timestamp.hpp"
 
@@ -14,36 +7,20 @@ namespace durability {
 
 namespace fs = std::filesystem;
 
-std::string GetSnapshotFilename(tx::TransactionId tx_id) {
-  std::string date_str =
-      utils::Timestamp(utils::Timestamp::Now())
-          .ToString("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
-  return date_str + "_tx_" + std::to_string(tx_id);
+// This is the prefix used for WAL and Snapshot filenames. It is a timestamp
+// format that equals to: YYYYmmddHHMMSSffffff
+const std::string kTimestampFormat =
+    "{:04d}{:02d}{:02d}{:02d}{:02d}{:02d}{:06d}";
+
+std::string GetSnapshotFilename(uint64_t last_included_term,
+                                uint64_t last_included_index) {
+  std::string date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
+  return date_str + "_term_" + std::to_string(last_included_term) + "_index_" +
+         std::to_string(last_included_index);
 }
 
 fs::path MakeSnapshotPath(const fs::path &durability_dir,
                           const std::string &snapshot_filename) {
   return durability_dir / kSnapshotDir / snapshot_filename;
-}
-
-std::optional<tx::TransactionId> TransactionIdFromSnapshotFilename(
-    const std::string &name) {
-  auto nullopt = std::nullopt;
-  auto file_name_split = utils::RSplit(name, "_tx_", 1);
-  if (file_name_split.size() != 2) {
-    LOG(WARNING) << "Unable to parse snapshot file name: " << name;
-    return nullopt;
-  }
-  try {
-    return std::stoll(file_name_split[1]);
-  } catch (std::invalid_argument &) {
-    LOG(WARNING) << "Unable to parse snapshot file name tx ID: "
-                 << file_name_split[1];
-    return nullopt;
-  } catch (std::out_of_range &) {
-    LOG(WARNING) << "Unable to parse snapshot file name tx ID: "
-                 << file_name_split[1];
-    return nullopt;
-  }
 }
 }  // namespace durability

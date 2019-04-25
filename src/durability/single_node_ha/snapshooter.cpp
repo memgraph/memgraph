@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 namespace durability {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 7,
+static_assert(durability::kVersion == 8,
               "Wrong snapshot version, please update!");
 
 namespace {
@@ -31,18 +31,6 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     encoder.WriteRAW(durability::kSnapshotMagic.data(),
                      durability::kSnapshotMagic.size());
     encoder.WriteInt(durability::kVersion);
-
-    // Write the ID of the transaction doing the snapshot.
-    encoder.WriteInt(dba.transaction_id());
-
-    // Write the transaction snapshot into the snapshot. It's used when
-    // recovering from the combination of snapshot and write-ahead-log.
-    {
-      std::vector<communication::bolt::Value> tx_snapshot;
-      for (int64_t tx : dba.transaction().snapshot())
-        tx_snapshot.emplace_back(tx);
-      encoder.WriteList(tx_snapshot);
-    }
 
     // Write label+property indexes as list ["label", "property", ...]
     {

@@ -971,8 +971,8 @@ void RaftServer::SnapshotThread() {
           auto dba = db_->Access();
           last_included_term = GetLogEntry(last_applied_).term;
           last_included_index = last_applied_;
-          snapshot_filename =
-              durability::GetSnapshotFilename(dba.transaction_id());
+          snapshot_filename = durability::GetSnapshotFilename(
+              last_included_term, last_included_index);
 
           lock.unlock();
           VLOG(40) << "[LogCompaction] Creating snapshot.";

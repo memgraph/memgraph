@@ -190,11 +190,6 @@ Transaction *Engine::RunningTransaction(TransactionId tx_id) {
   return found->second.get();
 }
 
-void Engine::EnsureNextIdGreater(TransactionId tx_id) {
-  std::lock_guard<utils::SpinLock> guard(lock_);
-  counter_ = std::max(tx_id, counter_);
-}
-
 void Engine::Reset() {
   Snapshot wait_for_txs;
   {

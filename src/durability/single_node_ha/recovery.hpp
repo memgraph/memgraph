@@ -25,17 +25,9 @@ struct IndexRecoveryData {
 /// Data structure for exchanging info between main recovery function and
 /// snapshot recovery functions.
 struct RecoveryData {
-  tx::TransactionId snapshooter_tx_id{0};
-  std::vector<tx::TransactionId> snapshooter_tx_snapshot;
   // A collection into which the indexes should be added so they
   // can be rebuilt at the end of the recovery transaction.
   std::vector<IndexRecoveryData> indexes;
-
-  void Clear() {
-    snapshooter_tx_id = 0;
-    snapshooter_tx_snapshot.clear();
-    indexes.clear();
-  }
 };
 
 /// Reads snapshot metadata from the end of the file without messing up the

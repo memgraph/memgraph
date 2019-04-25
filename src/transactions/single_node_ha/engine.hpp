@@ -49,7 +49,6 @@ class Engine final {
   TransactionId LocalOldestActive() const;
   void LocalForEachActiveTransaction(std::function<void(Transaction &)> f);
   Transaction *RunningTransaction(TransactionId tx_id);
-  void EnsureNextIdGreater(TransactionId tx_id);
   void GarbageCollectCommitLog(TransactionId tx_id);
 
   auto &local_lock_graph() { return local_lock_graph_; }

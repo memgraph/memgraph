@@ -64,15 +64,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
-  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
-  recovery_data->snapshooter_tx_id = dv.ValueInt();
-  // Transaction snapshot of the transaction that created the snapshot.
-  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
-  for (const auto &value : dv.ValueList()) {
-    RETURN_IF_NOT(value.IsInt());
-    recovery_data->snapshooter_tx_snapshot.emplace_back(value.ValueInt());
-  }
-
   // A list of label+property indexes.
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
   auto index_value = dv.ValueList();
@@ -131,16 +122,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     return false;
   }
 
-  // Ensure that the next transaction ID in the recovered DB will be greater
-  // than the latest one we have recovered. Do this to make sure that
-  // subsequently created snapshots files will have transactional info
-  // that does not interfere with that found in previous snapshots.
-  tx::TransactionId max_id = recovery_data->snapshooter_tx_id;
-  auto &snap = recovery_data->snapshooter_tx_snapshot;
-  if (!snap.empty()) {
-    max_id = std::max(max_id, *std::max_element(snap.begin(), snap.end()));
-  }
-  dba.db()->tx_engine().EnsureNextIdGreater(max_id);
   dba.Commit();
   return true;
 }
