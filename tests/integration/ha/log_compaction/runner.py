@@ -28,7 +28,7 @@ class HaLogCompactionTest(HaTestBase):
     def execute_step(self, query):
         client = subprocess.Popen(
                 [self.tester_binary, "--cluster_size", str(self.cluster_size)],
-                stdin=subprocess.PIPE)
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
 
         try:
             client.communicate(input=bytes(query, "UTF-8"), timeout=30)
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     for cluster_size in [3, 5]:
-        print("\033[1;36m~~ Executing test with cluster size: %d~~\033[0m" % (cluster_size))
+        print("\033[1;36m~~ Executing test with cluster size: %d ~~\033[0m" % (cluster_size))
         HaLogCompactionTest(
             args.memgraph, tester_binary, args.raft_config_file, cluster_size)
         print("\033[1;32m~~ The test finished successfully ~~\033[0m")
