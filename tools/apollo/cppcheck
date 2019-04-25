@@ -34,6 +34,7 @@ variableScope:src/query/frontend/opencypher/generated/CypherParser.cpp
 missingInclude
 unusedFunction
 unusedStructMember
+useStlAlgorithm
 EOF
 
 cppcheck --enable=all --inline-suppr --force --suppressions-list=.cppcheck_suppressions $flags $files 2>"$tmpfile"
