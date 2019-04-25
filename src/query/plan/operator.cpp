@@ -3042,6 +3042,46 @@ void Unwind::UnwindCursor::Reset() {
   input_value_it_ = input_value_.end();
 }
 
+class DistinctCursor : public Cursor {
+ public:
+  DistinctCursor(const Distinct &self, database::GraphDbAccessor *db,
+                 utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(db, mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Distinct");
+
+    while (true) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+
+      std::vector<TypedValue> row;
+      row.reserve(self_.value_symbols_.size());
+      for (const auto &symbol : self_.value_symbols_)
+        row.emplace_back(frame[symbol]);
+      if (seen_rows_.insert(std::move(row)).second) return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    seen_rows_.clear();
+  }
+
+ private:
+  const Distinct &self_;
+  const std::unique_ptr<Cursor> input_cursor_;
+  // a set of already seen rows
+  std::unordered_set<std::vector<TypedValue>,
+                     // use FNV collection hashing specialized for a vector of
+                     // TypedValues
+                     utils::FnvCollection<std::vector<TypedValue>, TypedValue,
+                                          TypedValue::Hash>,
+                     TypedValueVectorEqual>
+      seen_rows_;
+};
+
 Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input,
                    const std::vector<Symbol> &value_symbols)
     : input_(input ? input : std::make_shared<Once>()),
@@ -3062,32 +3102,6 @@ std::vector<Symbol> Distinct::OutputSymbols(
 
 std::vector<Symbol> Distinct::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
-}
-
-Distinct::DistinctCursor::DistinctCursor(const Distinct &self,
-                                         database::GraphDbAccessor *db,
-                                         utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(db, mem)) {}
-
-bool Distinct::DistinctCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Distinct");
-
-  while (true) {
-    if (!input_cursor_->Pull(frame, context)) return false;
-
-    std::vector<TypedValue> row;
-    row.reserve(self_.value_symbols_.size());
-    for (const auto &symbol : self_.value_symbols_)
-      row.emplace_back(frame[symbol]);
-    if (seen_rows_.insert(std::move(row)).second) return true;
-  }
-}
-
-void Distinct::DistinctCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Distinct::DistinctCursor::Reset() {
-  input_cursor_->Reset();
-  seen_rows_.clear();
 }
 
 Union::Union(const std::shared_ptr<LogicalOperator> &left_op,

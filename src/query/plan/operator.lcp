@@ -2439,30 +2439,6 @@ This implementation maintains input ordering.")
      input_ = input;
    }
    cpp<#)
-  (:private
-   #>cpp
-   class DistinctCursor : public Cursor {
-    public:
-     DistinctCursor(const Distinct &, database::GraphDbAccessor *,
-                    utils::MemoryResource *);
-
-     bool Pull(Frame &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Distinct &self_;
-     const std::unique_ptr<Cursor> input_cursor_;
-     // a set of already seen rows
-     std::unordered_set<
-         std::vector<TypedValue>,
-         // use FNV collection hashing specialized for a vector of TypedValues
-         utils::FnvCollection<std::vector<TypedValue>, TypedValue,
-                              TypedValue::Hash>,
-         TypedValueVectorEqual>
-         seen_rows_;
-   };
-   cpp<#)
   (:serialize (:slk) (:capnp))
   (:clone))
 
