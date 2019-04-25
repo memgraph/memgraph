@@ -1,7 +1,3 @@
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/property_based)
-
 include_directories(${GTEST_INCLUDE_DIR})
 
 # benchmark test binaries

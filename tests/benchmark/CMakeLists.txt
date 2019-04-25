@@ -14,10 +14,7 @@ function(add_benchmark test_cpp)
   target_link_libraries(${target_name} benchmark)
   target_include_directories(${target_name} PRIVATE ${BENCHMARK_INCLUDE_DIR})
   # register test
-  set(output_path
-      ${CMAKE_BINARY_DIR}/test_results/benchmark/${target_name}.json)
-  add_test(${target_name} ${exec_name}
-           --benchmark_out_format=json --benchmark_out=${output_path})
+  add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_benchmark)
 

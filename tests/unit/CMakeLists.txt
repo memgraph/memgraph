@@ -13,8 +13,7 @@ function(add_unit_test test_cpp)
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} gtest gmock gtest_main Threads::Threads)
   # register test
-  set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
-  add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
+  add_test(${target_name} ${exec_name})
   # add to memgraph__unit target
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)
