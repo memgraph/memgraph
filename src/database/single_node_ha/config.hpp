@@ -23,10 +23,6 @@ struct Config {
   // set of properties which will be stored on disk
   std::vector<std::string> properties_on_disk;
 
-  // RPC flags.
-  uint16_t rpc_num_client_workers;
-  uint16_t rpc_num_server_workers;
-
   // HA flags.
   std::string coordination_config_file;
   std::string raft_config_file;

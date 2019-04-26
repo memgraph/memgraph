@@ -1,9 +1,6 @@
 #include "raft/coordination.hpp"
 
-#include <thread>
-
-#include "glog/logging.h"
-#include "json/json.hpp"
+#include <json/json.hpp>
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"
@@ -12,15 +9,60 @@ namespace raft {
 
 namespace fs = std::filesystem;
 
+std::unordered_map<uint16_t, io::network::Endpoint> LoadNodesFromFile(
+    const std::string &coordination_config_file) {
+  if (!fs::exists(coordination_config_file))
+    throw RaftCoordinationConfigException("file (" + coordination_config_file +
+                                          ") doesn't exist");
+
+  std::unordered_map<uint16_t, io::network::Endpoint> nodes;
+  nlohmann::json data;
+  try {
+    data = nlohmann::json::parse(
+        utils::Join(utils::ReadLines(coordination_config_file), ""));
+  } catch (const nlohmann::json::parse_error &e) {
+    throw RaftCoordinationConfigException("invalid json");
+  }
+
+  if (!data.is_array()) throw RaftCoordinationConfigException("not an array");
+
+  for (auto &it : data) {
+    if (!it.is_array())
+      throw RaftCoordinationConfigException("element not an array");
+
+    if (it.size() != 3)
+      throw RaftCoordinationConfigException("invalid number of subelements");
+
+    if (!it[0].is_number_unsigned() || !it[1].is_string() ||
+        !it[2].is_number_unsigned())
+      throw RaftCoordinationConfigException("subelement data is invalid");
+
+    nodes[it[0]] = io::network::Endpoint{it[1], it[2]};
+  }
+
+  return nodes;
+}
+
 Coordination::Coordination(
-    uint16_t server_workers_count, uint16_t client_workers_count,
-    uint16_t worker_id,
-    std::unordered_map<uint16_t, io::network::Endpoint> workers)
-    : server_(workers[worker_id], server_workers_count),
-      worker_id_(worker_id),
-      workers_(workers) {
-  for (const auto &worker : workers_) {
-    client_locks_[worker.first] = std::make_unique<std::mutex>();
+    uint16_t node_id,
+    std::unordered_map<uint16_t, io::network::Endpoint> all_nodes)
+    : node_id_(node_id),
+      cluster_size_(all_nodes.size()),
+      server_(all_nodes[node_id], all_nodes.size() * 2) {
+  // Create all client elements.
+  endpoints_.resize(cluster_size_);
+  clients_.resize(cluster_size_);
+  client_locks_.resize(cluster_size_);
+
+  // Initialize all client elements.
+  for (uint16_t i = 1; i <= cluster_size_; ++i) {
+    auto it = all_nodes.find(i);
+    if (it == all_nodes.end()) {
+      throw RaftCoordinationConfigException("missing endpoint for node " +
+                                            std::to_string(i));
+    }
+    endpoints_[i - 1] = it->second;
+    client_locks_[i - 1] = std::make_unique<std::mutex>();
   }
 }
 
@@ -28,59 +70,30 @@ Coordination::~Coordination() {
   CHECK(!alive_) << "You must call Shutdown and AwaitShutdown on Coordination!";
 }
 
-std::unordered_map<uint16_t, io::network::Endpoint> Coordination::LoadFromFile(
-    const std::string &coordination_config_file) {
-  if (!fs::exists(coordination_config_file))
-    throw RaftCoordinationConfigException(coordination_config_file);
-
-  std::unordered_map<uint16_t, io::network::Endpoint> workers;
-  nlohmann::json data;
-  try {
-    data = nlohmann::json::parse(
-        utils::Join(utils::ReadLines(coordination_config_file), ""));
-  } catch (const nlohmann::json::parse_error &e) {
-    throw RaftCoordinationConfigException(coordination_config_file);
+std::vector<uint16_t> Coordination::GetAllNodeIds() {
+  std::vector<uint16_t> ret;
+  ret.reserve(cluster_size_);
+  for (uint16_t i = 1; i <= cluster_size_; ++i) {
+    ret.push_back(i);
   }
+  return ret;
+}
 
-  if (!data.is_array())
-    throw RaftCoordinationConfigException(coordination_config_file);
-
-  for (auto &it : data) {
-    if (!it.is_array() || it.size() != 3)
-      throw RaftCoordinationConfigException(coordination_config_file);
-
-    workers[it[0]] = io::network::Endpoint{it[1], it[2]};
+std::vector<uint16_t> Coordination::GetOtherNodeIds() {
+  std::vector<uint16_t> ret;
+  ret.reserve(cluster_size_ - 1);
+  for (uint16_t i = 1; i <= cluster_size_; ++i) {
+    if (i == node_id_) continue;
+    ret.push_back(i);
   }
-
-  return workers;
+  return ret;
 }
 
-io::network::Endpoint Coordination::GetEndpoint(int worker_id) {
-  std::lock_guard<std::mutex> guard(lock_);
-  auto found = workers_.find(worker_id);
-  CHECK(found != workers_.end())
-      << "No endpoint registered for worker id: " << worker_id;
-  return found->second;
-}
+uint16_t Coordination::GetAllNodeCount() { return cluster_size_; }
 
-io::network::Endpoint Coordination::GetServerEndpoint() {
-  return server_.endpoint();
-}
+uint16_t Coordination::GetOtherNodeCount() { return cluster_size_ - 1; }
 
-std::vector<int> Coordination::GetWorkerIds() {
-  std::lock_guard<std::mutex> guard(lock_);
-  std::vector<int> worker_ids;
-  for (auto worker : workers_) worker_ids.push_back(worker.first);
-  return worker_ids;
-}
-
-uint16_t Coordination::WorkerCount() { return workers_.size(); }
-
-bool Coordination::Start() {
-  if (!server_.Start()) return false;
-  AddWorker(worker_id_, server_.endpoint());
-  return true;
-}
+bool Coordination::Start() { return server_.Start(); }
 
 void Coordination::AwaitShutdown(
     std::function<void(void)> call_before_shutdown) {
@@ -98,21 +111,5 @@ void Coordination::AwaitShutdown(
 }
 
 void Coordination::Shutdown() { alive_.store(false); }
-
-std::string Coordination::GetWorkerName(const io::network::Endpoint &endpoint) {
-  std::lock_guard<std::mutex> guard(lock_);
-  for (const auto &worker : workers_) {
-    if (worker.second == endpoint) {
-      return fmt::format("worker {} ({})", worker.first, worker.second);
-    }
-  }
-  return fmt::format("unknown worker ({})", endpoint);
-}
-
-void Coordination::AddWorker(int worker_id,
-                             const io::network::Endpoint &endpoint) {
-  std::lock_guard<std::mutex> guard(lock_);
-  workers_.insert({worker_id, endpoint});
-}
 
 }  // namespace raft

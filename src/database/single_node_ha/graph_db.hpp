@@ -130,9 +130,8 @@ class GraphDb {
   std::unique_ptr<Storage> storage_ =
       std::make_unique<Storage>(config_.properties_on_disk);
   raft::Coordination coordination_{
-      config_.rpc_num_server_workers, config_.rpc_num_client_workers,
       config_.server_id,
-      raft::Coordination::LoadFromFile(config_.coordination_config_file)};
+      raft::LoadNodesFromFile(config_.coordination_config_file)};
   raft::RaftServer raft_server_{
       config_.server_id,
       config_.durability_directory,

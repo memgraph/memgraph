@@ -42,9 +42,9 @@ class RaftConfigException : public RaftException {
 class RaftCoordinationConfigException : public RaftException {
  public:
   using RaftException::RaftException;
-  explicit RaftCoordinationConfigException(const std::string &path)
-      : RaftException("Unable to parse raft coordination config file " + path) {
-  }
+  explicit RaftCoordinationConfigException(const std::string &msg)
+      : RaftException("Unable to parse raft coordination config file: " + msg +
+                      "!") {}
 };
 
 /// This exception should be thrown when a `RaftServer` instance attempts

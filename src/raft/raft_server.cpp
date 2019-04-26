@@ -75,7 +75,7 @@ void RaftServer::Start() {
   }
 
   // Peer state initialization
-  int cluster_size = coordination_->WorkerCount() + 1;
+  auto cluster_size = coordination_->GetAllNodeCount() + 1;
   next_index_.resize(cluster_size);
   match_index_.resize(cluster_size);
   next_heartbeat_.resize(cluster_size);
@@ -299,8 +299,7 @@ void RaftServer::Start() {
   SetNextElectionTimePoint();
   election_thread_ = std::thread(&RaftServer::ElectionThreadMain, this);
 
-  for (const auto &peer_id : coordination_->GetWorkerIds()) {
-    if (peer_id == server_id_) continue;
+  for (auto peer_id : coordination_->GetOtherNodeIds()) {
     peer_threads_.emplace_back(&RaftServer::PeerThreadMain, this, peer_id);
   }
 
@@ -574,7 +573,7 @@ void RaftServer::Transition(const Mode &new_mode) {
       SetVotedFor(server_id_);
 
       granted_votes_ = 1;
-      vote_requested_.assign(coordination_->WorkerCount(), false);
+      vote_requested_.assign(coordination_->GetAllNodeCount(), false);
 
       mode_ = Mode::CANDIDATE;
 
@@ -602,7 +601,7 @@ void RaftServer::Transition(const Mode &new_mode) {
       // [Raft paper figure 2]
       // "For each server, index of the next log entry to send to that server
       // is initialized to leader's last log index + 1"
-      for (int i = 1; i < coordination_->WorkerCount() + 1; ++i) {
+      for (int i = 1; i <= coordination_->GetAllNodeCount(); ++i) {
         next_index_[i] = log_size_;
         match_index_[i] = 0;
       }
@@ -627,7 +626,7 @@ void RaftServer::AdvanceCommitIndex() {
       << "Commit index can only be advanced by the leader";
 
   std::vector<uint64_t> known_replication_indices;
-  for (int i = 1; i < coordination_->WorkerCount() + 1; ++i) {
+  for (int i = 1; i <= coordination_->GetAllNodeCount(); ++i) {
     if (i != server_id_)
       known_replication_indices.push_back(match_index_[i]);
     else
@@ -636,7 +635,7 @@ void RaftServer::AdvanceCommitIndex() {
 
   std::sort(known_replication_indices.begin(), known_replication_indices.end());
   uint64_t new_commit_index =
-      known_replication_indices[(coordination_->WorkerCount() - 1) / 2];
+      known_replication_indices[(coordination_->GetAllNodeCount() - 1) / 2];
 
   // This can happen because we reset `match_index` vector to 0 after a
   // new leader has been elected.
@@ -709,7 +708,7 @@ void RaftServer::SendLogEntries(
 
   // Execute the RPC.
   lock->unlock();
-  auto reply = coordination_->ExecuteOnOtherWorker<AppendEntriesRpc>(
+  auto reply = coordination_->ExecuteOnOtherNode<AppendEntriesRpc>(
       peer_id, server_id, commit_index, request_term, request_prev_log_index,
       request_prev_log_term, request_entries);
   lock->lock();
@@ -784,7 +783,7 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
 
   // Execute the RPC.
   lock->unlock();
-  auto reply = coordination_->ExecuteOnOtherWorker<InstallSnapshotRpc>(
+  auto reply = coordination_->ExecuteOnOtherNode<InstallSnapshotRpc>(
       peer_id, server_id, request_term, snapshot_metadata, std::move(snapshot),
       snapshot_size);
   lock->lock();
@@ -868,7 +867,7 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
 
           // Execute the RPC.
           lock.unlock();  // Release lock while waiting for response
-          auto reply = coordination_->ExecuteOnOtherWorker<RequestVoteRpc>(
+          auto reply = coordination_->ExecuteOnOtherNode<RequestVoteRpc>(
               peer_id, server_id, request_term, last_entry_data.first,
               last_entry_data.second);
           lock.lock();
@@ -1031,7 +1030,7 @@ void RaftServer::SetNextElectionTimePoint() {
 }
 
 bool RaftServer::HasMajorityVote() {
-  if (2 * granted_votes_ > coordination_->WorkerCount()) {
+  if (2 * granted_votes_ > coordination_->GetAllNodeCount()) {
     VLOG(40) << "Server " << server_id_
              << ": Obtained majority vote (Term: " << current_term_ << ")";
     return true;

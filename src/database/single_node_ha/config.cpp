@@ -24,16 +24,6 @@ DEFINE_string(properties_on_disk, "",
               "Property names of properties which will be stored on available "
               "disk. Property names have to be separated with comma (,).");
 
-// RPC flags.
-DEFINE_VALIDATED_HIDDEN_int32(
-    rpc_num_client_workers, std::max(std::thread::hardware_concurrency(), 1U),
-    "Number of client workers (RPC)",
-    FLAG_IN_RANGE(1, std::numeric_limits<uint16_t>::max()));
-DEFINE_VALIDATED_HIDDEN_int32(
-    rpc_num_server_workers, std::max(std::thread::hardware_concurrency(), 1U),
-    "Number of server workers (RPC)",
-    FLAG_IN_RANGE(1, std::numeric_limits<uint16_t>::max()));
-
 // High availability.
 DEFINE_string(
     coordination_config_file, "coordination.json",
@@ -55,11 +45,6 @@ database::Config::Config()
       query_execution_time_sec{FLAGS_query_execution_time_sec},
       // Data location.
       properties_on_disk(utils::Split(FLAGS_properties_on_disk, ",")),
-      // RPC flags.
-      rpc_num_client_workers{
-          static_cast<uint16_t>(FLAGS_rpc_num_client_workers)},
-      rpc_num_server_workers{
-          static_cast<uint16_t>(FLAGS_rpc_num_server_workers)},
       // High availability.
       coordination_config_file{FLAGS_coordination_config_file},
       raft_config_file{FLAGS_raft_config_file},

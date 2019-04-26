@@ -55,13 +55,11 @@ std::map<std::string, std::vector<std::pair<std::string, std::string>>>
 StorageInfo::GetStorageInfo() const {
   std::map<std::string, std::vector<std::pair<std::string, std::string>>> info;
 
-  auto peers = coordination_->GetWorkerIds();
-
-  for (auto id : peers) {
+  for (auto id : coordination_->GetAllNodeIds()) {
     if (id == server_id_) {
       info.emplace(std::to_string(id), GetLocalStorageInfo());
     } else {
-      auto reply = coordination_->ExecuteOnOtherWorker<StorageInfoRpc>(id);
+      auto reply = coordination_->ExecuteOnOtherNode<StorageInfoRpc>(id);
       if (reply) {
         info[std::to_string(id)] = std::move(reply->storage_info);
       } else {
