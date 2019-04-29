@@ -132,7 +132,7 @@
    (members :initarg :members :initform nil :reader cpp-class-members)
    ;; Custom C++ code in 3 scopes. May be a list of C++ meta information or a
    ;; single element.
-   (public :initarg :public :initform nil :reader cpp-class-public)
+   (public :initarg :public :initform nil :accessor cpp-class-public)
    (protected :initarg :protected :initform nil :reader cpp-class-protected)
    (private :initarg :private :initform nil :accessor cpp-class-private)
    (capnp-opts :type (or null capnp-opts) :initarg :capnp-opts :initform nil

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "communication/rpc/messages.hpp"
+#include "communication/rpc/serialization.hpp"
 #include "distributed/storage_gc_rpc_messages.capnp.h"
 #include "io/network/endpoint.hpp"
 #include "transactions/transaction.hpp"

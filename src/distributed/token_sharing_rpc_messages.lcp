@@ -5,6 +5,7 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
+#include "communication/rpc/serialization.hpp"
 #include "distributed/token_sharing_rpc_messages.capnp.h"
 cpp<#
 

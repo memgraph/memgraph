@@ -1371,12 +1371,64 @@ enums which aren't defined in LCP."
            ,(decl-type-info req-name)
            ,(def-constructor req-name (second request)))
           (:serialize (:slk) (:capnp)))
+        (let ((req-class (find-cpp-class ',req-sym)))
+          (unless (lcp.slk::save-extra-args req-class)
+            (push ,(progn
+                     #>cpp
+                     static void Save(const ${req-name} &self, slk::Builder *builder);
+                     cpp<#)
+                  (cpp-class-public req-class))
+            (in-impl
+             ,(progn
+                #>cpp
+                void ${req-name}::Save(const ${req-name} &self, slk::Builder *builder) {
+                  slk::Save(self, builder);
+                }
+                cpp<#)))
+          (unless (lcp.slk::load-extra-args req-class)
+            (push ,(progn #>cpp
+                          static void Load(${req-name} *self, slk::Reader *reader);
+                          cpp<#)
+                  (cpp-class-public req-class))
+            (in-impl
+             ,(progn
+                #>cpp
+                void ${req-name}::Load(${req-name} *self, slk::Reader *reader) {
+                  slk::Load(self, reader);
+                }
+                cpp<#))))
         (define-struct ,res-sym ()
           ,@(cdr response)
           (:public
            ,(decl-type-info res-name)
            ,(def-constructor res-name (second response)))
           (:serialize (:slk) (:capnp)))
+        (let ((res-class (find-cpp-class ',res-sym)))
+          (unless (lcp.slk::save-extra-args res-class)
+            (push ,(progn
+                     #>cpp
+                     static void Save(const ${res-name} &self, slk::Builder *builder);
+                     cpp<#)
+                  (cpp-class-public res-class))
+            (in-impl
+             ,(progn
+                #>cpp
+                void ${res-name}::Save(const ${res-name} &self, slk::Builder *builder) {
+                  slk::Save(self, builder);
+                }
+                cpp<#)))
+          (unless (lcp.slk::load-extra-args res-class)
+            (push ,(progn #>cpp
+                          static void Load(${res-name} *self, slk::Reader *reader);
+                          cpp<#)
+                  (cpp-class-public res-class))
+            (in-impl
+             ,(progn
+                #>cpp
+                void ${res-name}::Load(${res-name} *self, slk::Reader *reader) {
+                  slk::Load(self, reader);
+                }
+                cpp<#))))
         ,rpc-decl))))
 
 (defun read-lcp (filepath)

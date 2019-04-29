@@ -2,6 +2,7 @@
 #pragma once
 
 #include "communication/rpc/messages.hpp"
+#include "communication/rpc/serialization.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/distributed/engine_rpc_messages.capnp.h"
 #include "transactions/snapshot.hpp"

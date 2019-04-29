@@ -4,6 +4,7 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
+#include "communication/rpc/serialization.hpp"
 #include "database/distributed/counters_rpc_messages.capnp.h"
 cpp<#
 

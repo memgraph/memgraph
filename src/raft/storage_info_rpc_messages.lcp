@@ -5,6 +5,7 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
+#include "communication/rpc/serialization.hpp"
 #include "raft/storage_info_rpc_messages.capnp.h"
 #include "rpc/serialization.hpp"
 cpp<#
