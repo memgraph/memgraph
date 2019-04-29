@@ -75,10 +75,10 @@ fi
 src_files=$( find "$PROJECT_DIR/src" \( -name '*.cpp' -o -name '*.hpp' \) -print | sort | tr '\n' ' ' )
 
 # Process the coverage
-llvm-profdata-5.0 merge -sparse "$coverage_raw_file" -o "$coverage_data_file"
+llvm-profdata merge -sparse "$coverage_raw_file" -o "$coverage_data_file"
 
 # Generate the html output
-llvm-cov-5.0 show "$target_path" \
+llvm-cov show "$target_path" \
     -format html \
     -instr-profile "$coverage_data_file" \
     -o "$output_dir" \
