@@ -5,7 +5,7 @@
 #pragma once
 
 #include <cstddef>
-// Although <memory_resource> is in C++17, gcc libstdc++ still need to
+// Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
 #include <experimental/memory_resource>
@@ -17,6 +17,18 @@ class MemoryResource {
  public:
   virtual ~MemoryResource() {}
 
+  /// Allocate storage with a size of at least `bytes` bytes.
+  ///
+  /// The returned storage is aligned to to `alignment` clamped to
+  /// `alignof(std::max_align_t)`. This means that it is valid to request larger
+  /// alignment, but the storage will actually be aligned to
+  /// `alignof(std::max_align_t)`.
+  //
+  /// Additionaly, `alignment` must be a power of 2, if it is not
+  /// `std::bad_alloc` is thrown.
+  ///
+  /// @throw std::bad_alloc if the requested storage and alignment combination
+  ///     cannot be obtained.
   void *Allocate(size_t bytes, size_t alignment = alignof(std::max_align_t)) {
     return DoAllocate(bytes, alignment);
   }
@@ -122,5 +134,65 @@ inline MemoryResource *NewDeleteResource() noexcept {
       std::experimental::pmr::new_delete_resource());
   return &memory;
 }
+
+/// MemoryResource which releases the memory only when the resource is
+/// destroyed.
+///
+/// MonotonicBufferResource is not thread-safe!
+///
+/// It's meant to be used for very fast allocations in situations where memory
+/// is used to build objects and release them all at once. The class is
+/// constructed with initial buffer size for storing allocated objects. When the
+/// buffer is exhausted, a new one is requested from the upstream memory
+/// resource.
+class MonotonicBufferResource final : public MemoryResource {
+ public:
+  /// Construct the resource with the buffer size of at least `initial_size`.
+  ///
+  /// Uses the default NewDeleteResource for requesting buffer memory.
+  explicit MonotonicBufferResource(size_t initial_size);
+
+  /// Construct the resource with the buffer size of at least `initial_size` and
+  /// use the `memory` as the upstream resource.
+  MonotonicBufferResource(size_t initial_size, MemoryResource *memory);
+
+  MonotonicBufferResource(const MonotonicBufferResource &) = delete;
+  MonotonicBufferResource &operator=(const MonotonicBufferResource &) = delete;
+
+  MonotonicBufferResource(MonotonicBufferResource &&other) noexcept;
+  MonotonicBufferResource &operator=(MonotonicBufferResource &&other) noexcept;
+
+  ~MonotonicBufferResource() override { Release(); }
+
+  /// Release all allocated memory by calling Deallocate on upstream
+  /// MemoryResource.
+  ///
+  /// All memory is released even though Deallocate may have not been called on
+  /// this instance for some of the allocated blocks.
+  void Release();
+
+  MemoryResource *GetUpstreamResource() const { return memory_; }
+
+ private:
+  struct Buffer {
+    Buffer *next;
+    size_t capacity;
+    char *data() { return reinterpret_cast<char *>(this) + sizeof(Buffer); }
+  };
+
+  MemoryResource *memory_{NewDeleteResource()};
+  Buffer *current_buffer_{nullptr};
+  size_t initial_size_{0U};
+  size_t next_buffer_size_{initial_size_};
+  size_t allocated_{0U};
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+
+  void DoDeallocate(void *, size_t, size_t) override {}
+
+  bool DoIsEqual(const MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+};
 
 }  // namespace utils

@@ -1,6 +1,7 @@
 set(utils_src_files
     demangle.cpp
     file.cpp
+    memory.cpp
     signals.cpp
     thread.cpp
     thread/sync.cpp
