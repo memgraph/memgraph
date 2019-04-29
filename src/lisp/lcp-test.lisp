@@ -2,6 +2,7 @@
   (:use #:cl #:prove))
 
 (in-package #:lcp-test)
+(named-readtables:in-readtable lcp:lcp-syntax)
 
 (defun same-type-test (a b)
   "Test whether A and B are the same C++ type under LCP::CPP-TYPE=."

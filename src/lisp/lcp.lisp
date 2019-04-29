@@ -2,15 +2,13 @@
 ;;; C++ code.
 
 (in-package #:lcp)
+(named-readtables:in-readtable lcp-syntax)
 
 (defvar +vim-read-only+ "vim: readonly")
 (defvar +emacs-read-only+ "-*- buffer-read-only: t; -*-")
 
 (defvar *generating-cpp-impl-p* nil
   "T if we are currently writing the .cpp file.")
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (set-dispatch-macro-character #\# #\> #'|#>-reader|))
 
 (defun fnv1a64-hash-string (string)
   "Produce (UNSIGNED-BYTE 64) hash of the given STRING using FNV-1a algorithm.
@@ -1385,7 +1383,8 @@ enums which aren't defined in LCP."
   "Read the FILEPATH and return a list of C++ meta information that should be
 formatted and output."
   (with-open-file (in-stream filepath)
-    (let ((stream-pos 0))
+    (let ((*readtable* (named-readtables:find-readtable 'lcp-syntax))
+          (stream-pos 0))
       (handler-case
           (loop for form = (read-preserving-whitespace in-stream nil 'eof)
              until (eq form 'eof)

@@ -2,9 +2,10 @@
   :description "LCP: The Lisp C++ Preprocessor"
   :version "0.0.1"
   :author "Teon Banek <teon.banek@memgraph.io>"
-  :depends-on ("cl-ppcre")
+  :depends-on ("cl-ppcre" "named-readtables")
   :serial t
   :components ((:file "package")
+               (:file "reader")
                (:file "types")
                (:file "code-gen")
                (:file "slk")

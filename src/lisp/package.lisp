@@ -17,7 +17,8 @@
            #:capnp-load-vector
            #:capnp-save-enum
            #:capnp-load-enum
-           #:process-file))
+           #:process-file
+           #:lcp-syntax))
 
 (defpackage #:lcp.slk
   (:use #:cl)

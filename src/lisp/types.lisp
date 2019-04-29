@@ -4,68 +4,6 @@
 
 (in-package #:lcp)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defvar +whitespace-chars+ '(#\Newline #\Space #\Return #\Linefeed #\Tab)))
-
-(defstruct raw-cpp
-  "Represents a raw character string of C++ code."
-  (string "" :type string :read-only t))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun |#>-reader| (stream sub-char numarg)
-    "Reads the #>cpp ... cpp<# block into `RAW-CPP'.
-    The block supports string interpolation of variables by using the syntax
-    similar to shell interpolation. For example, ${variable} will be
-    interpolated to use the value of VARIABLE."
-    (declare (ignore sub-char numarg))
-    (let ((begin-cpp (read stream nil :eof t)))
-      (unless (and (symbolp begin-cpp) (string= begin-cpp 'cpp))
-        (error "Expected #>cpp, got '#>~A'" begin-cpp)))
-    (let ((output (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))
-          (end-cpp "cpp<#")
-          interpolated-args)
-      (flet ((interpolate-argument ()
-               "Parse argument for interpolation after $."
-               (when (char= #\$ (peek-char nil stream t nil t))
-                 ;; $$ is just $
-                 (vector-push-extend (read-char stream t nil t) output)
-                 (return-from interpolate-argument))
-               (unless (char= #\{ (peek-char nil stream t nil t))
-                 (error "Expected { after $"))
-               (read-char stream t nil t) ;; consume {
-               (let ((form (let ((*readtable* (copy-readtable)))
-                             ;; Read form to }
-                             (set-macro-character #\} (get-macro-character #\)))
-                             (read-delimited-list #\} stream t))))
-                 (unless (and (not (null form)) (null (cdr form)) (symbolp (car form)))
-                   (error "Expected a variable inside ${..}, got ~A" form))
-                 ;; Push the variable symbol
-                 (push (car form) interpolated-args))
-               ;; Push the format directive
-               (vector-push-extend #\~ output)
-               (vector-push-extend #\A output)))
-        (handler-case
-            (do (curr
-                 (pos 0))
-                ((= pos (length end-cpp)))
-              (setf curr (read-char stream t nil t))
-              (if (and (< pos (length end-cpp))
-                       (char= (char-downcase curr) (aref end-cpp pos)))
-                  (incf pos)
-                  (setf pos 0))
-              (if (char= #\$ curr)
-                  (interpolate-argument)
-                  (vector-push-extend curr output)))
-          (end-of-file () (error "Missing closing '#>cpp .. cpp<#' block"))))
-      (let ((trimmed-string
-             (string-trim +whitespace-chars+
-                          (subseq output
-                                  0 (- (length output) (length end-cpp))))))
-        `(make-raw-cpp
-          :string ,(if interpolated-args
-                       `(format nil ,trimmed-string ,@(reverse interpolated-args))
-                       trimmed-string))))))
-
 (deftype cpp-primitive-type-keywords ()
   "List of keywords that specify a primitive type in C++."
   `(member :bool :char :int :int16_t :int32_t :int64_t :uint :uint16_t
