@@ -6,9 +6,9 @@
 #include <capnp/serialize.h>
 #include <kj/std/iostream.h>
 
-#include "communication/rpc/serialization.hpp"
-#include "query/frontend/semantic/symbol.hpp"
 #include "query/distributed/frontend/semantic/symbol_serialization.hpp"
+#include "query/frontend/semantic/symbol.hpp"
+#include "slk/serialization.hpp"
 
 class SymbolVectorFixture : public benchmark::Fixture {
  protected:
@@ -96,16 +96,16 @@ BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpDeserial)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);
 
-void SymbolVectorToCustom(const std::vector<query::Symbol> &symbols,
-                          slk::Builder *builder) {
+void SymbolVectorToSlk(const std::vector<query::Symbol> &symbols,
+                       slk::Builder *builder) {
   slk::Save(symbols.size(), builder);
   for (int i = 0; i < symbols.size(); ++i) {
     slk::Save(symbols[i], builder);
   }
 }
 
-void CustomToSymbolVector(std::vector<query::Symbol> *symbols,
-                          slk::Reader *reader) {
+void SlkToSymbolVector(std::vector<query::Symbol> *symbols,
+                       slk::Reader *reader) {
   uint64_t size = 0;
   slk::Load(&size, reader);
   symbols->resize(size);
@@ -114,32 +114,39 @@ void CustomToSymbolVector(std::vector<query::Symbol> *symbols,
   }
 }
 
-BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomSerial)(benchmark::State &state) {
+BENCHMARK_DEFINE_F(SymbolVectorFixture, SlkSerial)(benchmark::State &state) {
   while (state.KeepRunning()) {
-    slk::Builder builder;
-    SymbolVectorToCustom(symbols_, &builder);
+    slk::Builder builder([](const uint8_t *, size_t, bool) {});
+    SymbolVectorToSlk(symbols_, &builder);
+    builder.Finalize();
   }
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomDeserial)
+BENCHMARK_DEFINE_F(SymbolVectorFixture, SlkDeserial)
 (benchmark::State &state) {
-  slk::Builder builder;
-  SymbolVectorToCustom(symbols_, &builder);
+  std::vector<uint8_t> encoded;
+  slk::Builder builder(
+      [&encoded](const uint8_t *data, size_t size, bool have_more) {
+        for (size_t i = 0; i < size; ++i) encoded.push_back(data[i]);
+      });
+  SymbolVectorToSlk(symbols_, &builder);
+  builder.Finalize();
+
   while (state.KeepRunning()) {
-    slk::Reader reader(builder.data(), builder.size());
+    slk::Reader reader(encoded.data(), encoded.size());
     std::vector<query::Symbol> symbols;
-    CustomToSymbolVector(&symbols, &reader);
+    SlkToSymbolVector(&symbols, &reader);
   }
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_REGISTER_F(SymbolVectorFixture, CustomSerial)
+BENCHMARK_REGISTER_F(SymbolVectorFixture, SlkSerial)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);
 
-BENCHMARK_REGISTER_F(SymbolVectorFixture, CustomDeserial)
+BENCHMARK_REGISTER_F(SymbolVectorFixture, SlkDeserial)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);

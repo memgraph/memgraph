@@ -2,6 +2,8 @@
 
 #include "storage/common/types/slk.hpp"
 
+#include "slk_common.hpp"
+
 TEST(SlkAdvanced, PropertyValueList) {
   std::vector<PropertyValue> original{"hello world!", 5, 1.123423, true,
                                       PropertyValue()};
@@ -11,12 +13,13 @@ TEST(SlkAdvanced, PropertyValueList) {
   ASSERT_EQ(original[3].type(), PropertyValue::Type::Bool);
   ASSERT_EQ(original[4].type(), PropertyValue::Type::Null);
 
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
 
   std::vector<PropertyValue> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
 
   ASSERT_EQ(original, decoded);
 }
@@ -33,12 +36,13 @@ TEST(SlkAdvanced, PropertyValueMap) {
   ASSERT_EQ(original["truth"].type(), PropertyValue::Type::Bool);
   ASSERT_EQ(original["nothing"].type(), PropertyValue::Type::Null);
 
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
 
   std::map<std::string, PropertyValue> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
 
   ASSERT_EQ(original, decoded);
 }
@@ -66,12 +70,13 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   PropertyValue original({vec_v, map_v});
   ASSERT_EQ(original.type(), PropertyValue::Type::List);
 
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
 
   PropertyValue decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
 
   ASSERT_EQ(original, decoded);
 }

@@ -11,6 +11,7 @@ add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
 add_subdirectory(rpc)
+add_subdirectory(slk)
 
 # ----------------------------------------------------------------------------
 # Memgraph Single Node

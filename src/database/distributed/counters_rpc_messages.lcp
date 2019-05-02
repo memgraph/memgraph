@@ -4,8 +4,8 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "communication/rpc/serialization.hpp"
 #include "database/distributed/counters_rpc_messages.capnp.h"
+#include "slk/serialization.hpp"
 cpp<#
 
 (lcp:namespace database)

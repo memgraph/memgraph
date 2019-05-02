@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "communication/rpc/streams.hpp"
+#include "slk/streams.hpp"
 #include "utils/exceptions.hpp"
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
@@ -133,30 +133,15 @@ MAKE_PRIMITIVE_LOAD(double)
 
 inline void Save(const std::string &obj, Builder *builder) {
   uint64_t size = obj.size();
-  builder->Save(reinterpret_cast<const uint8_t *>(&size), sizeof(uint64_t));
+  Save(size, builder);
   builder->Save(reinterpret_cast<const uint8_t *>(obj.data()), size);
 }
 
 inline void Load(std::string *obj, Reader *reader) {
-  const int kMaxStackBuffer = 8192;
   uint64_t size = 0;
-  reader->Load(reinterpret_cast<uint8_t *>(&size), sizeof(uint64_t));
-  if (size < kMaxStackBuffer) {
-    // Here we use a temporary buffer on the stack to prevent temporary
-    // allocations. Most of strings that are decoded are small so it makes no
-    // sense to allocate a temporary buffer every time we decode a string. This
-    // way we allocate a temporary buffer only when the string is large. This
-    // wouldn't be necessary if we had full C++17 support. In C++17 we could
-    // preallocate the `buff[size]` in the destination string `*obj =
-    // std::string('\0', size)` and just call `reader->Load(obj->data())`.
-    char buff[kMaxStackBuffer];
-    reader->Load(reinterpret_cast<uint8_t *>(buff), size);
-    *obj = std::string(buff, size);
-  } else {
-    auto buff = std::unique_ptr<char[]>(new char[size]);
-    reader->Load(reinterpret_cast<uint8_t *>(buff.get()), size);
-    *obj = std::string(buff.get(), size);
-  }
+  Load(&size, reader);
+  *obj = std::string(size, '\0');
+  reader->Load(reinterpret_cast<uint8_t *>(obj->data()), size);
 }
 
 template <typename T>

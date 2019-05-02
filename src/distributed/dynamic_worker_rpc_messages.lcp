@@ -5,8 +5,8 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "communication/rpc/serialization.hpp"
 #include "distributed/dynamic_worker_rpc_messages.capnp.h"
+#include "slk/serialization.hpp"
 cpp<#
 
 (lcp:namespace distributed)

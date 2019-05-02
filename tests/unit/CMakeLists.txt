@@ -250,9 +250,11 @@ target_link_libraries(${test_prefix}skiplist_suffix mg-single-node kvstore_dummy
 add_unit_test(slk_advanced.cpp)
 target_link_libraries(${test_prefix}slk_advanced mg-distributed kvstore_dummy_lib)
 
-# TODO (mferencevic): remove glog, gflags and mg-single-node
 add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core glog gflags)
+target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
+
+add_unit_test(slk_streams.cpp)
+target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
 
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)

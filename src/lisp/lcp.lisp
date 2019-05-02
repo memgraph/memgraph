@@ -1559,7 +1559,7 @@ file."
           (with-open-file (out hpp-file :direction :output :if-exists :append)
             (terpri out)
             (write-line "// SLK serialization declarations" out)
-            (write-line "#include \"communication/rpc/serialization.hpp\"" out)
+            (write-line "#include \"slk/serialization.hpp\"" out)
             (with-namespaced-output (out open-namespace)
               (open-namespace '("slk"))
               (dolist (type-for-slk types-for-slk)

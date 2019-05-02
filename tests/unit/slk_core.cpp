@@ -1,18 +1,21 @@
 #include <gtest/gtest.h>
 
-#include "communication/rpc/serialization.hpp"
+#include "slk/serialization.hpp"
+
+#include "slk_common.hpp"
 
 #define CREATE_PRIMITIVE_TEST(primitive_type, original_value, decoded_value) \
   {                                                                          \
     ASSERT_NE(original_value, decoded_value);                                \
     primitive_type original = original_value;                                \
-    slk::Builder builder;                                                    \
-    slk::Save(original, &builder);                                           \
-    ASSERT_EQ(builder.size(), sizeof(primitive_type));                       \
+    slk::Loopback loopback;                                                  \
+    auto builder = loopback.GetBuilder();                                    \
+    slk::Save(original, builder);                                            \
     primitive_type decoded = decoded_value;                                  \
-    slk::Reader reader(builder.data(), builder.size());                      \
-    slk::Load(&decoded, &reader);                                            \
+    auto reader = loopback.GetReader();                                      \
+    slk::Load(&decoded, reader);                                             \
     ASSERT_EQ(original, decoded);                                            \
+    ASSERT_EQ(loopback.size(), sizeof(primitive_type));                      \
   }
 
 TEST(SlkCore, Primitive) {
@@ -31,248 +34,267 @@ TEST(SlkCore, Primitive) {
 
 TEST(SlkCore, String) {
   std::string original = "hello world";
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(uint64_t) + original.size());
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::string decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size());
 }
 
 TEST(SlkCore, VectorPrimitive) {
   std::vector<int> original{1, 2, 3, 4, 5};
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(uint64_t) + original.size() * sizeof(int));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::vector<int> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int));
 }
 
 TEST(SlkCore, VectorString) {
   std::vector<std::string> original{"hai hai hai", "nandare!"};
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.size();
   }
-  ASSERT_EQ(builder.size(), size);
   std::vector<std::string> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, SetPrimitive) {
   std::set<int> original{1, 2, 3, 4, 5};
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(uint64_t) + original.size() * sizeof(int));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::set<int> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int));
 }
 
 TEST(SlkCore, SetString) {
   std::set<std::string> original{"hai hai hai", "nandare!"};
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.size();
   }
-  ASSERT_EQ(builder.size(), size);
   std::set<std::string> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, MapPrimitive) {
   std::map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(),
-            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::map<int, int> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(),
+            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, MapString) {
   std::map<std::string, std::string> original{{"hai hai hai", "nandare!"}};
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.first.size();
     size += sizeof(uint64_t) + item.second.size();
   }
-  ASSERT_EQ(builder.size(), size);
   std::map<std::string, std::string> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, UnorderedMapPrimitive) {
   std::unordered_map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(),
-            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::unordered_map<int, int> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(),
+            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, UnorderedMapString) {
   std::unordered_map<std::string, std::string> original{
       {"hai hai hai", "nandare!"}};
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.first.size();
     size += sizeof(uint64_t) + item.second.size();
   }
-  ASSERT_EQ(builder.size(), size);
   std::unordered_map<std::string, std::string> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, UniquePtrEmpty) {
   std::unique_ptr<std::string> original;
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(bool));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::unique_ptr<std::string> decoded =
       std::make_unique<std::string>("nandare!");
   ASSERT_NE(decoded.get(), nullptr);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(decoded.get(), nullptr);
+  ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, UniquePtrFull) {
   std::unique_ptr<std::string> original =
       std::make_unique<std::string>("nandare!");
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(),
-            sizeof(bool) + sizeof(uint64_t) + original.get()->size());
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::unique_ptr<std::string> decoded;
   ASSERT_EQ(decoded.get(), nullptr);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
+  ASSERT_EQ(loopback.size(),
+            sizeof(bool) + sizeof(uint64_t) + original.get()->size());
 }
 
 TEST(SlkCore, OptionalPrimitiveEmpty) {
   std::optional<int> original;
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(bool));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::optional<int> decoded = 5;
   ASSERT_NE(decoded, std::nullopt);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(decoded, std::nullopt);
+  ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, OptionalPrimitiveFull) {
   std::optional<int> original = 5;
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(bool) + sizeof(int));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::optional<int> decoded;
   ASSERT_EQ(decoded, std::nullopt);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
+  ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(int));
 }
 
 TEST(SlkCore, OptionalStringEmpty) {
   std::optional<std::string> original;
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(bool));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::optional<std::string> decoded = "nandare!";
   ASSERT_NE(decoded, std::nullopt);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(decoded, std::nullopt);
+  ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, OptionalStringFull) {
   std::optional<std::string> original = "nandare!";
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(), sizeof(bool) + sizeof(uint64_t) + original->size());
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::optional<std::string> decoded;
   ASSERT_EQ(decoded, std::nullopt);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
+  ASSERT_EQ(loopback.size(),
+            sizeof(bool) + sizeof(uint64_t) + original->size());
 }
 
 TEST(SlkCore, Pair) {
   std::pair<std::string, int> original{"nandare!", 5};
-  slk::Builder builder;
-  slk::Save(original, &builder);
-  ASSERT_EQ(builder.size(),
-            sizeof(uint64_t) + original.first.size() + sizeof(int));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
   std::pair<std::string, int> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(),
+            sizeof(uint64_t) + original.first.size() + sizeof(int));
 }
 
 TEST(SlkCore, SharedPtrEmpty) {
   std::shared_ptr<std::string> original;
   std::vector<std::string *> saved;
-  slk::Builder builder;
-  slk::Save(original, &builder, &saved);
-  ASSERT_EQ(builder.size(), sizeof(bool));
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder, &saved);
   std::shared_ptr<std::string> decoded =
       std::make_shared<std::string>("nandare!");
   std::vector<std::shared_ptr<std::string>> loaded;
   ASSERT_NE(decoded.get(), nullptr);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader, &loaded);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader, &loaded);
   ASSERT_EQ(decoded.get(), nullptr);
   ASSERT_EQ(saved.size(), 0);
   ASSERT_EQ(loaded.size(), 0);
+  ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, SharedPtrFull) {
   std::shared_ptr<std::string> original =
       std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
-  slk::Builder builder;
-  slk::Save(original, &builder, &saved);
-  ASSERT_EQ(builder.size(),
-            sizeof(bool) * 2 + sizeof(uint64_t) + original.get()->size());
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder, &saved);
   std::shared_ptr<std::string> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
   ASSERT_EQ(decoded.get(), nullptr);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader, &loaded);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader, &loaded);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
   ASSERT_EQ(saved.size(), 1);
   ASSERT_EQ(loaded.size(), 1);
+  ASSERT_EQ(loopback.size(),
+            sizeof(bool) * 2 + sizeof(uint64_t) + original.get()->size());
 }
 
 TEST(SlkCore, SharedPtrMultiple) {
@@ -282,31 +304,23 @@ TEST(SlkCore, SharedPtrMultiple) {
       std::make_shared<std::string>("hai hai hai");
   std::vector<std::string *> saved;
 
-  slk::Builder builder;
-  slk::Save(ptr1, &builder, &saved);
-  slk::Save(ptr2, &builder, &saved);
-  slk::Save(ptr3, &builder, &saved);
-  slk::Save(ptr1, &builder, &saved);
-  slk::Save(ptr3, &builder, &saved);
-
-  // clang-format off
-  ASSERT_EQ(builder.size(),
-            sizeof(bool) * 2 + sizeof(uint64_t) + ptr1.get()->size() +
-            sizeof(bool) +
-            sizeof(bool) * 2 + sizeof(uint64_t) + ptr3.get()->size() +
-            sizeof(bool) * 2 + sizeof(uint64_t) +
-            sizeof(bool) * 2 + sizeof(uint64_t));
-  // clang-format on
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(ptr1, builder, &saved);
+  slk::Save(ptr2, builder, &saved);
+  slk::Save(ptr3, builder, &saved);
+  slk::Save(ptr1, builder, &saved);
+  slk::Save(ptr3, builder, &saved);
 
   std::shared_ptr<std::string> dec1, dec2, dec3, dec4, dec5;
   std::vector<std::shared_ptr<std::string>> loaded;
 
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&dec1, &reader, &loaded);
-  slk::Load(&dec2, &reader, &loaded);
-  slk::Load(&dec3, &reader, &loaded);
-  slk::Load(&dec4, &reader, &loaded);
-  slk::Load(&dec5, &reader, &loaded);
+  auto reader = loopback.GetReader();
+  slk::Load(&dec1, reader, &loaded);
+  slk::Load(&dec2, reader, &loaded);
+  slk::Load(&dec3, reader, &loaded);
+  slk::Load(&dec4, reader, &loaded);
+  slk::Load(&dec5, reader, &loaded);
 
   ASSERT_EQ(saved.size(), 2);
   ASSERT_EQ(loaded.size(), 2);
@@ -326,6 +340,37 @@ TEST(SlkCore, SharedPtrMultiple) {
 
   ASSERT_EQ(dec4.get(), dec1.get());
   ASSERT_EQ(dec5.get(), dec3.get());
+
+  // clang-format off
+  ASSERT_EQ(loopback.size(),
+            sizeof(bool) * 2 + sizeof(uint64_t) + ptr1.get()->size() +
+            sizeof(bool) +
+            sizeof(bool) * 2 + sizeof(uint64_t) + ptr3.get()->size() +
+            sizeof(bool) * 2 + sizeof(uint64_t) +
+            sizeof(bool) * 2 + sizeof(uint64_t));
+  // clang-format on
+}
+
+TEST(SlkCore, SharedPtrInvalid) {
+  std::shared_ptr<std::string> ptr = std::make_shared<std::string>("nandare!");
+  std::vector<std::string *> saved;
+
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(ptr, builder, &saved);
+  // Here we mess with the `saved` vector to cause an invalid index to be
+  // written to the SLK stream so that we can check the error handling in the
+  // `Load` function later.
+  saved.insert(saved.begin(), nullptr);
+  // Save the pointer again with an invalid index.
+  slk::Save(ptr, builder, &saved);
+
+  std::shared_ptr<std::string> dec1, dec2;
+  std::vector<std::shared_ptr<std::string>> loaded;
+
+  auto reader = loopback.GetReader();
+  slk::Load(&dec1, reader, &loaded);
+  ASSERT_THROW(slk::Load(&dec2, reader, &loaded), slk::SlkDecodeException);
 }
 
 TEST(SlkCore, Complex) {
@@ -335,24 +380,25 @@ TEST(SlkCore, Complex) {
   original.get()->push_back(std::nullopt);
   original.get()->push_back("hai hai hai");
 
-  slk::Builder builder;
-  slk::Save(original, &builder);
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
+
+  std::unique_ptr<std::vector<std::optional<std::string>>> decoded;
+  ASSERT_EQ(decoded.get(), nullptr);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
+  ASSERT_NE(decoded.get(), nullptr);
+  ASSERT_EQ(*original.get(), *decoded.get());
 
   // clang-format off
-  ASSERT_EQ(builder.size(),
+  ASSERT_EQ(loopback.size(),
             sizeof(bool) +
               sizeof(uint64_t) +
                 sizeof(bool) + sizeof(uint64_t) + (*original.get())[0]->size() +
                 sizeof(bool) +
                 sizeof(bool) + sizeof(uint64_t) + (*original.get())[2]->size());
   // clang-format on
-
-  std::unique_ptr<std::vector<std::optional<std::string>>> decoded;
-  ASSERT_EQ(decoded.get(), nullptr);
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
-  ASSERT_NE(decoded.get(), nullptr);
-  ASSERT_EQ(*original.get(), *decoded.get());
 }
 
 struct Foo {
@@ -381,20 +427,21 @@ TEST(SlkCore, VectorStruct) {
   original.push_back({"hai hai hai", 5});
   original.push_back({"nandare!", std::nullopt});
 
-  slk::Builder builder;
-  slk::Save(original, &builder);
-
-  // clang-format off
-  ASSERT_EQ(builder.size(),
-            sizeof(uint64_t) +
-              sizeof(uint64_t) + original[0].name.size() + sizeof(bool) + sizeof(int) +
-              sizeof(uint64_t) + original[1].name.size() + sizeof(bool));
-  // clang-format on
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
 
   std::vector<Foo> decoded;
-  slk::Reader reader(builder.data(), builder.size());
-  slk::Load(&decoded, &reader);
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
+
+  // clang-format off
+  ASSERT_EQ(loopback.size(),
+            sizeof(uint64_t) +
+              sizeof(uint64_t) + original[0].name.size() + sizeof(bool) +
+sizeof(int) + sizeof(uint64_t) + original[1].name.size() + sizeof(bool));
+  // clang-format on
 }
 
 TEST(SlkCore, VectorSharedPtr) {
@@ -412,18 +459,19 @@ TEST(SlkCore, VectorSharedPtr) {
   original.push_back(ptr1);
   original.push_back(ptr3);
 
-  slk::Builder builder;
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
   slk::Save<std::shared_ptr<std::string>>(
-      original, &builder, [&saved](const auto &item, auto *builder) {
+      original, builder, [&saved](const auto &item, auto *builder) {
         Save(item, builder, &saved);
       });
 
   std::vector<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
-  slk::Reader reader(builder.data(), builder.size());
+  auto reader = loopback.GetReader();
   slk::Load<std::shared_ptr<std::string>>(
-      &decoded, &reader,
+      &decoded, reader,
       [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_EQ(decoded.size(), original.size());
@@ -448,18 +496,19 @@ TEST(SlkCore, OptionalSharedPtr) {
       std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
-  slk::Builder builder;
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
   slk::Save<std::shared_ptr<std::string>>(
-      original, &builder, [&saved](const auto &item, auto *builder) {
+      original, builder, [&saved](const auto &item, auto *builder) {
         Save(item, builder, &saved);
       });
 
   std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
-  slk::Reader reader(builder.data(), builder.size());
+  auto reader = loopback.GetReader();
   slk::Load<std::shared_ptr<std::string>>(
-      &decoded, &reader,
+      &decoded, reader,
       [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_NE(decoded, std::nullopt);
@@ -468,4 +517,29 @@ TEST(SlkCore, OptionalSharedPtr) {
   ASSERT_EQ(loaded.size(), 1);
 
   ASSERT_EQ(*decoded->get(), *original->get());
+}
+
+TEST(SlkCore, OptionalSharedPtrEmpty) {
+  std::optional<std::shared_ptr<std::string>> original;
+  std::vector<std::string *> saved;
+
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save<std::shared_ptr<std::string>>(
+      original, builder, [&saved](const auto &item, auto *builder) {
+        Save(item, builder, &saved);
+      });
+
+  std::optional<std::shared_ptr<std::string>> decoded;
+  std::vector<std::shared_ptr<std::string>> loaded;
+
+  auto reader = loopback.GetReader();
+  slk::Load<std::shared_ptr<std::string>>(
+      &decoded, reader,
+      [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+
+  ASSERT_EQ(decoded, std::nullopt);
+
+  ASSERT_EQ(saved.size(), 0);
+  ASSERT_EQ(loaded.size(), 0);
 }

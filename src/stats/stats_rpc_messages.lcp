@@ -2,7 +2,7 @@
 #pragma once
 
 #include "communication/rpc/messages.hpp"
-#include "communication/rpc/serialization.hpp"
+#include "slk/serialization.hpp"
 #include "stats/stats_rpc_messages.capnp.h"
 #include "rpc/serialization.hpp"
 #include "utils/timestamp.hpp"

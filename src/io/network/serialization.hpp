@@ -1,9 +1,8 @@
 #pragma once
 
-// TODO: SLK serialization should be its own thing
-#include "communication/rpc/serialization.hpp"
 #include "io/network/endpoint.capnp.h"
 #include "io/network/endpoint.hpp"
+#include "slk/serialization.hpp"
 
 namespace io::network {
 

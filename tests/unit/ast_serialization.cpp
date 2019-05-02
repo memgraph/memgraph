@@ -10,13 +10,15 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "communication/rpc/serialization.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/distributed/frontend/ast/ast_serialization.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
+#include "slk/serialization.hpp"
+
+#include "slk_common.hpp"
 
 namespace {
 
@@ -117,12 +119,13 @@ class SlkAstGenerator : public Base {
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
 
-    slk::Builder builder;
-    { SaveAstPointer(visitor.query(), &builder); }
+    slk::Loopback loopback;
+    auto builder = loopback.GetBuilder();
+    { SaveAstPointer(visitor.query(), builder); }
 
     {
-      slk::Reader reader(builder.data(), builder.size());
-      return LoadAstPointer<Query>(&storage_, &reader);
+      auto reader = loopback.GetReader();
+      return LoadAstPointer<Query>(&storage_, reader);
     }
   }
 

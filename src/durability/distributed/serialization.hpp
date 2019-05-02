@@ -1,9 +1,9 @@
 #pragma once
 
-#include "communication/rpc/serialization.hpp"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/serialization.capnp.h"
 #include "rpc/serialization.hpp"
+#include "slk/serialization.hpp"
 
 namespace durability {
 
