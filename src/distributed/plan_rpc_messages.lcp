@@ -5,30 +5,9 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/distributed/plan/ops.hpp"
-
-#include "distributed/plan_rpc_messages.capnp.h"
 cpp<#
 
 (lcp:namespace distributed)
-
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-(lcp:capnp-import 'plan "/query/distributed/plan/ops.capnp")
-(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
-
-(defun load-plan (reader member capnp-name)
-  (declare (ignore capnp-name))
-  #>cpp
-  query::plan::LogicalOperator::LoadHelper helper;
-  ${member} = utils::LoadSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
-      ${reader}, [&helper](const auto &reader) {
-                   std::unique_ptr<query::plan::LogicalOperator> op;
-                   query::plan::Load(&op, reader, &helper);
-                   return op.release();
-                 }, &helper.loaded_ops);
-  self->storage = std::move(helper.ast_storage);
-  cpp<#)
 
 (defun slk-save-plan (member)
   #>cpp
@@ -50,26 +29,13 @@ cpp<#
   self->storage = std::move(helper.ast_storage);
   cpp<#)
 
-(defun save-plan (builder member capnp-name)
-  (declare (ignore capnp-name))
-  #>cpp
-  query::plan::LogicalOperator::SaveHelper helper;
-  utils::SaveSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
-      ${member}, &${builder},
-      [&helper](auto *builder, const auto &val) {
-        Save(val, builder, &helper);
-      }, &helper.saved_ops);
-  cpp<#)
-
 (lcp:define-rpc dispatch-plan
     (:request
      ((plan-id :int64_t)
       (plan "std::shared_ptr<query::plan::LogicalOperator>"
-            :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
             :slk-save #'slk-save-plan
-            :slk-load #'slk-load-plan
-            :capnp-save #'save-plan :capnp-load #'load-plan)
-      (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
+            :slk-load #'slk-load-plan)
+      (symbol-table "query::SymbolTable")
       (storage "query::AstStorage" :initarg nil :dont-save t)))
   (:response ()))
 

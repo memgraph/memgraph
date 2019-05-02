@@ -5,13 +5,10 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/token_sharing_rpc_messages.capnp.h"
 #include "slk/serialization.hpp"
 cpp<#
 
 (lcp:namespace distributed)
-
-(lcp:capnp-namespace "distributed")
 
 (lcp:define-rpc token-transfer
     (:request ())

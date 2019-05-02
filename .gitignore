@@ -34,71 +34,36 @@ TAGS
 *.fas
 *.fasl
 
-# Cap'n Proto generated files
-*.capnp.c++
-*.capnp.h
-
-# LCP generated C++ & Cap'n Proto files
+# LCP generated C++ files
 *.lcp.cpp
 
-# TODO delete later
-src/storage/distributed/concurrent_id_mapper_rpc_messages.capnp
-src/storage/distributed/concurrent_id_mapper_rpc_messages.hpp
-#####
-
-
-src/database/distributed/counters_rpc_messages.capnp
 src/database/distributed/counters_rpc_messages.hpp
-src/database/distributed/serialization.capnp
 src/database/distributed/serialization.hpp
-src/database/single_node_ha/serialization.capnp
 src/database/single_node_ha/serialization.hpp
-src/distributed/bfs_rpc_messages.capnp
 src/distributed/bfs_rpc_messages.hpp
-src/distributed/coordination_rpc_messages.capnp
 src/distributed/coordination_rpc_messages.hpp
-src/distributed/data_rpc_messages.capnp
 src/distributed/data_rpc_messages.hpp
-src/distributed/durability_rpc_messages.capnp
 src/distributed/durability_rpc_messages.hpp
-src/distributed/dynamic_worker_rpc_messages.capnp
 src/distributed/dynamic_worker_rpc_messages.hpp
-src/distributed/index_rpc_messages.capnp
 src/distributed/index_rpc_messages.hpp
-src/distributed/plan_rpc_messages.capnp
 src/distributed/plan_rpc_messages.hpp
-src/distributed/pull_produce_rpc_messages.capnp
 src/distributed/pull_produce_rpc_messages.hpp
-src/distributed/storage_gc_rpc_messages.capnp
 src/distributed/storage_gc_rpc_messages.hpp
-src/distributed/token_sharing_rpc_messages.capnp
 src/distributed/token_sharing_rpc_messages.hpp
-src/distributed/updates_rpc_messages.capnp
 src/distributed/updates_rpc_messages.hpp
 src/query/frontend/ast/ast.hpp
-src/query/distributed/frontend/ast/ast_serialization.capnp
 src/query/distributed/frontend/ast/ast_serialization.hpp
-src/durability/distributed/state_delta.capnp
 src/durability/distributed/state_delta.hpp
 src/durability/single_node/state_delta.hpp
 src/durability/single_node_ha/state_delta.hpp
 src/query/frontend/semantic/symbol.hpp
-src/query/distributed/frontend/semantic/symbol_serialization.capnp
 src/query/distributed/frontend/semantic/symbol_serialization.hpp
-src/query/distributed/plan/ops.capnp
 src/query/distributed/plan/ops.hpp
 src/query/plan/operator.hpp
-src/raft/log_entry.capnp
 src/raft/log_entry.hpp
-src/raft/raft_rpc_messages.capnp
 src/raft/raft_rpc_messages.hpp
-src/raft/snapshot_metadata.capnp
 src/raft/snapshot_metadata.hpp
 src/raft/storage_info_rpc_messages.hpp
-src/raft/storage_info_rpc_messages.capnp
-src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp
-src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp
 src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp
-src/transactions/distributed/engine_rpc_messages.capnp
 src/transactions/distributed/engine_rpc_messages.hpp

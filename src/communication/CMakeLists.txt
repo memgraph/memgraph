@@ -16,15 +16,6 @@ set(communication_rpc_src_files
     rpc/protocol.cpp
     rpc/server.cpp)
 
-define_add_capnp(add_capnp communication_rpc_src_files communication_rpc_capnp_files)
-
-add_capnp(rpc/messages.capnp)
-
-add_custom_target(generate_communication_rpc_capnp DEPENDS ${communication_rpc_capnp_files})
-
 add_library(mg-comm-rpc STATIC ${communication_rpc_src_files})
-target_link_libraries(mg-comm-rpc Threads::Threads mg-communication mg-utils mg-io mg-rpc fmt glog gflags)
-target_link_libraries(mg-comm-rpc capnp kj)
+target_link_libraries(mg-comm-rpc Threads::Threads mg-communication mg-utils mg-io fmt glog gflags)
 target_link_libraries(mg-comm-rpc mg-slk)
-
-add_dependencies(mg-comm-rpc generate_communication_rpc_capnp)

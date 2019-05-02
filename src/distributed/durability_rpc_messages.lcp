@@ -2,7 +2,6 @@
 #pragma once
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/durability_rpc_messages.capnp.h"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/serialization.hpp"
 #include "transactions/transaction.hpp"
@@ -10,16 +9,12 @@ cpp<#
 
 (lcp:namespace distributed)
 
-(lcp:capnp-import 'dur "/durability/distributed/serialization.capnp")
-
-(lcp:capnp-namespace "distributed")
-
 (lcp:define-rpc make-snapshot
-    (:request ((member "tx::TransactionId" :capnp-type "UInt64")))
+    (:request ((member "tx::TransactionId")))
   (:response ((member :bool))))
 
 (lcp:define-rpc recover-wal-and-indexes
-    (:request ((member "durability::RecoveryData" :capnp-type "Dur.RecoveryData")))
+    (:request ((member "durability::RecoveryData")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

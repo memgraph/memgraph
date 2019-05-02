@@ -4,8 +4,6 @@
 #include <mutex>
 #include <optional>
 
-#include <capnp/message.h>
-#include <capnp/serialize.h>
 #include <glog/logging.h>
 
 #include "communication/client.hpp"

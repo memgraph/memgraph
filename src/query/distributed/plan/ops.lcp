@@ -4,7 +4,6 @@
 #pragma once
 
 #include "query/distributed/frontend/ast/ast_serialization.hpp"
-#include "query/distributed/plan/ops.capnp.h"
 #include "query/plan/operator.hpp"
 #include "query/distributed/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
@@ -52,13 +51,9 @@ cpp<#
 (lcp:define-class pull-remote (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (plan-id :int64_t :initval 0 :scope :public)
-   (symbols "std::vector<Symbol>" :scope :public
-            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+   (symbols "std::vector<Symbol>" :scope :public))
   (:documentation
    "An operator in distributed Memgraph that yields both local and remote (from
 other workers) frames. Obtaining remote frames is done through RPC calls to
@@ -84,7 +79,7 @@ time on data transfer. It gives no guarantees on result order.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (defun slk-load-pull-remote (member)
@@ -98,29 +93,13 @@ time on data transfer. It gives no guarantees on result order.")
   self->${member} = std::static_pointer_cast<query::plan::PullRemote>(op);
   cpp<#)
 
-(defun load-pull-remote (reader member-name capnp-name)
-  (declare (ignore capnp-name))
-  #>cpp
-  ${member-name} = std::static_pointer_cast<PullRemote>(
-      utils::LoadSharedPtr<capnp::LogicalOperator, LogicalOperator>(${reader},
-                       [helper](const auto &reader) {
-                         std::unique_ptr<LogicalOperator> op;
-                         Load(&op, reader, helper);
-                         return op.release();
-                       }, &helper->loaded_ops));
-  cpp<#)
-
 (lcp:define-class synchronize (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (pull-remote "std::shared_ptr<PullRemote>" :scope :public
                 :slk-save #'slk-save-operator-pointer
                 :slk-load #'slk-load-pull-remote
-                :capnp-save #'save-operator-pointer
-                :capnp-load #'load-pull-remote
                 :clone (lambda (source dest)
                          #>cpp
                          if (${source}) {
@@ -174,27 +153,19 @@ Logic of the synchronize operator is:
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (plan-id :int64_t :initval 0 :scope :public)
-   (symbols "std::vector<Symbol>" :scope :public
-            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+   (symbols "std::vector<Symbol>" :scope :public)
    (order-by "std::vector<Expression *>" :scope :public
              :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Expression")
-             :capnp-type "List(Ast.Tree)"
-             :capnp-save (save-ast-vector "Expression *")
-             :capnp-load (load-ast-vector "Expression *"))
-   (compare "TypedValueVectorCompare" :scope :public
-            :capnp-type "Query.TypedValueVectorCompare"))
+             :slk-load (slk-load-ast-vector "Expression"))
+   (compare "TypedValueVectorCompare" :scope :public))
   (:documentation
    "Operator that merges distributed OrderBy operators.
 Instead of using a regular OrderBy on master (which would collect all remote
@@ -220,25 +191,16 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class distributed-expand (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (common "ExpandCommon" :scope :public)
    (graph-view "GraphView" :scope :public
-               :capnp-init nil
-               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
-                                                "GraphView"
-                                                '(old new))
-               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView"
-                                                "GraphView"
-                                                '(old new))
                :documentation
                "State from which the input node should get expanded."))
   (:documentation "Distributed version of Expand operator")
@@ -264,42 +226,29 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class distributed-expand-bfs (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (common "ExpandCommon" :scope :public)
    (lower-bound "Expression *" :scope :public
                 :documentation "Optional lower bound, default is 1"
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Ast.Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *"))
+                :slk-load (slk-load-ast-pointer "Expression"))
    (upper-bound "Expression *" :scope :public
                 :documentation "Optional upper bound, default is infinity"
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Ast.Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *"))
+                :slk-load (slk-load-ast-pointer "Expression"))
    (filter-lambda "ExpansionLambda" :scope :public
                   :documentation "Filter that must be satisfied for expansion to succeed."
                   :slk-load (lambda (member)
                               #>cpp
                               slk::Load(&self->${member}, reader, &helper->ast_storage);
-                              cpp<#)
-                  :capnp-type "ExpansionLambda"
-                  :capnp-load (lambda (reader member capnp-name)
-                                #>cpp
-                                Load(&${member}, ${reader}, &helper->ast_storage);
-                                cpp<#)))
+                              cpp<#)))
   (:documentation "BFS expansion operator suited for distributed execution.")
   (:public
    #>cpp
@@ -327,15 +276,13 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class distributed-create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (node-info "NodeCreationInfo" :scope :public
               :slk-save (lambda (m)
                           #>cpp
@@ -364,7 +311,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class distributed-create-expand (logical-operator)
@@ -388,9 +335,7 @@ by having only one result from each worker.")
                           cpp<#))
    (input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
+          :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (existing-node :bool :scope :public))
   (:documentation "Distributed version of CreateExpand")
@@ -412,7 +357,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:pop-namespace) ;; plan

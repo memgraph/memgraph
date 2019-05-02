@@ -213,30 +213,6 @@ import_external_library(rocksdb STATIC
                      DISABLE_WARNING_AS_ERROR=1
   INSTALL_COMMAND true)
 
-# Setup Cap'n Proto
-ExternalProject_Add(capnproto-proj
-                    PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/capnproto
-                    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/capnproto
-                    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/capnproto
-                    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/configure
-                                      --prefix=${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local
-                                      --enable-shared=no --silent
-                                      CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-                    BUILD_COMMAND make -j${NPROC} check)
-set(CAPNP_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/include
-    CACHE FILEPATH "Path to capnproto include directory" FORCE)
-set(CAPNP_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/lib/libcapnp.a
-    CACHE FILEPATH "Path to capnproto library" FORCE)
-set(KJ_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/lib/libkj.a
-    CACHE FILEPATH "Path to kj library (used by capnproto)" FORCE)
-import_library(capnp STATIC ${CAPNP_LIBRARY} capnproto-proj)
-import_library(kj STATIC ${KJ_LIBRARY} capnproto-proj)
-set(CAPNP_EXE ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/bin/capnp
-    CACHE FILEPATH "Path to capnproto executable" FORCE)
-set(CAPNP_CXX_EXE ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/bin/capnpc-c++
-    CACHE FILEPATH "Path to capnproto c++ plugin executable" FORCE)
-mark_as_advanced(CAPNP_INCLUDE_DIR CAPNP_LIBRARY KJ_LIBRARY CAPNP_EXE CAPNP_CXX_EXE)
-
 # Setup librdkafka.
 import_external_library(librdkafka STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a

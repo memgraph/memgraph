@@ -1,24 +1,7 @@
 #pragma once
 
-#include "io/network/endpoint.capnp.h"
 #include "io/network/endpoint.hpp"
 #include "slk/serialization.hpp"
-
-namespace io::network {
-
-inline void Save(const Endpoint &endpoint, capnp::Endpoint::Builder *builder) {
-  builder->setAddress(endpoint.address());
-  builder->setPort(endpoint.port());
-  builder->setFamily(endpoint.family());
-}
-
-inline void Load(Endpoint *endpoint, const capnp::Endpoint::Reader &reader) {
-  endpoint->address_ = reader.getAddress();
-  endpoint->port_ = reader.getPort();
-  endpoint->family_ = reader.getFamily();
-}
-
-}  // namespace io::network
 
 namespace slk {
 

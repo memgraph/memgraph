@@ -6,16 +6,10 @@
 
 #include "communication/rpc/messages.hpp"
 #include "raft/log_entry.hpp"
-#include "raft/raft_rpc_messages.capnp.h"
 #include "raft/snapshot_metadata.hpp"
 cpp<#
 
 (lcp:namespace raft)
-
-(lcp:capnp-namespace "raft")
-
-(lcp:capnp-import 'log "/raft/log_entry.capnp")
-(lcp:capnp-import 'snap "/raft/snapshot_metadata.capnp")
 
 (lcp:define-rpc request-vote
   (:request
@@ -34,7 +28,7 @@ cpp<#
      (term :uint64_t)
      (prev-log-index :uint64_t)
      (prev-log-term :uint64_t)
-     (entries "std::vector<raft::LogEntry>" :capnp-type "List(Log.LogEntry)")))
+     (entries "std::vector<raft::LogEntry>")))
   (:response
     ((success :bool)
      (term :uint64_t))))
@@ -51,7 +45,7 @@ cpp<#
   (:request
     ((leader-id :uint16_t)
      (term :uint64_t)
-     (snapshot-metadata "raft::SnapshotMetadata" :capnp-type "Snap.SnapshotMetadata")
+     (snapshot-metadata "raft::SnapshotMetadata")
      (data "std::string")))
   (:response
     ((term :uint64_t))))

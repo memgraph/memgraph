@@ -3,39 +3,15 @@
 
 #include "communication/rpc/messages.hpp"
 #include "slk/serialization.hpp"
-#include "stats/stats_rpc_messages.capnp.h"
-#include "rpc/serialization.hpp"
 #include "utils/timestamp.hpp"
 cpp<#
 
 (lcp:namespace stats)
 
-(lcp:capnp-namespace "stats")
-
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-
 (lcp:define-rpc stats
     (:request
      ((metric-path "std::string")
-      (tags "std::vector<std::pair<std::string, std::string>>"
-            :capnp-type "List(Utils.Pair(Text, Text))"
-            :capnp-save
-            (lcp:capnp-save-vector
-             "utils::capnp::Pair<::capnp::Text, ::capnp::Text>"
-             "std::pair<std::string, std::string>"
-             "[](auto *builder, const auto &pair) {
-                builder->setFirst(pair.first);
-                builder->setSecond(pair.second);
-              }")
-            :capnp-load
-            (lcp:capnp-load-vector
-             "utils::capnp::Pair<::capnp::Text, ::capnp::Text>"
-             "std::pair<std::string, std::string>"
-             "[](const auto &reader) {
-               std::string first = reader.getFirst();
-               std::string second = reader.getSecond();
-               return std::make_pair(first, second);
-             }"))
+      (tags "std::vector<std::pair<std::string, std::string>>")
       (value :double)
       (timestamp :uint64_t :initarg nil
                  :initval "static_cast<uint64_t>(utils::Timestamp::Now().SecSinceTheEpoch())")))

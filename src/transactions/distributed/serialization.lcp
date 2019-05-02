@@ -12,16 +12,6 @@
   self->${member} = tx::CommitLog::Info(info_flags);
   cpp<#)
 
-(defun save-commitlog-info (builder member capnp-name)
-  #>cpp
-  ${builder}->set${capnp-name}(${member});
-  cpp<#)
-
-(defun load-commitlog-info (reader member capnp-name)
-  #>cpp
-  ${member} = CommitLog::Info(${reader}.get${capnp-name}());
-  cpp<#)
-
 (defun slk-save-snapshot (member)
   #>cpp
   slk::Save(self.${member}.transaction_ids(), builder);
@@ -32,17 +22,4 @@
   std::vector<uint64_t> transaction_ids;
   slk::Load(&transaction_ids, reader);
   self->${member} = tx::Snapshot(std::move(transaction_ids));
-  cpp<#)
-
-(defun save-snapshot (builder member capnp-name)
-  #>cpp
-  auto list_builder = builder->init${capnp-name}(${member}.transaction_ids().size());
-  utils::SaveVector(${member}.transaction_ids(), &list_builder);
-  cpp<#)
-
-(defun load-snapshot (reader member capnp-name)
-  #>cpp
-  std::vector<uint64_t> transaction_ids;
-  utils::LoadVector(&transaction_ids, ${reader}.get${capnp-name}());
-  ${member} = tx::Snapshot(std::move(transaction_ids));
   cpp<#)

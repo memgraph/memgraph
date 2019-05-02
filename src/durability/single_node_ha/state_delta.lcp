@@ -21,16 +21,6 @@ cpp<#
 class GraphDbAccessor;
 cpp<#
 
-(lcp:capnp-namespace "database")
-
-(lcp:capnp-import 'storage "/storage/single_node_ha/rpc/serialization.capnp")
-
-(lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
-(lcp:capnp-type-conversion "gid::Gid" "UInt64")
-(lcp:capnp-type-conversion "storage::Label" "Storage.Label")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
-(lcp:capnp-type-conversion "storage::Property" "Storage.Property")
-
 (lcp:define-struct state-delta ()
   (
    ;; Members valid for every delta.
@@ -45,20 +35,7 @@ cpp<#
    (edge-type-name "std::string")
    (property "storage::Property")
    (property-name "std::string")
-   (value "PropertyValue" :initval "PropertyValue::Null"
-          :capnp-type "Storage.PropertyValue"
-          :capnp-save
-          (lambda (builder member capnp-name)
-            (declare (ignore capnp-name))
-            #>cpp
-            storage::SaveCapnpPropertyValue(${member}, &${builder});
-            cpp<#)
-          :capnp-load
-          (lambda (reader member capnp-name)
-            (declare (ignore capnp-name))
-            #>cpp
-            storage::LoadCapnpPropertyValue(${reader}, &${member});
-            cpp<#))
+   (value "PropertyValue" :initval "PropertyValue::Null")
    (label "storage::Label")
    (label-name "std::string")
    (check-empty :bool)
@@ -156,6 +133,6 @@ omitted in the comment.")
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;
      cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk)))
 
 (lcp:pop-namespace) ;; database

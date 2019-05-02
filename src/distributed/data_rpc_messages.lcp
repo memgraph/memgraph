@@ -5,7 +5,6 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/data_rpc_messages.capnp.h"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/gid.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
@@ -15,33 +14,17 @@ cpp<#
 
 (lcp:namespace distributed)
 
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-
 (lcp:define-struct tx-gid-pair ()
-  ((tx-id "tx::TransactionId" :capnp-type "UInt64")
-   (gid "gid::Gid" :capnp-type "UInt64")
+  ((tx-id "tx::TransactionId")
+   (gid "gid::Gid")
    (from-worker-id :int64_t))
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk)))
 
 (lcp:define-rpc vertex
     (:request ((member "TxGidPair")))
   (:response
    ((cypher-id :int64_t)
     (vertex-old-input "const Vertex *"
-                  :capnp-type "Storage.Vertex"
-                  :capnp-init nil
-                  :capnp-save
-                  (lambda (builder member capnp-name)
-                    (declare (ignore capnp-name))
-                    #>cpp
-                    if (${member}) {
-                      auto my_builder = ${builder}->initVertexOldInput();
-                      storage::SaveVertex(*${member}, &my_builder, self.worker_id);
-                    }
-                    cpp<#)
                   :slk-save
                   (lambda (member)
                     #>cpp
@@ -49,15 +32,6 @@ cpp<#
                     slk::Save(has_ptr, builder);
                     if (has_ptr) {
                       slk::Save(*self.${member}, builder, self.worker_id);
-                    }
-                    cpp<#)
-                  :capnp-load
-                  (lambda (reader member capnp-name)
-                    (declare (ignore member capnp-name))
-                    #>cpp
-                    if (${reader}.hasVertexOldInput()) {
-                      auto my_reader = ${reader}.getVertexOldInput();
-                      self->vertex_old_output = storage::LoadVertex(my_reader);
                     }
                     cpp<#)
                   :slk-load
@@ -72,17 +46,6 @@ cpp<#
                     }
                     cpp<#))
     (vertex-new-input "const Vertex *"
-                  :capnp-type "Storage.Vertex"
-                  :capnp-init nil
-                  :capnp-save
-                  (lambda (builder member capnp-name)
-                    (declare (ignore capnp-name))
-                    #>cpp
-                    if (${member}) {
-                      auto my_builder = ${builder}->initVertexNewInput();
-                      storage::SaveVertex(*${member}, &my_builder, self.worker_id);
-                    }
-                    cpp<#)
                   :slk-save
                   (lambda (member)
                     #>cpp
@@ -90,15 +53,6 @@ cpp<#
                     slk::Save(has_ptr, builder);
                     if (has_ptr) {
                       slk::Save(*self.${member}, builder, self.worker_id);
-                    }
-                    cpp<#)
-                  :capnp-load
-                  (lambda (reader member capnp-name)
-                    (declare (ignore member capnp-name))
-                    #>cpp
-                    if (${reader}.hasVertexNewInput()) {
-                      auto my_reader = ${reader}.getVertexNewInput();
-                      self->vertex_new_output = storage::LoadVertex(my_reader);
                     }
                     cpp<#)
                   :slk-load
@@ -121,17 +75,6 @@ cpp<#
   (:response
    ((cypher-id :int64_t)
     (edge-old-input "const Edge *"
-                :capnp-type "Storage.Edge"
-                :capnp-init nil
-                :capnp-save
-                (lambda (builder member capnp-name)
-                  (declare (ignore capnp-name))
-                  #>cpp
-                  if (${member}) {
-                    auto my_builder = ${builder}->initEdgeOldInput();
-                    storage::SaveEdge(*${member}, &my_builder, self.worker_id);
-                  }
-                  cpp<#)
                 :slk-save
                 (lambda (member)
                   #>cpp
@@ -139,15 +82,6 @@ cpp<#
                   slk::Save(has_ptr, builder);
                   if (has_ptr) {
                     slk::Save(*self.${member}, builder, self.worker_id);
-                  }
-                  cpp<#)
-                :capnp-load
-                (lambda (reader member capnp-name)
-                  (declare (ignore member capnp-name))
-                  #>cpp
-                  if (${reader}.hasEdgeOldInput()) {
-                    auto my_reader = ${reader}.getEdgeOldInput();
-                    self->edge_old_output = storage::LoadEdge(my_reader);
                   }
                   cpp<#)
                 :slk-load
@@ -160,17 +94,6 @@ cpp<#
                   }
                   cpp<#))
     (edge-new-input "const Edge *"
-                :capnp-type "Storage.Edge"
-                :capnp-init nil
-                :capnp-save
-                (lambda (builder member capnp-name)
-                  (declare (ignore capnp-name))
-                  #>cpp
-                  if (${member}) {
-                    auto my_builder = ${builder}->initEdgeNewInput();
-                    storage::SaveEdge(*${member}, &my_builder, self.worker_id);
-                  }
-                  cpp<#)
                 :slk-save
                 (lambda (member)
                   #>cpp
@@ -178,15 +101,6 @@ cpp<#
                   slk::Save(has_ptr, builder);
                   if (has_ptr) {
                     slk::Save(*self.${member}, builder, self.worker_id);
-                  }
-                  cpp<#)
-                :capnp-load
-                (lambda (reader member capnp-name)
-                  (declare (ignore member capnp-name))
-                  #>cpp
-                  if (${reader}.hasEdgeNewInput()) {
-                    auto my_reader = ${reader}.getEdgeNewInput();
-                    self->edge_new_output = storage::LoadEdge(my_reader);
                   }
                   cpp<#)
                 :slk-load
@@ -203,7 +117,7 @@ cpp<#
  (edge-new-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc vertex-count
-    (:request ((member "tx::TransactionId" :capnp-type "UInt64")))
+    (:request ((member "tx::TransactionId")))
   (:response ((member :int64_t))))
 
 (lcp:pop-namespace) ;; distributed

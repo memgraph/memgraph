@@ -4,7 +4,6 @@
 #include "communication/rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "transactions/commit_log.hpp"
-#include "transactions/distributed/engine_rpc_messages.capnp.h"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
 cpp<#
@@ -13,21 +12,12 @@ cpp<#
 
 (lcp:namespace tx)
 
-(lcp:capnp-namespace "tx")
-
-(lcp:capnp-type-conversion "TransactionId" "UInt64")
-(lcp:capnp-type-conversion "CommandId" "UInt32")
-
 (lcp:define-struct tx-and-snapshot ()
   ((tx-id "TransactionId")
    (snapshot "Snapshot"
              :slk-save #'slk-save-snapshot
-             :slk-load #'slk-load-snapshot
-             :capnp-type "List(UInt64)"
-             :capnp-init nil
-             :capnp-save #'save-snapshot
-             :capnp-load #'load-snapshot))
-  (:serialize (:slk) (:capnp)))
+             :slk-load #'slk-load-snapshot))
+  (:serialize (:slk)))
 
 (lcp:define-rpc begin
     (:request ())
@@ -49,11 +39,7 @@ cpp<#
     (:request ((member "TransactionId")))
   (:response ((member "Snapshot"
                       :slk-save #'slk-save-snapshot
-                      :slk-load #'slk-load-snapshot
-                      :capnp-type "List(UInt64)"
-                      :capnp-init nil
-                      :capnp-save #'save-snapshot
-                      :capnp-load #'load-snapshot))))
+                      :slk-load #'slk-load-snapshot))))
 
 (lcp:define-rpc command
     (:request ((member "TransactionId")))
@@ -63,31 +49,19 @@ cpp<#
     (:request ())
   (:response ((member "Snapshot"
                       :slk-save #'slk-save-snapshot
-                      :slk-load #'slk-load-snapshot
-                      :capnp-type "List(UInt64)"
-                      :capnp-init nil
-                      :capnp-save #'save-snapshot
-                      :capnp-load #'load-snapshot))))
+                      :slk-load #'slk-load-snapshot))))
 
 (lcp:define-rpc clog-info
     (:request ((member "TransactionId")))
   (:response ((member "CommitLog::Info"
                       :slk-save #'slk-save-commitlog-info
-                      :slk-load #'slk-load-commitlog-info
-                      :capnp-type "UInt8"
-                      :capnp-init nil
-                      :capnp-save #'save-commitlog-info
-                      :capnp-load #'load-commitlog-info))))
+                      :slk-load #'slk-load-commitlog-info))))
 
 (lcp:define-rpc active-transactions
     (:request ())
   (:response ((member "Snapshot"
                       :slk-save #'slk-save-snapshot
-                      :slk-load #'slk-load-snapshot
-                      :capnp-type "List(UInt64)"
-                      :capnp-init nil
-                      :capnp-save #'save-snapshot
-                      :capnp-load #'load-snapshot))))
+                      :slk-load #'slk-load-snapshot))))
 
 (lcp:define-rpc ensure-next-id-greater
     (:request ((member "TransactionId")))

@@ -5,7 +5,6 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/index_rpc_messages.capnp.h"
 #include "storage/common/types/types.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/transaction.hpp"
@@ -13,21 +12,17 @@ cpp<#
 
 (lcp:namespace distributed)
 
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-
 (lcp:define-rpc populate-index
     (:request
-     ((label "storage::Label" :capnp-type "Storage.Label")
-      (property "storage::Property" :capnp-type "Storage.Property")
-      (tx-id "tx::TransactionId" :capnp-type "UInt64")))
+     ((label "storage::Label")
+      (property "storage::Property")
+      (tx-id "tx::TransactionId")))
   (:response ()))
 
 (lcp:define-rpc create-index
     (:request
-     ((label "storage::Label" :capnp-type "Storage.Label")
-      (property "storage::Property" :capnp-type "Storage.Property")))
+     ((label "storage::Label")
+      (property "storage::Property")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

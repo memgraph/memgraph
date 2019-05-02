@@ -8,8 +8,6 @@ cpp<#
 
 (lcp:namespace query)
 
-(lcp:capnp-namespace "query")
-
 (lcp:define-class symbol ()
   ((name "std::string" :scope :public)
    (position :int64_t :scope :public)
@@ -53,7 +51,7 @@ cpp<#
     bool user_declared() const { return user_declared_; }
     int token_position() const { return token_position_; }
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk)))
 
 (lcp:pop-namespace) ;; query
 

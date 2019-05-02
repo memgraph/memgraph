@@ -5,39 +5,15 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "raft/storage_info_rpc_messages.capnp.h"
-#include "rpc/serialization.hpp"
 #include "slk/serialization.hpp"
 cpp<#
 
 (lcp:namespace raft)
 
-(lcp:capnp-namespace "raft")
-
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-
 (lcp:define-rpc storage-info
   (:request ())
   (:response
     ((server-id :uint16_t)
-     (storage-info "std::vector<std::pair<std::string, std::string>>"
-            :capnp-type "List(Utils.Pair(Text, Text))"
-            :capnp-save
-            (lcp:capnp-save-vector
-             "utils::capnp::Pair<::capnp::Text, ::capnp::Text>"
-             "std::pair<std::string, std::string>"
-             "[](auto *builder, const auto &pair) {
-                builder->setFirst(pair.first);
-                builder->setSecond(pair.second);
-              }")
-            :capnp-load
-            (lcp:capnp-load-vector
-             "utils::capnp::Pair<::capnp::Text, ::capnp::Text>"
-             "std::pair<std::string, std::string>"
-             "[](const auto &reader) {
-               std::string first = reader.getFirst();
-               std::string second = reader.getSecond();
-               return std::make_pair(first, second);
-             }")))))
+     (storage-info "std::vector<std::pair<std::string, std::string>>"))))
 
 (lcp:pop-namespace) ;; raft

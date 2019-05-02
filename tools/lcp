@@ -1,9 +1,9 @@
 #!/bin/bash -e
 
 if [[ $# -ne 1 && $# -ne 2 ]]; then
-  echo "Usage: $0 LCP_FILE [CAPNP_ID]"
+  echo "Usage: $0 LCP_FILE"
   echo "Convert a LCP_FILE to C++ header file and output to stdout."
-  echo "If CAPNP_ID is provided, then the Cap'n Proto schema is generated."
+  echo "If SLK_SERIALIZE is provided, then SLK serialization is generated."
   exit 1
 fi
 
@@ -20,16 +20,16 @@ if [[ -v QUICKLISP_HOME ]]; then
   quicklisp_install_dir="${QUICKLISP_HOME}"
 fi
 
-capnp=""
-if [[ $# -eq 2 ]]; then
-  capnp=":capnp-id \"$2\""
+slk_serialize=""
+if [[ "$2" == "SLK_SERIALIZE" ]]; then
+  slk_serialize=":slk-serialize t"
 fi
 
 echo \
 "
 (load \"${quicklisp_install_dir}/setup.lisp\")
 (ql:quickload :lcp :silent t)
-(lcp:process-file \"$lcp_file\" $capnp)
+(lcp:process-file \"$lcp_file\" $slk_serialize)
 " | sbcl --script
 
 filename=`basename $lcp_file .lcp`

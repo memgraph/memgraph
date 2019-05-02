@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <antlr4-runtime.h>
-#include <capnp/message.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -74,43 +73,6 @@ class Base {
   }
 };
 
-class CapnpAstGenerator : public Base {
- public:
-  Query *ParseQuery(const std::string &query_string) override {
-    ::frontend::opencypher::Parser parser(query_string);
-    AstStorage tmp_storage;
-    CypherMainVisitor visitor(context_, &tmp_storage);
-    visitor.visit(parser.tree());
-
-    ::capnp::MallocMessageBuilder message;
-    {
-      query::capnp::Tree::Builder builder =
-          message.initRoot<query::capnp::Tree>();
-      Save(*visitor.query(), &builder);
-    }
-
-    {
-      const query::capnp::Tree::Reader reader =
-          message.getRoot<query::capnp::Tree>();
-      return dynamic_cast<Query *>(Load(&storage_, reader));
-    }
-  }
-
-  PropertyIx Prop(const std::string &prop_name) override {
-    return storage_.GetPropertyIx(prop_name);
-  }
-
-  LabelIx Label(const std::string &name) override {
-    return storage_.GetLabelIx(name);
-  }
-
-  EdgeTypeIx EdgeType(const std::string &name) override {
-    return storage_.GetEdgeTypeIx(name);
-  }
-
-  AstStorage storage_;
-};
-
 class SlkAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
@@ -148,7 +110,6 @@ class CypherMainVisitorTest
     : public ::testing::TestWithParam<std::shared_ptr<Base>> {};
 
 std::shared_ptr<Base> gAstGeneratorTypes[] = {
-    std::make_shared<CapnpAstGenerator>(),
     std::make_shared<SlkAstGenerator>(),
 };
 
@@ -163,7 +124,7 @@ INSTANTIATE_TEST_CASE_P(AstGeneratorTypes, CypherMainVisitorTest,
 // future reference in case someone gets the idea to change to *appropriate*
 // Typed Tests mechanism and ruin the compilation times.
 //
-// typedef ::testing::Types<CapnpAstGenerator, SlkAstGenerator>
+// typedef ::testing::Types<SlkAstGenerator>
 //     AstGeneratorTypes;
 //
 // TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);

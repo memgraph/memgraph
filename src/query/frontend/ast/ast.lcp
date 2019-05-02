@@ -19,14 +19,6 @@ class GraphDbAccessor;
 cpp<#
 
 (lcp:namespace query)
-(lcp:capnp-namespace "query")
-
-(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'symbol "/query/distributed/frontend/semantic/symbol_serialization.capnp")
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-
-(lcp:capnp-type-conversion "PropertyValue" "Storage.PropertyValue")
-(lcp:capnp-type-conversion "Symbol" "Symbol.Symbol")
 
 (defun slk-save-ast-pointer (member)
   #>cpp
@@ -37,25 +29,6 @@ cpp<#
   (lambda (member)
     #>cpp
     self->${member} = query::LoadAstPointer<query::${type}>(storage, reader);
-    cpp<#))
-
-(defun save-ast-pointer (builder member capnp-name)
-  #>cpp
-  if (${member}) {
-    auto ${capnp-name}_builder = ${builder}->init${capnp-name}();
-    Save(*${member}, &${capnp-name}_builder);
-  }
-  cpp<#)
-
-(defun load-ast-pointer (type)
-  (lambda (reader member capnp-name)
-    #>cpp
-    if (${reader}.has${capnp-name}()) {
-      ${member} = static_cast<${type}>(
-          Load(storage, ${reader}.get${capnp-name}()));
-    } else {
-      ${member} = nullptr;
-    }
     cpp<#))
 
 (defun slk-save-ast-vector (member)
@@ -79,21 +52,6 @@ cpp<#
       self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader);
     }
     cpp<#))
-
-(defun save-ast-vector (type)
-  (lcp:capnp-save-vector "capnp::Tree" type
-                         "[](auto *builder, const auto &val) {
-                            Save(*val, builder);
-                          }"))
-
-(defun load-ast-vector (type)
-  (lcp:capnp-load-vector "capnp::Tree" type
-                         (format
-                           nil
-                           "[storage](const auto &reader) {
-                              return static_cast<~A>(Load(storage, reader));
-                            }"
-                            type)))
 
 (defun slk-save-property-map (member)
   #>cpp
@@ -119,29 +77,6 @@ cpp<#
   }
   cpp<#)
 
-(defun save-property-map (builder member capnp-name)
-  #>cpp
-  auto entries_builder = ${builder}.initEntries(${member}.size());
-  size_t i = 0;
-  for (const auto &entry : ${member}) {
-    auto key_builder = entries_builder[i].initKey();
-    Save(entry.first, &key_builder);
-    auto value_builder = entries_builder[i].initValue();
-    Save(*entry.second, &value_builder);
-    ++i;
-  }
-  cpp<#)
-
-(defun load-property-map (reader member capnp-name)
-  #>cpp
-  for (const auto &entry : ${reader}.getEntries()) {
-    PropertyIx prop;
-    Load(&prop, entry.getKey(), storage);
-    ${member}.emplace(prop, static_cast<Expression *>(
-                                Load(storage, entry.getValue())));
-  }
-  cpp<#)
-
 (defun clone-property-map (source dest)
   #>cpp
   for (const auto &entry : ${source}) {
@@ -149,13 +84,6 @@ cpp<#
     ${dest}[key] = entry.second->Clone(storage);
   }
   cpp<#)
-
-(defun capnp-load-name-ix (name-type)
-  (lambda (reader member capnp-name)
-    (declare (ignore capnp-name))
-    #>cpp
-    ${member} = storage->Get${name-type}Ix(self->name).ix;
-    cpp<#))
 
 (defun slk-load-name-ix (name-type)
   (lambda (member)
@@ -188,31 +116,22 @@ cpp<#
   ((name "std::string")
    (ix :int64_t
        :dont-save t
-       :slk-load (slk-load-name-ix "Label")
-       :capnp-init nil
-       :capnp-load (capnp-load-name-ix "Label")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *")))))
+       :slk-load (slk-load-name-ix "Label")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
 
 (lcp:define-struct property-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
-       :slk-load (slk-load-name-ix "Property")
-       :capnp-init nil
-       :capnp-load (capnp-load-name-ix "Property")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *")))))
+       :slk-load (slk-load-name-ix "Property")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
 
 (lcp:define-struct edge-type-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
-       :slk-load (slk-load-name-ix "EdgeType")
-       :capnp-init nil
-       :capnp-load (capnp-load-name-ix "EdgeType")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *")))))
+       :slk-load (slk-load-name-ix "EdgeType")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
 
 #>cpp
 inline bool operator==(const LabelIx &a, const LabelIx &b) {
@@ -333,8 +252,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
   (:clone :return-type (lambda (typename)
                          (format nil "~A*" typename))
           :args '((storage "AstStorage *"))
@@ -363,18 +281,14 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")))
+               :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -396,24 +310,17 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class binary-operator (expression)
   ((expression1 "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *"))
+                :slk-load (slk-load-ast-pointer "Expression"))
    (expression2 "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")))
+                :slk-load (slk-load-ast-pointer "Expression")))
   (:abstractp t)
   (:public
     #>cpp
@@ -428,16 +335,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class unary-operator (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")))
+               :slk-load (slk-load-ast-pointer "Expression")))
   (:abstractp t)
   (:public
     #>cpp
@@ -451,7 +355,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (macrolet ((define-binary-operators ()
@@ -485,7 +389,7 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize (:slk) (:capnp))
+                          (:serialize (:slk))
                           (:clone))))))
   (define-binary-operators))
 
@@ -517,7 +421,7 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize (:slk) (:capnp))
+                          (:serialize (:slk))
                           (:clone))))))
   (define-unary-operators))
 
@@ -581,28 +485,19 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class list-slicing-operator (expression)
   ((list "Expression *" :initval "nullptr" :scope :public
          :slk-save #'slk-save-ast-pointer
-         :slk-load (slk-load-ast-pointer "Expression")
-         :capnp-type "Tree" :capnp-init nil
-         :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression *"))
+         :slk-load (slk-load-ast-pointer "Expression"))
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *"))
+                :slk-load (slk-load-ast-pointer "Expression"))
    (upper-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")))
+                :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
     ListSlicingOperator() = default;
@@ -632,29 +527,20 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class if-operator (expression)
   ((condition "Expression *" :scope :public
               :slk-save #'slk-save-ast-pointer
               :slk-load (slk-load-ast-pointer "Expression")
-              :capnp-type "Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer
-              :capnp-load (load-ast-pointer "Expression *")
               :documentation "None of the expressions should be nullptr. If there is no else_expression, you should make it null PrimitiveLiteral.")
    (then-expression "Expression *" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "Expression")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression *"))
+                    :slk-load (slk-load-ast-pointer "Expression"))
    (else-expression "Expression *" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "Expression")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression *")))
+                    :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
     IfOperator() = default;
@@ -681,7 +567,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class base-literal (expression)
@@ -695,19 +581,11 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class primitive-literal (base-literal)
-  ((value "PropertyValue" :scope :public
-          :capnp-save (lambda (builder member capnp-name)
-                        #>cpp
-                        storage::SaveCapnpPropertyValue(${member}, &${builder});
-                        cpp<#)
-          :capnp-load (lambda (reader member capnp-name)
-                        #>cpp
-                        storage::LoadCapnpPropertyValue(${reader}, &${member});
-                        cpp<#))
+  ((value "PropertyValue" :scope :public)
    (token-position :int32_t :scope :public :initval -1
                    :documentation "This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object is not created from query, leave its value at -1."))
   (:public
@@ -730,17 +608,14 @@ cpp<#
     PrimitiveLiteral(T value, int token_position)
         : value_(value), token_position_(token_position) {}
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class list-literal (base-literal)
   ((elements "std::vector<Expression *>"
              :scope :public
              :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Expression")
-             :capnp-type "List(Tree)"
-             :capnp-save (save-ast-vector "Expression *")
-             :capnp-load (load-ast-vector "Expression *")))
+             :slk-load (slk-load-ast-vector "Expression")))
   (:public
     #>cpp
     ListLiteral() = default;
@@ -764,16 +639,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class map-literal (base-literal)
   ((elements "std::unordered_map<PropertyIx, Expression *>"
              :slk-save #'slk-save-property-map
              :slk-load #'slk-load-property-map
-             :capnp-type "Utils.Map(PropertyIx, Tree)"
-             :capnp-save #'save-property-map
-             :capnp-load #'load-property-map
              :clone #'clone-property-map
              :scope :public))
   (:public
@@ -800,7 +672,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class identifier (expression)
@@ -831,16 +703,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class property-lookup (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (property "PropertyIx" :scope :public
              :slk-load (lambda (member)
                         #>cpp
@@ -872,16 +741,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class labels-test (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (labels "std::vector<LabelIx>" :scope :public
            :slk-load (lambda (member)
                       #>cpp
@@ -892,13 +758,6 @@ cpp<#
                         slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
-           :capnp-load (lcp:capnp-load-vector
-                        "capnp::LabelIx" "LabelIx"
-                        "[storage](const auto &reader) {
-                           LabelIx ix;
-                           Load(&ix, reader, storage);
-                           return ix;
-                         }")
            :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
@@ -922,17 +781,14 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class function (expression)
   ((arguments "std::vector<Expression *>"
               :scope :public
               :slk-save #'slk-save-ast-vector
-              :slk-load (slk-load-ast-vector "Expression")
-              :capnp-type "List(Tree)"
-              :capnp-save (save-ast-vector "Expression *")
-              :capnp-load (load-ast-vector "Expression *"))
+              :slk-load (slk-load-ast-vector "Expression"))
    (function-name "std::string" :scope :public)
    (function "std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &, database::GraphDbAccessor *)>"
              :scope :public
@@ -941,12 +797,7 @@ cpp<#
              :slk-load (lambda (member)
                         #>cpp
                         self->${member} = query::NameToFunction(self->function_name_);
-                        cpp<#)
-             :capnp-init nil
-             :capnp-load (lambda (reader member capnp-name)
-                           #>cpp
-                           ${member} = NameToFunction(self->get()->function_name_);
-                           cpp<#)))
+                        cpp<#)))
   (:public
     #>cpp
     Function() = default;
@@ -976,44 +827,29 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class reduce (expression)
   ((accumulator "Identifier *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Identifier")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Identifier *")
                 :documentation "Identifier for the accumulating variable")
    (initializer "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Expression which produces the initial accumulator value.")
    (identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *")
                :documentation "Identifier for the list element.")
    (list "Expression *" :initval "nullptr" :scope :public
          :slk-save #'slk-save-ast-pointer
          :slk-load (slk-load-ast-pointer "Expression")
-         :capnp-type "Tree" :capnp-init nil
-         :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Expression which produces a list to be reduced.")
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")
                :documentation "Expression which does the reduction, i.e. produces the new accumulator value."))
   (:public
     #>cpp
@@ -1044,7 +880,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class coalesce (expression)
@@ -1052,9 +888,6 @@ cpp<#
                 :scope :public
                 :slk-save #'slk-save-ast-vector
                 :slk-load (slk-load-ast-vector "Expression")
-                :capnp-type "List(Tree)"
-                :capnp-save (save-ast-vector "Expression *")
-                :capnp-load (load-ast-vector "Expression *")
                 :documentation "A list of expressions to evaluate. None of the expressions should be nullptr."))
   (:public
    #>cpp
@@ -1079,30 +912,21 @@ cpp<#
 
    friend class AstStorage;
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class extract (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *")
                :documentation "Identifier for the list element.")
    (list "Expression *" :initval "nullptr" :scope :public
          :slk-save #'slk-save-ast-pointer
          :slk-load (slk-load-ast-pointer "Expression")
-         :capnp-type "Tree" :capnp-init nil
-         :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Expression which produces a list which will be extracted.")
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")
                :documentation "Expression which produces the new value for list element."))
   (:public
     #>cpp
@@ -1127,28 +951,19 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class all (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (list-expression "Expression *" :initval "nullptr" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "Expression")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression *"))
+                    :slk-load (slk-load-ast-pointer "Expression"))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Where")
-          :capnp-type "Tree" :capnp-init nil
-          :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where *")))
+          :slk-load (slk-load-ast-pointer "Where")))
   (:public
     #>cpp
     All() = default;
@@ -1174,7 +989,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 ;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
@@ -1183,22 +998,13 @@ cpp<#
 (lcp:define-class single (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (list-expression "Expression *" :initval "nullptr" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "Expression")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression *"))
+                    :slk-load (slk-load-ast-pointer "Expression"))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Where")
-          :capnp-type "Tree" :capnp-init nil
-          :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where *")))
+          :slk-load (slk-load-ast-pointer "Where")))
   (:public
     #>cpp
     Single() = default;
@@ -1224,7 +1030,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class parameter-lookup (expression)
@@ -1247,22 +1053,16 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class regex-match (expression)
   ((string-expr "Expression *" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *"))
+                :slk-load (slk-load-ast-pointer "Expression"))
    (regex "Expression *" :scope :public
                 :slk-save #'slk-save-ast-pointer
-                :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")))
+                :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
     RegexMatch() = default;
@@ -1282,7 +1082,7 @@ cpp<#
     RegexMatch(Expression *string_expr, Expression *regex)
         : string_expr_(string_expr), regex_(regex) {}
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
@@ -1291,10 +1091,7 @@ cpp<#
   ((name "std::string" :scope :public)
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (token-position :int32_t :initval -1 :scope :public
                    :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1.")
    (symbol-pos :int32_t :initval -1 :scope :public
@@ -1334,8 +1131,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1346,10 +1142,7 @@ cpp<#
 (lcp:define-class pattern-atom (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *")))
+               :slk-load (slk-load-ast-pointer "Identifier")))
   (:abstractp t)
   (:public
     #>cpp
@@ -1365,8 +1158,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1381,20 +1173,10 @@ cpp<#
                         slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
-           :capnp-load (lcp:capnp-load-vector
-                        "capnp::LabelIx" "LabelIx"
-                        "[storage](const auto &reader) {
-                           LabelIx ix;
-                           Load(&ix, reader, storage);
-                           return ix;
-                         }")
            :clone (clone-name-ix-vector "Label"))
    (properties "std::unordered_map<PropertyIx, Expression *>"
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
-               :capnp-type "Utils.Map(PropertyIx, Tree)"
-               :capnp-save #'save-property-map
-               :capnp-load #'load-property-map
                :clone #'clone-property-map
                :scope :public))
   (:public
@@ -1419,7 +1201,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class edge-atom (pattern-atom)
@@ -1435,35 +1217,19 @@ cpp<#
                             slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
-               :capnp-load (lcp:capnp-load-vector
-                            "capnp::EdgeTypeIx" "EdgeTypeIx"
-                            "[storage](const auto &reader) {
-                               EdgeTypeIx ix;
-                               Load(&ix, reader, storage);
-                               return ix;
-                             }")
                :clone (clone-name-ix-vector "EdgeType"))
    (properties "std::unordered_map<PropertyIx, Expression *>"
                :scope :public
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
-               :capnp-type "Utils.Map(PropertyIx, Tree)"
-               :capnp-save #'save-property-map
-               :capnp-load #'load-property-map
                :clone #'clone-property-map)
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Evaluates to lower bound in variable length expands.")
    (upper-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Expression")
-                :capnp-type "Tree" :capnp-init nil
-                :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Evaluated to upper bound in variable length expands.")
    (filter-lambda "Lambda" :scope :public
                   :documentation "Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an optimization pass may inline other expressions into this lambda."
@@ -1480,9 +1246,6 @@ cpp<#
    (total-weight "Identifier *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "Identifier")
-                 :capnp-type "Tree" :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "Identifier *")
                  :documentation "Variable where the total weight for weighted shortest path will be stored."))
   (:public
     (lcp:define-enum type
@@ -1495,27 +1258,17 @@ cpp<#
       ((inner-edge "Identifier *" :initval "nullptr"
                    :slk-save #'slk-save-ast-pointer
                    :slk-load (slk-load-ast-pointer "Identifier")
-                   :capnp-type "Tree" :capnp-init nil
-                   :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Identifier *")
                    :documentation "Argument identifier for the edge currently being traversed.")
        (inner-node "Identifier *" :initval "nullptr"
                    :slk-save #'slk-save-ast-pointer
                    :slk-load (slk-load-ast-pointer "Identifier")
-                   :capnp-type "Tree" :capnp-init nil
-                   :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Identifier *")
                    :documentation "Argument identifier for the destination node of the edge.")
        (expression "Expression *" :initval "nullptr"
                    :slk-save #'slk-save-ast-pointer
                    :slk-load (slk-load-ast-pointer "Expression")
-                   :capnp-type "Tree" :capnp-init nil
-                   :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Expression *")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-                  (:capnp :load-args '((storage "AstStorage *"))))
+      (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
       (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1568,23 +1321,17 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (atoms "std::vector<PatternAtom *>"
           :scope :public
           :slk-save #'slk-save-ast-vector
-          :slk-load (slk-load-ast-vector "PatternAtom")
-          :capnp-type "List(Tree)"
-          :capnp-save (save-ast-vector "PatternAtom *")
-          :capnp-load (load-ast-vector "PatternAtom *")))
+          :slk-load (slk-load-ast-vector "PatternAtom")))
   (:public
     #>cpp
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -1607,8 +1354,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1625,8 +1371,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1634,10 +1379,7 @@ cpp<#
   ((clauses "std::vector<Clause *>"
             :scope :public
             :slk-save #'slk-save-ast-vector
-            :slk-load (slk-load-ast-vector "Clause")
-            :capnp-type "List(Tree)"
-            :capnp-save (save-ast-vector "Clause *")
-            :capnp-load (load-ast-vector "Clause *")))
+            :slk-load (slk-load-ast-vector "Clause")))
   (:public
     #>cpp
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -1657,18 +1399,14 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
-                 :slk-load (slk-load-ast-pointer "SingleQuery")
-                 :capnp-type "Tree" :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "SingleQuery *"))
+                 :slk-load (slk-load-ast-pointer "SingleQuery"))
    (distinct :bool :initval "false" :scope :public)
    (union-symbols "std::vector<Symbol>" :scope :public
                   :documentation "Holds symbols that are created during symbol generation phase. These symbols are used when UNION/UNION ALL combines single query results."))
@@ -1698,8 +1436,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1716,8 +1453,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t))
+  (:serialize (:slk :ignore-other-base-classes t))
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
@@ -1725,17 +1461,11 @@ cpp<#
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "SingleQuery")
-                 :capnp-type "Tree" :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "SingleQuery *")
                  :documentation "First and potentially only query.")
    (cypher-unions "std::vector<CypherUnion *>"
                   :scope :public
                   :slk-save #'slk-save-ast-vector
                   :slk-load (slk-load-ast-vector "CypherUnion")
-                  :capnp-type "List(Tree)"
-                  :capnp-save (save-ast-vector "CypherUnion *")
-                  :capnp-load (load-ast-vector "CypherUnion *")
                   :documentation "Contains remaining queries that should form and union with `single_query_`."))
   (:public
     #>cpp
@@ -1747,16 +1477,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class explain-query (query)
   ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "CypherQuery")
-                 :capnp-type "Tree" :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "CypherQuery *")
                  :documentation "The CypherQuery to explain."))
   (:public
     #>cpp
@@ -1768,7 +1495,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class profile-query (query)
@@ -1777,10 +1504,6 @@ cpp<#
                  :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "CypherQuery")
-                 :capnp-type "Tree"
-                 :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "CypherQuery *")
                  :documentation "The CypherQuery to profile."))
   (:public
    #>cpp
@@ -1792,7 +1515,7 @@ cpp<#
    #>cpp
    friend class AstStorage;
    cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class index-query (query)
@@ -1816,13 +1539,6 @@ cpp<#
                             slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
-               :capnp-load (lcp:capnp-load-vector
-                            "capnp::PropertyIx" "PropertyIx"
-                            "[storage](const auto &reader) {
-                               PropertyIx ix;
-                               Load(&ix, reader, storage);
-                               return ix;
-                             }")
                :clone (clone-name-ix-vector "Property")))
   (:public
    (lcp:define-enum action
@@ -1843,17 +1559,14 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class create (clause)
   ((patterns "std::vector<Pattern *>"
              :scope :public
              :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Pattern")
-             :capnp-type "List(Tree)"
-             :capnp-save (save-ast-vector "Pattern *")
-             :capnp-load (load-ast-vector "Pattern *")))
+             :slk-load (slk-load-ast-vector "Pattern")))
   (:public
     #>cpp
     Create() = default;
@@ -1875,23 +1588,17 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class match (clause)
   ((patterns "std::vector<Pattern *>"
              :scope :public
              :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Pattern")
-             :capnp-type "List(Tree)"
-             :capnp-save (save-ast-vector "Pattern *")
-             :capnp-load (load-ast-vector "Pattern *"))
+             :slk-load (slk-load-ast-vector "Pattern"))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Where")
-          :capnp-type "Tree" :capnp-init nil
-          :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where *"))
+          :slk-load (slk-load-ast-pointer "Where"))
    (optional :bool :initval "false" :scope :public))
   (:public
     #>cpp
@@ -1923,7 +1630,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-enum ordering
@@ -1935,12 +1642,8 @@ cpp<#
   ((ordering "Ordering" :scope :public)
    (expression "Expression *"
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *"))))
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-struct return-body ()
@@ -1951,9 +1654,6 @@ cpp<#
    (named-expressions "std::vector<NamedExpression *>"
                       :slk-save #'slk-save-ast-vector
                       :slk-load (slk-load-ast-vector "NamedExpression")
-                      :capnp-type "List(Tree)"
-                      :capnp-save (save-ast-vector "NamedExpression *")
-                      :capnp-load (load-ast-vector "NamedExpression *")
                       :documentation "Expressions which are used to produce results.")
    (order-by "std::vector<SortItem>"
              :slk-load (lambda (member)
@@ -1967,32 +1667,17 @@ cpp<#
                            slk::Load(&self->${member}[i], reader, storage);
                          }
                          cpp<#)
-             :capnp-load (lcp:capnp-load-vector
-                           "capnp::SortItem"
-                           "SortItem"
-                           "[storage](const auto &reader) {
-                             SortItem val;
-                             Load(&val, reader, storage);
-                             return val;
-                            }")
              :documentation "Expressions used for ordering the results.")
    (skip "Expression *" :initval "nullptr"
          :slk-save #'slk-save-ast-pointer
          :slk-load (slk-load-ast-pointer "Expression")
-         :capnp-type "Tree" :capnp-init nil
-         :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Optional expression on how many results to skip.")
    (limit "Expression *" :initval "nullptr"
           :slk-save #'slk-save-ast-pointer
           :slk-load (slk-load-ast-pointer "Expression")
-          :capnp-type "Tree" :capnp-init nil
-          :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Expression *")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class return (clause)
@@ -2036,7 +1721,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class with (clause)
@@ -2047,10 +1732,7 @@ cpp<#
                      cpp<#))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Where")
-          :capnp-type "Tree" :capnp-init nil
-          :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where *")))
+          :slk-load (slk-load-ast-pointer "Where")))
   (:public
     #>cpp
     With() = default;
@@ -2087,16 +1769,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class delete (clause)
   ((expressions "std::vector<Expression *>"
                 :slk-save #'slk-save-ast-vector
                 :slk-load (slk-load-ast-vector "Expression")
-                :capnp-type "List(Tree)"
-                :capnp-save (save-ast-vector "Expression *")
-                :capnp-load (load-ast-vector "Expression *")
                 :scope :public)
    (detach :bool :initval "false" :scope :public))
   (:public
@@ -2121,22 +1800,16 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class set-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "PropertyLookup")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "PropertyLookup *"))
+                    :slk-load (slk-load-ast-pointer "PropertyLookup"))
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")))
+               :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
     SetProperty() = default;
@@ -2157,22 +1830,16 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class set-properties (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (update :bool :initval "false" :scope :public))
   (:public
     #>cpp
@@ -2195,16 +1862,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class set-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (labels "std::vector<LabelIx>" :scope :public
            :slk-load (lambda (member)
                       #>cpp
@@ -2215,13 +1879,6 @@ cpp<#
                         slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
-           :capnp-load (lcp:capnp-load-vector
-                        "capnp::LabelIx" "LabelIx"
-                        "[storage](const auto &reader) {
-                           LabelIx ix;
-                           Load(&ix, reader, storage);
-                           return ix;
-                         }")
            :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
@@ -2243,16 +1900,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class remove-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
                     :slk-save #'slk-save-ast-pointer
-                    :slk-load (slk-load-ast-pointer "PropertyLookup")
-                    :capnp-type "Tree" :capnp-init nil
-                    :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "PropertyLookup *")))
+                    :slk-load (slk-load-ast-pointer "PropertyLookup")))
   (:public
     #>cpp
     RemoveProperty() = default;
@@ -2273,16 +1927,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class remove-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier *"))
+               :slk-load (slk-load-ast-pointer "Identifier"))
    (labels "std::vector<LabelIx>" :scope :public
            :slk-load (lambda (member)
                       #>cpp
@@ -2293,13 +1944,6 @@ cpp<#
                         slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
-           :capnp-load (lcp:capnp-load-vector
-                        "capnp::LabelIx" "LabelIx"
-                        "[storage](const auto &reader) {
-                           LabelIx ix;
-                           Load(&ix, reader, storage);
-                           return ix;
-                         }")
            :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
@@ -2321,30 +1965,21 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class merge (clause)
   ((pattern "Pattern *" :initval "nullptr" :scope :public
             :slk-save #'slk-save-ast-pointer
-            :slk-load (slk-load-ast-pointer "Pattern")
-            :capnp-type "Tree" :capnp-init nil
-            :capnp-save #'save-ast-pointer
-            :capnp-load (load-ast-pointer "Pattern *"))
+            :slk-load (slk-load-ast-pointer "Pattern"))
    (on-match "std::vector<Clause *>"
              :scope :public
              :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Clause")
-             :capnp-type "List(Tree)"
-             :capnp-save (save-ast-vector "Clause *")
-             :capnp-load (load-ast-vector "Clause *"))
+             :slk-load (slk-load-ast-vector "Clause"))
    (on-create "std::vector<Clause *>"
               :scope :public
               :slk-save #'slk-save-ast-vector
-              :slk-load (slk-load-ast-vector "Clause")
-              :capnp-type "List(Tree)"
-              :capnp-save (save-ast-vector "Clause *")
-              :capnp-load (load-ast-vector "Clause *")))
+              :slk-load (slk-load-ast-vector "Clause")))
   (:public
     #>cpp
     Merge() = default;
@@ -2382,16 +2017,13 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class unwind (clause)
   ((named-expression "NamedExpression *" :initval "nullptr" :scope :public
                      :slk-save #'slk-save-ast-pointer
-                     :slk-load (slk-load-ast-pointer "NamedExpression")
-                     :capnp-type "Tree" :capnp-init nil
-                     :capnp-save #'save-ast-pointer
-                     :capnp-load (load-ast-pointer "NamedExpression *")))
+                     :slk-load (slk-load-ast-pointer "NamedExpression")))
   (:public
     #>cpp
     Unwind() = default;
@@ -2414,7 +2046,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class auth-query (query)
@@ -2424,10 +2056,7 @@ cpp<#
    (user-or-role "std::string" :scope :public)
    (password "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression")
-             :capnp-type "Tree" :capnp-init nil
-             :capnp-save #'save-ast-pointer
-             :capnp-load (load-ast-pointer "Expression *"))
+             :slk-load (slk-load-ast-pointer "Expression"))
    (privileges "std::vector<Privilege>" :scope :public))
   (:public
     (lcp:define-enum action
@@ -2460,7 +2089,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 ;; TODO: Generate this via LCP
@@ -2480,40 +2109,22 @@ cpp<#
    (stream-name "std::string" :scope :public)
    (stream-uri "Expression *" :scope :public :initval "nullptr"
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (stream-topic "Expression *" :scope :public :initval "nullptr"
                  :slk-save #'slk-save-ast-pointer
-                 :slk-load (slk-load-ast-pointer "Expression")
-                 :capnp-type "Tree" :capnp-init nil
-                 :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "Expression *"))
+                 :slk-load (slk-load-ast-pointer "Expression"))
    (transform-uri "Expression *" :scope :public :initval "nullptr"
                   :slk-save #'slk-save-ast-pointer
-                  :slk-load (slk-load-ast-pointer "Expression")
-                  :capnp-type "Tree" :capnp-init nil
-                  :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression *"))
+                  :slk-load (slk-load-ast-pointer "Expression"))
    (batch-interval-in-ms "Expression *" :scope :public :initval "nullptr"
                          :slk-save #'slk-save-ast-pointer
-                         :slk-load (slk-load-ast-pointer "Expression")
-                         :capnp-type "Tree" :capnp-init nil
-                         :capnp-save #'save-ast-pointer
-                         :capnp-load (load-ast-pointer "Expression *"))
+                         :slk-load (slk-load-ast-pointer "Expression"))
    (batch-size "Expression *" :scope :public :initval "nullptr"
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :capnp-type "Tree" :capnp-init nil
-               :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *"))
+               :slk-load (slk-load-ast-pointer "Expression"))
    (limit-batches "Expression *" :scope :public :initval "nullptr"
                   :slk-save #'slk-save-ast-pointer
-                  :slk-load (slk-load-ast-pointer "Expression")
-                  :capnp-type "Tree" :capnp-init nil
-                  :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression *")))
+                  :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     (lcp:define-enum action
         (create-stream drop-stream show-streams start-stream stop-stream
@@ -2544,7 +2155,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-class info-query (query)
@@ -2557,7 +2168,7 @@ cpp<#
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:define-struct constraint ()
@@ -2581,19 +2192,11 @@ cpp<#
                             slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
-               :capnp-load (lcp:capnp-load-vector
-                            "capnp::PropertyIx" "PropertyIx"
-                            "[storage](const auto &reader) {
-                               PropertyIx ix;
-                               Load(&ix, reader, storage);
-                               return ix;
-                             }")
                :clone (clone-name-ix-vector "Property")))
   (:public
     (lcp:define-enum type (exists unique node-key)
-      (:serialize (:lcp) (:capnp))))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
-              (:capnp :load-args '((storage "AstStorage *"))))
+      (:serialize (:lcp))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class constraint-query (query)
@@ -2611,7 +2214,7 @@ cpp<#
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
-  (:serialize (:slk) (:capnp))
+  (:serialize (:slk))
   (:clone))
 
 (lcp:pop-namespace) ;; namespace query

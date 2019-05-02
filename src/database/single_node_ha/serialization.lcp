@@ -1,9 +1,8 @@
 #>cpp
 #pragma once
 
-#include "database/single_node_ha/serialization.capnp.h"
 #include "durability/single_node_ha/state_delta.hpp"
-#include "storage/single_node_ha/rpc/serialization.hpp"
+#include "storage/common/types/slk.hpp"
 cpp<#
 
 ;; Generate serialization of state-delta

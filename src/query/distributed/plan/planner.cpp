@@ -2,10 +2,6 @@
 
 #include <memory>
 
-// TODO: Remove these includes for hacked cloning of logical operators via
-// serialization when proper cloning is added.
-#include <capnp/message.h>
-
 #include "query/distributed/plan/ops.hpp"
 #include "query/distributed/plan/pretty_print.hpp"
 #include "query/plan/operator.hpp"

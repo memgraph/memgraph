@@ -10,7 +10,6 @@ add_subdirectory(telemetry)
 add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
-add_subdirectory(rpc)
 add_subdirectory(slk)
 
 # ----------------------------------------------------------------------------
@@ -176,83 +175,51 @@ set(mg_distributed_sources
 
 # -----------------------------------------------------------------------------
 
-define_add_capnp(add_capnp_distributed mg_distributed_sources generated_capnp_files)
-
 define_add_lcp(add_lcp_distributed mg_distributed_sources generated_lcp_distributed_files)
 
 add_lcp_distributed(durability/distributed/state_delta.lcp)
-add_lcp_distributed(database/distributed/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
-add_capnp_distributed(database/distributed/counters_rpc_messages.capnp)
-add_lcp_distributed(database/distributed/serialization.lcp CAPNP_SCHEMA @0xdea01657b3563887
+add_lcp_distributed(database/distributed/counters_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(database/distributed/serialization.lcp SLK_SERIALIZE
                     DEPENDS durability/distributed/state_delta.lcp)
-add_capnp_distributed(database/distributed/serialization.capnp)
-add_lcp_distributed(distributed/bfs_rpc_messages.lcp CAPNP_SCHEMA @0x8e508640b09b6d2a)
-add_capnp_distributed(distributed/bfs_rpc_messages.capnp)
-add_lcp_distributed(distributed/coordination_rpc_messages.lcp CAPNP_SCHEMA @0x93df0c4703cf98fb)
-add_capnp_distributed(distributed/coordination_rpc_messages.capnp)
-add_lcp_distributed(distributed/data_rpc_messages.lcp CAPNP_SCHEMA @0xc1c8a341ba37aaf5)
-add_capnp_distributed(distributed/data_rpc_messages.capnp)
-add_lcp_distributed(distributed/durability_rpc_messages.lcp CAPNP_SCHEMA @0xf5e53bc271e2163d)
-add_capnp_distributed(distributed/durability_rpc_messages.capnp)
-add_lcp_distributed(distributed/index_rpc_messages.lcp CAPNP_SCHEMA @0xa8aab46862945bd6)
-add_capnp_distributed(distributed/index_rpc_messages.capnp)
-add_lcp_distributed(distributed/plan_rpc_messages.lcp CAPNP_SCHEMA @0xfcbc48dc9f106d28)
-add_capnp_distributed(distributed/plan_rpc_messages.capnp)
-add_lcp_distributed(distributed/pull_produce_rpc_messages.lcp CAPNP_SCHEMA @0xa78a9254a73685bd
+add_lcp_distributed(distributed/bfs_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/coordination_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/data_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/durability_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/index_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/plan_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/pull_produce_rpc_messages.lcp SLK_SERIALIZE
                     DEPENDS transactions/distributed/serialization.lcp)
-add_capnp_distributed(distributed/pull_produce_rpc_messages.capnp)
-add_lcp_distributed(distributed/storage_gc_rpc_messages.lcp CAPNP_SCHEMA @0xd705663dfe36cf81)
-add_capnp_distributed(distributed/storage_gc_rpc_messages.capnp)
-add_lcp_distributed(distributed/token_sharing_rpc_messages.lcp CAPNP_SCHEMA @0x8f295db54ec4caec)
-add_capnp_distributed(distributed/token_sharing_rpc_messages.capnp)
-add_lcp_distributed(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
-add_capnp_distributed(distributed/updates_rpc_messages.capnp)
-add_lcp_distributed(distributed/dynamic_worker_rpc_messages.lcp CAPNP_SCHEMA @0x8c53f6c9a0c71b05)
-add_capnp_distributed(distributed/dynamic_worker_rpc_messages.capnp)
+add_lcp_distributed(distributed/storage_gc_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/token_sharing_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/updates_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(distributed/dynamic_worker_rpc_messages.lcp SLK_SERIALIZE)
 
-# distributed_ops.lcp is leading the capnp code generation, so we don't need
-# to generate any capnp for operator.lcp
 add_lcp_distributed(query/frontend/ast/ast.lcp)
-add_lcp_distributed(query/distributed/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
+add_lcp_distributed(query/distributed/frontend/ast/ast_serialization.lcp SLK_SERIALIZE
         DEPENDS query/frontend/ast/ast.lcp)
-add_capnp_distributed(query/distributed/frontend/ast/ast_serialization.capnp)
 add_lcp_distributed(query/frontend/semantic/symbol.lcp)
-add_lcp_distributed(query/distributed/frontend/semantic/symbol_serialization.lcp CAPNP_SCHEMA @0x93c1dcee84e93b76
+add_lcp_distributed(query/distributed/frontend/semantic/symbol_serialization.lcp SLK_SERIALIZE
         DEPENDS query/frontend/semantic/symbol.lcp)
 add_lcp_distributed(query/plan/operator.lcp)
-add_lcp_distributed(query/distributed/plan/ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
+add_lcp_distributed(query/distributed/plan/ops.lcp SLK_SERIALIZE
         DEPENDS query/plan/operator.lcp)
-add_capnp_distributed(query/distributed/plan/ops.capnp)
 
-add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
-add_capnp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp)
-add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5
+add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp SLK_SERIALIZE
         DEPENDS transactions/distributed/serialization.lcp)
-add_capnp_distributed(transactions/distributed/engine_rpc_messages.capnp)
 
 add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_distributed_files})
 
-# Registering capnp must come after registering lcp files.
-
-add_capnp_distributed(communication/rpc/messages.capnp)
-add_capnp_distributed(durability/distributed/serialization.capnp)
-add_capnp_distributed(query/distributed/frontend/semantic/symbol_serialization.capnp)
-add_capnp_distributed(query/distributed/serialization.capnp)
-add_capnp_distributed(storage/distributed/rpc/serialization.capnp)
-
-add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_capnp_files})
-
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags capnp kj
-    mg-utils mg-io mg-io-serialization mg-integrations-kafka mg-requests
-    mg-communication mg-comm-rpc mg-auth mg-rpc)
+    antlr_opencypher_parser_lib dl glog gflags
+    mg-utils mg-io mg-integrations-kafka mg-requests
+    mg-communication mg-comm-rpc mg-auth)
 
 # STATIC library used by memgraph executables
 add_library(mg-distributed STATIC ${mg_distributed_sources})
 target_link_libraries(mg-distributed ${MG_DISTRIBUTED_LIBS})
 add_dependencies(mg-distributed generate_opencypher_parser)
 add_dependencies(mg-distributed generate_lcp_distributed)
-add_dependencies(mg-distributed generate_capnp)
 target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
 
 # ----------------------------------------------------------------------------
@@ -300,44 +267,30 @@ set(mg_single_node_ha_sources
     storage/common/locking/record_lock.cpp
     storage/single_node_ha/edge_accessor.cpp
     storage/single_node_ha/record_accessor.cpp
-    storage/single_node_ha/rpc/serialization.cpp
     storage/single_node_ha/vertex_accessor.cpp
     transactions/single_node_ha/engine.cpp
     memgraph_init.cpp
 )
 
-define_add_capnp(add_capnp_single_node_ha mg_single_node_ha_sources generated_capnp_single_node_ha_files)
-
 define_add_lcp(add_lcp_single_node_ha mg_single_node_ha_sources generated_lcp_single_node_ha_files)
 
 add_lcp_single_node_ha(durability/single_node_ha/state_delta.lcp)
-add_lcp_single_node_ha(database/single_node_ha/serialization.lcp CAPNP_SCHEMA @0xd0f4a502575fb6f7
+add_lcp_single_node_ha(database/single_node_ha/serialization.lcp SLK_SERIALIZE
         DEPENDS durability/single_node_ha/state_delta.lcp)
-add_capnp_single_node_ha(database/single_node_ha/serialization.capnp)
 add_lcp_single_node_ha(query/frontend/ast/ast.lcp)
 add_lcp_single_node_ha(query/frontend/semantic/symbol.lcp)
 add_lcp_single_node_ha(query/plan/operator.lcp)
-add_lcp_single_node_ha(raft/raft_rpc_messages.lcp CAPNP_SCHEMA @0xa6c29b4287233b66)
-add_capnp_single_node_ha(raft/raft_rpc_messages.capnp)
-add_lcp_single_node_ha(raft/log_entry.lcp CAPNP_SCHEMA @0x96c07fe13850c22a)
-add_capnp_single_node_ha(raft/log_entry.capnp)
-add_lcp_single_node_ha(raft/snapshot_metadata.lcp CAPNP_SCHEMA @0xaa08e34991680f6c)
-add_capnp_single_node_ha(raft/snapshot_metadata.capnp)
-add_lcp_single_node_ha(raft/storage_info_rpc_messages.lcp CAPNP_SCHEMA @0xceee3960cd8eaa7e)
-add_capnp_single_node_ha(raft/storage_info_rpc_messages.capnp)
+add_lcp_single_node_ha(raft/raft_rpc_messages.lcp SLK_SERIALIZE)
+add_lcp_single_node_ha(raft/log_entry.lcp SLK_SERIALIZE)
+add_lcp_single_node_ha(raft/snapshot_metadata.lcp SLK_SERIALIZE)
+add_lcp_single_node_ha(raft/storage_info_rpc_messages.lcp SLK_SERIALIZE)
 
 add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
 
-# Registering capnp must come after registering lcp files.
-
-add_capnp_single_node_ha(storage/single_node_ha/rpc/serialization.capnp)
-
-add_custom_target(generate_capnp_single_node_ha DEPENDS generate_lcp_single_node_ha ${generated_capnp_single_node_ha_files})
-
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags capnp kj
+    antlr_opencypher_parser_lib dl glog gflags
     mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-comm-rpc
-    mg-auth mg-rpc)
+    mg-auth)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)
@@ -353,7 +306,6 @@ add_library(mg-single-node-ha STATIC ${mg_single_node_ha_sources})
 target_link_libraries(mg-single-node-ha ${MG_SINGLE_NODE_HA_LIBS})
 add_dependencies(mg-single-node-ha generate_opencypher_parser)
 add_dependencies(mg-single-node-ha generate_lcp_single_node_ha)
-add_dependencies(mg-single-node-ha generate_capnp_single_node_ha)
 target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
 
 # ----------------------------------------------------------------------------

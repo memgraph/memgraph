@@ -4,7 +4,6 @@
 #include <type_traits>
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/distributed/frontend/ast/ast_serialization.capnp.h"
 #include "query/distributed/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 cpp<#
@@ -16,8 +15,6 @@ cpp<#
 #>cpp
 /// Primary function for saving Ast nodes via SLK.
 void SaveAstPointer(const Tree *ast, slk::Builder *builder);
-
-Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree);
 
 Tree *Load(AstStorage *ast, slk::Reader *reader);
 
@@ -51,13 +48,6 @@ cpp<#
   Tree *Load(AstStorage *ast, slk::Reader *reader) {
     std::unique_ptr<Tree> root;
     slk::ConstructAndLoad(&root, reader, ast);
-    ast->storage_.emplace_back(std::move(root));
-    return ast->storage_.back().get();
-  }
-
-  Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree) {
-    std::unique_ptr<Tree> root;
-    ::query::Load(&root, tree, ast);
     ast->storage_.emplace_back(std::move(root));
     return ast->storage_.back().get();
   }

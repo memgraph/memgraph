@@ -6,14 +6,12 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/pull_produce_rpc_messages.capnp.h"
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "query/distributed/serialization.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "transactions/type.hpp"
-#include "rpc/serialization.hpp"
 cpp<#
 
 (lcp:in-impl
@@ -26,16 +24,6 @@ cpp<#
 (load "transactions/distributed/serialization.lcp")
 
 (lcp:namespace distributed)
-
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
-(lcp:capnp-import 'sem "/query/distributed/frontend/semantic/symbol_serialization.capnp")
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-
-(lcp:capnp-type-conversion "tx::CommandId" "UInt32")
-(lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 
 #>cpp
 // Forward declare for LoadGraphElement.
@@ -100,38 +88,7 @@ the relevant parts of the response, ready for use."))
   ((pull-state "PullState")
    (frames "std::vector<std::vector<query::TypedValue>>"
            :slk-save #'slk-save-frames
-           :slk-load #'slk-load-frames
-           :capnp-type "List(List(Query.TypedValue))"
-           :capnp-save
-           (lambda (builder member capnp-name)
-             (declare (ignore capnp-name))
-             #>cpp
-             for (size_t frame_i = 0; frame_i < ${member}.size(); ++frame_i) {
-               const auto &frame = ${member}[frame_i];
-               auto frame_builder = ${builder}.init(frame_i, frame.size());
-               for (size_t val_i = 0; val_i < frame.size(); ++val_i) {
-                 const auto &value = frame[val_i];
-                 auto value_builder = frame_builder[val_i];
-                 query::SaveCapnpTypedValue(value, &value_builder, self.send_versions, self.worker_id);
-               }
-             }
-             cpp<#)
-           :capnp-load
-           (lambda (reader member capnp-name)
-             (declare (ignore capnp-name))
-             #>cpp
-             ${member}.reserve(${reader}.size());
-             for (const auto &frame_reader : ${reader}) {
-               std::vector<query::TypedValue> current_frame;
-               current_frame.reserve(frame_reader.size());
-               for (const auto &value_reader : frame_reader) {
-                 query::TypedValue value;
-                 query::LoadCapnpTypedValue(value_reader, &value, dba, data_manager);
-                 current_frame.emplace_back(value);
-               }
-               ${member}.emplace_back(current_frame);
-             }
-             cpp<#))
+           :slk-load #'slk-load-frames)
    (worker-id :int16_t :dont-save t
               :documentation
               "Id of the worker on which the response is created, used for
@@ -206,37 +163,23 @@ to the appropriate value. Not used on side that generates the response.")
     PullResData &operator=(PullResData &&) = default;
    cpp<#)
   (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
-                                 (data-manager "distributed::DataManager *")))
-              (:capnp :load-args '((dba "database::GraphDbAccessor *")
-                                   (data-manager "distributed::DataManager *")))))
+                                 (data-manager "distributed::DataManager *")))))
 
 (lcp:define-rpc pull
     (:request
      ((tx-id "tx::TransactionId")
       (tx-snapshot "tx::Snapshot"
                    :slk-save #'slk-save-snapshot
-                   :slk-load #'slk-load-snapshot
-                   :capnp-type "List(UInt64)"
-                   :capnp-init nil
-                   :capnp-save #'save-snapshot
-                   :capnp-load #'load-snapshot)
+                   :slk-load #'slk-load-snapshot)
       (plan-id :int64_t)
       (command-id "tx::CommandId")
       (timestamp :int64_t)
-      (parameters "query::Parameters"
-                  :capnp-type "Utils.Map(Utils.BoxInt64, Storage.PropertyValue)")
-      (symbols "std::vector<query::Symbol>" :capnp-type "List(Sem.Symbol)")
+      (parameters "query::Parameters")
+      (symbols "std::vector<query::Symbol>")
       (accumulate :bool)
       (batch-size :int64_t)
       ;; Indicates which of (old, new) records of a graph element should be sent.
-      (send-versions "storage::SendVersions"
-                     :capnp-type "Storage.SendVersions" :capnp-init nil
-                     :capnp-save (lcp:capnp-save-enum "storage::capnp::SendVersions"
-                                                      "storage::SendVersions"
-                                                      '(both only-old only-new))
-                     :capnp-load (lcp:capnp-load-enum "storage::capnp::SendVersions"
-                                                      "storage::SendVersions"
-                                                      '(both only-old only-new)))))
+      (send-versions "storage::SendVersions")))
   (:response
    ((data "PullResData" :initarg :move
           :slk-load (lambda (m)
@@ -244,9 +187,7 @@ to the appropriate value. Not used on side that generates the response.")
                       slk::Load(&self->${m}, reader, dba, data_manager);
                       cpp<#)))
    (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
-                                  (data-manager "distributed::DataManager *")))
-               (:capnp :load-args '((dba "database::GraphDbAccessor *")
-                                    (data-manager "distributed::DataManager *"))))))
+                                  (data-manager "distributed::DataManager *"))))))
 
 ;; TODO make a separate RPC for the continuation of an existing pull, as an
 ;; optimization not to have to send the full PullReqData pack every time.

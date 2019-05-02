@@ -1,6 +1,5 @@
 #include <thread>
 
-#include "capnp/serialize.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 

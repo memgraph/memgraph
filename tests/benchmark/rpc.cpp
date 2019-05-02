@@ -3,8 +3,6 @@
 
 #include <benchmark/benchmark.h>
 
-#include "capnp/serialize.h"
-
 #include "communication/rpc/client.hpp"
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/messages.hpp"

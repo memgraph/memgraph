@@ -1324,10 +1324,7 @@ enums which aren't defined in LCP."
   (declare (type list request response))
   (assert (eq :request (car request)))
   (assert (eq :response (car response)))
-  (flet ((decl-type-info (class-name)
-           #>cpp
-           using Capnp = capnp::${class-name};
-           cpp<#)
+  (flet ((decl-type-info (class-name))
          (def-constructor (class-name members)
            (let ((full-constructor
                   (let ((init-members (remove-if (lambda (slot-def)
@@ -1496,7 +1493,7 @@ code generation."
          (write-line (cpp-enum-to-capnp-function-definition cpp-type) cpp-out)
          (write-line (cpp-enum-from-capnp-function-definition cpp-type) cpp-out))))))
 
-(defun process-file (lcp-file &key capnp-id)
+(defun process-file (lcp-file &key capnp-id slk-serialize)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
 If CAPNP-ID is passed, generates the Cap'n Proto schema to .capnp file in the
 same directory, while the loading code is generated in LCP-FILE.cpp source
@@ -1509,7 +1506,7 @@ file."
           ;; have our own accompanying .cpp files
           (cpp-file (concatenate 'string lcp-file ".cpp"))
           (capnp-file (concatenate 'string filename ".capnp"))
-          (serializep capnp-id)
+          (serializep slk-serialize)
           ;; Reset globals
           (*capnp-namespace* nil)
           (*capnp-imports* nil)

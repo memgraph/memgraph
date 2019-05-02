@@ -5,7 +5,6 @@
 #include <unordered_map>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/coordination_rpc_messages.capnp.h"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/serialization.hpp"
 #include "io/network/endpoint.hpp"
@@ -13,12 +12,6 @@
 cpp<#
 
 (lcp:namespace distributed)
-
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'dur "/durability/distributed/serialization.capnp")
-(lcp:capnp-import 'io "/io/network/endpoint.capnp")
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:define-rpc register-worker
     (:request
@@ -28,61 +21,13 @@ cpp<#
   (:response
    ((registration-successful :bool)
     (durability-error :bool)
-    (snapshot-to-recover "std::optional<std::pair<int64_t, tx::TransactionId>>"
-                         :capnp-type "Utils.Optional(Utils.Pair(Utils.BoxUInt64, Utils.BoxUInt64))"
-                         :capnp-save
-                         (lambda (builder member capnp-name)
-                           (declare (ignore capnp-name))
-                           #>cpp
-                           utils::SaveOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
-                               ${member}, &${builder},
-                               [](auto builder, const auto &v) {
-                                  auto first_builder = builder->initFirst();
-                                  auto second_builder = builder->initSecond();
-                                  first_builder.setValue(v.first);
-                                  second_builder.setValue(v.second);
-                               });
-                           cpp<#)
-                         :capnp-load
-                         (lambda (reader member capnp-name)
-                           (declare (ignore capnp-name))
-                           #>cpp
-                           ${member} = utils::LoadOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
-                               ${reader}, [](auto reader){
-                                  return std::make_pair(reader.getFirst().getValue(), reader.getSecond().getValue());
-                               });
-                           cpp<#))
-    (workers "std::unordered_map<int, io::network::Endpoint>"
-             :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
-             :capnp-save
-             (lambda (builder member capnp-name)
-               (declare (ignore capnp-name))
-               #>cpp
-               utils::SaveMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(
-                   ${member}, &${builder}, [](auto *builder, const auto &entry) {
-                     auto key_builder = builder->initKey();
-                     key_builder.setValue(entry.first);
-                     auto value_builder = builder->initValue();
-                     Save(entry.second, &value_builder);
-                   });
-               cpp<#)
-             :capnp-load
-             (lambda (reader member capnp-name)
-               (declare (ignore capnp-name))
-               #>cpp
-               utils::LoadMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(&${member}, ${reader},
-                              [](const auto &reader) {
-                                  io::network::Endpoint value;
-                                  Load(&value, reader.getValue());
-                                  return std::make_pair(
-                                      reader.getKey().getValue(), value);
-                              });
-               cpp<#)))))
+    (snapshot-to-recover "std::optional<std::pair<int64_t, tx::TransactionId>>")
+    (workers "std::unordered_map<int, io::network::Endpoint>"))))
 
 (lcp:define-rpc cluster-discovery
     (:request
      ((worker-id :int16_t)
-      (endpoint "io::network::Endpoint" :capnp-type "Io.Endpoint")))
+      (endpoint "io::network::Endpoint")))
   (:response ()))
 
 (lcp:define-rpc stop-worker
@@ -92,8 +37,7 @@ cpp<#
 (lcp:define-rpc notify-worker-recovered
     (:request
      ((worker-id :int16_t)
-      (recovery-info "std::optional<durability::RecoveryInfo>"
-                     :capnp-type "Utils.Optional(Dur.RecoveryInfo)")))
+      (recovery-info "std::optional<durability::RecoveryInfo>")))
   (:response ()))
 
 (lcp:define-rpc heartbeat

@@ -4,92 +4,34 @@
 #include <tuple>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/bfs_rpc_messages.capnp.h"
 #include "distributed/bfs_subcursor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/distributed/plan/ops.hpp"
 #include "query/distributed/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/type.hpp"
-#include "rpc/serialization.hpp"
 cpp<#
 
 (lcp:namespace distributed)
 
-(lcp:capnp-namespace "distributed")
-
-(lcp:capnp-import 'ast "/query/distributed/frontend/ast/ast_serialization.capnp")
-(lcp:capnp-import 'dist-ops "/query/distributed/plan/ops.capnp")
-(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'utils "/rpc/serialization.capnp")
-
-(lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
-(lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
-
 (lcp:define-rpc create-bfs-subcursor
     (:request
-     ((tx-id "tx::TransactionId" :capnp-type "UInt64")
-      (direction "query::EdgeAtom::Direction"
-                 :capnp-type "Ast.EdgeAtom.Direction" :capnp-init nil
-                 :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Direction"
-                                                  "query::EdgeAtom::Direction"
-                                                  '(in out both))
-                 :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction"
-                                                  "query::EdgeAtom::Direction"
-                                                  '(in out both)))
-      (edge-types "std::vector<storage::EdgeType>"
-                  :capnp-save (lcp:capnp-save-vector "::storage::capnp::EdgeType"
-                                                     "storage::EdgeType")
-                  :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
-                                                     "storage::EdgeType"))
+     ((tx-id "tx::TransactionId")
+      (direction "query::EdgeAtom::Direction")
+      (edge-types "std::vector<storage::EdgeType>")
       (filter-lambda "query::plan::ExpansionLambda"
                      :slk-load (lambda (member)
                                  #>cpp
                                  slk::Load(&self->${member}, reader, ast_storage);
-                                 cpp<#)
-                     :capnp-type "DistOps.ExpansionLambda"
-                     :capnp-load (lambda (reader member capnp-name)
-                                    #>cpp
-                                    Load(&${member}, ${reader}, ast_storage);
-                                    cpp<#))
-      (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
+                                 cpp<#))
+      (symbol-table "query::SymbolTable")
       (timestamp :int64_t)
-      (parameters "query::Parameters"
-                  :capnp-type "Utils.Map(Utils.BoxInt64, Storage.PropertyValue)"))
-     (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))
-                 (:capnp :load-args '((ast-storage "query::AstStorage *")))))
+      (parameters "query::Parameters"))
+     (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))))
   (:response ((member :int64_t))))
 
 (lcp:define-rpc register-subcursors
-    (:request ((subcursor-ids "std::unordered_map<int16_t, int64_t>"
-                              :capnp-type "Utils.Map(Utils.BoxInt16, Utils.BoxInt64)"
-                              :capnp-save
-                              (lambda (builder member capnp-name)
-                                (declare (ignore capnp-name))
-                                #>cpp
-                                utils::SaveMap<utils::capnp::BoxInt16, utils::capnp::BoxInt64>(
-                                    ${member}, &${builder},
-                                    [](auto *builder, const auto &entry) {
-                                      auto key_builder = builder->initKey();
-                                      key_builder.setValue(entry.first);
-                                      auto value_builder = builder->initValue();
-                                      value_builder.setValue(entry.second);
-                                    });
-                                cpp<#)
-                              :capnp-load
-                              (lambda (reader member capnp-name)
-                                (declare (ignore capnp-name))
-                                #>cpp
-                                utils::LoadMap<utils::capnp::BoxInt16, utils::capnp::BoxInt64>(
-                                    &${member}, ${reader},
-                                    [](const auto &reader) {
-                                      int16_t key = reader.getKey().getValue();
-                                      int64_t value = reader.getValue().getValue();
-                                      return std::make_pair(key, value);
-                                    });
-                                cpp<#))))
+    (:request ((subcursor-ids "std::unordered_map<int16_t, int64_t>")))
   (:response ()))
 
 (lcp:define-rpc reset-subcursor
@@ -123,27 +65,10 @@ cpp<#
                          if (has_value) {
                            self->${member} = slk::LoadVertexAccessor(reader, dba, data_manager);
                          }
-                         cpp<#)
-             :capnp-type "Utils.Optional(Storage.VertexAccessor)"
-             :capnp-save (lcp:capnp-save-optional
-                           "storage::capnp::VertexAccessor"
-                           "VertexAccessor"
-                           "[worker_id](auto *builder, const auto &vertex) {
-                              storage::SaveVertexAccessor(vertex, builder, storage::SendVersions::BOTH, worker_id);
-                            }")
-             :capnp-load (lcp:capnp-load-optional
-                           "storage::capnp::VertexAccessor"
-                           "VertexAccessor"
-                           "[dba, data_manager](const auto &reader) {
-                             return storage::LoadVertexAccessor(reader, dba, data_manager);
-                            }")))
+                         cpp<#)))
    (:serialize (:slk :save-args '((worker-id :int16_t))
                      :load-args '((dba "database::GraphDbAccessor *")
-                                  (data-manager "distributed::DataManager *")))
-               (:capnp
-                :save-args '((worker-id :int16_t))
-                :load-args '((dba "database::GraphDbAccessor *")
-                             (data-manager "distributed::DataManager *"))))))
+                                  (data-manager "distributed::DataManager *"))))))
 
 (lcp:define-rpc set-source
     (:request
@@ -161,16 +86,10 @@ cpp<#
 (lcp:define-rpc reconstruct-path
     (:request
      ((subcursor-id :int64_t)
-      (vertex "std::optional<storage::VertexAddress>"
-              :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::VertexAddress")
-              :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::VertexAddress"))
-      (edge "std::optional<storage::EdgeAddress>"
-            :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
-            :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
+      (vertex "std::optional<storage::VertexAddress>")
+      (edge "std::optional<storage::EdgeAddress>"))
      (:public
       #>cpp
-      using Capnp = capnp::ReconstructPathReq;
-
       ReconstructPathReq() {}
 
       ReconstructPathReq(int64_t subcursor_id, storage::VertexAddress vertex)
@@ -201,35 +120,14 @@ cpp<#
                        for (size_t i = 0; i < size; ++i) {
                          self->${member}.push_back(slk::LoadEdgeAccessor(reader, dba, data_manager));
                        }
-                       cpp<#)
-           :capnp-type "List(Storage.EdgeAccessor)"
-           :capnp-save (lcp:capnp-save-vector "storage::capnp::EdgeAccessor"
-                                              "EdgeAccessor"
-                                              "[worker_id](auto *builder, const auto &edge) {
-                                                 storage::SaveEdgeAccessor(edge, builder, storage::SendVersions::BOTH, worker_id);
-                                               }")
-           :capnp-load (lcp:capnp-load-vector "storage::capnp::EdgeAccessor"
-                                              "EdgeAccessor"
-                                              "[dba, data_manager](const auto &reader) {
-                                                 return storage::LoadEdgeAccessor(reader, dba, data_manager);
-                                              }"))
-    (next-vertex "std::optional<storage::VertexAddress>"
-                 :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::VertexAddress")
-                 :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::VertexAddress"))
-    (next-edge "std::optional<storage::EdgeAddress>"
-               :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
-               :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
+                       cpp<#))
+    (next-vertex "std::optional<storage::VertexAddress>")
+    (next-edge "std::optional<storage::EdgeAddress>"))
    (:serialize (:slk :save-args '((worker-id :int16_t))
                      :load-args '((dba "database::GraphDbAccessor *")
-                                  (data-manager "distributed::DataManager *")))
-               (:capnp
-                :save-args '((worker-id :int16_t))
-                :load-args '((dba "database::GraphDbAccessor *")
-                             (data-manager "distributed::DataManager *"))))
+                                  (data-manager "distributed::DataManager *"))))
    (:public
     #>cpp
-    using Capnp = capnp::ReconstructPathRes;
-
     ReconstructPathRes() {}
 
     ReconstructPathRes(
@@ -264,29 +162,10 @@ cpp<#
                          for (size_t i = 0; i < size; ++i) {
                            slk::Load(&self->${member}[i], reader, subcursor->db_accessor(), data_manager);
                          }
-                         cpp<#)
-             :capnp-type "List(Query.TypedValue)"
-             :capnp-save (lcp:capnp-save-vector
-                           "query::capnp::TypedValue"
-                           "query::TypedValue"
-                           "[&self](auto *builder, const auto &value) {
-                              query::SaveCapnpTypedValue(value, builder,
-                                                         storage::SendVersions::ONLY_OLD, self.worker_id);
-                            }")
-             :capnp-load (lcp:capnp-load-vector
-                           "query::capnp::TypedValue"
-                           "query::TypedValue"
-                           "[dba, data_manager](const auto &reader) {
-                              query::TypedValue value;
-                              query::LoadCapnpTypedValue(reader, &value, dba, data_manager);
-                              return value;
-                            }"))
+                         cpp<#))
       (worker-id :int16_t :dont-save t))
      (:serialize (:slk :load-args '((subcursor_storage "distributed::BfsSubcursorStorage *")
-                                    (data-manager "distributed::DataManager *")))
-                 (:capnp
-                  :load-args '((dba "database::GraphDbAccessor *")
-                               (data-manager "distributed::DataManager *")))))
+                                    (data-manager "distributed::DataManager *")))))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

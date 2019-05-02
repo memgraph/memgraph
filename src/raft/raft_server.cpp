@@ -15,7 +15,6 @@
 #include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/snapshooter.hpp"
 #include "raft/exceptions.hpp"
-#include "rpc/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"

@@ -2,7 +2,6 @@
 #pragma once
 
 #include "query/frontend/semantic/symbol.hpp"
-#include "query/distributed/frontend/semantic/symbol_serialization.capnp.h"
 cpp<#
 
 ;; Generate serialization code
