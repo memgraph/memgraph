@@ -1,16 +1,16 @@
 #include <gtest/gtest.h>
 #include <sstream>
 
-#include <capnp/message.h>
-
-#include "storage/distributed/mvcc/version_list.hpp"
 #include "query/typed_value.hpp"
 #include "storage/common/types/property_value_store.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/distributed/edge.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "storage/distributed/vertex.hpp"
 #include "transactions/distributed/engine_single_node.hpp"
+
+#include "slk_common.hpp"
 
 using namespace storage;
 
@@ -68,35 +68,52 @@ bool CheckEdge(const Edge &e1, int w1, const Edge &e2, int w2) {
 
 #undef CHECK_RETURN
 
-#define SAVE_AND_LOAD(type, name, element)                   \
-  std::unique_ptr<type> name;                                \
-  {                                                          \
-    ::capnp::MallocMessageBuilder message;                   \
-    auto builder = message.initRoot<storage::capnp::type>(); \
-    storage::Save##type(element, &builder, 0);               \
-    auto reader = message.getRoot<storage::capnp::type>();   \
-    name = storage::Load##type(reader);                      \
+#define SAVE_AND_LOAD_VERTEX(name, element) \
+  Vertex name;                              \
+  {                                         \
+    slk::Loopback loopback;                 \
+    auto builder = loopback.GetBuilder();   \
+    slk::Save(element, builder, 0);         \
+    auto reader = loopback.GetReader();     \
+    slk::Load(&name, reader);               \
+  }
+
+#define SAVE_AND_LOAD_EDGE(name, element) \
+  std::unique_ptr<Edge> name;             \
+  {                                       \
+    slk::Loopback loopback;               \
+    auto builder = loopback.GetBuilder(); \
+    slk::Save(element, builder, 0);       \
+    auto reader = loopback.GetReader();   \
+    slk::Load(&name, reader);             \
   }
 
 TEST(DistributedSerialization, Empty) {
   Vertex v;
   int w_id{0};
-  SAVE_AND_LOAD(Vertex, v_recovered, v)
-  EXPECT_TRUE(CheckVertex(v, w_id, *v_recovered, w_id));
+  SAVE_AND_LOAD_VERTEX(v_recovered, v)
+  EXPECT_TRUE(CheckVertex(v, w_id, v_recovered, w_id));
 }
 
-#define UPDATE_AND_CHECK(type, x, action)        \
-  {                                              \
-    SAVE_AND_LOAD(type, before, x)               \
-    EXPECT_TRUE(Check##type(x, 0, *before, 0));  \
-    action;                                      \
-    EXPECT_FALSE(Check##type(x, 0, *before, 0)); \
-    SAVE_AND_LOAD(type, after, x)                \
-    EXPECT_TRUE(Check##type(x, 0, *after, 0));   \
+#define UPDATE_AND_CHECK_V(v, action)           \
+  {                                             \
+    SAVE_AND_LOAD_VERTEX(before, v)             \
+    EXPECT_TRUE(CheckVertex(v, 0, before, 0));  \
+    action;                                     \
+    EXPECT_FALSE(CheckVertex(v, 0, before, 0)); \
+    SAVE_AND_LOAD_VERTEX(after, v)              \
+    EXPECT_TRUE(CheckVertex(v, 0, after, 0));   \
   }
 
-#define UPDATE_AND_CHECK_V(v, action) UPDATE_AND_CHECK(Vertex, v, action)
-#define UPDATE_AND_CHECK_E(e, action) UPDATE_AND_CHECK(Edge, e, action)
+#define UPDATE_AND_CHECK_E(e, action)          \
+  {                                            \
+    SAVE_AND_LOAD_EDGE(before, e)              \
+    EXPECT_TRUE(CheckEdge(e, 0, *before, 0));  \
+    action;                                    \
+    EXPECT_FALSE(CheckEdge(e, 0, *before, 0)); \
+    SAVE_AND_LOAD_EDGE(after, e)               \
+    EXPECT_TRUE(CheckEdge(e, 0, *after, 0));   \
+  }
 
 TEST(DistributedSerialization, VertexLabels) {
   Vertex v;
