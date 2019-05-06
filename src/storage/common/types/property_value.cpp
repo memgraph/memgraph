@@ -316,3 +316,25 @@ bool operator==(const PropertyValue &first, const PropertyValue &second) {
              second.Value<std::map<std::string, PropertyValue>>();
   }
 }
+
+bool operator<(const PropertyValue &first, const PropertyValue &second) {
+  if (first.type() != second.type()) return first.type() < second.type();
+  switch (first.type()) {
+    case PropertyValue::Type::Null:
+      return false;
+    case PropertyValue::Type::Bool:
+      return first.Value<bool>() < second.Value<bool>();
+    case PropertyValue::Type::Int:
+      return first.Value<int64_t>() < second.Value<int64_t>();
+    case PropertyValue::Type::Double:
+      return first.Value<double>() < second.Value<double>();
+    case PropertyValue::Type::String:
+      return first.Value<std::string>() < second.Value<std::string>();
+    case PropertyValue::Type::List:
+      return first.Value<std::vector<PropertyValue>>() <
+             second.Value<std::vector<PropertyValue>>();
+    case PropertyValue::Type::Map:
+      return first.Value<std::map<std::string, PropertyValue>>() <
+             second.Value<std::map<std::string, PropertyValue>>();
+  }
+}

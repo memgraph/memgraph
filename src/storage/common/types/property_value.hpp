@@ -128,3 +128,4 @@ std::ostream &operator<<(std::ostream &os, const PropertyValue &value);
 
 // comparison
 bool operator==(const PropertyValue &first, const PropertyValue &second);
+bool operator<(const PropertyValue &first, const PropertyValue &second);
