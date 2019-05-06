@@ -58,11 +58,12 @@ class Client final {
   void Close();
 
   /**
-   * This function is used to receive `len` bytes from the socket and stores it
-   * in an internal buffer. It returns `true` if the read succeeded and `false`
-   * if it didn't.
+   * This function is used to receive exactly `len` bytes from the socket and
+   * stores it in an internal buffer. If `exactly_len` is set to `false` then
+   * less than `len` bytes can be received. It returns `true` if the read
+   * succeeded and `false` if it didn't.
    */
-  bool Read(size_t len);
+  bool Read(size_t len, bool exactly_len = true);
 
   /**
    * This function returns a pointer to the read data that is currently stored

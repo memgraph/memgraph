@@ -9,26 +9,33 @@
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/server.hpp"
+#include "slk/serialization.hpp"
 #include "utils/timer.hpp"
 
 struct EchoMessage {
-  using Capnp = ::capnp::AnyPointer;
   static const utils::TypeInfo kType;
 
   EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
 
+  static void Load(EchoMessage *obj, slk::Reader *reader);
+  static void Save(const EchoMessage &obj, slk::Builder *builder);
+
   std::string data;
 };
 
-void Save(const EchoMessage &echo, ::capnp::AnyPointer::Builder *builder) {
-  auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
-  list_builder.set(0, echo.data);
+namespace slk {
+void Save(const EchoMessage &echo, Builder *builder) {
+  Save(echo.data, builder);
 }
+void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
+}  // namespace slk
 
-void Load(EchoMessage *echo, const ::capnp::AnyPointer::Reader &reader) {
-  auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
-  echo->data = list_reader[0];
+void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) {
+  slk::Load(obj, reader);
+}
+void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
+  slk::Save(obj, builder);
 }
 
 const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};

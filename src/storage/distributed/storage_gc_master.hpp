@@ -26,11 +26,13 @@ class StorageGcMaster final : public StorageGcDistributed {
       : StorageGcDistributed(storage, tx_engine, pause_sec),
         coordination_(coordination) {
     coordination_->Register<distributed::RanLocalGcRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           distributed::RanLocalGcReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           std::unique_lock<std::mutex> lock(worker_safe_transaction_mutex_);
           worker_safe_transaction_[req.worker_id] = req.local_oldest_active;
+          distributed::RanLocalGcRes res;
+          slk::Save(res, res_builder);
         });
   }
 

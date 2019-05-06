@@ -23,19 +23,15 @@ class ClientPool {
       return client->template Call<TRequestResponse>(
           std::forward<Args>(args)...);
     });
-  };
+  }
 
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response CallWithLoad(
-      std::function<typename TRequestResponse::Response(
-          const typename TRequestResponse::Response::Capnp::Reader &)>
-          load,
-      Args &&... args) {
+  typename TRequestResponse::Response CallWithLoad(Args &&... args) {
     return WithUnusedClient([&](const auto &client) {
       return client->template CallWithLoad<TRequestResponse>(
-          load, std::forward<Args>(args)...);
+          std::forward<Args>(args)...);
     });
-  };
+  }
 
  private:
   template <class TFun>

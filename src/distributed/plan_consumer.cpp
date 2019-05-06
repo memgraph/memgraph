@@ -4,19 +4,23 @@ namespace distributed {
 
 PlanConsumer::PlanConsumer(distributed::Coordination *coordination) {
   coordination->Register<DispatchPlanRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         DispatchPlanReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         plan_cache_.access().insert(
             req.plan_id, std::make_unique<PlanPack>(req.plan, req.symbol_table,
                                                     std::move(req.storage)));
         DispatchPlanRes res;
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination->Register<RemovePlanRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        plan_cache_.access().remove(req_reader.getMember());
+      [this](auto *req_reader, auto *res_builder) {
+        RemovePlanReq req;
+        slk::Load(&req, req_reader);
+        plan_cache_.access().remove(req.member);
+        RemovePlanRes res;
+        slk::Save(res, res_builder);
       });
 }
 

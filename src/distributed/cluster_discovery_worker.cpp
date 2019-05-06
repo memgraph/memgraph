@@ -12,10 +12,12 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(WorkerCoordination *coordination)
     : coordination_(coordination),
       client_pool_(coordination->GetClientPool(0)) {
   coordination->Register<ClusterDiscoveryRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         ClusterDiscoveryReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         coordination_->RegisterWorker(req.worker_id, req.endpoint);
+        ClusterDiscoveryRes res;
+        slk::Save(res, res_builder);
       });
 }
 

@@ -94,19 +94,14 @@ class Coordination final {
 
   /// Registers a RPC call on this node.
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
-                    callback) {
+  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     server_.Register<TRequestResponse>(callback);
   }
 
   /// Registers an extended RPC call on this node.
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const io::network::Endpoint &,
-                     const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
+  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *,
+                                   slk::Builder *)>
                     callback) {
     server_.Register<TRequestResponse>(callback);
   }

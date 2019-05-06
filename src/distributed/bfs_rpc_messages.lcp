@@ -257,11 +257,12 @@ cpp<#
                          cpp<#)
              :slk-load (lambda (member)
                          #>cpp
+                         auto *subcursor = subcursor_storage->Get(self->subcursor_id);
                          size_t size;
                          slk::Load(&size, reader);
                          self->${member}.resize(size);
                          for (size_t i = 0; i < size; ++i) {
-                           slk::Load(&self->${member}[i], reader, dba, data_manager);
+                           slk::Load(&self->${member}[i], reader, subcursor->db_accessor(), data_manager);
                          }
                          cpp<#)
              :capnp-type "List(Query.TypedValue)"
@@ -281,7 +282,7 @@ cpp<#
                               return value;
                             }"))
       (worker-id :int16_t :dont-save t))
-     (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
+     (:serialize (:slk :load-args '((subcursor_storage "distributed::BfsSubcursorStorage *")
                                     (data-manager "distributed::DataManager *")))
                  (:capnp
                   :load-args '((dba "database::GraphDbAccessor *")

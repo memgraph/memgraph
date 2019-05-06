@@ -10,17 +10,21 @@ DurabilityRpcWorker::DurabilityRpcWorker(
     database::Worker *db, distributed::Coordination *coordination)
     : db_(db) {
   coordination->Register<MakeSnapshotRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        auto dba = db_->Access(req_reader.getMember());
+      [this](auto *req_reader, auto *res_builder) {
+        MakeSnapshotReq req;
+        slk::Load(&req, req_reader);
+        auto dba = db_->Access(req.member);
         MakeSnapshotRes res(db_->MakeSnapshot(*dba));
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination->Register<RecoverWalAndIndexesRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        durability::RecoveryData recovery_data;
-        durability::Load(&recovery_data, req_reader.getMember());
-        this->db_->RecoverWalAndIndexes(&recovery_data);
+      [this](auto *req_reader, auto *res_builder) {
+        RecoverWalAndIndexesReq req;
+        slk::Load(&req, req_reader);
+        this->db_->RecoverWalAndIndexes(&req.member);
+        RecoverWalAndIndexesRes res;
+        slk::Save(res, res_builder);
       });
 }
 

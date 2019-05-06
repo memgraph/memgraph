@@ -10,88 +10,57 @@
 #include "communication/rpc/server.hpp"
 #include "utils/timer.hpp"
 
+#include "rpc_messages.hpp"
+
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
-struct SumReq {
-  using Capnp = ::capnp::AnyPointer;
-  static const utils::TypeInfo kType;
-
-  SumReq() {}  // Needed for serialization.
-  SumReq(int x, int y) : x(x), y(y) {}
-  int x;
-  int y;
-};
-
-void Save(const SumReq &sum, ::capnp::AnyPointer::Builder *builder) {
-  auto list_builder = builder->initAs<::capnp::List<int>>(2);
-  list_builder.set(0, sum.x);
-  list_builder.set(1, sum.y);
+namespace slk {
+void Save(const SumReq &sum, Builder *builder) {
+  Save(sum.x, builder);
+  Save(sum.y, builder);
 }
 
-void Load(SumReq *sum, const ::capnp::AnyPointer::Reader &reader) {
-  auto list_reader = reader.getAs<::capnp::List<int>>();
-  sum->x = list_reader[0];
-  sum->y = list_reader[1];
+void Load(SumReq *sum, Reader *reader) {
+  Load(&sum->x, reader);
+  Load(&sum->y, reader);
 }
 
-const utils::TypeInfo SumReq::kType{0, "SumReq"};
+void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
 
-struct SumRes {
-  using Capnp = ::capnp::AnyPointer;
-  static const utils::TypeInfo kType;
+void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
-  SumRes() {}  // Needed for serialization.
-  SumRes(int sum) : sum(sum) {}
-
-  int sum;
-};
-
-void Save(const SumRes &res, ::capnp::AnyPointer::Builder *builder) {
-  auto list_builder = builder->initAs<::capnp::List<int>>(1);
-  list_builder.set(0, res.sum);
+void Save(const EchoMessage &echo, Builder *builder) {
+  Save(echo.data, builder);
 }
 
-void Load(SumRes *res, const ::capnp::AnyPointer::Reader &reader) {
-  auto list_reader = reader.getAs<::capnp::List<int>>();
-  res->sum = list_reader[0];
+void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
+}  // namespace slk
+
+void SumReq::Load(SumReq *obj, slk::Reader *reader) { slk::Load(obj, reader); }
+void SumReq::Save(const SumReq &obj, slk::Builder *builder) {
+  slk::Save(obj, builder);
 }
 
-const utils::TypeInfo SumRes::kType{1, "SumRes"};
-
-using Sum = RequestResponse<SumReq, SumRes>;
-
-struct EchoMessage {
-  using Capnp = ::capnp::AnyPointer;
-  static const utils::TypeInfo kType;
-
-  EchoMessage() {}  // Needed for serialization.
-  EchoMessage(const std::string &data) : data(data) {}
-
-  std::string data;
-};
-
-void Save(const EchoMessage &echo, ::capnp::AnyPointer::Builder *builder) {
-  auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
-  list_builder.set(0, echo.data);
+void SumRes::Load(SumRes *obj, slk::Reader *reader) { slk::Load(obj, reader); }
+void SumRes::Save(const SumRes &obj, slk::Builder *builder) {
+  slk::Save(obj, builder);
 }
 
-void Load(EchoMessage *echo, const ::capnp::AnyPointer::Reader &reader) {
-  auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
-  echo->data = list_reader[0];
+void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) {
+  slk::Load(obj, reader);
 }
-
-const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
-
-using Echo = RequestResponse<EchoMessage, EchoMessage>;
+void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
+  slk::Save(obj, builder);
+}
 
 TEST(Rpc, Call) {
   Server server({"127.0.0.1", 0});
-  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
-    Load(&req, req_reader);
+    slk::Load(&req, req_reader);
     SumRes res(req.x + req.y);
-    Save(res, res_builder);
+    slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -106,12 +75,12 @@ TEST(Rpc, Call) {
 
 TEST(Rpc, Abort) {
   Server server({"127.0.0.1", 0});
-  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
-    Load(&req, req_reader);
+    slk::Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
-    Save(res, res_builder);
+    slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -149,8 +118,8 @@ TEST(Rpc, ClientPool) {
 
   Client client(server.endpoint());
 
-  /* these calls should take more than 400ms because we're using a regular
-   * client */
+  // These calls should take more than 400ms because we're using a regular
+  // client
   auto get_sum_client = [&client](int x, int y) {
     auto sum = client.Call<Sum>(x, y);
     EXPECT_EQ(sum.sum, x + y);
@@ -170,8 +139,8 @@ TEST(Rpc, ClientPool) {
 
   ClientPool pool(server.endpoint());
 
-  /* these calls shouldn't take much more that 100ms because they execute in
-   * parallel */
+  // These calls shouldn't take much more that 100ms because they execute in
+  // parallel
   auto get_sum = [&pool](int x, int y) {
     auto sum = pool.Call<Sum>(x, y);
     EXPECT_EQ(sum.sum, x + y);
@@ -192,15 +161,36 @@ TEST(Rpc, ClientPool) {
 
 TEST(Rpc, LargeMessage) {
   Server server({"127.0.0.1", 0});
-  server.Register<Echo>([](const auto &req_reader, auto *res_builder) {
+  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
-    Load(&res, req_reader);
-    Save(res, res_builder);
+    slk::Load(&res, req_reader);
+    slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   std::string testdata(100000, 'a');
+
+  Client client(server.endpoint());
+  auto echo = client.Call<Echo>(testdata);
+  EXPECT_EQ(echo.data, testdata);
+
+  server.Shutdown();
+  server.AwaitShutdown();
+}
+
+TEST(Rpc, JumboMessage) {
+  Server server({"127.0.0.1", 0});
+  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+    EchoMessage res;
+    slk::Load(&res, req_reader);
+    slk::Save(res, res_builder);
+  });
+  ASSERT_TRUE(server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  // NOLINTNEXTLINE (bugprone-string-constructor)
+  std::string testdata(10000000, 'a');
 
   Client client(server.endpoint());
   auto echo = client.Call<Echo>(testdata);

@@ -111,32 +111,32 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
       plan_consumer_(plan_consumer),
       tx_engine_(tx_engine) {
   coordination->Register<PullRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         PullReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         PullRes res(Pull(req));
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination->Register<ResetCursorRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         ResetCursorReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         Reset(req);
         ResetCursorRes res;
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   CHECK(data_manager);
 
   coordination->Register<TransactionCommandAdvancedRpc>(
-      [this, data_manager](const auto &req_reader, auto *res_builder) {
+      [this, data_manager](auto *req_reader, auto *res_builder) {
         TransactionCommandAdvancedReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         tx_engine_->UpdateCommand(req.member);
         data_manager->ClearCacheForSingleTransaction(req.member);
         TransactionCommandAdvancedRes res;
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 }
 

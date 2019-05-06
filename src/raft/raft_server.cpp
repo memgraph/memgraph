@@ -83,17 +83,17 @@ void RaftServer::Start() {
 
   // RPC registration
   coordination_->Register<RequestVoteRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         std::lock_guard<std::mutex> guard(lock_);
         RequestVoteReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
 
         // [Raft paper 5.1]
         // "If a server recieves a request with a stale term,
         // it rejects the request"
         if (exiting_ || req.term < current_term_) {
           RequestVoteRes res(false, current_term_);
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
           return;
         }
 
@@ -118,21 +118,21 @@ void RaftServer::Start() {
                             last_entry_data.first, last_entry_data.second);
         RequestVoteRes res(grant_vote, current_term_);
         if (grant_vote) SetNextElectionTimePoint();
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
-  coordination_->Register<AppendEntriesRpc>([this](const auto &req_reader,
+  coordination_->Register<AppendEntriesRpc>([this](auto *req_reader,
                                                    auto *res_builder) {
     std::lock_guard<std::mutex> guard(lock_);
     AppendEntriesReq req;
-    Load(&req, req_reader);
+    slk::Load(&req, req_reader);
 
     // [Raft paper 5.1]
     // "If a server receives a request with a stale term, it rejects the
     // request"
     if (exiting_ || req.term < current_term_) {
       AppendEntriesRes res(false, current_term_);
-      Save(res, res_builder);
+      slk::Save(res, res_builder);
       return;
     }
 
@@ -172,7 +172,7 @@ void RaftServer::Start() {
         snapshot_metadata->last_included_index == req.prev_log_index) {
       if (req.prev_log_term != snapshot_metadata->last_included_term) {
         AppendEntriesRes res(false, current_term_);
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
         return;
       }
     } else if (snapshot_metadata &&
@@ -180,13 +180,13 @@ void RaftServer::Start() {
       LOG(ERROR) << "Received entries that are already commited and have been "
                     "compacted";
       AppendEntriesRes res(false, current_term_);
-      Save(res, res_builder);
+      slk::Save(res, res_builder);
       return;
     } else {
       if (log_size_ <= req.prev_log_index ||
           GetLogEntry(req.prev_log_index).term != req.prev_log_term) {
         AppendEntriesRes res(false, current_term_);
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
         return;
       }
     }
@@ -204,24 +204,24 @@ void RaftServer::Start() {
     // Respond positively to a heartbeat.
     if (req.entries.empty()) {
       AppendEntriesRes res(true, current_term_);
-      Save(res, res_builder);
+      slk::Save(res, res_builder);
       if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
       return;
     }
 
     AppendEntriesRes res(true, current_term_);
-    Save(res, res_builder);
+    slk::Save(res, res_builder);
   });
 
   coordination_->Register<HeartbeatRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         std::lock_guard<std::mutex> guard(lock_);
         HeartbeatReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
 
         if (exiting_ || req.term < current_term_) {
           HeartbeatRes res(false, current_term_);
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
           return;
         }
 
@@ -234,21 +234,21 @@ void RaftServer::Start() {
         election_change_.notify_all();
 
         HeartbeatRes res(true, current_term_);
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<InstallSnapshotRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         // Acquire snapshot lock.
         std::lock_guard<std::mutex> snapshot_guard(snapshot_lock_);
         std::lock_guard<std::mutex> guard(lock_);
 
         InstallSnapshotReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
 
         if (exiting_ || req.term < current_term_) {
           InstallSnapshotRes res(current_term_);
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
           return;
         }
 
@@ -256,7 +256,7 @@ void RaftServer::Start() {
         if (req.snapshot_metadata.last_included_index == last_applied_ &&
             req.snapshot_metadata.last_included_term == current_term_) {
           InstallSnapshotRes res(current_term_);
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
           return;
         }
 
@@ -288,7 +288,7 @@ void RaftServer::Start() {
           VLOG(40) << "[InstallSnapshotRpc] Saving received snapshot.";
           std::ofstream output_stream;
           output_stream.open(snapshot_path, std::ios::out | std::ios::binary);
-          output_stream.write(req.data.get(), req.size);
+          output_stream.write(req.data.data(), req.data.size());
           output_stream.flush();
           output_stream.close();
         }
@@ -317,7 +317,7 @@ void RaftServer::Start() {
         SetLogSize(req.snapshot_metadata.last_included_index + 1);
 
         InstallSnapshotRes res(current_term_);
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   // start threads
@@ -797,8 +797,12 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
                               const SnapshotMetadata &snapshot_metadata,
                               std::unique_lock<std::mutex> *lock) {
   uint64_t request_term = current_term_;
-  uint32_t snapshot_size = 0;
-  std::unique_ptr<char[]> snapshot;
+  std::string snapshot_data;
+
+  // TODO: The snapshot is currently sent all at once. Because the snapshot file
+  // can be extremely large (>100GB, it contains the whole database) it must be
+  // sent out in chunks! Reimplement this logic so that it sends out the
+  // snapshot in chunks.
 
   {
     const auto snapshot_path = durability::MakeSnapshotPath(
@@ -807,19 +811,19 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
     std::ifstream input_stream;
     input_stream.open(snapshot_path, std::ios::in | std::ios::binary);
     input_stream.seekg(0, std::ios::end);
-    snapshot_size = input_stream.tellg();
+    uint64_t snapshot_size = input_stream.tellg();
 
-    snapshot.reset(new char[snapshot_size]);
+    snapshot_data = std::string(snapshot_size, '\0');
 
     input_stream.seekg(0, std::ios::beg);
-    input_stream.read(snapshot.get(), snapshot_size);
+    input_stream.read(snapshot_data.data(), snapshot_size);
     input_stream.close();
   }
 
   VLOG(40) << "Server " << server_id_
            << ": Sending Snapshot RPC to server " << peer_id
            << " (Term: " << current_term_ << ")";
-  VLOG(40) << "Snapshot size: " << snapshot_size << " bytes.";
+  VLOG(40) << "Snapshot size: " << snapshot_data.size() << " bytes.";
 
   // Copy all internal variables before releasing the lock.
   auto server_id = server_id_;
@@ -827,8 +831,8 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
   // Execute the RPC.
   lock->unlock();
   auto reply = coordination_->ExecuteOnOtherNode<InstallSnapshotRpc>(
-      peer_id, server_id, request_term, snapshot_metadata, std::move(snapshot),
-      snapshot_size);
+      peer_id, server_id, request_term, snapshot_metadata,
+      std::move(snapshot_data));
   lock->lock();
 
   if (!reply) {

@@ -16,18 +16,18 @@ void RegisterRpc(MasterConcurrentIdMapper<TId> *mapper,
   void RegisterRpc<type>(MasterConcurrentIdMapper<type> * mapper,    \
                          distributed::Coordination * coordination) { \
     coordination->Register<type##IdRpc>(                             \
-        [mapper](const auto &req_reader, auto *res_builder) {        \
+        [mapper](auto *req_reader, auto *res_builder) {              \
           type##IdReq req;                                           \
-          Load(&req, req_reader);                                    \
+          slk::Load(&req, req_reader);                               \
           type##IdRes res(mapper->value_to_id(req.member));          \
-          Save(res, res_builder);                                    \
+          slk::Save(res, res_builder);                               \
         });                                                          \
     coordination->Register<Id##type##Rpc>(                           \
-        [mapper](const auto &req_reader, auto *res_builder) {        \
+        [mapper](auto *req_reader, auto *res_builder) {              \
           Id##type##Req req;                                         \
-          Load(&req, req_reader);                                    \
+          slk::Load(&req, req_reader);                               \
           Id##type##Res res(mapper->id_to_value(req.member));        \
-          Save(res, res_builder);                                    \
+          slk::Save(res, res_builder);                               \
         });                                                          \
   }
 

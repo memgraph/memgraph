@@ -14,11 +14,9 @@ using MessageSize = uint32_t;
 /// `TRequest` and `TResponse` are required to be classes which have a static
 /// member `kType` of `utils::TypeInfo` type. This is used for proper
 /// registration and deserialization of RPC types. Additionally, both `TRequest`
-/// and `TResponse` are required to define a nested `Capnp` type, which
-/// corresponds to the Cap'n Proto schema type, as well as defined the following
-/// serialization functions:
-///   * void Save(const TRequest|TResponse &, Capnp::Builder *, ...)
-///   * void Load(const Capnp::Reader &, ...)
+/// and `TResponse` are required to define the following serialization functions:
+///   * static void Save(const TRequest|TResponse &, slk::Builder *, ...)
+///   * static void Load(TRequest|TResponse *, slk::Reader *, ...)
 template <typename TRequest, typename TResponse>
 struct RequestResponse {
   using Request = TRequest;

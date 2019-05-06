@@ -25,12 +25,12 @@ StorageInfo::~StorageInfo() {}
 
 void StorageInfo::Start() {
   coordination_->Register<StorageInfoRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         StorageInfoReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
 
         StorageInfoRes res(this->server_id_, this->GetLocalStorageInfo());
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 }
 

@@ -29,12 +29,12 @@ WorkerCoordination::WorkerCoordination(
     : Coordination(worker_endpoint, worker_id, master_endpoint,
                    server_workers_count, client_workers_count) {
   server_.Register<StopWorkerRpc>(
-      [&](const auto &req_reader, auto *res_builder) {
+      [&](auto *req_reader, auto *res_builder) {
         LOG(INFO) << "The master initiated shutdown of this worker.";
         Shutdown();
       });
 
-  server_.Register<HeartbeatRpc>([&](const auto &req_reader,
+  server_.Register<HeartbeatRpc>([&](auto *req_reader,
                                      auto *res_builder) {
     std::lock_guard<std::mutex> guard(heartbeat_lock_);
     last_heartbeat_time_ = std::chrono::steady_clock::now();

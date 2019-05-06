@@ -73,18 +73,13 @@ class Coordination {
   }
 
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
-                    callback) {
+  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     server_.Register<TRequestResponse>(callback);
   }
 
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const io::network::Endpoint &,
-                     const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
+  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *,
+                                   slk::Builder *)>
                     callback) {
     server_.Register<TRequestResponse>(callback);
   }

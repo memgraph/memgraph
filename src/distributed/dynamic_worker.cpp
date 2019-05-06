@@ -9,11 +9,11 @@ DynamicWorkerAddition::DynamicWorkerAddition(database::GraphDb *db,
                                              distributed::Coordination *coordination)
     : db_(db), coordination_(coordination) {
   coordination_->Register<DynamicWorkerRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         DynamicWorkerReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         DynamicWorkerRes res(this->GetIndicesToCreate());
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 }
 

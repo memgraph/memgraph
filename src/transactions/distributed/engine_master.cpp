@@ -13,72 +13,99 @@ EngineMaster::EngineMaster(distributed::Coordination *coordination,
                            durability::WriteAheadLog *wal)
     : engine_single_node_(wal), coordination_(coordination) {
   coordination_->Register<BeginRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
+        BeginReq req;
+        slk::Load(&req, req_reader);
         auto tx = this->Begin();
         BeginRes res(TxAndSnapshot{tx->id_, tx->snapshot()});
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<AdvanceRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        AdvanceRes res(this->Advance(req_reader.getMember()));
-        Save(res, res_builder);
+      [this](auto *req_reader, auto *res_builder) {
+        AdvanceReq req;
+        slk::Load(&req, req_reader);
+        AdvanceRes res(this->Advance(req.member));
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<CommitRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        this->Commit(*this->RunningTransaction(req_reader.getMember()));
+      [this](auto *req_reader, auto *res_builder) {
+        CommitReq req;
+        slk::Load(&req, req_reader);
+        this->Commit(*this->RunningTransaction(req.member));
+        CommitRes res;
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<AbortRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        this->Abort(*this->RunningTransaction(req_reader.getMember()));
+      [this](auto *req_reader, auto *res_builder) {
+        AbortReq req;
+        slk::Load(&req, req_reader);
+        this->Abort(*this->RunningTransaction(req.member));
+        AbortRes res;
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<SnapshotRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
-        SnapshotRes res(
-            this->RunningTransaction(req_reader.getMember())->snapshot());
-        Save(res, res_builder);
+        SnapshotReq req;
+        slk::Load(&req, req_reader);
+        SnapshotRes res(this->RunningTransaction(req.member)->snapshot());
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<CommandRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
-        CommandRes res(this->RunningTransaction(req_reader.getMember())->cid());
-        Save(res, res_builder);
+        CommandReq req;
+        slk::Load(&req, req_reader);
+        CommandRes res(this->RunningTransaction(req.member)->cid());
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<GcSnapshotRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
+        GcSnapshotReq req;
+        slk::Load(&req, req_reader);
         GcSnapshotRes res(this->GlobalGcSnapshot());
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<ClogInfoRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        ClogInfoRes res(this->Info(req_reader.getMember()));
-        Save(res, res_builder);
+      [this](auto *req_reader, auto *res_builder) {
+        ClogInfoReq req;
+        slk::Load(&req, req_reader);
+        ClogInfoRes res(this->Info(req.member));
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<ActiveTransactionsRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
+        ActiveTransactionsReq req;
+        slk::Load(&req, req_reader);
         ActiveTransactionsRes res(this->GlobalActiveTransactions());
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<EnsureNextIdGreaterRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        this->EnsureNextIdGreater(req_reader.getMember());
+      [this](auto *req_reader, auto *res_builder) {
+        EnsureNextIdGreaterReq req;
+        slk::Load(&req, req_reader);
+        this->EnsureNextIdGreater(req.member);
+        EnsureNextIdGreaterRes res;
+        slk::Save(res, res_builder);
       });
 
   coordination_->Register<GlobalLastRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
+        GlobalLastReq req;
+        slk::Load(&req, req_reader);
         GlobalLastRes res(this->GlobalLast());
-        Save(res, res_builder);
+        slk::Save(res, res_builder);
       });
 }
 

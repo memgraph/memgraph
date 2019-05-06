@@ -153,10 +153,11 @@ cpp<#
                 :slk-load
                 (lambda (member)
                   #>cpp
-                  // slk::Load will read a bool which was explicity
-                  // saved in :slk::save and based on that read record
-                  // data
-                  slk::Load(&self->edge_old_output, reader);
+                  bool has_ptr;
+                  slk::Load(&has_ptr, reader);
+                  if (has_ptr) {
+                    slk::Load(&self->edge_old_output, reader);
+                  }
                   cpp<#))
     (edge-new-input "const Edge *"
                 :capnp-type "Storage.Edge"
@@ -191,10 +192,11 @@ cpp<#
                 :slk-load
                 (lambda (member)
                   #>cpp
-                  // slk::Load will read a bool which was explicity
-                  // saved in :slk::save and based on that read record
-                  // data
-                  slk::Load(&self->edge_new_output, reader);
+                  bool has_ptr;
+                  slk::Load(&has_ptr, reader);
+                  if (has_ptr) {
+                    slk::Load(&self->edge_old_output, reader);
+                  }
                   cpp<#))
     (worker-id :int64_t :dont-save t)
  (edge-old-output "std::unique_ptr<Edge>" :initarg nil :dont-save t)

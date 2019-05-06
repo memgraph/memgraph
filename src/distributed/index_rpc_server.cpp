@@ -10,21 +10,25 @@ IndexRpcServer::IndexRpcServer(database::GraphDb *db,
                                distributed::Coordination *coordination)
     : db_(db) {
   coordination->Register<CreateIndexRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         CreateIndexReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         database::LabelPropertyIndex::Key key{req.label, req.property};
         db_->storage().label_property_index_.CreateIndex(key);
+        CreateIndexRes res;
+        slk::Save(res, res_builder);
       });
 
   coordination->Register<PopulateIndexRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         PopulateIndexReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         database::LabelPropertyIndex::Key key{req.label, req.property};
         auto dba = db_->Access(req.tx_id);
         dba->PopulateIndex(key);
         dba->EnableIndex(key);
+        PopulateIndexRes res;
+        slk::Save(res, res_builder);
       });
 }
 

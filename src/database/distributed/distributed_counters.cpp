@@ -6,14 +6,19 @@ namespace database {
 
 MasterCounters::MasterCounters(distributed::Coordination *coordination) {
   coordination->Register<CountersGetRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        CountersGetRes res(Get(req_reader.getName()));
-        Save(res, res_builder);
+      [this](auto *req_reader, auto *res_builder) {
+        CountersGetReq req;
+        slk::Load(&req, req_reader);
+        CountersGetRes res(Get(req.name));
+        slk::Save(res, res_builder);
       });
   coordination->Register<CountersSetRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        Set(req_reader.getName(), req_reader.getValue());
-        return std::make_unique<CountersSetRes>();
+      [this](auto *req_reader, auto *res_builder) {
+        CountersSetReq req;
+        slk::Load(&req, req_reader);
+        Set(req.name, req.value);
+        CountersSetRes res;
+        slk::Save(res, res_builder);
       });
 }
 

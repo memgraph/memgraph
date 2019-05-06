@@ -13,13 +13,13 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     MasterCoordination *coordination, const std::string &durability_directory)
     : coordination_(coordination), durability_directory_(durability_directory) {
   coordination_->Register<RegisterWorkerRpc>([this](const auto &endpoint,
-                                                    const auto &req_reader,
+                                                    auto *req_reader,
                                                     auto *res_builder) {
     bool registration_successful = false;
     bool durability_error = false;
 
     RegisterWorkerReq req;
-    Load(&req, req_reader);
+    slk::Load(&req, req_reader);
 
     // Compose the worker's endpoint from its connecting address and its
     // advertised port.
@@ -70,15 +70,17 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     RegisterWorkerRes res(registration_successful, durability_error,
                           coordination_->RecoveredSnapshotTx(),
                           coordination_->GetWorkers());
-    Save(res, res_builder);
+    slk::Save(res, res_builder);
   });
 
   coordination_->Register<NotifyWorkerRecoveredRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this](auto *req_reader, auto *res_builder) {
         NotifyWorkerRecoveredReq req;
-        Load(&req, req_reader);
+        slk::Load(&req, req_reader);
         coordination_->WorkerRecoveredSnapshot(req.worker_id,
                                                req.recovery_info);
+        NotifyWorkerRecoveredRes res;
+        slk::Save(res, res_builder);
       });
 }
 

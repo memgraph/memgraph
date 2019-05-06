@@ -83,10 +83,11 @@ void Client::Close() {
   socket_.Close();
 }
 
-bool Client::Read(size_t len) {
+bool Client::Read(size_t len, bool exactly_len) {
+  if (len == 0) return false;
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
-  while (received < len) {
+  do {
     auto buff = buffer_.write_end()->Allocate();
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal
@@ -140,7 +141,7 @@ bool Client::Read(size_t len) {
       buffer_.write_end()->Written(got);
       received += got;
     }
-  }
+  } while (received < len && exactly_len);
   return true;
 }
 

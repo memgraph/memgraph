@@ -21,11 +21,11 @@ class BfsRpcServer {
                distributed::Coordination *coordination,
                BfsSubcursorStorage *subcursor_storage)
       : db_(db), subcursor_storage_(subcursor_storage) {
-    coordination->Register<CreateBfsSubcursorRpc>([this](const auto &req_reader,
+    coordination->Register<CreateBfsSubcursorRpc>([this](auto *req_reader,
                                                          auto *res_builder) {
       CreateBfsSubcursorReq req;
       auto ast_storage = std::make_unique<query::AstStorage>();
-      Load(&req, req_reader, ast_storage.get());
+      slk::Load(&req, req_reader, ast_storage.get());
       database::GraphDbAccessor *dba;
       {
         std::lock_guard<std::mutex> guard(lock_);
@@ -46,41 +46,41 @@ class BfsRpcServer {
           dba, req.direction, req.edge_types, std::move(req.symbol_table),
           std::move(ast_storage), req.filter_lambda, evaluation_context);
       CreateBfsSubcursorRes res(id);
-      Save(res, res_builder);
+      slk::Save(res, res_builder);
     });
 
     coordination->Register<RegisterSubcursorsRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           RegisterSubcursorsReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_ids.at(db_->WorkerId()))
               ->RegisterSubcursors(req.subcursor_ids);
           RegisterSubcursorsRes res;
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
         });
 
     coordination->Register<ResetSubcursorRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           ResetSubcursorReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_id)->Reset();
           ResetSubcursorRes res;
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
         });
 
     coordination->Register<SetSourceRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           SetSourceReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_id)->SetSource(req.source);
           SetSourceRes res;
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
         });
 
     coordination->Register<ExpandLevelRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           ExpandLevelReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           auto subcursor = subcursor_storage_->Get(req.member);
           ExpandResult result;
           try {
@@ -90,32 +90,32 @@ class BfsRpcServer {
             result = ExpandResult::LAMBDA_ERROR;
           }
           ExpandLevelRes res(result);
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
         });
 
     coordination->Register<SubcursorPullRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           SubcursorPullReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           auto vertex = subcursor_storage_->Get(req.member)->Pull();
           SubcursorPullRes res(vertex);
-          Save(res, res_builder, db_->WorkerId());
+          slk::Save(res, res_builder, db_->WorkerId());
         });
 
     coordination->Register<ExpandToRemoteVertexRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
+        [this](auto *req_reader, auto *res_builder) {
           ExpandToRemoteVertexReq req;
-          Load(&req, req_reader);
+          slk::Load(&req, req_reader);
           ExpandToRemoteVertexRes res(
               subcursor_storage_->Get(req.subcursor_id)
                   ->ExpandToLocalVertex(req.edge, req.vertex));
-          Save(res, res_builder);
+          slk::Save(res, res_builder);
         });
 
-    coordination->Register<ReconstructPathRpc>([this](const auto &req_reader,
+    coordination->Register<ReconstructPathRpc>([this](auto *req_reader,
                                                       auto *res_builder) {
       ReconstructPathReq req;
-      Load(&req, req_reader);
+      slk::Load(&req, req_reader);
       auto subcursor = subcursor_storage_->Get(req.subcursor_id);
       PathSegment result;
       if (req.vertex) {
@@ -127,18 +127,17 @@ class BfsRpcServer {
       }
       ReconstructPathRes res(result.edges, result.next_vertex,
                              result.next_edge);
-      Save(res, res_builder, db_->WorkerId());
+      slk::Save(res, res_builder, db_->WorkerId());
     });
 
-    coordination->Register<PrepareForExpandRpc>([this](const auto &req_reader,
+    coordination->Register<PrepareForExpandRpc>([this](auto *req_reader,
                                                        auto *res_builder) {
       PrepareForExpandReq req;
-      auto subcursor_id = req_reader.getSubcursorId();
-      auto *subcursor = subcursor_storage_->Get(subcursor_id);
-      Load(&req, req_reader, subcursor->db_accessor(), &db_->data_manager());
+      slk::Load(&req, req_reader, subcursor_storage_, &db_->data_manager());
+      auto *subcursor = subcursor_storage_->Get(req.subcursor_id);
       subcursor->PrepareForExpand(req.clear, std::move(req.frame));
       PrepareForExpandRes res;
-      Save(res, res_builder);
+      slk::Save(res, res_builder);
     });
   }
 

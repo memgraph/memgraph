@@ -357,6 +357,7 @@ template <class TRecordAccessor>
 void SaveRecordAccessor(const TRecordAccessor &accessor, slk::Builder *builder,
                         storage::SendVersions versions, int16_t worker_id) {
   bool reconstructed = false;
+  auto guard = storage::GetDataLock(accessor);
   if (!accessor.GetOld() && !accessor.GetNew()) {
     reconstructed = true;
     bool result = accessor.Reconstruct();

@@ -27,7 +27,7 @@ class TokenSharingRpcServer {
                         distributed::Coordination *coordination)
       : worker_id_(worker_id), coordination_(coordination), dgp_(db) {
     coordination_->Register<distributed::TokenTransferRpc>(
-        [this](const auto &req_reader, auto *res_builder) { token_ = true; });
+        [this](auto *req_reader, auto *res_builder) { token_ = true; });
     // TODO (buda): It's not trivial to move this part in the Start method
     // because worker then doesn't run the step. Will resolve that with
     // a different implementation of the token assignment.

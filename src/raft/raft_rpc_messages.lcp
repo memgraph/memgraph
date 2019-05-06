@@ -52,41 +52,7 @@ cpp<#
     ((leader-id :uint16_t)
      (term :uint64_t)
      (snapshot-metadata "raft::SnapshotMetadata" :capnp-type "Snap.SnapshotMetadata")
-     (data "std::unique_ptr<char[]>"
-           :initarg :move
-					 :capnp-type "Data"
-					 :capnp-init nil
-           :capnp-save (lambda (builder member capnp-name)
-                         #>cpp
-                         auto data_builder = ${builder}->initData(self.size);
-                         memcpy(data_builder.begin(), ${member}.get(), self.size);
-                         cpp<#)
-					 :slk-save (lambda (member)
-                         #>cpp
-                         slk::Save(self.size, builder);
-                         for (uint32_t i = 0; i < self.size; ++i) {
-                           slk::Save(self.data[i], builder);
-                         }
-                         cpp<#)
-           :capnp-load (lambda (reader member capnp-name)
-                         (declare (ignore capnp-name))
-                         #>cpp
-                         auto data_reader = ${reader}.getData();
-                         self->size = data_reader.size();
-                         ${member}.reset(new char[self->size]);
-                         memcpy(${member}.get(), data_reader.begin(), self->size);
-                         cpp<#)
-           :slk-load (lambda (member)
-                         #>cpp
-                         slk::Load(&self->size, reader);
-                         self->data.reset(new char[self->size]);
-                         for (uint32_t i = 0; i < self->size; ++i) {
-                           uint8_t curr;
-                           slk::Load(&curr, reader);
-                           self->data[i] = curr;
-                         }
-                         cpp<#))
-     (size :uint32_t :dont-save t)))
+     (data "std::string")))
   (:response
     ((term :uint64_t))))
 

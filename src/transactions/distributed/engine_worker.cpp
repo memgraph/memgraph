@@ -29,11 +29,14 @@ EngineWorker::EngineWorker(distributed::Coordination *coordination,
   // aborted. This mismatch in committed/aborted across workers is resolved by
   // using the master as a single source of truth when doing recovery.
   coordination_->Register<NotifyCommittedRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        auto tid = req_reader.getMember();
+      [this](auto *req_reader, auto *res_builder) {
+        NotifyCommittedReq req;
+        slk::Load(&req, req_reader);
         if (wal_) {
-          wal_->Emplace(database::StateDelta::TxCommit(tid));
+          wal_->Emplace(database::StateDelta::TxCommit(req.member));
         }
+        NotifyCommittedRes res;
+        slk::Save(res, res_builder);
       });
 }
 

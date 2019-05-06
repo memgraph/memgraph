@@ -4,14 +4,11 @@
 #include <mutex>
 #include <vector>
 
-#include "capnp/any.h"
-
-#include "communication/rpc/messages.capnp.h"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/server.hpp"
 #include "io/network/endpoint.hpp"
-#include "utils/demangle.hpp"
+#include "slk/streams.hpp"
 
 namespace communication::rpc {
 
@@ -31,26 +28,14 @@ class Server {
   const io::network::Endpoint &endpoint() const;
 
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
-                    callback) {
+  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
+    CHECK(!server_.IsRunning())
+        << "You can't register RPCs when the server is running!";
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = [callback = callback](const auto &reader, auto *builder) {
-      auto req_data =
-          reader.getData()
-              .template getAs<typename TRequestResponse::Request::Capnp>();
-      builder->setTypeId(TRequestResponse::Response::kType.id);
-      auto data_builder = builder->initData();
-      auto res_builder =
-          data_builder
-              .template initAs<typename TRequestResponse::Response::Capnp>();
-      callback(req_data, &res_builder);
-    };
+    rpc.callback = callback;
 
     if (extended_callbacks_.find(TRequestResponse::Request::kType.id) !=
         extended_callbacks_.end()) {
@@ -64,33 +49,16 @@ class Server {
   }
 
   template <class TRequestResponse>
-  void Register(std::function<
-                void(const io::network::Endpoint &,
-                     const typename TRequestResponse::Request::Capnp::Reader &,
-                     typename TRequestResponse::Response::Capnp::Builder *)>
+  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *,
+                                   slk::Builder *)>
                     callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
+    CHECK(!server_.IsRunning())
+        << "You can't register RPCs when the server is running!";
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = [callback = callback](const io::network::Endpoint &endpoint,
-                                         const auto &reader, auto *builder) {
-      auto req_data =
-          reader.getData()
-              .template getAs<typename TRequestResponse::Request::Capnp>();
-      builder->setTypeId(TRequestResponse::Response::kType.id);
-      auto data_builder = builder->initData();
-      auto res_builder =
-          data_builder
-              .template initAs<typename TRequestResponse::Response::Capnp>();
-      callback(endpoint, req_data, &res_builder);
-    };
-
-    if (callbacks_.find(TRequestResponse::Request::kType.id) !=
-        callbacks_.end()) {
-      LOG(FATAL) << "Callback for that message type already registered!";
-    }
+    rpc.callback = callback;
 
     auto got =
         extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
@@ -104,17 +72,14 @@ class Server {
 
   struct RpcCallback {
     utils::TypeInfo req_type;
-    std::function<void(const capnp::Message::Reader &,
-                       capnp::Message::Builder *)>
-        callback;
+    std::function<void(slk::Reader *, slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 
   struct RpcExtendedCallback {
     utils::TypeInfo req_type;
-    std::function<void(const io::network::Endpoint &,
-                       const capnp::Message::Reader &,
-                       capnp::Message::Builder *)>
+    std::function<void(const io::network::Endpoint &, slk::Reader *,
+                       slk::Builder *)>
         callback;
     utils::TypeInfo res_type;
   };
