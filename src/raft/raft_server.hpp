@@ -157,6 +157,7 @@ class RaftServer final : public RaftInterface {
 
   mutable std::mutex lock_;           ///< Guards all internal state.
   mutable std::mutex snapshot_lock_;  ///< Guards snapshot creation and removal.
+  mutable std::mutex heartbeat_lock_; ///< Guards HB issuing
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on all servers
@@ -185,6 +186,10 @@ class RaftServer final : public RaftInterface {
   std::vector<std::thread> peer_threads_;  ///< One thread per peer which
                                            ///< handles outgoing RPCs.
 
+  std::vector<std::thread> hb_threads_; ///< One thread per peer which is
+                                        ///< responsible for sending periodic
+                                        ///< heartbeats.
+
   std::condition_variable state_changed_;  ///< Notifies all peer threads on
                                            ///< relevant state change.
 
@@ -198,6 +203,10 @@ class RaftServer final : public RaftInterface {
   std::condition_variable leader_changed_;  ///< Notifies the
                                             ///< no_op_issuer_thread that a new
                                             ///< leader has been elected.
+
+  std::condition_variable hb_condition_; ///< Notifies the HBIssuer thread
+                                         ///< that a new leader has been
+                                         ///< elected.
 
   std::atomic<bool> exiting_{false};  ///< True on server shutdown.
 
@@ -231,9 +240,11 @@ class RaftServer final : public RaftInterface {
                                        ///< highest log entry known to be
                                        ///< replicated on server.
 
-  std::vector<TimePoint> next_heartbeat_;  ///< for each server, time point for
-                                           ///< the next heartbeat.
-  std::vector<TimePoint> backoff_until_;   ///< backoff for each server.
+  std::vector<TimePoint> next_replication_;  ///< for each server, time point
+                                             ///< for the next replication.
+
+  std::vector<TimePoint> next_heartbeat_; ///< for each server, time point for
+                                          ///< the next heartbeat.
 
   // Tracks timepoints until a transactions is allowed to be in the replication
   // process.
@@ -313,6 +324,14 @@ class RaftServer final : public RaftInterface {
   ///
   /// @param peer_id - ID of a receiving node in the cluster.
   void PeerThreadMain(uint16_t peer_id);
+
+  /// Main function of the thread that handles issuing heartbeats towards
+  /// other peers. At the moment, this function is ignorant about the status
+  /// of LogEntry replication. Therefore, it might issue unnecessary
+  /// heartbeats, but we can live with that at this point.
+  ///
+  /// @param peer_id - ID of a receiving node in the cluster.
+  void HBThreadMain(uint16_t peer_id);
 
   /// Issues no-op command when a new leader is elected. This is done to
   /// force the Raft protocol to commit logs from previous terms that

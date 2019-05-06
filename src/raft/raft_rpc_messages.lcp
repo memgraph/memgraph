@@ -39,6 +39,14 @@ cpp<#
     ((success :bool)
      (term :uint64_t))))
 
+(lcp:define-rpc heartbeat
+  (:request
+    ((leader-id :uint16_t)
+     (term :uint64_t)))
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
 (lcp:define-rpc install-snapshot
   (:request
     ((leader-id :uint16_t)
