@@ -1,4 +1,6 @@
 #include <list>
+#include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -11,6 +13,40 @@ using vec = std::vector<std::string>;
 using namespace std::string_literals;
 using namespace utils;
 
+TEST(Algorithm, PrintIterable) {
+  // Checkss both variants of the function (using iterators and collections)
+  auto check = [](const std::vector<int> &iterable,
+                  const std::string &expected_output) {
+    {
+      std::ostringstream oss;
+      PrintIterable(oss, iterable, ", ");
+      EXPECT_EQ(oss.str(), expected_output);
+    }
+    {
+      auto streamer = [](auto &stream, const auto &item) { stream << item; };
+      std::ostringstream oss;
+      PrintIterable(&oss, iterable.begin(), iterable.end(), ", ", streamer);
+      EXPECT_EQ(oss.str(), expected_output);
+    }
+  };
+
+  check(std::vector<int>{1, 2, 3, 4}, "1, 2, 3, 4");
+  check(std::vector<int>{1}, "1");
+  check(std::vector<int>{}, "");
+
+  {
+    // Use custom streamer
+    auto map_streamer = [](auto &stream, const auto &item) {
+      stream << item.first << ": " << item.second;
+    };
+    std::ostringstream oss;
+    std::map<std::string, std::string> map;
+    map.emplace("a", "x");
+    map.emplace("b", "y");
+    PrintIterable(&oss, map.begin(), map.end(), ", ", map_streamer);
+    EXPECT_EQ(oss.str(), "a: x, b: y");
+  }
+}
 
 TEST(Algorithm, Reversed) {
   EXPECT_EQ(Reversed(""s), ""s);
