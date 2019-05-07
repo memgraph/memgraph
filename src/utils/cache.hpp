@@ -31,6 +31,8 @@ class LruList {
     if (!front_ && !rear_) {
       front_ = rear_ = page;
     } else {
+      CHECK(front_ != nullptr && rear_ != nullptr)
+        << "Both front_ and rear_ must be valid";
       page->next = front_;
       front_->prev = page;
       front_ = page;
@@ -39,6 +41,8 @@ class LruList {
   }
 
   void MovePageToHead(Node<TKey, TValue> *page) {
+    CHECK(front_ != nullptr && rear_ != nullptr)
+      << "Both front_ and rear_ must be valid";
     if (page == front_) {
       return;
     }
@@ -55,6 +59,7 @@ class LruList {
     front_->prev = page;
     front_ = page;
   }
+
   void RemoveRearPage() {
     if (IsEmpty()) {
       return;
