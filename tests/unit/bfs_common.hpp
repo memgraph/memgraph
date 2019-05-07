@@ -173,7 +173,8 @@ class Yield : public query::plan::LogicalOperator {
 std::vector<std::vector<query::TypedValue>> PullResults(
     query::plan::LogicalOperator *last_op, query::ExecutionContext *context,
     std::vector<query::Symbol> output_symbols) {
-  auto cursor = last_op->MakeCursor(*context->db_accessor);
+  auto cursor =
+      last_op->MakeCursor(context->db_accessor, utils::NewDeleteResource());
   std::vector<std::vector<query::TypedValue>> output;
   {
     query::Frame frame(context->symbol_table.max_position());

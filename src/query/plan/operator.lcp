@@ -145,10 +145,6 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    virtual std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor *, utils::MemoryResource *) const = 0;
 
-   std::unique_ptr<Cursor> MakeCursor(database::GraphDbAccessor &dba) const {
-     return MakeCursor(&dba, utils::NewDeleteResource());
-   }
-
    /** Return @c Symbol vector where the query results will be stored.
     *
     * Currently, output symbols are generated in @c Produce and @c Union

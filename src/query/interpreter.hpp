@@ -93,7 +93,10 @@ class Interpreter {
             bool is_profile_query = false, bool should_abort_query = false)
         : ctx_{db_accessor},
           plan_(plan),
-          cursor_(plan_->plan().MakeCursor(*db_accessor)),
+          execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
+              kExecutionMemoryBlockSize)),
+          cursor_(
+              plan_->plan().MakeCursor(db_accessor, execution_memory_.get())),
           frame_(plan_->symbol_table().max_position()),
           output_symbols_(output_symbols),
           header_(header),
@@ -176,6 +179,9 @@ class Interpreter {
    private:
     ExecutionContext ctx_;
     std::shared_ptr<CachedPlan> plan_;
+    // execution_memory_ is unique_ptr because we are passing the address to
+    // cursor_, and we want to preserve the pointer in case we get moved.
+    std::unique_ptr<utils::MonotonicBufferResource> execution_memory_;
     std::unique_ptr<query::plan::Cursor> cursor_;
     Frame frame_;
     std::vector<Symbol> output_symbols_;

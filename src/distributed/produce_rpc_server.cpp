@@ -18,7 +18,9 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
       context_{dba_.get()},
       pull_symbols_(std::move(pull_symbols)),
       frame_(plan_pack.symbol_table.max_position()),
-      cursor_(plan_pack.plan->MakeCursor(*dba_)) {
+      execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
+          query::kExecutionMemoryBlockSize)),
+      cursor_(plan_pack.plan->MakeCursor(dba_.get(), execution_memory_.get())) {
   context_.symbol_table = plan_pack.symbol_table;
   context_.evaluation_context.timestamp = timestamp;
   context_.evaluation_context.parameters = parameters;

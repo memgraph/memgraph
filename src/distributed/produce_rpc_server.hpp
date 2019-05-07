@@ -65,6 +65,9 @@ class ProduceRpcServer {
     query::Frame frame_;
     PullState cursor_state_{PullState::CURSOR_IN_PROGRESS};
     std::vector<std::vector<query::TypedValue>> accumulation_;
+    // execution_memory_ is unique_ptr because we are passing the address to
+    // cursor_, and we want to preserve the pointer in case we get moved.
+    std::unique_ptr<utils::MonotonicBufferResource> execution_memory_;
     std::unique_ptr<query::plan::Cursor> cursor_;
 
     /// Pulls and returns a single result from the cursor.

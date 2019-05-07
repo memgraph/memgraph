@@ -43,7 +43,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
 
   // stream out results
   auto cursor =
-      produce.query::plan::LogicalOperator::MakeCursor(*context->db_accessor);
+      produce.MakeCursor(context->db_accessor, utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -56,7 +56,8 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(*context->db_accessor);
+  auto cursor =
+      logical_op.MakeCursor(context->db_accessor, utils::NewDeleteResource());
   int count = 0;
   while (cursor->Pull(frame, *context)) count++;
   return count;

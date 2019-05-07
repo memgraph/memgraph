@@ -871,8 +871,9 @@ Interpreter::Results Interpreter::operator()(
     auto output_plan = std::make_unique<plan::OutputTable>(
         output_symbols,
         [cypher_query_plan](Frame *frame, ExecutionContext *context) {
-          auto cursor =
-              cypher_query_plan->plan().MakeCursor(*context->db_accessor);
+          utils::MonotonicBufferResource execution_memory(1 * 1024 * 1024);
+          auto cursor = cypher_query_plan->plan().MakeCursor(
+              context->db_accessor, &execution_memory);
 
           // We are pulling from another plan, so set up the EvaluationContext
           // correctly. The rest of the context should be good for sharing.

@@ -7,6 +7,8 @@
 
 namespace query {
 
+static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
+
 struct EvaluationContext {
   int64_t timestamp{-1};
   Parameters parameters;

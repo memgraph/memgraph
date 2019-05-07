@@ -52,7 +52,8 @@ static void DistinctDefaultAllocator(benchmark::State &state) {
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
-    auto cursor = plan_and_cost.first->MakeCursor(dba);
+    auto cursor =
+        plan_and_cost.first->MakeCursor(&dba, utils::NewDeleteResource());
     while (cursor->Pull(frame, execution_context))
       ;
   }

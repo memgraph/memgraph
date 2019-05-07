@@ -586,7 +586,7 @@ class QueryPlanExpandVariable : public testing::Test {
   template <typename TResult>
   auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(dba_);
+    auto cursor = input_op->MakeCursor(&dba_, utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba_);
     std::vector<TResult> results;
     while (cursor->Pull(frame, context))
@@ -884,7 +884,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
         total_weight);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(dba);
+    auto cursor = last_op->MakeCursor(&dba, utils::NewDeleteResource());
     std::vector<ResultType> results;
     auto context = MakeContext(storage, symbol_table, &dba);
     while (cursor->Pull(frame, context)) {
