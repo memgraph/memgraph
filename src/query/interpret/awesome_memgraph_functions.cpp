@@ -6,6 +6,7 @@
 #include <functional>
 #include <random>
 
+#include "database/single_node/dump.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "utils/string.hpp"
@@ -895,6 +896,18 @@ TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,
   return start < str.size() ? str.substr(start, len) : "";
 }
 
+#if MG_SINGLE_NODE
+TypedValue Dump(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *dba) {
+  if (nargs != 0) {
+    throw QueryRuntimeException("'dump' does not expect any arguments.");
+  }
+  std::ostringstream oss;
+  database::DumpToCypher(&oss, dba);
+  return oss.str();
+}
+#endif  // MG_SINGLE_NODE
+
 }  // namespace
 
 std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &,
@@ -972,6 +985,9 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "ASSERT") return Assert;
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
+#ifdef MG_SINGLE_NODE
+  if (function_name == "DUMP") return Dump;
+#endif
 #ifdef MG_DISTRIBUTED
   if (function_name == "WORKERID") return WorkerId;
 #endif

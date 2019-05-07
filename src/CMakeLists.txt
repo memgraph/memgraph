@@ -19,6 +19,7 @@ set(mg_single_node_sources
     audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node/config.cpp
+    database/single_node/dump.cpp
     database/single_node/graph_db.cpp
     database/single_node/graph_db_accessor.cpp
     durability/single_node/state_delta.cpp
