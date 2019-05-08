@@ -124,7 +124,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   "
   (load \"${DIR}/quicklisp.lisp\")
   (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
-  (ql:quickload '(:cl-ppcre :prove) :silent t)
+  (ql:quickload '(:cl-ppcre :named-readtables :prove) :silent t)
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
