@@ -31,7 +31,7 @@ namespace raft {
 using Clock = std::chrono::system_clock;
 using TimePoint = std::chrono::system_clock::time_point;
 
-enum class Mode { FOLLOWER, CANDIDATE, LEADER };
+enum class Mode { FOLLOWER, CANDIDATE, LEADER, SHUTDOWN };
 
 inline std::string ModeToString(const Mode &mode) {
   switch (mode) {
@@ -41,6 +41,8 @@ inline std::string ModeToString(const Mode &mode) {
       return "CANDIDATE";
     case Mode::LEADER:
       return "LEADER";
+    case Mode::SHUTDOWN:
+      return "SHUTDOWN";
   }
 }
 
@@ -207,8 +209,6 @@ class RaftServer final : public RaftInterface {
   std::condition_variable hb_condition_; ///< Notifies the HBIssuer thread
                                          ///< that a new leader has been
                                          ///< elected.
-
-  std::atomic<bool> exiting_{false};  ///< True on server shutdown.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
