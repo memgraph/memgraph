@@ -11,7 +11,7 @@ cpp<#
 
 (lcp:define-rpc ran-local-gc
     (:request
-     ((local-oldest-active "tx::TransactionId")
+     ((local-oldest-active "::tx::TransactionId")
       (worker-id :int16_t)))
   (:response ()))
 

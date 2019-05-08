@@ -16,18 +16,18 @@ cpp<#
 
 (lcp:define-rpc create-bfs-subcursor
     (:request
-     ((tx-id "tx::TransactionId")
-      (direction "query::EdgeAtom::Direction")
+     ((tx-id "::tx::TransactionId")
+      (direction "::query::EdgeAtom::Direction")
       (edge-types "std::vector<storage::EdgeType>")
-      (filter-lambda "query::plan::ExpansionLambda"
+      (filter-lambda "::query::plan::ExpansionLambda"
                      :slk-load (lambda (member)
                                  #>cpp
                                  slk::Load(&self->${member}, reader, ast_storage);
                                  cpp<#))
-      (symbol-table "query::SymbolTable")
+      (symbol-table "::query::SymbolTable")
       (timestamp :int64_t)
-      (parameters "query::Parameters"))
-     (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))))
+      (parameters "::query::Parameters"))
+     (:serialize (:slk :load-args '((ast-storage "::query::AstStorage *")))))
   (:response ((member :int64_t))))
 
 (lcp:define-rpc register-subcursors
@@ -67,20 +67,20 @@ cpp<#
                          }
                          cpp<#)))
    (:serialize (:slk :save-args '((worker-id :int16_t))
-                     :load-args '((dba "database::GraphDbAccessor *")
-                                  (data-manager "distributed::DataManager *"))))))
+                     :load-args '((dba "::database::GraphDbAccessor *")
+                                  (data-manager "::distributed::DataManager *"))))))
 
 (lcp:define-rpc set-source
     (:request
      ((subcursor-id :int64_t)
-      (source "storage::VertexAddress")))
+      (source "::storage::VertexAddress")))
   (:response ()))
 
 (lcp:define-rpc expand-to-remote-vertex
     (:request
      ((subcursor-id :int64_t)
-      (edge "storage::EdgeAddress")
-      (vertex "storage::VertexAddress")))
+      (edge "::storage::EdgeAddress")
+      (vertex "::storage::VertexAddress")))
   (:response ((member :bool))))
 
 (lcp:define-rpc reconstruct-path

@@ -45,7 +45,7 @@ cpp<#
   (:request
     ((leader-id :uint16_t)
      (term :uint64_t)
-     (snapshot-metadata "raft::SnapshotMetadata")
+     (snapshot-metadata "::raft::SnapshotMetadata")
      (data "std::string")))
   (:response
     ((term :uint64_t))))

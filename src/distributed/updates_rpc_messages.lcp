@@ -24,22 +24,22 @@ cpp<#
   (:serialize))
 
 (lcp:define-rpc update
-    (:request ((member "database::StateDelta")
+    (:request ((member "::database::StateDelta")
                (worker-id :int64_t)))
   (:response ((member "UpdateResult"))))
 
 (lcp:define-rpc update-apply
-    (:request ((member "tx::TransactionId")))
+    (:request ((member "::tx::TransactionId")))
   (:response ((member "UpdateResult"))))
 
 (lcp:define-struct create-result ()
   ((result "UpdateResult")
    (cypher-id :int64_t :documentation "Only valid if creation was successful.")
-   (gid "gid::Gid" :documentation "Only valid if creation was successful."))
+   (gid "::gid::Gid" :documentation "Only valid if creation was successful."))
   (:serialize (:slk)))
 
 (lcp:define-struct create-vertex-req-data ()
-  ((tx-id "tx::TransactionId")
+  ((tx-id "::tx::TransactionId")
    (labels "std::vector<storage::Label>")
    (properties "std::unordered_map<storage::Property, PropertyValue>")
    (cypher-id "std::optional<int64_t>"))
@@ -51,10 +51,10 @@ cpp<#
 
 (lcp:define-struct create-edge-req-data ()
   ((worker-id :int64_t)
-   (from "gid::Gid")
-   (to "storage::VertexAddress")
-   (edge-type "storage::EdgeType")
-   (tx-id "tx::TransactionId")
+   (from "::gid::Gid")
+   (to "::storage::VertexAddress")
+   (edge-type "::storage::EdgeType")
+   (tx-id "::tx::TransactionId")
    (cypher-id "std::optional<int64_t>"))
   (:serialize (:slk)))
 
@@ -64,11 +64,11 @@ cpp<#
 
 (lcp:define-struct add-in-edge-req-data ()
   ((worker-id :int64_t)
-   (from "storage::VertexAddress")
-   (edge-address "storage::EdgeAddress")
-   (to "gid::Gid")
-   (edge-type "storage::EdgeType")
-   (tx-id "tx::TransactionId"))
+   (from "::storage::VertexAddress")
+   (edge-address "::storage::EdgeAddress")
+   (to "::gid::Gid")
+   (edge-type "::storage::EdgeType")
+   (tx-id "::tx::TransactionId"))
   (:serialize (:slk)))
 
 (lcp:define-rpc add-in-edge
@@ -77,8 +77,8 @@ cpp<#
 
 (lcp:define-struct remove-vertex-req-data ()
   ((worker-id :int64_t)
-   (gid "gid::Gid")
-   (tx-id "tx::TransactionId")
+   (gid "::gid::Gid")
+   (tx-id "::tx::TransactionId")
    (check-empty :bool))
   (:serialize (:slk)))
 
@@ -88,10 +88,10 @@ cpp<#
 
 (lcp:define-struct remove-edge-data ()
   ((worker-id :int64_t)
-   (tx-id "tx::TransactionId")
-   (edge-id "gid::Gid")
-   (vertex-from-id "gid::Gid")
-   (vertex-to-address "storage::VertexAddress"))
+   (tx-id "::tx::TransactionId")
+   (edge-id "::gid::Gid")
+   (vertex-from-id "::gid::Gid")
+   (vertex-to-address "::storage::VertexAddress"))
   (:serialize (:slk)))
 
 (lcp:define-rpc remove-edge
@@ -100,9 +100,9 @@ cpp<#
 
 (lcp:define-struct remove-in-edge-data ()
   ((worker-id :int64_t)
-   (tx-id "tx::TransactionId")
-   (vertex "gid::Gid")
-   (edge-address "storage::EdgeAddress"))
+   (tx-id "::tx::TransactionId")
+   (vertex "::gid::Gid")
+   (edge-address "::storage::EdgeAddress"))
   (:serialize (:slk)))
 
 (lcp:define-rpc remove-in-edge
@@ -111,7 +111,7 @@ cpp<#
 
 (lcp:define-struct created-info ()
   ((cypher-id "int64_t")
-   (gid "gid::Gid"))
+   (gid "::gid::Gid"))
   (:public #>cpp
     CreatedInfo(int64_t cypher_id, gid::Gid gid)
         : cypher_id(cypher_id), gid(gid) {}
@@ -119,7 +119,7 @@ cpp<#
 
 (lcp:define-struct created-vertex-info ()
   ((cypher-id "int64_t")
-   (gid "gid::Gid"))
+   (gid "::gid::Gid"))
   (:public #>cpp
     CreatedVertexInfo(int64_t cypher_id, gid::Gid gid)
         : cypher_id(cypher_id), gid(gid) {}
@@ -127,7 +127,7 @@ cpp<#
 
 (lcp:define-struct created-edge-info ()
   ((cypher-id "int64_t")
-   (edge-address "storage::EdgeAddress"))
+   (edge-address "::storage::EdgeAddress"))
   (:public #>cpp
     CreatedEdgeInfo(int64_t cypher_id, storage::EdgeAddress edge_address)
         : cypher_id(cypher_id), edge_address(edge_address) {}

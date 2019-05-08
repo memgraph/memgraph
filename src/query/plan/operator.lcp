@@ -428,8 +428,8 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    (properties "std::vector<std::pair<storage::Property, Expression *>>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties)
-   (edge-type "storage::EdgeType")
-   (direction "EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
+   (edge-type "::storage::EdgeType")
+   (direction "::EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
   (:clone :args '((storage "AstStorage *"))))
@@ -588,7 +588,7 @@ with a constructor argument.
   (:clone))
 
 (lcp:define-class scan-all-by-label (scan-all)
-  ((label "storage::Label" :scope :public))
+  ((label "::storage::Label" :scope :public))
   (:documentation
    "Behaves like @c ScanAll, but this operator produces only vertices with
 given label.
@@ -667,8 +667,8 @@ given label.
   cpp<#)
 
 (lcp:define-class scan-all-by-label-property-range (scan-all)
-  ((label "storage::Label" :scope :public)
-   (property "storage::Property" :scope :public)
+  ((label "::storage::Label" :scope :public)
+   (property "::storage::Property" :scope :public)
    (property-name "std::string" :scope :public)
    (lower-bound "std::optional<Bound>" :scope :public
                 :slk-save #'slk-save-optional-bound
@@ -720,8 +720,8 @@ property value which is inside a range (inclusive or exlusive).
   (:clone))
 
 (lcp:define-class scan-all-by-label-property-value (scan-all)
-  ((label "storage::Label" :scope :public)
-   (property "storage::Property" :scope :public)
+  ((label "::storage::Label" :scope :public)
+   (property "::storage::Property" :scope :public)
    (property-name "std::string" :scope :public)
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -769,7 +769,7 @@ This is where the new node will be stored.")
    (edge-symbol "Symbol"
                 :documentation "Symbol for the edges to be expanded.
 This is where a TypedValue containing a list of expanded edges will be stored.")
-   (direction "EdgeAtom::Direction"
+   (direction "::EdgeAtom::Direction"
               :documentation "EdgeAtom::Direction determining the direction of edge
 expansion. The direction is relative to the starting vertex for each expansion.")
    (edge-types "std::vector<storage::EdgeType>"
@@ -882,7 +882,7 @@ pulled.")
           :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (common "ExpandCommon" :scope :public)
-   (type "EdgeAtom::Type" :scope :public)
+   (type "::EdgeAtom::Type" :scope :public)
    (is-reverse :bool :scope :public :documentation
                "True if the path should be written as expanding from node_symbol to input_symbol.")
    (lower-bound "Expression *" :scope :public
@@ -1178,7 +1178,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (property "storage::Property" :scope :public)
+   (property "::storage::Property" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup"))
@@ -1345,7 +1345,7 @@ It does NOT remove labels that are already set on that Vertex.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (property "storage::Property" :scope :public)
+   (property "::storage::Property" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup")))
@@ -1591,7 +1591,7 @@ elements are in an undefined state after aggregation.")
       (key "Expression *"
            :slk-save #'slk-save-ast-pointer
            :slk-load (slk-load-ast-pointer "Expression"))
-      (op "Aggregation::Op")
+      (op "::Aggregation::Op")
       (output-sym "Symbol"))
      (:documentation
       "An aggregation element, contains:

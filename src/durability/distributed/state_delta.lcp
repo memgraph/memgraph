@@ -22,24 +22,24 @@ cpp<#
   (
    ;; Members valid for every delta.
    (type "Type")
-   (transaction-id "tx::TransactionId")
+   (transaction-id "::tx::TransactionId")
    ;; Members valid only for some deltas, see StateDelta::Type comments above.
    ;; TODO: when preparing the WAL for distributed, most likely remove Gids and
    ;; only keep addresses.
-   (vertex-id "gid::Gid")
-   (edge-id "gid::Gid")
+   (vertex-id "::gid::Gid")
+   (edge-id "::gid::Gid")
    (cypher-id :int64_t)
-   (edge-address "storage::EdgeAddress")
-   (vertex-from-id "gid::Gid")
-   (vertex-from-address "storage::VertexAddress")
-   (vertex-to-id "gid::Gid")
-   (vertex-to-address "storage::VertexAddress")
-   (edge-type "storage::EdgeType")
+   (edge-address "::storage::EdgeAddress")
+   (vertex-from-id "::gid::Gid")
+   (vertex-from-address "::storage::VertexAddress")
+   (vertex-to-id "::gid::Gid")
+   (vertex-to-address "::storage::VertexAddress")
+   (edge-type "::storage::EdgeType")
    (edge-type-name "std::string")
-   (property "storage::Property")
+   (property "::storage::Property")
    (property-name "std::string")
    (value "PropertyValue" :initval "PropertyValue::Null")
-   (label "storage::Label")
+   (label "::storage::Label")
    (label-name "std::string")
    (check-empty :bool))
   (:documentation

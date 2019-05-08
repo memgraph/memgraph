@@ -14,15 +14,15 @@ cpp<#
 
 (lcp:define-rpc populate-index
     (:request
-     ((label "storage::Label")
-      (property "storage::Property")
-      (tx-id "tx::TransactionId")))
+     ((label "::storage::Label")
+      (property "::storage::Property")
+      (tx-id "::tx::TransactionId")))
   (:response ()))
 
 (lcp:define-rpc create-index
     (:request
-     ((label "storage::Label")
-      (property "storage::Property")))
+     ((label "::storage::Label")
+      (property "::storage::Property")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

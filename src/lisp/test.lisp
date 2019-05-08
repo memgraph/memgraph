@@ -719,7 +719,7 @@ CPP-TYPE-DECL."
                      }"))
       (undefine-cpp-types)
       ;; inheritance with :ignore-other-base-classes and :base
-      (let ((base-class (lcp:define-class base ("utils::TotalOrdering")
+      (let ((base-class (lcp:define-class base ("::utils::TotalOrdering")
                           ((int-member :int32_t)
                            (string-member "std::string"))
                           (:abstractp t)
@@ -729,7 +729,7 @@ CPP-TYPE-DECL."
                                   :init-object (lambda (var typename)
                                                  (format nil "~A* ~A = GlobalFactory::Create();"
                                                          typename var)))))
-            (child-class (lcp:define-class child (base "utils::TotalOrdering" "utils::TotalOrdering")
+            (child-class (lcp:define-class child (base "::utils::TotalOrdering" "::utils::TotalOrdering")
                            ((another-int-member :int64_t))
                            (:clone :ignore-other-base-classes t))))
         (is-generated (lcp.clone:clone-function-definition-for-class base-class)

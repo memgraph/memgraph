@@ -94,7 +94,7 @@ the relevant parts of the response, ready for use."))
               "Id of the worker on which the response is created, used for
 serializing vertices (converting local to global addresses). Indicates which
 of (old, new) records of a graph element should be sent.")
-   (send-versions "storage::SendVersions" :dont-save t)
+   (send-versions "::storage::SendVersions" :dont-save t)
    ;; Temporary caches used between deserialization and post-processing
    ;; (transfering the ownership of this data to a Cache).
    (vertices "std::vector<GraphElementData<Vertex>>" :dont-save t)
@@ -116,11 +116,11 @@ frame (potentially embedded in lists/maps) is too error-prone.")
    cpp<#
    (lcp:define-struct (graph-element-data t-record) ()
      ((cypher-id :int64_t)
-      (global-address "storage::Address<mvcc::VersionList<TRecord>>")
+      (global-address "::storage::Address<mvcc::VersionList<TRecord>>")
       (old-record "std::unique_ptr<TRecord>")
       (new-record "std::unique_ptr<TRecord>")
       (element-in-frame
-       "query::TypedValue *"
+       "::query::TypedValue *"
        :documentation
        "The position in frame is optional. This same structure is used for
 deserializing path elements, in which case the vertex/edge in question is not
@@ -167,19 +167,19 @@ to the appropriate value. Not used on side that generates the response.")
 
 (lcp:define-rpc pull
     (:request
-     ((tx-id "tx::TransactionId")
-      (tx-snapshot "tx::Snapshot"
+     ((tx-id "::tx::TransactionId")
+      (tx-snapshot "::tx::Snapshot"
                    :slk-save #'slk-save-snapshot
                    :slk-load #'slk-load-snapshot)
       (plan-id :int64_t)
-      (command-id "tx::CommandId")
+      (command-id "::tx::CommandId")
       (timestamp :int64_t)
-      (parameters "query::Parameters")
+      (parameters "::query::Parameters")
       (symbols "std::vector<query::Symbol>")
       (accumulate :bool)
       (batch-size :int64_t)
       ;; Indicates which of (old, new) records of a graph element should be sent.
-      (send-versions "storage::SendVersions")))
+      (send-versions "::storage::SendVersions")))
   (:response
    ((data "PullResData" :initarg :move
           :slk-load (lambda (m)
@@ -194,13 +194,13 @@ to the appropriate value. Not used on side that generates the response.")
 
 (lcp:define-rpc reset-cursor
     (:request
-     ((tx-id "tx::TransactionId")
+     ((tx-id "::tx::TransactionId")
       (plan-id :int64_t)
-      (command-id "tx::CommandId")))
+      (command-id "::tx::CommandId")))
     (:response ()))
 
 (lcp:define-rpc transaction-command-advanced
-    (:request ((member "tx::TransactionId")))
+    (:request ((member "::tx::TransactionId")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

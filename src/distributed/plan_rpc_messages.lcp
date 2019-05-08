@@ -35,8 +35,8 @@ cpp<#
       (plan "std::shared_ptr<query::plan::LogicalOperator>"
             :slk-save #'slk-save-plan
             :slk-load #'slk-load-plan)
-      (symbol-table "query::SymbolTable")
-      (storage "query::AstStorage" :initarg nil :dont-save t)))
+      (symbol-table "::query::SymbolTable")
+      (storage "::query::AstStorage" :initarg nil :dont-save t)))
   (:response ()))
 
 (lcp:define-rpc remove-plan

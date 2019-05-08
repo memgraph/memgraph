@@ -15,8 +15,8 @@ cpp<#
 (lcp:namespace distributed)
 
 (lcp:define-struct tx-gid-pair ()
-  ((tx-id "tx::TransactionId")
-   (gid "gid::Gid")
+  ((tx-id "::tx::TransactionId")
+   (gid "::gid::Gid")
    (from-worker-id :int64_t))
   (:serialize (:slk)))
 
@@ -86,6 +86,7 @@ cpp<#
                   cpp<#)
                 :slk-load
                 (lambda (member)
+                  (declare (ignore member))
                   #>cpp
                   bool has_ptr;
                   slk::Load(&has_ptr, reader);
@@ -105,6 +106,7 @@ cpp<#
                   cpp<#)
                 :slk-load
                 (lambda (member)
+                  (declare (ignore member))
                   #>cpp
                   bool has_ptr;
                   slk::Load(&has_ptr, reader);
@@ -117,7 +119,7 @@ cpp<#
  (edge-new-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc vertex-count
-    (:request ((member "tx::TransactionId")))
+    (:request ((member "::tx::TransactionId")))
   (:response ((member :int64_t))))
 
 (lcp:pop-namespace) ;; distributed

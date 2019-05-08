@@ -53,7 +53,7 @@ cpp<#
 
 (lcp:define-rpc clog-info
     (:request ((member "TransactionId")))
-  (:response ((member "CommitLog::Info"
+  (:response ((member "::tx::CommitLog::Info"
                       :slk-save #'slk-save-commitlog-info
                       :slk-load #'slk-load-commitlog-info))))
 

@@ -25,20 +25,20 @@ cpp<#
   (
    ;; Members valid for every delta.
    (type "Type")
-   (transaction-id "tx::TransactionId")
+   (transaction-id "::tx::TransactionId")
    ;; Members valid only for some deltas, see StateDelta::Type comments above.
-   (vertex-id "gid::Gid")
-   (edge-id "gid::Gid")
-   (vertex-from-id "gid::Gid")
-   (vertex-to-id "gid::Gid")
-   (edge-type "storage::EdgeType")
+   (vertex-id "::gid::Gid")
+   (edge-id "::gid::Gid")
+   (vertex-from-id "::gid::Gid")
+   (vertex-to-id "::gid::Gid")
+   (edge-type "::storage::EdgeType")
    (edge-type-name "std::string")
-   (property "storage::Property")
+   (property "::storage::Property")
    (property-name "std::string")
    (properties "std::vector<storage::Property>")
    (property-names "std::vector<std::string>")
    (value "PropertyValue" :initval "PropertyValue::Null")
-   (label "storage::Label")
+   (label "::storage::Label")
    (label-name "std::string")
    (check-empty :bool))
   (:documentation

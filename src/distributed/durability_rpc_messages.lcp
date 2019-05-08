@@ -10,11 +10,11 @@ cpp<#
 (lcp:namespace distributed)
 
 (lcp:define-rpc make-snapshot
-    (:request ((member "tx::TransactionId")))
+    (:request ((member "::tx::TransactionId")))
   (:response ((member :bool))))
 
 (lcp:define-rpc recover-wal-and-indexes
-    (:request ((member "durability::RecoveryData")))
+    (:request ((member "::durability::RecoveryData")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

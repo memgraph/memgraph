@@ -27,7 +27,7 @@ cpp<#
 (lcp:define-rpc cluster-discovery
     (:request
      ((worker-id :int16_t)
-      (endpoint "io::network::Endpoint")))
+      (endpoint "::io::network::Endpoint")))
   (:response ()))
 
 (lcp:define-rpc stop-worker

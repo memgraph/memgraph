@@ -505,9 +505,11 @@ To process the typestring means to:
          (typestring-fully-qualified-p typestring))
      typestring)
     ((typestring-qualified-p typestring)
-     (typestring-warn
-      "Treating qualified type \"~A\" as the fully qualified type \"::~A\"."
-      typestring typestring)
+     (let ((cpp-type (parse-cpp-type-declaration typestring)))
+       (unless (string= (first (cpp-type-namespace cpp-type)) "std")
+         (typestring-warn
+          "Treating qualified type \"~A\" as the fully qualified type \"::~A\"."
+          typestring typestring)))
      (format nil "::~A" typestring))
     ;; Unqualified.
     (t
