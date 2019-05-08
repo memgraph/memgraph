@@ -931,7 +931,9 @@ class STShortestPathCursor : public query::plan::Cursor {
   STShortestPathCursor(const ExpandVariable &self,
                        database::GraphDbAccessor *dba,
                        utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(dba, mem)) {
+      : mem_(mem),
+        self_(self),
+        input_cursor_(self_.input()->MakeCursor(dba, mem)) {
     CHECK(self_.common_.existing_node)
         << "s-t shortest path algorithm should only "
            "be used when `existing_node` flag is "
@@ -981,11 +983,15 @@ class STShortestPathCursor : public query::plan::Cursor {
   void Reset() override { input_cursor_->Reset(); }
 
  private:
+  utils::MemoryResource *mem_;
   const ExpandVariable &self_;
   UniqueCursorPtr input_cursor_;
 
-  using VertexEdgeMapT =
-      std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+  using VertexEdgeMapT = std::unordered_map<
+      VertexAccessor, std::optional<EdgeAccessor>, std::hash<VertexAccessor>,
+      std::equal_to<>,
+      utils::Allocator<
+          std::pair<const VertexAccessor, std::optional<EdgeAccessor>>>>;
 
   void ReconstructPath(const VertexAccessor &midpoint,
                        const VertexEdgeMapT &in_edge,
@@ -1041,18 +1047,22 @@ class STShortestPathCursor : public query::plan::Cursor {
 
     // Holds vertices at the current level of expansion from the source
     // (sink).
-    std::vector<VertexAccessor> source_frontier;
-    std::vector<VertexAccessor> sink_frontier;
+    std::vector<VertexAccessor, utils::Allocator<VertexAccessor>>
+        source_frontier(mem_);
+    std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> sink_frontier(
+        mem_);
 
     // Holds vertices we can expand to from `source_frontier`
     // (`sink_frontier`).
-    std::vector<VertexAccessor> source_next;
-    std::vector<VertexAccessor> sink_next;
+    std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> source_next(
+        mem_);
+    std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> sink_next(
+        mem_);
 
     // Maps each vertex we visited expanding from the source (sink) to the
     // edge used. Necessary for path reconstruction.
-    VertexEdgeMapT in_edge;
-    VertexEdgeMapT out_edge;
+    VertexEdgeMapT in_edge(mem_);
+    VertexEdgeMapT out_edge(mem_);
 
     size_t current_length = 0;
 
@@ -1164,7 +1174,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   SingleSourceShortestPathCursor(const ExpandVariable &self,
                                  database::GraphDbAccessor *db,
                                  utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(db, mem)) {
+      : self_(self),
+        input_cursor_(self_.input()->MakeCursor(db, mem)),
+        processed_(mem),
+        to_visit_current_(mem),
+        to_visit_next_(mem) {
     CHECK(!self_.common_.existing_node)
         << "Single source shortest path algorithm "
            "should not be used when `existing_node` "
@@ -1313,10 +1327,18 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // maps vertices to the edge they got expanded from. it is an optional
   // edge because the root does not get expanded from anything.
   // contains visited vertices as well as those scheduled to be visited.
-  std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
+  std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>,
+                     std::hash<VertexAccessor>, std::equal_to<>,
+                     utils::Allocator<std::pair<const VertexAccessor,
+                                                std::optional<EdgeAccessor>>>>
+      processed_;
   // edge/vertex pairs we have yet to visit, for current and next depth
-  std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
-  std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
+  std::vector<std::pair<EdgeAccessor, VertexAccessor>,
+              utils::Allocator<std::pair<EdgeAccessor, VertexAccessor>>>
+      to_visit_current_;
+  std::vector<std::pair<EdgeAccessor, VertexAccessor>,
+              utils::Allocator<std::pair<EdgeAccessor, VertexAccessor>>>
+      to_visit_next_;
 };
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {

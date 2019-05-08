@@ -112,15 +112,18 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
   return empty_value;
 }
 
-template <typename TElement>
-inline bool Contains(const std::unordered_set<TElement> &iterable,
-                     const TElement &element) {
+template <class TElement, class THash, class TEqual, class TAllocator>
+bool Contains(
+    const std::unordered_set<TElement, THash, TEqual, TAllocator> &iterable,
+    const TElement &element) {
   return iterable.find(element) != iterable.end();
 }
 
-template <typename TKey, typename TValue>
-inline bool Contains(const std::unordered_map<TKey, TValue> &iterable,
-                     const TKey &key) {
+template <class TKey, class TValue, class THash, class TKeyEqual,
+          class TAllocator>
+bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual,
+                                       TAllocator> &iterable,
+              const TKey &key) {
   return iterable.find(key) != iterable.end();
 }
 
