@@ -80,13 +80,6 @@ void DumpVertex(std::ostream *os, GraphDbAccessor *dba,
   *os << ")";
 }
 
-void DumpVertices(std::ostream *os, GraphDbAccessor *dba) {
-  auto vertices = dba->Vertices(false);
-  utils::PrintIterable(
-      os, vertices.begin(), vertices.end(), ", ",
-      [&dba](auto &os, const auto &vertex) { DumpVertex(&os, dba, vertex); });
-}
-
 void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
               const EdgeAccessor &edge) {
   *os << "(n" << edge.from().gid() << ")-[";
@@ -99,29 +92,39 @@ void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
   *os << "]->(n" << edge.to().gid() << ")";
 }
 
-void DumpEdges(std::ostream *os, GraphDbAccessor *dba) {
-  auto edges = dba->Edges(false);
-  utils::PrintIterable(
-      os, edges.begin(), edges.end(), ", ",
-      [&dba](auto &os, const auto &edge) { DumpEdge(&os, dba, edge); });
-}
-
 }  // namespace
 
-void DumpToCypher(std::ostream *os, GraphDbAccessor *dba) {
-  CHECK(os);
+DumpGenerator::DumpGenerator(GraphDbAccessor *dba) : dba_(dba), first_(true) {
   CHECK(dba);
+  vertices_state_.emplace(dba->Vertices(false));
+  edges_state_.emplace(dba->Edges(false));
+}
 
-  if (dba->VerticesCount() > 0) {
+bool DumpGenerator::NextQuery(std::ostream *os) {
+  if (vertices_state_->ReachedEnd() && edges_state_->ReachedEnd()) return false;
+
+  if (first_) {
+    first_ = false;
     *os << "CREATE ";
-    DumpVertices(os, dba);
-    if (dba->EdgesCount() > 0) {
-      *os << ", ";
-      DumpEdges(os, dba);
-    }
-    *os << ";";
+  } else {
+    *os << ", ";
   }
-  // TODO(tsabolcec): Dump other data as well.
+
+  if (!vertices_state_->ReachedEnd()) {
+    DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
+  } else if (!edges_state_->ReachedEnd()) {
+    DumpEdge(os, dba_, *edges_state_->GetCurrentAndAdvance());
+  }
+
+  if (vertices_state_->ReachedEnd() && edges_state_->ReachedEnd()) *os << ";";
+  return true;
+}
+
+void DumpToCypher(std::ostream *os, GraphDbAccessor *dba) {
+  CHECK(os && dba);
+
+  DumpGenerator dump(dba);
+  while (dump.NextQuery(os)) continue;
 }
 
 }  // namespace database
