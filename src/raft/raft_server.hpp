@@ -209,6 +209,10 @@ class RaftServer final : public RaftInterface {
                                             ///< no_op_issuer_thread that a new
                                             ///< leader has been elected.
 
+  std::condition_variable hb_condition_; ///< Notifies the HBIssuer thread
+                                         ///< that it should start sending
+                                         ///< heartbeats.
+
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
   //////////////////////////////////////////////////////////////////////////////
