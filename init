@@ -111,24 +111,29 @@ fi
 mkdir -p ./build
 
 # quicklisp package manager for Common Lisp
-# TODO: We should at some point cache or have a mirror of packages we use.
 quicklisp_install_dir="$HOME/quicklisp"
 if [[ -v QUICKLISP_HOME ]]; then
   quicklisp_install_dir="${QUICKLISP_HOME}"
 fi
 
-# TODO: move the installation of LCP's dependencies into ./setup.sh
 if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   wget -nv https://beta.quicklisp.org/quicklisp.lisp -O quicklisp.lisp || exit 1
   echo \
   "
   (load \"${DIR}/quicklisp.lisp\")
   (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
-  (ql:quickload '(:cl-ppcre :named-readtables :prove) :silent t)
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
 ln -Tfs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
+# Install LCP dependencies
+# TODO: We should at some point cache or have a mirror of packages we use.
+# TODO: move the installation of LCP's dependencies into ./setup.sh
+echo \
+  "
+  (load \"${quicklisp_install_dir}/setup.lisp\")
+  (ql:quickload '(:lcp :lcp/test) :silent t)
+  " | sbcl --script
 
 # setup libs (download)
 cd libs
