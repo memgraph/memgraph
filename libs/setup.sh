@@ -126,6 +126,8 @@ clone git://deps.memgraph.io/bzip2.git bzip2 $bzip2_tag
 
 zlib_tag="cacf7f1d4e3d44d871b605da3b647f07d718623f" # v1.2.11.
 clone git://deps.memgraph.io/zlib.git zlib $zlib_tag
+# remove shared library from install dependencies
+sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMakeLists.txt
 
 rocksdb_tag="641fae60f63619ed5d0c9d9e4c4ea5a0ffa3e253" # v5.18.3 Feb 11, 2019
 clone git://deps.memgraph.io/rocksdb.git rocksdb $rocksdb_tag

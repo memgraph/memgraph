@@ -190,7 +190,9 @@ import_external_library(bzip2 STATIC
 # Setup zlib
 import_external_library(zlib STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/zlib/lib/libz.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
+    ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    CMAKE_ARGS -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+    BUILD_COMMAND $(MAKE) zlibstatic)
 
 # Setup RocksDB
 import_external_library(rocksdb STATIC
