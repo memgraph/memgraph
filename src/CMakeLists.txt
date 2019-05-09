@@ -13,9 +13,24 @@ add_subdirectory(auth)
 add_subdirectory(slk)
 
 # ----------------------------------------------------------------------------
+# Common LCP files
+# ----------------------------------------------------------------------------
+
+define_add_lcp(add_lcp_common lcp_common_cpp_files generated_lcp_common_files)
+
+add_lcp_common(query/frontend/ast/ast.lcp)
+add_lcp_common(query/frontend/semantic/symbol.lcp)
+add_lcp_common(query/plan/operator.lcp)
+
+# ----------------------------------------------------------------------------
+# END Common LCP files
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # Memgraph Single Node
 # ----------------------------------------------------------------------------
 set(mg_single_node_sources
+    ${lcp_common_cpp_files}
     audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node/config.cpp
@@ -63,11 +78,8 @@ set(mg_single_node_sources
 define_add_lcp(add_lcp_single_node mg_single_node_sources generated_lcp_single_node_files)
 
 add_lcp_single_node(durability/single_node/state_delta.lcp)
-add_lcp_single_node(query/frontend/ast/ast.lcp)
-add_lcp_single_node(query/frontend/semantic/symbol.lcp)
-add_lcp_single_node(query/plan/operator.lcp)
 
-add_custom_target(generate_lcp_single_node DEPENDS ${generated_lcp_single_node_files})
+add_custom_target(generate_lcp_single_node DEPENDS ${generated_lcp_common_files} ${generated_lcp_single_node_files})
 
 set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
@@ -100,6 +112,7 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 # ----------------------------------------------------------------------------
 
 set(mg_distributed_sources
+    ${lcp_common_cpp_files}
     audit/log.cpp
     database/distributed/distributed_counters.cpp
     database/distributed/distributed_graph_db.cpp
@@ -195,13 +208,10 @@ add_lcp_distributed(distributed/token_sharing_rpc_messages.lcp SLK_SERIALIZE)
 add_lcp_distributed(distributed/updates_rpc_messages.lcp SLK_SERIALIZE)
 add_lcp_distributed(distributed/dynamic_worker_rpc_messages.lcp SLK_SERIALIZE)
 
-add_lcp_distributed(query/frontend/ast/ast.lcp)
 add_lcp_distributed(query/distributed/frontend/ast/ast_serialization.lcp SLK_SERIALIZE
         DEPENDS query/frontend/ast/ast.lcp)
-add_lcp_distributed(query/frontend/semantic/symbol.lcp)
 add_lcp_distributed(query/distributed/frontend/semantic/symbol_serialization.lcp SLK_SERIALIZE
         DEPENDS query/frontend/semantic/symbol.lcp)
-add_lcp_distributed(query/plan/operator.lcp)
 add_lcp_distributed(query/distributed/plan/ops.lcp SLK_SERIALIZE
         DEPENDS query/plan/operator.lcp)
 
@@ -209,7 +219,7 @@ add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lc
 add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp SLK_SERIALIZE
         DEPENDS transactions/distributed/serialization.lcp)
 
-add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_distributed_files})
+add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_common_files} ${generated_lcp_distributed_files})
 
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
@@ -231,6 +241,7 @@ target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources
+    ${lcp_common_cpp_files}
     audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node_ha/config.cpp
@@ -278,15 +289,12 @@ define_add_lcp(add_lcp_single_node_ha mg_single_node_ha_sources generated_lcp_si
 add_lcp_single_node_ha(durability/single_node_ha/state_delta.lcp)
 add_lcp_single_node_ha(database/single_node_ha/serialization.lcp SLK_SERIALIZE
         DEPENDS durability/single_node_ha/state_delta.lcp)
-add_lcp_single_node_ha(query/frontend/ast/ast.lcp)
-add_lcp_single_node_ha(query/frontend/semantic/symbol.lcp)
-add_lcp_single_node_ha(query/plan/operator.lcp)
 add_lcp_single_node_ha(raft/raft_rpc_messages.lcp SLK_SERIALIZE)
 add_lcp_single_node_ha(raft/log_entry.lcp SLK_SERIALIZE)
 add_lcp_single_node_ha(raft/snapshot_metadata.lcp SLK_SERIALIZE)
 add_lcp_single_node_ha(raft/storage_info_rpc_messages.lcp SLK_SERIALIZE)
 
-add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
+add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_common_files} ${generated_lcp_single_node_ha_files})
 
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
