@@ -178,6 +178,9 @@ class RaftServer final : public RaftInterface {
   uint64_t commit_index_;       ///< Index of the highest known committed entry.
   uint64_t last_applied_;       ///< Index of the highest applied entry to SM.
 
+  std::atomic<bool> issue_hb_; ///< Flag which signalizes if the current server
+                               ///< should send HBs to the rest of the cluster.
+
   /// Raft log entry buffer.
   ///
   /// LogEntryBuffer buffers Raft logs until a log is complete and ready for
@@ -205,10 +208,6 @@ class RaftServer final : public RaftInterface {
   std::condition_variable leader_changed_;  ///< Notifies the
                                             ///< no_op_issuer_thread that a new
                                             ///< leader has been elected.
-
-  std::condition_variable hb_condition_; ///< Notifies the HBIssuer thread
-                                         ///< that a new leader has been
-                                         ///< elected.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
