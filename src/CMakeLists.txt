@@ -22,6 +22,8 @@ add_lcp_common(query/frontend/ast/ast.lcp)
 add_lcp_common(query/frontend/semantic/symbol.lcp)
 add_lcp_common(query/plan/operator.lcp)
 
+add_custom_target(generate_lcp_common DEPENDS ${generated_lcp_common_files})
+
 # ----------------------------------------------------------------------------
 # END Common LCP files
 # ----------------------------------------------------------------------------
@@ -79,7 +81,7 @@ define_add_lcp(add_lcp_single_node mg_single_node_sources generated_lcp_single_n
 
 add_lcp_single_node(durability/single_node/state_delta.lcp)
 
-add_custom_target(generate_lcp_single_node DEPENDS ${generated_lcp_common_files} ${generated_lcp_single_node_files})
+add_custom_target(generate_lcp_single_node DEPENDS generate_lcp_common ${generated_lcp_single_node_files})
 
 set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
@@ -219,7 +221,7 @@ add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lc
 add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp SLK_SERIALIZE
         DEPENDS transactions/distributed/serialization.lcp)
 
-add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_common_files} ${generated_lcp_distributed_files})
+add_custom_target(generate_lcp_distributed DEPENDS generate_lcp_common ${generated_lcp_distributed_files})
 
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
@@ -294,7 +296,7 @@ add_lcp_single_node_ha(raft/log_entry.lcp SLK_SERIALIZE)
 add_lcp_single_node_ha(raft/snapshot_metadata.lcp SLK_SERIALIZE)
 add_lcp_single_node_ha(raft/storage_info_rpc_messages.lcp SLK_SERIALIZE)
 
-add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_common_files} ${generated_lcp_single_node_ha_files})
+add_custom_target(generate_lcp_single_node_ha DEPENDS generate_lcp_common ${generated_lcp_single_node_ha_files})
 
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
