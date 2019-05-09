@@ -488,7 +488,7 @@ class PullRemoteCursor : public Cursor {
 
  private:
   const PullRemote &self_;
-  const std::unique_ptr<Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
   tx::CommandId command_id_;
   RemotePuller remote_puller_;
   int last_pulled_worker_id_index_ = 0;
@@ -566,8 +566,8 @@ class SynchronizeCursor : public Cursor {
   distributed::PullRpcClients *pull_clients_{nullptr};
   distributed::UpdatesRpcClients *updates_clients_{nullptr};
   distributed::UpdatesRpcServer *updates_server_{nullptr};
-  const std::unique_ptr<Cursor> input_cursor_;
-  const std::unique_ptr<Cursor> pull_remote_cursor_;
+  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr pull_remote_cursor_;
   bool initial_pull_done_{false};
   std::vector<std::vector<TypedValue>> local_frames_;
   tx::CommandId command_id_;
@@ -810,7 +810,7 @@ class PullRemoteOrderByCursor : public Cursor {
   };
 
   const PullRemoteOrderBy &self_;
-  std::unique_ptr<Cursor> input_;
+  UniqueCursorPtr input_;
   tx::CommandId command_id_;
   RemotePuller remote_puller_;
   std::vector<MergeResultItem> merge_;
@@ -1041,7 +1041,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
     std::vector<TypedValue> frame_elems;
   };
 
-  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  UniqueCursorPtr input_cursor_;
   const DistributedExpand *self_{nullptr};
   // The iterable over edges and the current edge iterator are referenced via
   // optional because they can not be initialized in the constructor of
@@ -1223,7 +1223,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   const DistributedExpandBfs &self_;
   database::GraphDbAccessor &db_;
   distributed::BfsRpcClients *bfs_subcursor_clients_{nullptr};
-  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  UniqueCursorPtr input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
@@ -1318,7 +1318,7 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
   void Reset() override { input_cursor_->Reset(); }
 
  private:
-  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  UniqueCursorPtr input_cursor_;
   database::GraphDb *db_{nullptr};
   NodeCreationInfo node_info_;
   bool on_random_worker_{false};
@@ -1403,46 +1403,46 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
   }
 
  private:
-  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  UniqueCursorPtr input_cursor_;
   const DistributedCreateExpand *self_{nullptr};
   database::GraphDb *db_{nullptr};
 };
 
 }  // namespace
 
-std::unique_ptr<Cursor> PullRemote::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<PullRemoteCursor>(*this, db, mem);
+UniqueCursorPtr PullRemote::MakeCursor(database::GraphDbAccessor *db,
+                                       utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<PullRemoteCursor>(mem, *this, db, mem);
 }
 
-std::unique_ptr<Cursor> Synchronize::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<SynchronizeCursor>(*this, db, mem);
+UniqueCursorPtr Synchronize::MakeCursor(database::GraphDbAccessor *db,
+                                        utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SynchronizeCursor>(mem, *this, db, mem);
 }
 
-std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
+UniqueCursorPtr PullRemoteOrderBy::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<PullRemoteOrderByCursor>(*this, db, mem);
+  return MakeUniqueCursorPtr<PullRemoteOrderByCursor>(mem, *this, db, mem);
 }
 
-std::unique_ptr<Cursor> DistributedExpand::MakeCursor(
+UniqueCursorPtr DistributedExpand::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<DistributedExpandCursor>(this, db, mem);
+  return MakeUniqueCursorPtr<DistributedExpandCursor>(mem, this, db, mem);
 }
 
-std::unique_ptr<Cursor> DistributedExpandBfs::MakeCursor(
+UniqueCursorPtr DistributedExpandBfs::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<DistributedExpandBfsCursor>(*this, db, mem);
+  return MakeUniqueCursorPtr<DistributedExpandBfsCursor>(mem, *this, db, mem);
 }
 
-std::unique_ptr<Cursor> DistributedCreateNode::MakeCursor(
+UniqueCursorPtr DistributedCreateNode::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<DistributedCreateNodeCursor>(this, db, mem);
+  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, this, db, mem);
 }
 
-std::unique_ptr<Cursor> DistributedCreateExpand::MakeCursor(
+UniqueCursorPtr DistributedCreateExpand::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<DistributedCreateExpandCursor>(this, db, mem);
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, this, db, mem);
 }
 
 }  // namespace query::plan

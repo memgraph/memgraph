@@ -92,9 +92,9 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-std::unique_ptr<Cursor> Once::MakeCursor(database::GraphDbAccessor *,
-                                         utils::MemoryResource *) const {
-  return std::make_unique<OnceCursor>();
+UniqueCursorPtr Once::MakeCursor(database::GraphDbAccessor *,
+                                 utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<OnceCursor>(mem);
 }
 
 WITHOUT_SINGLE_INPUT(Once);
@@ -128,9 +128,9 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
 
 ACCEPT_WITH_INPUT(CreateNode)
 
-std::unique_ptr<Cursor> CreateNode::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<CreateNodeCursor>(*this, db, mem);
+UniqueCursorPtr CreateNode::MakeCursor(database::GraphDbAccessor *db,
+                                       utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> CreateNode::ModifiedSymbols(
@@ -173,9 +173,9 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info,
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
-std::unique_ptr<Cursor> CreateExpand::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<CreateExpandCursor>(*this, db, mem);
+UniqueCursorPtr CreateExpand::MakeCursor(database::GraphDbAccessor *db,
+                                         utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(
@@ -261,8 +261,7 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol,
-                         std::unique_ptr<Cursor> &&input_cursor,
+  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr &&input_cursor,
                          TVerticesFun &&get_vertices,
                          database::GraphDbAccessor &db)
       : output_symbol_(output_symbol),
@@ -302,7 +301,7 @@ class ScanAllCursor : public Cursor {
 
  private:
   const Symbol output_symbol_;
-  const std::unique_ptr<Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(
       Frame &, ExecutionContext &)>::type::value_type>
@@ -319,13 +318,14 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(ScanAll)
 
-std::unique_ptr<Cursor> ScanAll::MakeCursor(database::GraphDbAccessor *db,
-                                            utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAll::MakeCursor(database::GraphDbAccessor *db,
+                                    utils::MemoryResource *mem) const {
   auto vertices = [this, db](Frame &, ExecutionContext &) {
     return std::make_optional(db->Vertices(graph_view_ == GraphView::NEW));
   };
-  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db, mem), std::move(vertices), *db);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(db, mem), std::move(vertices),
+      *db);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -341,14 +341,15 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(database::GraphDbAccessor *db,
+                                           utils::MemoryResource *mem) const {
   auto vertices = [this, db](Frame &, ExecutionContext &) {
     return std::make_optional(
         db->Vertices(label_, graph_view_ == GraphView::NEW));
   };
-  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db, mem), std::move(vertices), *db);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(db, mem), std::move(vertices),
+      *db);
 }
 
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
@@ -367,7 +368,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
-std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
+UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
   auto vertices = [this, db](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(
@@ -398,8 +399,9 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                            maybe_upper,
                                            graph_view_ == GraphView::NEW));
   };
-  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db, mem), std::move(vertices), *db);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(db, mem), std::move(vertices),
+      *db);
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
@@ -417,7 +419,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
-std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
+UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
   auto vertices = [this, db](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(
@@ -435,8 +437,9 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
                                            PropertyValue(value),
                                            graph_view_ == GraphView::NEW));
   };
-  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db, mem), std::move(vertices), *db);
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(db, mem), std::move(vertices),
+      *db);
 }
 
 namespace {
@@ -461,9 +464,9 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Expand)
 
-std::unique_ptr<Cursor> Expand::MakeCursor(database::GraphDbAccessor *db,
-                                           utils::MemoryResource *mem) const {
-  return std::make_unique<ExpandCursor>(*this, db, mem);
+UniqueCursorPtr Expand::MakeCursor(database::GraphDbAccessor *db,
+                                   utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
@@ -728,7 +731,7 @@ class ExpandVariableCursor : public Cursor {
 
  private:
   const ExpandVariable &self_;
-  const std::unique_ptr<Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
   // initialize to arbitrary values, they should only be used
@@ -975,7 +978,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
-  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  UniqueCursorPtr input_cursor_;
 
   using VertexEdgeMapT =
       std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -1296,7 +1299,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
-  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
@@ -1506,7 +1509,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
-  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
 
   // Upper bound on the path length.
   int64_t upper_bound_{-1};
@@ -1553,19 +1556,21 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   }
 };
 
-std::unique_ptr<Cursor> ExpandVariable::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
+UniqueCursorPtr ExpandVariable::MakeCursor(database::GraphDbAccessor *db,
+                                           utils::MemoryResource *mem) const {
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
       if (common_.existing_node) {
-        return std::make_unique<STShortestPathCursor>(*this, db, mem);
+        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, db, mem);
       } else {
-        return std::make_unique<SingleSourceShortestPathCursor>(*this, db, mem);
+        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this,
+                                                                   db, mem);
       }
     case EdgeAtom::Type::DEPTH_FIRST:
-      return std::make_unique<ExpandVariableCursor>(*this, db, mem);
+      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, db, mem);
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
-      return std::make_unique<ExpandWeightedShortestPathCursor>(*this, db, mem);
+      return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this,
+                                                                   db, mem);
     case EdgeAtom::Type::SINGLE:
       LOG(FATAL)
           << "ExpandVariable should not be planned for a single expansion!";
@@ -1653,14 +1658,14 @@ class ConstructNamedPathCursor : public Cursor {
 
  private:
   const ConstructNamedPath self_;
-  const std::unique_ptr<Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
 };
 
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
-std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(
+UniqueCursorPtr ConstructNamedPath::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<ConstructNamedPathCursor>(*this, db, mem);
+  return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(
@@ -1677,9 +1682,9 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Filter)
 
-std::unique_ptr<Cursor> Filter::MakeCursor(database::GraphDbAccessor *db,
-                                           utils::MemoryResource *mem) const {
-  return std::make_unique<FilterCursor>(*this, db, mem);
+UniqueCursorPtr Filter::MakeCursor(database::GraphDbAccessor *db,
+                                   utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const {
@@ -1716,9 +1721,9 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Produce)
 
-std::unique_ptr<Cursor> Produce::MakeCursor(database::GraphDbAccessor *db,
-                                            utils::MemoryResource *mem) const {
-  return std::make_unique<ProduceCursor>(*this, db, mem);
+UniqueCursorPtr Produce::MakeCursor(database::GraphDbAccessor *db,
+                                    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Produce::OutputSymbols(
@@ -1765,9 +1770,9 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_,
 
 ACCEPT_WITH_INPUT(Delete)
 
-std::unique_ptr<Cursor> Delete::MakeCursor(database::GraphDbAccessor *db,
-                                           utils::MemoryResource *mem) const {
-  return std::make_unique<DeleteCursor>(*this, db, mem);
+UniqueCursorPtr Delete::MakeCursor(database::GraphDbAccessor *db,
+                                   utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const {
@@ -1846,9 +1851,9 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetProperty)
 
-std::unique_ptr<Cursor> SetProperty::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<SetPropertyCursor>(*this, db, mem);
+UniqueCursorPtr SetProperty::MakeCursor(database::GraphDbAccessor *db,
+                                        utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> SetProperty::ModifiedSymbols(
@@ -1907,9 +1912,9 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetProperties)
 
-std::unique_ptr<Cursor> SetProperties::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<SetPropertiesCursor>(*this, db, mem);
+UniqueCursorPtr SetProperties::MakeCursor(database::GraphDbAccessor *db,
+                                          utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> SetProperties::ModifiedSymbols(
@@ -2014,9 +2019,9 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetLabels)
 
-std::unique_ptr<Cursor> SetLabels::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<SetLabelsCursor>(*this, db, mem);
+UniqueCursorPtr SetLabels::MakeCursor(database::GraphDbAccessor *db,
+                                      utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> SetLabels::ModifiedSymbols(const SymbolTable &table) const {
@@ -2058,9 +2063,9 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
-std::unique_ptr<Cursor> RemoveProperty::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<RemovePropertyCursor>(*this, db, mem);
+UniqueCursorPtr RemoveProperty::MakeCursor(database::GraphDbAccessor *db,
+                                           utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> RemoveProperty::ModifiedSymbols(
@@ -2125,9 +2130,9 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
-std::unique_ptr<Cursor> RemoveLabels::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<RemoveLabelsCursor>(*this, db, mem);
+UniqueCursorPtr RemoveLabels::MakeCursor(database::GraphDbAccessor *db,
+                                         utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> RemoveLabels::ModifiedSymbols(
@@ -2174,9 +2179,9 @@ EdgeUniquenessFilter::EdgeUniquenessFilter(
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
-std::unique_ptr<Cursor> EdgeUniquenessFilter::MakeCursor(
+UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(
     database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<EdgeUniquenessFilterCursor>(*this, db, mem);
+  return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> EdgeUniquenessFilter::ModifiedSymbols(
@@ -2244,9 +2249,9 @@ Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Accumulate)
 
-std::unique_ptr<Cursor> Accumulate::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<Accumulate::AccumulateCursor>(*this, db, mem);
+UniqueCursorPtr Accumulate::MakeCursor(database::GraphDbAccessor *db,
+                                       utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<Accumulate::AccumulateCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const {
@@ -2308,9 +2313,9 @@ Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Aggregate)
 
-std::unique_ptr<Cursor> Aggregate::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<AggregateCursor>(*this, db, mem);
+UniqueCursorPtr Aggregate::MakeCursor(database::GraphDbAccessor *db,
+                                      utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Aggregate::ModifiedSymbols(const SymbolTable &) const {
@@ -2595,9 +2600,9 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Skip)
 
-std::unique_ptr<Cursor> Skip::MakeCursor(database::GraphDbAccessor *db,
-                                         utils::MemoryResource *mem) const {
-  return std::make_unique<SkipCursor>(*this, db, mem);
+UniqueCursorPtr Skip::MakeCursor(database::GraphDbAccessor *db,
+                                 utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
@@ -2655,9 +2660,9 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Limit)
 
-std::unique_ptr<Cursor> Limit::MakeCursor(database::GraphDbAccessor *db,
-                                          utils::MemoryResource *mem) const {
-  return std::make_unique<LimitCursor>(*this, db, mem);
+UniqueCursorPtr Limit::MakeCursor(database::GraphDbAccessor *db,
+                                  utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Limit::OutputSymbols(
@@ -2730,9 +2735,9 @@ OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(OrderBy)
 
-std::unique_ptr<Cursor> OrderBy::MakeCursor(database::GraphDbAccessor *db,
-                                            utils::MemoryResource *mem) const {
-  return std::make_unique<OrderByCursor>(*this, db, mem);
+UniqueCursorPtr OrderBy::MakeCursor(database::GraphDbAccessor *db,
+                                    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> OrderBy::OutputSymbols(
@@ -2823,9 +2828,9 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-std::unique_ptr<Cursor> Merge::MakeCursor(database::GraphDbAccessor *db,
-                                          utils::MemoryResource *mem) const {
-  return std::make_unique<MergeCursor>(*this, db, mem);
+UniqueCursorPtr Merge::MakeCursor(database::GraphDbAccessor *db,
+                                  utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<MergeCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Merge::ModifiedSymbols(const SymbolTable &table) const {
@@ -2910,9 +2915,9 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-std::unique_ptr<Cursor> Optional::MakeCursor(database::GraphDbAccessor *db,
-                                             utils::MemoryResource *mem) const {
-  return std::make_unique<OptionalCursor>(*this, db, mem);
+UniqueCursorPtr Optional::MakeCursor(database::GraphDbAccessor *db,
+                                     utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Optional::ModifiedSymbols(const SymbolTable &table) const {
@@ -2987,9 +2992,9 @@ Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Unwind)
 
-std::unique_ptr<Cursor> Unwind::MakeCursor(database::GraphDbAccessor *db,
-                                           utils::MemoryResource *mem) const {
-  return std::make_unique<UnwindCursor>(*this, db, mem);
+UniqueCursorPtr Unwind::MakeCursor(database::GraphDbAccessor *db,
+                                   utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
@@ -3084,7 +3089,7 @@ class DistinctCursor : public Cursor {
 
  private:
   const Distinct &self_;
-  const std::unique_ptr<Cursor> input_cursor_;
+  const UniqueCursorPtr input_cursor_;
   // a set of already seen rows
   std::unordered_set<
       std::vector<TypedValue, utils::Allocator<TypedValue>>,
@@ -3104,9 +3109,9 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Distinct)
 
-std::unique_ptr<Cursor> Distinct::MakeCursor(database::GraphDbAccessor *db,
-                                             utils::MemoryResource *mem) const {
-  return std::make_unique<DistinctCursor>(*this, db, mem);
+UniqueCursorPtr Distinct::MakeCursor(database::GraphDbAccessor *db,
+                                     utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, db, mem);
 }
 
 std::vector<Symbol> Distinct::OutputSymbols(
@@ -3130,9 +3135,9 @@ Union::Union(const std::shared_ptr<LogicalOperator> &left_op,
       left_symbols_(left_symbols),
       right_symbols_(right_symbols) {}
 
-std::unique_ptr<Cursor> Union::MakeCursor(database::GraphDbAccessor *db,
-                                          utils::MemoryResource *mem) const {
-  return std::make_unique<Union::UnionCursor>(*this, db, mem);
+UniqueCursorPtr Union::MakeCursor(database::GraphDbAccessor *db,
+                                  utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, db, mem);
 }
 
 bool Union::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
@@ -3290,17 +3295,17 @@ class CartesianCursor : public Cursor {
   const Cartesian &self_;
   std::vector<std::vector<TypedValue>> left_op_frames_;
   std::vector<TypedValue> right_op_frame_;
-  const std::unique_ptr<Cursor> left_op_cursor_;
-  const std::unique_ptr<Cursor> right_op_cursor_;
+  const UniqueCursorPtr left_op_cursor_;
+  const UniqueCursorPtr right_op_cursor_;
   std::vector<std::vector<TypedValue>>::iterator left_op_frames_it_;
   bool cartesian_pull_initialized_{false};
 };
 
 }  // namespace
 
-std::unique_ptr<Cursor> Cartesian::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return std::make_unique<CartesianCursor>(*this, db, mem);
+UniqueCursorPtr Cartesian::MakeCursor(database::GraphDbAccessor *db,
+                                      utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, db, mem);
 }
 
 OutputTable::OutputTable(std::vector<Symbol> output_symbols,
@@ -3355,9 +3360,9 @@ class OutputTableCursor : public Cursor {
   bool pulled_{false};
 };
 
-std::unique_ptr<Cursor> OutputTable::MakeCursor(database::GraphDbAccessor *,
-                                                utils::MemoryResource *) const {
-  return std::make_unique<OutputTableCursor>(*this);
+UniqueCursorPtr OutputTable::MakeCursor(database::GraphDbAccessor *,
+                                        utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this);
 }
 
 }  // namespace query::plan

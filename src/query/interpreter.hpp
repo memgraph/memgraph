@@ -182,7 +182,7 @@ class Interpreter {
     // execution_memory_ is unique_ptr because we are passing the address to
     // cursor_, and we want to preserve the pointer in case we get moved.
     std::unique_ptr<utils::MonotonicBufferResource> execution_memory_;
-    std::unique_ptr<query::plan::Cursor> cursor_;
+    query::plan::UniqueCursorPtr cursor_;
     Frame frame_;
     std::vector<Symbol> output_symbols_;
 
