@@ -66,38 +66,11 @@
   ;; If T, skips this member in serialization code generation.  The member may
   ;; still be deserialized with custom load hook.
   (dont-save nil :type boolean :read-only t)
-  ;; CAPNP-TYPE may be a string specifying the type, or a list of
-  ;; (member-symbol "capnp-type") specifying a union type.
-  (capnp-type nil :type (or null string list) :read-only t)
-  (capnp-init t :type boolean :read-only t)
-  ;; Custom saving and loading code. May be a function which takes 2
-  ;; args: (builder-or-reader member-name) and needs to return C++ code.
-  (capnp-save nil :type (or null function (eql :dont-save)) :read-only t)
-  (capnp-load nil :type (or null function) :read-only t)
   ;; May be a function which takes 1 argument, member-name.  It needs to
   ;; return C++ code.
   (slk-save nil :type (or null function) :read-only t)
   (slk-load nil :type (or null function) :read-only t)
   (clone t :type (or boolean (eql :copy) function) :read-only t))
-
-(defstruct capnp-opts
-  "Cap'n Proto serialization options for C++ class."
-  ;; BASE is T if the class should be treated as a base class for capnp, even
-  ;; though it may have parents.
-  (base nil :type boolean :read-only t)
-  ;; Extra arguments to the generated save function. List of (name cpp-type).
-  (save-args nil :read-only t)
-  (load-args nil :read-only t)
-  ;; Function to be called after saving the instance. Lambda taking builder name as only argument.
-  (post-save nil :read-only t)
-  (construct nil :read-only t)
-  ;; Explicit instantiation of template to generate schema with enum.
-  (type-args nil :read-only t)
-  ;; In case of multiple inheritance, list of classes which should be handled
-  ;; as a composition.
-  (inherit-compose nil :read-only t)
-  ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
-  (ignore-other-base-classes nil :type boolean :read-only t))
 
 (defstruct slk-opts
   "SLK serialization options for C++ class."
@@ -135,8 +108,6 @@
    (public :initarg :public :initform nil :accessor cpp-class-public)
    (protected :initarg :protected :initform nil :reader cpp-class-protected)
    (private :initarg :private :initform nil :accessor cpp-class-private)
-   (capnp-opts :type (or null capnp-opts) :initarg :capnp-opts :initform nil
-               :reader cpp-class-capnp-opts)
    (slk-opts :type (or null slk-opts) :initarg :slk-opts :initform nil
              :reader cpp-class-slk-opts)
    (clone-opts :type (or null clone-opts) :initarg :clone-opts :initform nil
@@ -471,26 +442,14 @@ slot-options are keyword arguments. Currently supported options are:
   * :reader -- if t, generates a public getter for the member.
   * :scope -- class scope of the member, either :public, :protected or :private (default).
   * :documentation -- Doxygen documentation of the member.
-  * :capnp-type -- String or list specifying which Cap'n Proto type to use for
-    serialization.  If a list of (member-symbol \"capnp-type\") then a union
-    type is specified.
-  * :capnp-init -- Boolean indicating whether the member needs to be
-    initialized in Cap'n Proto structure, by calling `builder.init<member>`.
-    This is T by default, you may need to set it to NIL if the LCP doesn't
-    correctly recognize a primitive type or you wish to call `init<member>`
-    yourself.
-  * :capnp-save -- Custom code for serializing this member.
-  * :capnp-load -- Custom code for deserializing this member.
 
 Currently supported class-options are:
   * :documentation -- Doxygen documentation of the class.
   * :public -- additional C++ code in public scope.
   * :protected -- additional C++ code in protected scope.
   * :private -- additional C++ code in private scope.
-  * :serialize -- either (:capnp) or (:slk).  Setting :capnp will generate
-    the Cap'n Proto serialization code for the class members.  You may
-    specifiy additional options after :capnp to fill the `CAPNP-OPTS' slots.
-    Similarly, you may specify `SLK-OPTS' after :slk.
+  * :serialize -- only (:slk) is supported for now. You may specify additional
+    options additional options after :slk to fill the `SLK-OPTS' slots.
   * :abstractp -- if t, marks that this class cannot be instantiated
     (currently only useful in serialization code)
 
@@ -499,7 +458,7 @@ Larger example:
 ;; (lcp:define-class derived (base)
 ;;   ((val :int :reader t :initval 42))
 ;;   (:public #>cpp void set_val(int new_val) { val_ = new_val; } cpp<#)
-;;   (:serialize (:capnp)))
+;;   (:serialize (:slk)))
 
 Generates C++:
 
@@ -543,8 +502,6 @@ Generates C++:
                                  :public (list ,@(cdr (assoc :public options)))
                                  :protected (list ,@(cdr (assoc :protected options)))
                                  :private (list ,@(cdr (assoc :private options)))
-                                 :capnp-opts ,(when (assoc :capnp serialize)
-                                                `(make-capnp-opts ,@(cdr (assoc :capnp serialize))))
                                  :slk-opts ,(when (assoc :slk serialize)
                                               `(make-slk-opts ,@(cdr (assoc :slk serialize))))
                                  :clone-opts ,(when (assoc :clone options)

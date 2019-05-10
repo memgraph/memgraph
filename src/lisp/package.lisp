@@ -8,15 +8,6 @@
            #:in-impl
            #:namespace
            #:pop-namespace
-           #:capnp-namespace
-           #:capnp-import
-           #:capnp-type-conversion
-           #:capnp-save-optional
-           #:capnp-load-optional
-           #:capnp-save-vector
-           #:capnp-load-vector
-           #:capnp-save-enum
-           #:capnp-load-enum
            #:process-file
            #:lcp-syntax))
 
