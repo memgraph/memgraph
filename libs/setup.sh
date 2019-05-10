@@ -52,6 +52,8 @@ antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
 clone git://deps.memgraph.io/antlr4.git antlr4 $antlr4_tag
 # fix missing include
 sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp/runtime/src/support/CPPUtils.h
+# remove shared library from install dependencies
+sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
 # cppitertools
 # Use our fork that uses experimental/optional instead of unique_ptr in

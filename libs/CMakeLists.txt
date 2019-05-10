@@ -84,6 +84,8 @@ import_external_library(antlr4 STATIC
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
   CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
              -DWITH_LIBCXX=OFF # because of debian bug
+             -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+  BUILD_COMMAND $(MAKE) antlr4_static
   # Make a License.txt out of thin air, so that antlr4.6 knows how to build.
   # When we upgrade antlr, this will no longer be needed.
   INSTALL_COMMAND touch ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/License.txt
