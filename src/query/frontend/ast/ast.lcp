@@ -370,17 +370,16 @@ cpp<#
                        `(lcp:define-class ,op (binary-operator)
                           ()
                           (:public
-                            (let ((cpp-name (lcp::cpp-type-name ',op)))
-                              #>cpp
-                              DEFVISITABLE(ExpressionVisitor<TypedValue>);
-                              DEFVISITABLE(ExpressionVisitor<void>);
-                              bool Accept(HierarchicalTreeVisitor &visitor) override {
-                                if (visitor.PreVisit(*this)) {
-                                  expression1_->Accept(visitor) && expression2_->Accept(visitor);
-                                }
-                                return visitor.PostVisit(*this);
+                            #>cpp
+                            DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                            DEFVISITABLE(ExpressionVisitor<void>);
+                            bool Accept(HierarchicalTreeVisitor &visitor) override {
+                              if (visitor.PreVisit(*this)) {
+                                expression1_->Accept(visitor) && expression2_->Accept(visitor);
                               }
-                              cpp<#))
+                              return visitor.PostVisit(*this);
+                            }
+                            cpp<#)
                           (:protected
                             #>cpp
                             using BinaryOperator::BinaryOperator;
@@ -402,17 +401,16 @@ cpp<#
                        `(lcp:define-class ,op (unary-operator)
                           ()
                           (:public
-                            (let ((cpp-name (lcp::cpp-type-name ',op)))
-                              #>cpp
-                              DEFVISITABLE(ExpressionVisitor<TypedValue>);
-                              DEFVISITABLE(ExpressionVisitor<void>);
-                              bool Accept(HierarchicalTreeVisitor &visitor) override {
-                                if (visitor.PreVisit(*this)) {
-                                  expression_->Accept(visitor);
-                                }
-                                return visitor.PostVisit(*this);
+                            #>cpp
+                            DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                            DEFVISITABLE(ExpressionVisitor<void>);
+                            bool Accept(HierarchicalTreeVisitor &visitor) override {
+                              if (visitor.PreVisit(*this)) {
+                                expression_->Accept(visitor);
                               }
-                              cpp<#))
+                              return visitor.PostVisit(*this);
+                            }
+                            cpp<#)
                           (:protected
                             #>cpp
                             using UnaryOperator::UnaryOperator;

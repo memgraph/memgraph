@@ -3,71 +3,218 @@
 ;;;; and methods for operating on that data.
 
 (in-package #:lcp)
+(named-readtables:in-readtable lcp:lcp-syntax)
 
-(deftype cpp-primitive-type-keywords ()
-  "List of keywords that specify a primitive type in C++."
-  `(member :bool :char :int :int16_t :int32_t :int64_t :uint :uint16_t
-           :uint32_t :uint64_t :float :double))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Supported and unsupported C++ types
 
-(defvar +cpp-primitive-type-keywords+
-  '(:bool :char :int :int16_t :int32_t :int64_t :uint :uint16_t
-    :uint32_t :uint64_t :float :double))
+(deftype general-cpp-type ()
+  '(or cpp-type unsupported-cpp-type))
+
+(defgeneric cpp-type-decl (cpp-type &key namespacep globalp enclosing-classes-p
+                                      type-params-p)
+  (:documentation "Return the C++ type declaration corresponding to the given
+object."))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Supported C++ types
+
+(defvar +cpp-primitive-type-names+
+  '("bool" "char" "int" "int16_t" "int32_t" "int64_t" "uint" "uint16_t"
+    "uint32_t" "uint64_t" "float" "double"))
 
 (defclass cpp-type ()
-  ((documentation :type (or null string) :initarg :documentation :initform nil
-                  :reader cpp-type-documentation
-                  :documentation "Documentation string for this C++ type.")
-   (namespace :type list :initarg :ns :initarg :namespace :initform nil
-              :reader cpp-type-namespace
-              :documentation "A list of symbols or strings defining the full
-              namespace.  A single symbol may refer to a `CPP-CLASS' which
-              encloses this type.")
-   (enclosing-class :type (or null symbol string) :initarg :enclosing-class
-                    :initform nil :accessor cpp-type-enclosing-class
-                    :documentation "A symbol or a string that is a designator
-                    for the type of the enclosing class of this type, or NIL if
-                    the type has no enclosing class.")
-   (name :type (or symbol string) :initarg :name :reader cpp-type-base-name
-         :documentation "Base name of this type.")
-   (type-params :type list :initarg :type-params :initform nil
-                :reader cpp-type-type-params
-                :documentation "A list of strings naming the template parameters
-                that are needed to instantiate a concrete type. For example, in
-                `template <TValue> class vector`, 'TValue' is the type
-                parameter.")
-   (type-args :type list :initarg :type-args :initform nil
-              :reader cpp-type-type-args
-              :documentation "A list of `CPP-TYPE' instances that represent the
-              template type arguments used within the instantiation of the
-              template. For example in `std::vector<int>`, 'int' is a template
-              type argument."))
+  ((documentation
+    :type (or null string)
+    :initarg :documentation
+    :initform nil
+    :reader cpp-type-documentation
+    :documentation "Documentation string for this C++ type.")
+   (namespace
+    :type list
+    :initarg :namespace
+    :initform nil
+    :reader cpp-type-namespace
+    :documentation "A list of strings naming the individual namespace parts of
+the namespace of this type. Enclosing classes aren't included, even though they
+form valid C++ namespaces.")
+   (enclosing-classes
+    :type list
+    :initarg :enclosing-classes
+    :initform nil
+    :reader cpp-type-enclosing-classes
+    :accessor %cpp-type-enclosing-classes
+    :documentation "A list of strings naming the enclosing classes of this
+type.")
+   (name
+    :type string
+    :initarg :name
+    :reader cpp-type-name
+    :documentation "The name of this type.")
+   (type-params
+    :type list
+    :initarg :type-params
+    :initform nil
+    :reader cpp-type-type-params
+    :documentation "A list of strings naming the template parameters that are
+needed to instantiate a concrete type. For example, in `template <TValue> class
+vector`, `TValue' is the type parameter.")
+   (type-args
+    :type list
+    :initarg :type-args
+    :initform nil
+    :reader cpp-type-type-args
+    :accessor %cpp-type-type-args
+    :documentation "A list of `CPP-TYPE' instances that represent the template
+type arguments used within the instantiation of the template. For example in
+`std::vector<int>`, `int' is a template type argument."))
   (:documentation "Base class for meta information on C++ types."))
 
-(defclass cpp-primitive-type (cpp-type)
-  ((name :type cpp-primitive-type-keywords))
-  (:documentation "Represents a primitive type in C++."))
+(defun make-cpp-type (name &key namespace enclosing-classes type-params
+                             type-args)
+  "Create an instance of CPP-TYPE. The keyword arguments correspond to the slots
+of the class CPP-TYPE and expect values according to their type and
+documentation, except as noted below.
+
+If the first element of NAMESPACE is an empty string, it is removed. NAMESPACE
+parts must not contain characters from +WHITESPACE-CHARS+.
+
+TYPE-ARGS can be a list of CPP-TYPE designators, each of which will be coerced
+into a CPP-TYPE instance as if by ENSURE-CPP-TYPE.
+
+TYPE-PARAMS and TYPE-ARGS cannot be provided simultaneously."
+  (check-type name string)
+  (check-type namespace list)
+  (check-type enclosing-classes list)
+  (check-type type-params list)
+  (check-type type-args list)
+  (dolist (list (list namespace enclosing-classes type-params))
+    (dolist (elem list)
+      (check-type elem string)))
+  (let ((namespace (if (and namespace (string= (car namespace) ""))
+                       (cdr namespace)
+                       namespace)))
+    (dolist (part namespace)
+      (when (or (string= part "")
+                (find-if
+                 (lambda (c) (member c +whitespace-chars+ :test #'char=))
+                 part))
+        (error "~@<Invalid namespace part ~S in ~S~@:>" part namespace)))
+    (when (and type-params type-args)
+      (error "~@<A CPP-TYPE can't have both of TYPE-PARAMS and TYPE-ARGS~@:>"))
+    (make-instance 'cpp-type
+                   :name name
+                   :namespace namespace
+                   :enclosing-classes enclosing-classes
+                   :type-params type-params
+                   :type-args (mapcar #'ensure-cpp-type type-args))))
+
+(defmethod print-object ((cpp-type cpp-type) stream)
+  (print-unreadable-object (cpp-type stream :type t)
+    (format stream "~A" (cpp-type-decl cpp-type))))
+
+(defun cpp-type= (a b)
+  (check-type a cpp-type)
+  (check-type b cpp-type)
+  "Test whether two instances of CPP-TYPE, A and B, represent the same C++ type.
+
+For the test to return true, the following must hold:
+
+- The CPP-TYPE-NAME of A and B must be STRING=.
+
+- The CPP-TYPE-NAMESPACE of A and B must be EQUAL.
+
+- The CPP-TYPE-ENCLOSING-CLASSES of A and B must be EQUAL.
+
+- The CPP-TYPE-TYPE-PARAMS of A and B must be pairwise STRING=.
+
+- The CPP-TYPE-TYPE-ARGS of A and B must be pairwise CPP-TYPE=."
+  (and (string= (cpp-type-name a) (cpp-type-name b))
+       (equal (cpp-type-namespace a) (cpp-type-namespace b))
+       (equal (cpp-type-enclosing-classes a) (cpp-type-enclosing-classes b))
+       (not (mismatch (cpp-type-type-params a) (cpp-type-type-params b)
+                      :test #'string=))
+       (not (mismatch (cpp-type-type-args a) (cpp-type-type-args b)
+                      :test #'cpp-type=))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Unsupported C++ types
+
+(defclass unsupported-cpp-type ()
+  ((typestring
+    :type string
+    :initarg :typestring
+    :initform nil
+    :reader unsupported-cpp-type-typestring
+    :documentation "The typestring for this type that LCP couldn't
+parse (doesn't support)."))
+  (:documentation "A class that represents unsupported C++ types."))
+
+(defun make-unsupported-cpp-type (typestring)
+  (make-instance 'unsupported-cpp-type :typestring typestring))
+
+(defmethod print-object ((cpp-type unsupported-cpp-type) stream)
+  (print-unreadable-object (cpp-type stream :type t)
+    (princ (unsupported-cpp-type-typestring cpp-type) stream)))
+
+(macrolet ((define-unsupported-cpp-type-methods ()
+             (let ((names '(documentation namespace enclosing-classes
+                            type-params type-args name)))
+               `(progn
+                  ,@(loop :for name :in names
+                          :for fname := (alexandria:symbolicate 'cpp-type- name)
+                          :collect
+                          `(defmethod ,fname ((cpp-type unsupported-cpp-type))
+                             (error ,(format
+                                      nil "~S doesn't support the method ~S"
+                                      'unsupported-cpp-type fname))))))))
+  (define-unsupported-cpp-type-methods))
+
+(defmethod cpp-type-decl ((cpp-type unsupported-cpp-type)
+                          &key &allow-other-keys)
+  "Return the captured typestring for the instance of UNSUPPORTED-CPP-TYPE."
+  (unsupported-cpp-type-typestring cpp-type))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Known C++ enums
 
 (defclass cpp-enum (cpp-type)
-  ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
+  ((values
+    :type list
+    :initarg :values
+    :initform nil
+    :reader cpp-enum-values)
    ;; If true, generate serialization code for this enum.
-   (serializep :type boolean :initarg :serializep :initform nil :reader cpp-enum-serializep))
+   (serializep
+    :type boolean
+    :initarg :serializep
+    :initform nil
+    :reader cpp-enum-serializep))
   (:documentation "Meta information on a C++ enum."))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Known C++ classes
 
 (defstruct cpp-member
   "Meta information on a C++ class (or struct) member variable."
-  (symbol nil :type symbol :read-only t)
-  (type nil :type (or cpp-primitive-type-keywords string) :read-only t)
-  (initarg nil :type symbol :read-only t)
+  ;; The class that contains this member.
+  (name nil :type string :read-only t)
+  (type nil :type (or string general-cpp-type))
   (initval nil :type (or null string integer float) :read-only t)
   (scope :private :type (member :public :protected :private) :read-only t)
   ;; TODO: Support giving a name for reader function.
   (reader nil :type boolean :read-only t)
   (documentation nil :type (or null string) :read-only t)
-  ;; If T, skips this member in serialization code generation.  The member may
+  ;; If T, skips this member in serialization code generation. The member may
   ;; still be deserialized with custom load hook.
   (dont-save nil :type boolean :read-only t)
-  ;; May be a function which takes 1 argument, member-name.  It needs to
-  ;; return C++ code.
+  ;; May be a function which takes 1 argument, member-name. It needs to return
+  ;; C++ code.
   (slk-save nil :type (or null function) :read-only t)
   (slk-load nil :type (or null function) :read-only t)
   (clone t :type (or boolean (eql :copy) function) :read-only t))
@@ -80,7 +227,8 @@
   ;; Extra arguments to the generated save function. List of (name cpp-type).
   (save-args nil :read-only t)
   (load-args nil :read-only t)
-  ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
+  ;; In case of multiple inheritance, pretend we only inherit the 1st base
+  ;; class.
   (ignore-other-base-classes nil :type boolean :read-only t))
 
 (defstruct clone-opts
@@ -98,321 +246,818 @@
   (ignore-other-base-classes nil :read-only t))
 
 (defclass cpp-class (cpp-type)
-  ((structp :type boolean :initarg :structp :initform nil
-            :reader cpp-class-structp)
-   (super-classes :initarg :super-classes :initform nil
-                  :reader cpp-class-super-classes)
-   (members :initarg :members :initform nil :reader cpp-class-members)
+  ((structp
+    :type boolean
+    :initarg :structp
+    :initform nil
+    :reader cpp-class-structp)
+   (super-classes
+    :initarg :super-classes
+    :initform nil
+    :accessor %cpp-class-super-classes)
+   (members
+    :initarg :members
+    :initform nil
+    :accessor %cpp-class-members)
    ;; Custom C++ code in 3 scopes. May be a list of C++ meta information or a
    ;; single element.
-   (public :initarg :public :initform nil :accessor cpp-class-public)
-   (protected :initarg :protected :initform nil :reader cpp-class-protected)
-   (private :initarg :private :initform nil :accessor cpp-class-private)
-   (slk-opts :type (or null slk-opts) :initarg :slk-opts :initform nil
-             :reader cpp-class-slk-opts)
-   (clone-opts :type (or null clone-opts) :initarg :clone-opts :initform nil
-               :reader cpp-class-clone-opts)
-   (type-info-opts :type type-info-opts :initarg :type-info-opts :initform (make-type-info-opts)
-                   :reader cpp-class-type-info-opts)
-   (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types)
-   (abstractp :initarg :abstractp :initform nil :reader cpp-class-abstractp))
+   (public
+    :initarg :public
+    :initform nil
+    :accessor cpp-class-public)
+   (protected
+    :initarg :protected
+    :initform nil
+    :reader cpp-class-protected)
+   (private
+    :initarg :private
+    :initform nil
+    :accessor cpp-class-private)
+   (slk-opts
+    :type (or null slk-opts)
+    :initarg :slk-opts
+    :initform nil
+    :reader cpp-class-slk-opts)
+   (clone-opts
+    :type (or null clone-opts)
+    :initarg :clone-opts
+    :initform nil
+    :reader cpp-class-clone-opts)
+   (type-info-opts
+    :type type-info-opts
+    :initarg :type-info-opts
+    :initform (make-type-info-opts)
+    :reader cpp-class-type-info-opts)
+   (inner-types
+    :initarg :inner-types
+    :initform nil
+    :reader cpp-class-inner-types)
+   (abstractp
+    :initarg :abstractp
+    :initform nil
+    :reader cpp-class-abstractp))
   (:documentation "Meta information on a C++ class (or struct)."))
 
-(defvar *cpp-classes* nil "List of defined classes from LCP file")
-(defvar *cpp-enums* nil "List of defined enums from LCP file")
+(defmethod cpp-type-decl ((cpp-type cpp-type) &rest kwargs
+                          &key (namespacep t) (globalp nil)
+                            (enclosing-classes-p t) (type-params-p t))
+  "Return the C++ type declaration corresponding to the given CPP-TYPE.
 
-(defun cpp-class-members-for-save (cpp-class)
-  (check-type cpp-class cpp-class)
-  (remove-if #'cpp-member-dont-save (cpp-class-members cpp-class)))
+If NAMESPACEP is true, the namespace (excluding enclosing classes) is included
+in the declaration. If GLOBALP is true, the namespace (if included) is fully
+qualified.
 
-(defun make-cpp-primitive-type (name)
-  "Create an instance of CPP-PRIMITIVE-TYPE given the arguments."
-  (check-type name cpp-primitive-type-keywords)
-  (make-instance 'cpp-primitive-type :name name))
+If ENCLOSING-CLASSES-P is true, the namespace formed by the enclosing classes is
+included in the declaration.
 
-(defun make-cpp-type (name &key namespace enclosing-class type-params type-args)
-  "Create an instance of `CPP-TYPE' given the arguments.  Check the
-documentation on `CPP-TYPE' members for function arguments."
-  (check-type name (or symbol string))
-  (check-type namespace list)
-  (check-type enclosing-class (or null symbol string))
-  (check-type type-params list)
-  (check-type type-args list)
-  (when (and type-params type-args)
-    (error "A CPP-TYPE can't have both of TYPE-PARAMS and TYPE-ARGS"))
-  (let ((namespace (if (and namespace
-                            (string= (string-trim +whitespace-chars+ (car namespace)) ""))
-                       (cdr namespace)
-                       namespace)))
-    (loop for ns in namespace
-       when (or (find-if (lambda (c) (member c +whitespace-chars+ :test #'char=)) ns)
-                (string= ns ""))
-       do (error "Invalid namespace name ~S in ~S" ns namespace))
-    (make-instance 'cpp-type
-                   :name name
-                   :namespace namespace
-                   :enclosing-class enclosing-class
-                   :type-params type-params
-                   :type-args (mapcar #'cpp-type type-args))))
+If TYPE-PARAMS-P is true, type parameters are included when CPP-TYPE has type
+parameters.
 
-(defun cpp-type= (a b)
-  (let ((a (cpp-type a))
-        (b (cpp-type b)))
-    (with-accessors ((args1 cpp-type-type-args)) a
-      (with-accessors ((args2 cpp-type-type-args)) b
-        (and (equalp (cpp-type-namespace a) (cpp-type-namespace b))
-             (equalp (cpp-type-name a) (cpp-type-name b))
-             (and (= (length args1) (length args2))
-                  (every #'cpp-type= args1 args2))
-             (string=
-              (cpp-type-name (cpp-type-enclosing-class a))
-              (cpp-type-name (cpp-type-enclosing-class b))))))))
+If CPP-TYPE has type arguments, type arguments are included in the declaration
+and formatted by recursively calling CPP-TYPE-DECL with the same keyword
+arguments."
+  (flet ((rec (cpp-type)
+           (apply #'cpp-type-decl cpp-type kwargs)))
+    (with-output-to-string (s)
+      (cond
+        ;; Handle pointers and references specially.
+        ((or (cpp-type-raw-pointer-p cpp-type)
+             (cpp-type-reference-p cpp-type))
+         (write-string (rec (car (cpp-type-type-args cpp-type))) s)
+         (format s " ~A" (cpp-type-name cpp-type)))
+        (t
+         (when namespacep
+           (when globalp
+             (write-string "::" s))
+           (write-string (cpp-type-namespace-string cpp-type) s))
+         (when enclosing-classes-p
+           (write-string (cpp-type-enclosing-classes-string cpp-type) s))
+         (write-string (cpp-type-name cpp-type) s)
+         (cond
+           ((cpp-type-type-args cpp-type)
+            (format s "<~{~A~^, ~}>"
+                    (mapcar #'rec (cpp-type-type-args cpp-type))))
+           ((and type-params-p (cpp-type-type-params cpp-type))
+            (format s "<~{~A~^, ~}>" (cpp-type-type-params cpp-type)))))))))
 
-(defmethod print-object ((cpp-type cpp-type) stream)
-  (print-unreadable-object (cpp-type stream :type t)
-    (with-accessors ((name cpp-type-base-name)
-                     (ns cpp-type-namespace)
-                     (params cpp-type-type-params)
-                     (args cpp-type-type-args))
-        cpp-type
-      (format stream "~a" (cpp-type-decl cpp-type)))))
-
-(defgeneric cpp-type-name (cpp-type)
-  (:documentation "Get C++ style type name from `CPP-TYPE' as a string."))
-
-(defmethod cpp-type-name ((cpp-type string))
-  "Return CPP-TYPE string as is."
-  cpp-type)
-
-(defmethod cpp-type-name ((cpp-type cpp-type))
-  "Return `CPP-TYPE' name as PascalCase or if string, as is."
-  (cpp-type-name (cpp-type-base-name cpp-type)))
-
-(defmethod cpp-type-name ((cpp-type symbol))
-  "Return PascalCase of CPP-TYPE symbol or lowercase if it is a primitive type."
-  (if (typep cpp-type 'cpp-primitive-type-keywords)
-      (string-downcase cpp-type)
-      (remove #\- (string-capitalize cpp-type))))
-
-(defun cpp-primitive-type-p (type-decl)
-  "Whether the C++ type designated by TYPE-DECL is a primitive type."
-  (typep (cpp-type type-decl) 'cpp-primitive-type))
-
-(defun cpp-pointer-type-p (type-decl)
-  "Whether the C++ type designated by TYPE-DECL is a smart or raw pointer type."
-  (check-type type-decl (or lcp::cpp-type string lcp::cpp-primitive-type-keywords))
-  (typecase type-decl
-    (string (cpp-pointer-type-p (lcp::parse-cpp-type-declaration type-decl)))
-    (lcp::cpp-type
-     (or
-      (string= "*" (lcp::cpp-type-name type-decl))
-      (string= "shared_ptr" (lcp::cpp-type-name type-decl))
-      (string= "unique_ptr" (lcp::cpp-type-name type-decl))))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; C++ type parsing
 
 (defun parse-cpp-type-declaration (type-decl)
-  "Parse C++ type from TYPE-DECL string and return CPP-TYPE.
+  "Try to construct a CPP-TYPE instance from the string TYPE-DECL representing a
+C++ type declaration.
 
-For example:
+The function assumes that TYPE-DECL is a well-formed C++ type declaration. No
+attempt is made to handle erroneous declarations.
 
-::std::pair<my_space::MyClass<std::function<void(int, bool)>, double>, char>
+Note that the function doesn't aim to support the whole of C++'s type
+declaration syntax. Certain declarations just aren't supported.
 
-produces:
-
-;; (cpp-type
-;;  :name pair
-;;  :type-args ((cpp-type
-;;              :name MyClass
-;;              :type-args ((cpp-type :name function
-;;                                    :type-args (cpp-type :name void(int, bool)))
-;;                          (cpp-type :name double)))
-;;              (cpp-type :name char)))"
+If the declaration is successfuly parsed, the resulting CPP-TYPE instance is
+returned. Otherwise, if the string is empty or if unsupported constructs were
+used, NIL is returned."
   (check-type type-decl string)
-  ;; C++ type can be declared as follows:
-  ;; namespace::namespace::type<type-arg, type-arg> *
-  ;; |^^^^^^^^^^^^^^^^^^^^|    |^^^^^^^^^^^^^^^^^^| | optional
-  ;;       optional                 optional
-  ;; type-args in template are recursively parsed
-  ;; C++ may contain dependent names with 'typename' keyword, these aren't
-  ;; supported here.
-  (when (search "typename" type-decl)
-    (error "'typename' not supported in '~A'" type-decl))
-  (when (find #\& type-decl)
-    (error "References not supported in '~A'" type-decl))
+  ;; A C++ type declaration for our purposes is of the form:
+  ;;
+  ;; namespace::namespace::type<type-arg, type-arg> <* or &>
+  ;; |^^^^^^^^^^^^^^^^^^^^|    |^^^^^^^^^^^^^^^^^^| |^^^^^|
+  ;;       optional                 optional        optional
+  ;;
+  ;; The type arguments are recursively parsed.
+
+  (when (string= "" type-decl)
+    (return-from parse-cpp-type-declaration nil))
+  ;; Unsupported: `typename' and array syntax
+  (when (or (search "typename" type-decl)
+            (cl-ppcre:scan "[[\\]]" type-decl))
+    (return-from parse-cpp-type-declaration nil))
   (setf type-decl (string-trim +whitespace-chars+ type-decl))
-  ;; Check if primitive type
-  (let ((type-keyword (member type-decl +cpp-primitive-type-keywords+
-                              :test #'string-equal)))
+  ;; Check if the type is a primitive type
+  (let ((type-keyword (member type-decl +cpp-primitive-type-names+
+                              :test #'string=)))
     (when type-keyword
       (return-from parse-cpp-type-declaration
-        (make-instance 'cpp-primitive-type :name (string-downcase
-                                                  (car type-keyword))))))
-  ;; Check if pointer
-  (let ((ptr-pos (position #\* type-decl :from-end t)))
+        (make-cpp-type (car type-keyword)))))
+  ;; Check if the type is a pointer
+  (let ((ptr-pos (position-if (lambda (c) (or (char= c #\*) (char= c #\&)))
+                              type-decl :from-end t)))
     (when (and ptr-pos (not (cl-ppcre:scan "[()<>]" type-decl :start ptr-pos)))
       (return-from parse-cpp-type-declaration
-        (make-cpp-type (subseq type-decl ptr-pos)
-                       :type-args (list (parse-cpp-type-declaration
-                                         (subseq type-decl 0 ptr-pos)))))))
+        (let ((type-arg (parse-cpp-type-declaration
+                         (subseq type-decl 0 ptr-pos))))
+          (when type-arg
+            (make-cpp-type (subseq type-decl ptr-pos)
+                           :type-args (list type-arg)))))))
   ;; Other cases
   (destructuring-bind (full-name &optional template)
       (cl-ppcre:split "<" type-decl :limit 2)
-    (let* ((namespace-split (cl-ppcre:split "::" full-name))
-           (name (car (last namespace-split)))
-           type-args)
+    ;; Unsupported: Function or array syntax
+    (let ((pos (if template
+                   (position-of-closing-delimiter type-decl #\< #\>)
+                   0)))
+      (when (or (cl-ppcre:scan "[()]" full-name)
+                (cl-ppcre:scan "[()]" type-decl :start (1+ pos)))
+        (return-from parse-cpp-type-declaration nil)))
+    (let* ((parts (cl-ppcre:split "::" full-name))
+           (name (car (last parts)))
+           (namespace (butlast parts))
+           (type-args nil))
       (when template
-        ;; template ends with '>' character
+        ;; A class template instantiation ends with the '>' character
         (let ((arg-start 0))
           (cl-ppcre:do-scans (match-start match-end reg-starts reg-ends
-                                          "[a-zA-Z0-9_:<>() *]+[,>]" template)
+                              "[a-zA-Z0-9_:<>() *&]+[,>]" template)
             (flet ((matchedp (open-char close-char)
                      "Return T if the TEMPLATE[ARG-START:MATCH-END] contains
                      matched OPEN-CHAR and CLOSE-CHAR."
                      (= (count open-char template :start arg-start :end match-end)
                         (count close-char template :start arg-start :end match-end))))
-              (when (or (= match-end (length template)) ;; we are at the end
+              (when (or (= match-end (length template)) ;; We are at the end
                         (and (matchedp #\< #\>) (matchedp #\( #\))))
-                (push (parse-cpp-type-declaration
-                       ;; take the arg and omit final [,>]
-                       (subseq template arg-start (1- match-end)))
-                      type-args)
-                (setf arg-start (1+ match-end)))))))
-      (let (namespace enclosing-class namespace-done-p)
-        (when (cdr namespace-split)
-          (dolist (ns (butlast namespace-split))
-            ;; Treat capitalized namespace as designating an enclosing class.
-            ;; Only the final enclosing class is taken, because we assume that
-            ;; we can get enclosing classes recursively via `FIND-CPP-CLASS'.
-            ;; This won't work if the classes are not defined in LCP.
-            (cond
-              ((and (string/= "" ns) (upper-case-p (aref ns 0)))
-               (setf namespace-done-p t)
-               (setf enclosing-class ns))
-              ((not namespace-done-p)
-               (push ns namespace))))
-          (setf namespace (reverse namespace)))
+                (let ((type-arg (parse-cpp-type-declaration
+                                 ;; Take the arg and omit the final [,>]
+                                 (subseq template arg-start (1- match-end)))))
+                  (if type-arg
+                      (push type-arg type-args)
+                      (return-from parse-cpp-type-declaration nil)))
+                (setf arg-start match-end))))))
+      ;; Treat the first capitalized namespace and all the ones after that as
+      ;; enclosing classes, whether or not they're known to LCP.
+      (let ((pos (or (position-if
+                      (lambda (part)
+                        (and (string/= "" part) (upper-case-p (aref part 0))))
+                      namespace)
+                     (length namespace))))
         (make-cpp-type name
-                       :namespace namespace
-                       :enclosing-class enclosing-class
+                       :namespace (subseq namespace 0 pos)
+                       :enclosing-classes (subseq namespace pos)
                        :type-args (reverse type-args))))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Typestrings
+
+(defun ensure-typestring (thing)
+  "Return the typestring corresponding to the typestring designator THING.
+
+- If THING is a symbol whose name is STRING-EQUAL to an element in
+  +CPP-PRIMITIVE-TYPE-NAMES+, return it.
+
+- If THING is any other symbol, return the result of (cpp-name-for-class thing).
+
+- If THING is a string, return it."
+  (check-type thing (or symbol string))
+  (ctypecase thing
+    (symbol (if (member thing +cpp-primitive-type-names+ :test #'string-equal)
+                (string-downcase thing)
+                (cpp-name-for-class thing)))
+    (string thing)))
+
+(defun typestring-supported-p (typestring)
+  "Test whether the typestring TYPESTRING would resolve to a supported
+CPP-TYPE."
+  (and (parse-cpp-type-declaration typestring) t))
+
+(defun typestring-class-template-instantiation-p (typestring)
+  "Return whether the typestring TYPESTRING would resolve to a CPP-TYPE which is
+a class template instantiation."
+  (and (cl-ppcre:scan "<|>" typestring) t))
+
+(defun typestring-fully-qualified-p (typestring)
+  "Test whether the supported typestring TYPESTRING is fully qualified. If the
+typestring is unsupported, return NIL."
+  (and (>= (length typestring) 2)
+       (string= "::" typestring :end2 2)))
+
+(defun typestring-qualified-p (typestring)
+  "Test whether the supported typestring TYPESTRING is qualified. If the
+typestring is unsupported, return NIL.
+
+Note that the test only checks the topmost type and doesn't recurse into its
+type arguments."
+  (or
+   ;; NOTE: Checking whether the typestring is fully qualified is not just an
+   ;; optimization. Since PARSE-CPP-TYPE-DECLARATION drops any qualifiers for
+   ;; the global namespace, without this check we wouldn't be able to tell e.g.
+   ;; whether the typestring "::MyClass" is fully qualified or not.
+   (typestring-fully-qualified-p typestring)
+   (let ((cpp-type (parse-cpp-type-declaration typestring)))
+     (and cpp-type (cpp-type-extended-namespace cpp-type) t))))
+
+(define-condition typestring-warning (simple-warning)
+  ())
+
+(defun typestring-warn (control &rest args)
+  (warn 'typestring-warning :format-control control :format-arguments args))
+
+(defun process-typestring (typestring)
+  "Process the typestring TYPESTRING.
+
+To process the typestring means to:
+
+- Leave it as is if it's fully qualified, unqualified or unsupported.
+
+- Fully qualify it if it's partially qualified."
+  (check-type typestring string)
+  (cond
+    ((or (not (typestring-supported-p typestring))
+         (typestring-fully-qualified-p typestring))
+     typestring)
+    ((typestring-qualified-p typestring)
+     (typestring-warn
+      "Treating qualified type \"~A\" as the fully qualified type \"::~A\"."
+      typestring typestring)
+     (format nil "::~A" typestring))
+    ;; Unqualified.
+    (t
+     typestring)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Class and Enum Registry
+
+(defvar *cpp-classes* nil
+  "List of defined classes from LCP file.")
+
+(defvar *cpp-enums* nil
+  "List of defined enums from LCP file.")
+
+(defun split-namespace-string (namespace)
+  (let ((parts (cl-ppcre:split "::" namespace)))
+    (if (string= (car parts) "")
+        (cdr parts)
+        parts)))
+
+(defun find-cpp-class (name &optional namespace)
+  "Find an instance of CPP-CLASS in the class registry by searching for a
+specific type.
+
+NAME must be either a string, a symbol or a CPP-TYPE instance:
+
+- If NAME is a string or a symbol, it is treated as a designator for a class
+  namestring.
+
+- If NAME is a CPP-TYPE instance, it is treated as the string produced
+  by (cpp-type-decl name).
+
+If the resulting string is qualified, it is split into parts by \"::\", trimming
+any empty strings on both sides. Every part but the last one is used to form a
+list of strings that is the namespace, while the last string is used as the
+name. NAMESPACE is ignored in this case.
+
+If the resulting string is not qualified, it is taken to be the name, while the
+namespace is formed according to the value of NAMESPACE.
+
+NAMESPACE can be either a string or a list of strings:
+
+- If NAMESPACE is a string, it is treated as the list that's the result of
+  splitting the string by \"::\", trimming any empty strings on both sides. If
+  the string is empty, it designates the empty list.
+
+- If NAMESPACE is a list, it must be a list of strings, each naming a single
+  namespace.
+
+Finally, the name and the namespace are compared as follows:
+
+- The names are compared using STRING=.
+
+- The namespaces are compared pairwise using STRING=. The empty list designates
+  the global namespace.
+
+Return a CPP-CLASS instance if one is found, otherwise return NIL."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (multiple-value-bind (name namespace)
+      (let ((name (ctypecase name
+                    ((or symbol string) (ensure-namestring-for-class name))
+                    (cpp-type (cpp-type-decl name)))))
+        (if (typestring-qualified-p name)
+            (let ((parts (split-namespace-string name)))
+              (values (car (last parts)) (butlast parts)))
+            (values name (ctypecase namespace
+                           (list namespace)
+                           (string (split-namespace-string namespace))))))
+    (find-if
+     (lambda (cpp-type)
+       (and (string= name (cpp-type-name cpp-type))
+            (equal namespace (cpp-type-extended-namespace cpp-type))))
+     *cpp-classes*)))
+
+(defun find-cpp-class-ascending (name namespace)
+  "Find an instance of CPP-CLASS in the class registry by searching upwards from
+the given namespace.
+
+The arguments NAME and NAMESPACE work just the same as in FIND-CPP-CLASS, except
+that:
+
+- NAME cannot be a qualified name.
+
+- If NAME is a CPP-TYPE instance, then it is treated as the
+  string (cpp-type-name name)."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (let ((name (ctypecase name
+                ((or symbol string) (ensure-namestring-for-class name))
+                (cpp-type (cpp-type-name name))))
+        (namespace (ctypecase namespace
+                     (list namespace)
+                     (string (split-namespace-string namespace)))))
+    (when (typestring-qualified-p name)
+      (error "Using the qualified name ~S with ~S" name
+             'find-cpp-class-ascending))
+    (let ((cpp-classes
+            (remove-if-not
+             (lambda (cpp-type)
+               (and (string= name (cpp-type-name cpp-type))
+                    (prefix-of-p (cpp-type-extended-namespace cpp-type)
+                                 namespace :test #'string=)))
+             *cpp-classes*)))
+      (and cpp-classes
+           (minimize
+            cpp-classes
+            :test #'>
+            :key (lambda (cpp-type)
+                   (length (cpp-type-extended-namespace cpp-type))))))))
+
+(defun find-cpp-class-descending (name &optional namespace)
+  "Find an instance of CPP-CLASS in the class registry by searching downwards
+from the given namespace.
+
+The arguments NAME and NAMESPACE work just the same as in FIND-CPP-CLASS, except
+that:
+
+- NAME cannot be a qualified name.
+
+- If NAME is a CPP-TYPE instance, then it is treated as the
+  string (cpp-type-name name)."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (let ((name (ctypecase name
+                ((or symbol string) (ensure-namestring-for-class name))
+                (cpp-type (cpp-type-name name))))
+        (namespace (ctypecase namespace
+                     (list namespace)
+                     (string (split-namespace-string namespace)))))
+    (when (typestring-qualified-p name)
+      (error "Using the qualified name ~S with ~S" name
+             'find-cpp-class-descending))
+    (let ((cpp-classes
+            (remove-if-not
+             (lambda (cpp-type)
+               (and (string= name (cpp-type-name cpp-type))
+                    (prefix-of-p namespace
+                                 (cpp-type-extended-namespace cpp-type)
+                                 :test #'string=)))
+             *cpp-classes*)))
+      (and cpp-classes
+           (minimize
+            cpp-classes
+            :key (lambda (cpp-type)
+                   (length (cpp-type-extended-namespace cpp-type))))))))
+
+(defun find-cpp-enum (name &optional namespace)
+  "Find an instance of CPP-ENUM in the enum registry.
+
+NAME must be either a string, a symbol or a CPP-TYPE instance:
+
+- If NAME is a string or a symbol, it is treated as a designator for a class
+namestring.
+
+- If NAME is a CPP-TYPE instance, it is treated as the string produced
+  by (cpp-type-decl name).
+
+If the resulting string is qualified, it is split into parts by \"::\", trimming
+any empty strings on both sides. Every part but the last one is used to form a
+list of strings that is the namespace, while the last string is used as the
+name. NAMESPACE is ignored in this case.
+
+If the resulting string is not qualified, it is taken to be the name, while the
+namespace is formed according to the value of NAMESPACE.
+
+NAMESPACE can be either a string or a list of strings:
+
+- If NAMESPACE is a string, it is treated as the list that's the result of
+  splitting the string by \"::\", trimming any empty strings on both sides. If
+  the string is empty, it designates the empty list.
+
+- If NAMESPACE is a list, it must be a list of strings, each naming a single
+  namespace.
+
+Finally, the name and the namespace are compared as follows:
+
+- The names are compared using STRING=.
+
+- The namespaces are compared pairwise using STRING=. The empty list designates
+  the global namespace.
+
+Return a CPP-CLASS instance if one is found, otherwise return NIL."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (multiple-value-bind (name namespace)
+      (let ((name (ctypecase name
+                    ((or symbol string) (ensure-namestring-for-class name))
+                    (cpp-type (cpp-type-decl name)))))
+        (if (typestring-qualified-p name)
+            (let ((parts (split-namespace-string name)))
+              (values (car (last parts)) (butlast parts)))
+            (values name (ctypecase namespace
+                           (list namespace)
+                           (string (split-namespace-string namespace))))))
+    (find-if
+     (lambda (cpp-type)
+       (and (string= name (cpp-type-name cpp-type))
+            (equal namespace (cpp-type-extended-namespace cpp-type))))
+     *cpp-enums* :from-end t)))
+
+(defun find-cpp-enum-ascending (name namespace)
+  "Find an instance of CPP-ENUM in the enum registry by searching upwards from
+the given namespace.
+
+The arguments NAME and NAMESPACE work just the same as in FIND-CPP-ENUM, except
+that:
+
+- NAME cannot be a qualified name.
+
+- If NAME is a CPP-TYPE instance, then it is treated as the
+  string (cpp-type-name name)."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (let ((name (ctypecase name
+                ((or symbol string) (ensure-namestring-for-class name))
+                (cpp-type (cpp-type-name name))))
+        (namespace (ctypecase namespace
+                     (list namespace)
+                     (string (split-namespace-string namespace)))))
+    (when (typestring-qualified-p name)
+      (error "Using the qualified name ~S with ~S" name
+             'find-cpp-enum-ascending))
+    (let ((cpp-enums
+            (remove-if-not
+             (lambda (cpp-type)
+               (and (string= name (cpp-type-name cpp-type))
+                    (prefix-of-p (cpp-type-extended-namespace cpp-type)
+                                 namespace :test #'string=)))
+             *cpp-enums*)))
+      (and cpp-enums
+           (minimize
+            cpp-enums
+            :test #'>
+            :key (lambda (cpp-type)
+                   (length (cpp-type-extended-namespace cpp-type))))))))
+
+(defun find-cpp-enum-descending (name &optional namespace)
+  "Find an instance of CPP-ENUM in the enum registry by searching downwards
+from the given namespace.
+
+The arguments NAME and NAMESPACE work just the same as in FIND-CPP-ENUM, except
+that:
+
+- NAME cannot be a qualified name.
+
+- If NAME is a CPP-TYPE instance, then it is treated as the
+  string (cpp-type-name name)."
+  (check-type name (or symbol string cpp-type))
+  (check-type namespace (or nil string list))
+  (let ((name (ctypecase name
+                (string name)
+                (symbol (cpp-name-for-class name))))
+        (namespace (ctypecase namespace
+                     (list namespace)
+                     (string (split-namespace-string namespace)))))
+    (when (typestring-qualified-p name)
+      (error "Using the qualified name ~S with an iterative traversal" name))
+    (let ((cpp-enums
+            (remove-if-not
+             (lambda (cpp-type)
+               (and (string= name (cpp-type-name cpp-type))
+                    (prefix-of-p namespace
+                                 (cpp-type-extended-namespace cpp-type)
+                                 :test #'string=)))
+             *cpp-enums*)))
+      (and cpp-enums
+           (minimize
+            cpp-enums
+            :key (lambda (cpp-type)
+                   (length (cpp-type-extended-namespace cpp-type))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Type queries
+
+(defun cpp-enum-p (object)
+  "Test whether OBJECT is an instance of CPP-ENUM."
+  (typep object 'cpp-enum))
+
+(defun cpp-class-p (object)
+  "Test whether OBJECT is an instance of CPP-CLASS."
+  (typep object 'cpp-class))
+
+(defun cpp-type-supported-p (general-cpp-type)
+  "Test whether the given GENERAL-CPP-TYPE instance is a supported type (i.e.
+not an instance of UNSUPPORTED-CPP-TYPE)."
+  (check-type general-cpp-type general-cpp-type)
+  (not (typep general-cpp-type 'unsupported-cpp-type)))
+
+(defun cpp-type-known-p (general-cpp-type)
+  "Test whether the given GENERAL-CPP-TYPE instance is a known type."
+  (check-type general-cpp-type general-cpp-type)
+  (or (cpp-class-p general-cpp-type) (cpp-enum-p general-cpp-type)))
+
+(defun cpp-type-primitive-p (cpp-type)
+  "Test whether CPP-TYPE represents a primitive C++ type."
+  (check-type cpp-type cpp-type)
+  (and (null (cpp-type-namespace cpp-type))
+       (null (cpp-type-enclosing-classes cpp-type))
+       (null (cpp-type-type-params cpp-type))
+       (null (cpp-type-type-args cpp-type))
+       (member (cpp-type-name cpp-type) +cpp-primitive-type-names+
+               :test #'string=)
+       t))
+
+(defun cpp-type-raw-pointer-p (cpp-type)
+  "Test whether CPP-TYPE represents a raw pointer type."
+  (check-type cpp-type cpp-type)
+  (string= (cpp-type-name cpp-type) "*"))
+
+(defun cpp-type-reference-p (cpp-type)
+  "Test whether CPP-TYPE represents a reference type."
+  (check-type cpp-type cpp-type)
+  (string= (cpp-type-name cpp-type) "*"))
+
+(defun cpp-type-smart-pointer-p (cpp-type)
+  "Test whether CPP-TYPE represents a smart pointer type."
+  (check-type cpp-type cpp-type)
+  (and (cpp-type-class-template-instantiation-p cpp-type)
+       (member (cpp-type-name cpp-type) '("shared_ptr" "unique_ptr")
+               :test #'string=)
+       t))
+
+(defun cpp-type-pointer-p (cpp-type)
+  "Test whether CPP-TYPE represents either a raw or a smart pointer type."
+  (check-type cpp-type cpp-type)
+  (or (cpp-type-raw-pointer-p cpp-type)
+      (cpp-type-smart-pointer-p cpp-type)))
+
+(defun cpp-type-simple-class-p (cpp-type)
+  "Test whether CPP-TYPE represents a simple class (class which is not a class
+template instantiation)."
+  (check-type cpp-type cpp-type)
+  (and (not (cpp-type-primitive-p cpp-type))
+       (not (cpp-type-type-params cpp-type))
+       (not (cpp-type-type-args cpp-type))))
+
+(defun cpp-type-class-template-p (cpp-type)
+  "Test whether CPP-TYPE represents a class template."
+  (check-type cpp-type cpp-type)
+  (and (not (cpp-type-raw-pointer-p cpp-type))
+       (not (cpp-type-reference-p cpp-type))
+       (cpp-type-type-params cpp-type)
+       t))
+
+(defun cpp-type-class-template-instantiation-p (cpp-type)
+  "Test whether CPP-TYPE represents a class template instantiation."
+  (check-type cpp-type cpp-type)
+  (and (not (member (cpp-type-name cpp-type) '("*" "&") :test #'string=))
+       (cpp-type-type-args cpp-type)
+       t))
+
+(defun cpp-type-class-p (cpp-type)
+  "Test whether CPP-TYPE represents either a simple class or a class template
+instantiation."
+  (check-type cpp-type cpp-type)
+  (or (cpp-type-simple-class-p cpp-type)
+      (cpp-type-class-template-instantiation-p cpp-type)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Resolution
+
+(defun resolve-typestring-for-super-class (typestring cpp-class)
+  "Resolve the typestring TYPESTRING for a superclass. CPP-CLASS is the
+CPP-CLASS instance that subclasss the class named by the typestring and is used
+to perform proper relative lookup, if any."
+  (flet ((rec (cpp-type)
+           ;; NOTE: This will surely produce the original typestring because
+           ;; we only ever resolve typestrings that are either fully qualified
+           ;; or not qualified at all, both of which are preserved by the
+           ;; declaration parsing process.
+           (resolve-typestring-for-super-class
+            (cpp-type-decl
+             cpp-type :globalp (cpp-type-extended-namespace cpp-type))
+            cpp-class)))
+    (let* ((cpp-type (parse-cpp-type-declaration typestring))
+           (resolved (cond
+                       ((not cpp-type)
+                        (make-unsupported-cpp-type typestring))
+                       ((typestring-fully-qualified-p typestring)
+                        (or (find-cpp-class typestring)
+                            cpp-type))
+                       (t
+                        (or (find-cpp-class-ascending
+                             typestring (cpp-type-extended-namespace cpp-class))
+                            cpp-type)))))
+      (prog1 resolved
+        ;; Recursively resolve any type arguments, but only for supported types.
+        (when cpp-type
+          (setf (%cpp-type-type-args resolved)
+                (mapcar #'rec (cpp-type-type-args resolved))))))))
+
+(defun resolve-typestring-for-member (typestring cpp-class)
+  "Resolve the typestring TYPESTRING for the type of a member. CPP-CLASS is a
+CPP-CLASS instance that contains the CPP-MEMBER and is used in order to perform
+proper relative lookup, if any."
+  (flet ((rec (cpp-type)
+           (resolve-typestring-for-member
+            ;; NOTE: This will surely produce the original typestring because
+            ;; we only ever resolve typestrings that are either fully
+            ;; qualified or not qualified at all, both of which are preserved
+            ;; by the declaration parsing process.
+            (cpp-type-decl
+             cpp-type :globalp (cpp-type-extended-namespace cpp-type))
+            cpp-class)))
+    (let* ((cpp-type (parse-cpp-type-declaration typestring))
+           (resolved (cond
+                       ((not cpp-type)
+                        (make-unsupported-cpp-type typestring))
+                       ((typestring-fully-qualified-p typestring)
+                        (or (find-cpp-class typestring)
+                            (find-cpp-enum typestring)
+                            cpp-type))
+                       ((cpp-type-primitive-p cpp-type)
+                        cpp-type)
+                       (t
+                        ;; The types of members may be defined within the class
+                        ;; itself.
+                        (let ((namespace
+                                (append (cpp-type-extended-namespace cpp-class)
+                                        (list (cpp-type-name cpp-class)))))
+                          (or (find-cpp-class-ascending typestring namespace)
+                              (find-cpp-enum-ascending typestring namespace)
+                              cpp-type))))))
+      (prog1 resolved
+        ;; Recursively resolve any type arguments, but only for supported types.
+        (when cpp-type
+          (setf (%cpp-type-type-args resolved)
+                (mapcar #'rec (cpp-type-type-args resolved))))))))
+
+(defmethod cpp-class-super-classes ((cpp-class cpp-class))
+  "Return a list of GENERAL-CPP-TYPE instances which are the superclasses of the
+C++ class CPP-CLASS."
+  (mapcar
+   (lambda (typestring)
+     (resolve-typestring-for-super-class typestring cpp-class))
+   (%cpp-class-super-classes cpp-class)))
+
+(defmethod cpp-class-members (cpp-class)
+  (mapcar
+   (lambda (member)
+     (let ((member (copy-cpp-member member)))
+       (prog1 member
+         (setf (cpp-member-type member)
+               (resolve-typestring-for-member
+                (cpp-member-type member) cpp-class)))))
+   (%cpp-class-members cpp-class)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Type utilities
+
+(defun ensure-cpp-type (thing)
+  "Return a CPP-TYPE instance corresponding to the CPP-TYPE designator
+THING.
+
+- If THING is of type CPP-TYPE, return it.
+
+- If THING is a typestring designator it is coerced into a typestring as if by
+  ENSURE-TYPESTRING. The typestring is then parsed using
+  PARSE-CPP-TYPE-DECLARATION. If it is successfully parsed, return the resulting
+  CPP-TYPE instance. Otherwise, return an instance of UNSUPPORTED-CPP-TYPE."
+  (ctypecase thing
+    (cpp-type
+     thing)
+    ((or symbol string)
+     (let ((thing (ensure-typestring thing)))
+       (or (parse-cpp-type-declaration thing)
+           (make-unsupported-cpp-type thing))))))
+
+(defun cpp-class-direct-subclasses (cpp-class)
+  "Return a list of CPP-CLASS instances which are the direct subclasses of the
+C++ class CPP-CLASS."
+  (check-type cpp-class cpp-class)
+  ;; Reverse to get them in definition order.
+  (reverse
+   (remove-if-not
+    (lambda (subclass)
+      (member cpp-class
+              (remove-if-not #'cpp-type-supported-p
+                             (cpp-class-super-classes subclass))
+              :test #'cpp-type=))
+    *cpp-classes*)))
+
+(defun cpp-type-extended-namespace (cpp-type)
+  (check-type cpp-type cpp-type)
+  (append (cpp-type-namespace cpp-type) (cpp-type-enclosing-classes cpp-type)))
+
 (defun cpp-type-namespace-string (cpp-type)
-  "Return the namespace part of CPP-TYPE as a string ending with '::'.  When
+  "Return the namespace part of CPP-TYPE as a string ending with \"::\". When
 CPP-TYPE has no namespace, return an empty string."
+  (check-type cpp-type cpp-type)
   (format nil "~{~A::~}" (cpp-type-namespace cpp-type)))
 
-;; TODO: use CPP-TYPE, CPP-TYPE= and CPP-PRIMITIVE-TYPE-P in the rest of the
-;; code
-(defun cpp-type (type-designator)
-  "Coerce the CPP-TYPE designator TYPE-DESIGNATOR into a CPP-TYPE instance.
-
-- If TYPE-DESIGNATOR is an instance of CPP-TYPE, CPP-PRIMITIVE-TYPE or
-  CPP-CLASS, just return it.
-
-- If TYPE-DESIGNATOR is one of the keywords in +CPP-PRIMITIVE-TYPE-KEYWORDS+,
-  return an instance of CPP-PRIMITIVE-TYPE with the name being the result
-  of (string-downcase type-designator).
-
-- If TYPE-DESIGNATOR is any other symbol, return an instance of CPP-TYPE with
-  the name being the result of (remove #\- (string-capitalize type-designator)).
-
-- If TYPE-DESIGNATOR is a string, return an instance of CPP-TYPE with the name
-  being that string."
-  (ctypecase type-designator
-    ((or cpp-type cpp-primitive-type cpp-class)
-     type-designator)
-    (cpp-primitive-type-keywords
-     (make-cpp-primitive-type type-designator))
-    ((or symbol string)
-     (let ((primitive-type
-            (member type-designator +cpp-primitive-type-keywords+ :test #'string-equal)))
-       (if primitive-type
-           (make-cpp-primitive-type (car primitive-type))
-           (make-cpp-type
-            (if (symbolp type-designator)
-                (remove #\- (string-capitalize type-designator))
-                type-designator)))))))
-
-(defun find-cpp-class (cpp-class-name)
-  "Find `CPP-CLASS' in *CPP-CLASSES* by CPP-CLASS-NAME"
-  (check-type cpp-class-name (or symbol string))
-  ;; TODO: Find by full name
-  (if (stringp cpp-class-name)
-      (find cpp-class-name *cpp-classes* :key #'cpp-type-name :test #'string=)
-      (find cpp-class-name *cpp-classes* :key #'cpp-type-base-name)))
-
-(defun find-cpp-enum (cpp-enum-name)
-  "Find `CPP-ENUM' in *CPP-ENUMS* by CPP-ENUM-NAME"
-  (check-type cpp-enum-name (or symbol string))
-  (if (stringp cpp-enum-name)
-      (or (find (parse-cpp-type-declaration cpp-enum-name) *cpp-enums* :test #'cpp-type=)
-          (find cpp-enum-name *cpp-enums* :key #'cpp-type-name :test #'string=))
-      (find cpp-enum-name *cpp-enums* :key #'cpp-type-base-name)))
-
-(defun direct-subclasses-of (cpp-class)
-  "Find direct subclasses of CPP-CLASS from *CPP-CLASSES*"
-  (check-type cpp-class (or symbol cpp-class))
-  (let ((name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class))))
-    (reverse ;; reverse to get them in definition order
-     (remove-if (lambda (subclass)
-                  (not (member name (cpp-class-super-classes subclass))))
-                *cpp-classes*))))
-
-(defun cpp-type-decl (cpp-type &key (type-params t) (namespace t))
-  "Return the fully qualified name of given CPP-TYPE."
+(defun cpp-type-enclosing-classes-string (cpp-type)
+  "Return as a string the concatenation of the names of the enclosing classes of
+the type CPP-TYPE. The names are delimited with \"::\" and a trailing delimiter
+is included."
   (check-type cpp-type cpp-type)
-  (flet ((enclosing-classes (cpp-type)
-           (declare (type cpp-type cpp-type))
-           (let ((enclosing '()))
-             (loop
-                for class = cpp-type
-                then (find-cpp-class (cpp-type-enclosing-class class))
-                while class
-                do (push (cpp-type-name class) enclosing))
-             enclosing)))
-    (with-output-to-string (s)
-      (let ((ptr-pos (position #\* (cpp-type-name cpp-type))))
-        (cond
-          ((and ptr-pos (= 0 ptr-pos))
-           ;; Special handle pointer
-           (write-string (cpp-type-decl (car (cpp-type-type-args cpp-type))) s)
-           (format s " ~A" (cpp-type-name cpp-type)))
-          (t
-           (when namespace
-             (write-string (cpp-type-namespace-string cpp-type) s))
-           (format s "~{~A~^::~}" (enclosing-classes cpp-type))
-           (cond
-             ((cpp-type-type-args cpp-type)
-              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-decl
-                                               (cpp-type-type-args cpp-type))))
-             ((and type-params (cpp-type-type-params cpp-type))
-              (format s "<~{~A~^, ~}>" (cpp-type-type-params cpp-type))))))))))
+  (format nil "~{~A::~}" (cpp-type-enclosing-classes cpp-type)))
 
-(defvar *cpp-inner-types* nil
-  "List of cpp types defined inside an enclosing class or struct")
+(defun cpp-class-members-for-save (cpp-class)
+  (check-type cpp-class cpp-class)
+  (remove-if #'cpp-member-dont-save (cpp-class-members cpp-class)))
 
-(defvar *cpp-enclosing-class* nil
-  "Symbol name of the `CPP-CLASS' inside which inner types are defined.")
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Macros
+;;;
+;;; These provide a small DSL for defining enums and classes. The defined enums
+;;; and classes are automatically added to the global enum and class registries.
+;;;
+;;; *CPP-INNER-TYPES* and *CPP-ENCLOSING-CLASSES* are used to communicate (at
+;;; run-time, not macroexpansion-time) information between nested usages of the
+;;; macros. The expansions are such that any nested expansions will be evaluated
+;;; within a dynamic environment set up by the parent macro.
+
+(defvar *cpp-inner-types* :toplevel
+  "A list of CPP-TYPE instances defined within the current class being
+defined.")
+
+(defvar *cpp-enclosing-classes* nil
+  "A list of strings naming the enclosing classes of the current class being
+defined. The names are ordered from outermost to innermost enclosing class.")
 
 (defmacro define-enum (name values &rest options)
   "Define a C++ enum. Documentation is optional. The only options are
-  :documentation and :serialize. Syntax is:
+:documentation and :serialize. Syntax is:
 
 ;; (define-enum name
 ;;   (value1 value2 ...)
 ;;   (:enum-option option-value)*)"
-  (declare (type symbol name))
+  (check-type name (or symbol string))
   (let ((documentation (second (assoc :documentation options)))
         (enum (gensym (format nil "ENUM-~A" name))))
-    `(let ((,enum (make-instance 'cpp-enum
-                                 :name ',name
-                                 :documentation ,documentation
-                                 :values ',values
-                                 :namespace (reverse *cpp-namespaces*)
-                                 :enclosing-class *cpp-enclosing-class*
-                                 :serializep ,(if (assoc :serialize options) t))))
+    `(let ((,enum (make-instance
+                   'cpp-enum
+                   :documentation ',documentation
+                   :name ',(ensure-namestring-for-class name)
+                   :values ',(mapcar #'ensure-namestring-for-enumerator values)
+                   :namespace (reverse *cpp-namespaces*)
+                   :enclosing-classes (reverse *cpp-enclosing-classes*)
+                   :serializep ',(if (assoc :serialize options) t))))
        (prog1 ,enum
          (push ,enum *cpp-enums*)
-         (push ,enum *cpp-inner-types*)))))
+         (unless (eq *cpp-inner-types* :toplevel)
+           (push ,enum *cpp-inner-types*))))))
 
 (defmacro define-class (name super-classes slots &rest options)
   "Define a C++ class. Syntax is:
@@ -422,7 +1067,7 @@ CPP-TYPE has no namespace, return an empty string."
 ;;   (:class-option option-value)*)
 
 Class name may be a list where the first element is the class name, while
-others are template arguments.
+others are template parameters.
 
 For example:
 
@@ -476,49 +1121,205 @@ Generates C++:
 ;; };"
   (let ((structp (second (assoc :structp options))))
     (flet ((parse-slot (slot-name type &rest kwargs
-                                  &key reader scope &allow-other-keys)
+                        &key reader scope &allow-other-keys)
              (let ((scope (if scope scope (if structp :public :private))))
                (when (and structp reader (eq :private scope))
                  (error "Slot ~A is declared private with reader in a struct. You should use define-class" slot-name))
                (when (and structp reader (eq :public scope))
                  (error "Slot ~A is public, you shouldn't specify :reader" slot-name))
-               `(make-cpp-member :symbol ',slot-name :type ,type :scope ,scope
-                                 ,@kwargs))))
-      (let ((members (mapcar (lambda (s) (apply #'parse-slot s)) slots))
-            (class-name (if (consp name) (car name) name))
-            (type-params (when (consp name) (cdr name)))
-            (class (gensym (format nil "CLASS-~A" name)))
-            (serialize (cdr (assoc :serialize options)))
-            (abstractp (second (assoc :abstractp options))))
+               `(make-cpp-member
+                 :name ',(ensure-namestring-for-member
+                          slot-name :structp structp)
+                 :type (process-typestring (ensure-typestring ',type))
+                 :scope ',scope
+                 ,@kwargs))))
+      (let* ((name (alexandria:ensure-list name))
+             (class-name (ensure-namestring-for-class (car name)))
+             (type-params (mapcar #'ensure-namestring-for-type-param (cdr name)))
+             (class (gensym (format nil "CLASS-~A" class-name)))
+             (serialize (cdr (assoc :serialize options)))
+             (abstractp (second (assoc :abstractp options)))
+             (members (mapcar (lambda (s) (apply #'parse-slot s))
+                              slots)))
         `(let ((,class
-                (let ((*cpp-inner-types* nil)
-                      (*cpp-enclosing-class* ',class-name))
-                  (make-instance 'cpp-class
-                                 :name ',class-name :super-classes ',super-classes
-                                 :type-params ',type-params
-                                 :structp ,(second (assoc :structp options))
-                                 :members (list ,@members)
-                                 :documentation ,(second (assoc :documentation options))
-                                 :public (list ,@(cdr (assoc :public options)))
-                                 :protected (list ,@(cdr (assoc :protected options)))
-                                 :private (list ,@(cdr (assoc :private options)))
-                                 :slk-opts ,(when (assoc :slk serialize)
-                                              `(make-slk-opts ,@(cdr (assoc :slk serialize))))
-                                 :clone-opts ,(when (assoc :clone options)
-                                                `(make-clone-opts ,@(cdr (assoc :clone options))))
-                                 :type-info-opts (make-type-info-opts ,@(when (assoc :type-info options)
-                                                                          (cdr (assoc :type-info options))))
-                                 :abstractp ,abstractp
-                                 :namespace (reverse *cpp-namespaces*)
-                                 ;; Set inner types at the end. This works
-                                 ;; because CL standard specifies order of
-                                 ;; evaluation from left to right.
-                                 :inner-types *cpp-inner-types*))))
+                 (let ((*cpp-inner-types* '())
+                       (*cpp-enclosing-classes*
+                         (cons ',class-name *cpp-enclosing-classes*)))
+                   (make-instance
+                    'cpp-class
+                    :name ,class-name
+                    :type-params ',type-params
+                    :structp ,(second (assoc :structp options))
+                    :documentation ',(second (assoc :documentation options))
+                    :public (list ,@(cdr (assoc :public options)))
+                    :protected (list ,@(cdr (assoc :protected options)))
+                    :private (list ,@(cdr (assoc :private options)))
+                    :slk-opts
+                    ,(when (assoc :slk serialize)
+                       `(make-slk-opts ,@(cdr (assoc :slk serialize))))
+                    :clone-opts
+                    ,(when (assoc :clone options)
+                       `(make-clone-opts ,@(cdr (assoc :clone options))))
+                    :type-info-opts
+                    (make-type-info-opts ,@(when (assoc :type-info options)
+                                             (cdr (assoc :type-info options))))
+                    :abstractp ',abstractp
+                    :namespace (reverse *cpp-namespaces*)
+                    ;; Set the inner types at the end. This works because CL
+                    ;; specifies the order of evaluation from left to right.
+                    :inner-types *cpp-inner-types*))))
            (prog1 ,class
              (push ,class *cpp-classes*)
              ;; Set the parent's inner types
-             (push ,class *cpp-inner-types*)
-             (setf (cpp-type-enclosing-class ,class) *cpp-enclosing-class*)))))))
+             (unless (eq *cpp-inner-types* :toplevel)
+               (push ,class *cpp-inner-types*))
+             (setf (%cpp-type-enclosing-classes ,class)
+                   (reverse *cpp-enclosing-classes*))
+             (setf (%cpp-class-super-classes ,class)
+                   (mapcar (lambda (super-class)
+                             (process-typestring
+                              (ensure-typestring super-class)))
+                           ',super-classes))
+             (setf (%cpp-class-members ,class) (list ,@members))))))))
 
 (defmacro define-struct (name super-classes slots &rest options)
+  "The same as DEFINE-CLASS, except that a struct is defined instead (by passing
+T to the :STRUCTP option)."
   `(define-class ,name ,super-classes ,slots (:structp t) ,@options))
+
+(defun rpc-constructors (class-name members)
+  "Generate C++ code for an RPC's constructors.
+
+CLASS-NAME is the name of the class whose constructors to generate. MEMBERS
+should be a list of members as in DEFINE-RPC. Detailed documentation regarding
+the constructors and various options can be found within DEFINE-RPC."
+  (let* ((members (remove-if (lambda (member)
+                               (let ((initarg (member :initarg member)))
+                                 (and initarg (null (second initarg)))))
+                             members))
+         (args
+           (mapcar
+            (lambda (member)
+              (list (ensure-typestring (second member))
+                    (ensure-namestring-for-member (first member) :structp t)))
+            members))
+         (init-list
+           (mapcar
+            (lambda (member)
+              (let ((var (ensure-namestring-for-variable (first member)))
+                    (movep (eq :move (second (member :initarg member)))))
+                (list var (if movep
+                              (format nil "std::move(~A)" var)
+                              var))))
+            members))
+         (full-constructor
+           (with-output-to-string (s)
+             (when members
+               (format s "~A ~A(~:{~A ~A~:^, ~}) : ~:{~A(~A)~:^, ~} {}"
+                       (if (= (length members) 1) "explicit" "")
+                       class-name args init-list)))))
+    #>cpp
+    ${class-name}() {}
+    ${full-constructor}
+    cpp<#))
+
+(defun rpc-save-load (name)
+  "Generate SLK's `Save` and `Load` functions for a request or response RPC
+structure named by the string NAME."
+  ;; TODO: Replace FIND-CPP-CLASS-DESCENDING.
+  `(let ((class (find-cpp-class-descending ,name)))
+     (unless (lcp.slk::save-extra-args class)
+       (push ,(progn
+                #>cpp
+                  static void Save(const ${name} &self, slk::Builder *builder);
+                cpp<#)
+             (cpp-class-public class))
+       (in-impl
+        ,(progn
+           #>cpp
+             void ${name}::Save(const ${name} &self, slk::Builder *builder) {
+               slk::Save(self, builder);
+             }
+           cpp<#)))
+     (unless (lcp.slk::load-extra-args class)
+       (push ,(progn #>cpp
+                       static void Load(${name} *self, slk::Reader *reader);
+                     cpp<#)
+             (cpp-class-public class))
+       (in-impl
+        ,(progn
+           #>cpp
+             void ${name}::Load(${name} *self, slk::Reader *reader) {
+               slk::Load(self, reader);
+             }
+           cpp<#)))))
+
+(defmacro define-rpc (name &body options)
+  "Define an RPC. Two structures are defined, representing the request and
+the response for the given RPC.
+
+NAME should designate a namestring for a class, which is used to produce the
+names of the two structures. OPTIONS should be an alist of options.
+
+The names of the structures are formed by concatenating the namestring NAME with
+\"Req\" and \"Res\".
+
+The two options :REQUEST and :RESPONSE are mandatory. Their bodies should be
+similar to the body of DEFINE-STRUCT, i.e. (SLOTS STRUCT-OPTION*). Their bodies
+will be passed to DEFINE-STRUCT, but with any DEFINE-RPC-specific member and
+structure options removed.
+
+DEFINE-RPC introduces an extra member option :INITARG that is described below.
+
+For both structures two constructors are generated:
+
+- A default constructor that does no explicit initialization of members.
+
+- A user-defined constructor that accepts values and initializes members
+  according to their :INITARG option, in order of appearance.
+
+  If the :INITARG option is omitted or NIL, the constructor doesn't accept a
+  value for the member and the member is not explicitly initialized.
+
+  If the :INITARG option is true, the constructor accepts a value for the member
+  and the member is copy-initialized.
+
+  If the :INITARG option is :MOVE, the constructor accepts a value for the
+  member and the member is move-initialized using `std::move`.
+
+  If the constructor ends up accepting just one member, it is marked
+  `explicit`.
+
+  If the constructor ends up accepting no members, it is not generated."
+  (flet ((remove-rpc-options (body)
+           `(,(mapcar
+               (lambda (member)
+                 `(,(first member)
+                   ,(second member)
+                   ,@(alexandria:remove-from-plist (cddr member) :initarg)))
+               (car body))
+             ,@(cdr body))))
+    (let* ((name (ensure-namestring-for-class name))
+           (rpc-name (format nil "~ARpc" name))
+           (req-name (format nil "~AReq" name))
+           (res-name (format nil "~ARes" name))
+           (rpc-decl
+             #>cpp
+             using ${rpc-name} = communication::rpc::RequestResponse<${req-name}, ${res-name}>;
+             cpp<#)
+           (request-body (cdr (assoc :request options)))
+           (response-body (cdr (assoc :response options))))
+      `(cpp-list
+        (define-struct ,req-name ()
+          ,@(remove-rpc-options request-body)
+          (:public
+           ,(rpc-constructors req-name (first request-body)))
+          (:serialize (:slk)))
+        ,(rpc-save-load req-name)
+        (define-struct ,res-name ()
+          ,@(remove-rpc-options response-body)
+          (:public
+           ,(rpc-constructors res-name (first response-body)))
+          (:serialize (:slk)))
+        ,(rpc-save-load res-name)
+        ,rpc-decl))))

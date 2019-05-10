@@ -1,6 +1,6 @@
-;;;; This file contains code generation for serialization to our Save Load
-;;;; Kit (SLK).  It works very similarly to Cap'n Proto serialization, but
-;;;; without the schema generation.
+;;;; This file contains code generation for serialization to our Save Load Kit
+;;;; (SLK). It works very similarly to Cap'n Proto serialization, but without
+;;;; the schema generation.
 
 (in-package #:lcp.slk)
 
@@ -26,94 +26,94 @@
           supers))))
 
 (defun save-extra-args (cpp-class)
-  "Get additional arguments to Save function for CPP-CLASS.  Note, returned
-extra arguments are of the first class encountered when traversing the
-hierarchy from CPP-CLASS to parents."
+  "Get additional arguments to Save function for CPP-CLASS. Note, returned extra
+arguments are of the first class encountered when traversing the hierarchy from
+CPP-CLASS to parents."
   (let ((opts (lcp::cpp-class-slk-opts cpp-class)))
     (if (and opts (lcp::slk-opts-save-args opts))
         (lcp::slk-opts-save-args opts)
         (let ((parents (cpp-class-super-classes-for-slk cpp-class)))
           (dolist (parent parents)
-            (let ((parent-class (lcp::find-cpp-class parent)))
-              (when parent-class
-                (return (save-extra-args parent-class)))))))))
+            (when (lcp::cpp-type-known-p parent)
+              (return (save-extra-args parent))))))))
 
 (defun load-extra-args (cpp-class)
-  "Get additional arguments to Load function for CPP-CLASS.  Note, returned
-extra arguments are of the first class encountered when traversing the
-hierarchy from CPP-CLASS to parents."
+  "Get additional arguments to Load function for CPP-CLASS. Note, returned extra
+arguments are of the first class encountered when traversing the hierarchy from
+CPP-CLASS to parents."
   (let ((opts (lcp::cpp-class-slk-opts cpp-class)))
     (if (and opts (lcp::slk-opts-load-args opts))
         (lcp::slk-opts-load-args opts)
         (let ((parents (cpp-class-super-classes-for-slk cpp-class)))
           (dolist (parent parents)
-            (let ((parent-class (lcp::find-cpp-class parent)))
-              (when parent-class
-                (return (load-extra-args parent-class)))))))))
+            (when (lcp::cpp-type-known-p parent)
+              (return (load-extra-args parent))))))))
 
 (defun save-function-declaration-for-class (cpp-class)
-  "Generate SLK save function declaration for CPP-CLASS.  Note that the code
+  "Generate SLK save function declaration for CPP-CLASS. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-class lcp::cpp-class)
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to save templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
-  (when (< 1 (list-length (cpp-class-super-classes-for-slk cpp-class)))
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to save class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
+  (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to save multiple parents of '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+               (lcp::cpp-type-name cpp-class)))
   (let ((self-arg
-         (list 'self (format nil "const ~A &"
-                             (lcp::cpp-type-decl cpp-class))))
+          (list 'self (format nil "const ~A &"
+                              (lcp::cpp-type-decl cpp-class))))
         (builder-arg (list 'builder "slk::Builder *")))
     (lcp::cpp-function-declaration
-     "Save" :args (cons self-arg (cons builder-arg (save-extra-args cpp-class)))
-     :type-params (lcp::cpp-type-type-params cpp-class))))
+     "Save" :args (list* self-arg builder-arg (save-extra-args cpp-class))
+            :type-params (lcp::cpp-type-type-params cpp-class))))
 
 (defun construct-and-load-function-declaration-for-class (cpp-class)
-    "Generate SLK construct and load function declaration for CPP-CLASS.  This
-function needs to be used to load pointers to polymorphic types.  Note that
-the code generation expects the declarations and definitions to be in `slk`
+  "Generate SLK construct and load function declaration for CPP-CLASS. This
+function needs to be used to load pointers to polymorphic types. Note that the
+code generation expects the declarations and definitions to be in `slk`
 namespace."
   (check-type cpp-class lcp::cpp-class)
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to load templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
-  (when (< 1 (list-length (cpp-class-super-classes-for-slk cpp-class)))
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to load class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
+  (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to load multiple parents of '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+               (lcp::cpp-type-name cpp-class)))
   (let ((self-arg
-         (list 'self (format nil "std::unique_ptr<~A> *" (lcp::cpp-type-decl cpp-class))))
+          (list 'self (format nil "std::unique_ptr<~A> *"
+                              (lcp::cpp-type-decl cpp-class))))
         (reader-arg (list 'reader "slk::Reader *")))
     (lcp::cpp-function-declaration
-     "ConstructAndLoad" :args (cons self-arg (cons reader-arg (load-extra-args cpp-class)))
+     "ConstructAndLoad"
+     :args (list* self-arg reader-arg (load-extra-args cpp-class))
      :type-params (lcp::cpp-type-type-params cpp-class))))
 
 (defun load-function-declaration-for-class (cpp-class)
-  "Generate SLK load function declaration for CPP-CLASS.  Note that the code
+  "Generate SLK load function declaration for CPP-CLASS. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-class lcp::cpp-class)
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to load templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
-  (when (< 1 (list-length (cpp-class-super-classes-for-slk cpp-class)))
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to load class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
+  (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to load multiple parents of '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+               (lcp::cpp-type-name cpp-class)))
   (let ((self-arg
-         (list 'self (format nil "~A *" (lcp::cpp-type-decl cpp-class))))
+          (list 'self (format nil "~A *" (lcp::cpp-type-decl cpp-class))))
         (reader-arg (list 'reader "slk::Reader *")))
     (lcp::cpp-function-declaration
-     "Load" :args (cons self-arg (cons reader-arg (load-extra-args cpp-class)))
-     :type-params (lcp::cpp-type-type-params cpp-class))))
+     "Load" :args (list* self-arg reader-arg (load-extra-args cpp-class))
+            :type-params (lcp::cpp-type-type-params cpp-class))))
 
 (defun save-members (cpp-class)
-  "Generate code for saving members of CPP-CLASS.  Raise `SLK-ERROR' if the
+  "Generate code for saving members of CPP-CLASS. Raise `SLK-ERROR' if the
 serializable member has no public access."
   (with-output-to-string (s)
     (dolist (member (lcp::cpp-class-members-for-save cpp-class))
-      (let ((member-name (lcp::cpp-member-name member :struct (lcp::cpp-class-structp cpp-class))))
+      (let ((member-name (lcp::cpp-member-name member)))
         (when (not (eq :public (lcp::cpp-member-scope member)))
           (slk-error "Cannot save non-public member '~A' of '~A'"
-                     (lcp::cpp-member-symbol member) (lcp::cpp-type-base-name cpp-class)))
+                     (lcp::cpp-member-name member) (lcp::cpp-type-name cpp-class)))
         (cond
           ((lcp::cpp-member-slk-save member)
            ;; Custom save function
@@ -122,10 +122,10 @@ serializable member has no public access."
                                                  member-name))
                          s)))
           ;; TODO: Maybe support saving (but not loading) unique_ptr.
-          ((lcp::cpp-pointer-type-p (lcp::cpp-member-type member))
+          ((lcp::cpp-type-pointer-p (lcp::cpp-member-type member))
            (slk-error "Don't know how to save pointer '~A' in '~A'"
-                      (lcp::cpp-member-type member)
-                      (lcp::cpp-type-base-name cpp-class)))
+                      (lcp::cpp-type-decl (lcp::cpp-member-type member))
+                      (lcp::cpp-type-name cpp-class)))
           ;; TODO: Extra args for cpp-class members
           (t
            (format s "slk::Save(self.~A, builder);~%" member-name)))))))
@@ -137,14 +137,14 @@ serializable member has no public access."
              (lcp::cpp-class-members cpp-class)))
 
 (defun load-members (cpp-class)
-  "Generate code for loading members of CPP-CLASS.  Raise `SLK-ERROR' if the
+  "Generate code for loading members of CPP-CLASS. Raise `SLK-ERROR' if the
 serializable member has no public access."
   (with-output-to-string (s)
     (dolist (member (members-for-load cpp-class))
-      (let ((member-name (lcp::cpp-member-name member :struct (lcp::cpp-class-structp cpp-class))))
+      (let ((member-name (lcp::cpp-member-name member)))
         (when (not (eq :public (lcp::cpp-member-scope member)))
           (slk-error "Cannot save non-public member '~A' of '~A'"
-                     (lcp::cpp-member-symbol member) (lcp::cpp-type-base-name cpp-class)))
+                     (lcp::cpp-member-name member) (lcp::cpp-type-name cpp-class)))
         (cond
           ((lcp::cpp-member-slk-load member)
            ;; Custom load function
@@ -152,89 +152,91 @@ serializable member has no public access."
              (write-line (lcp::cpp-code (funcall (lcp::cpp-member-slk-load member)
                                                  member-name))
                          s)))
-          ((lcp::cpp-pointer-type-p (lcp::cpp-member-type member))
+          ((lcp::cpp-type-pointer-p (lcp::cpp-member-type member))
            (slk-error "Don't know how to load pointer '~A' in '~A'"
-                      (lcp::cpp-member-type member)
-                      (lcp::cpp-type-base-name cpp-class)))
+                      (lcp::cpp-type-decl (lcp::cpp-member-type member))
+                      (lcp::cpp-type-name cpp-class)))
           ;; TODO: Extra args for cpp-class members
           (t
            (format s "slk::Load(&self->~A, reader);~%" member-name)))))))
 
 (defun save-parents-recursively (cpp-class)
-  "Generate code for saving members of all parents, recursively.  Raise
-`SLK-ERROR' if trying to save templated parent class or if using multiple
-inheritance."
-  (when (< 1 (list-length (cpp-class-super-classes-for-slk cpp-class)))
+  "Generate code for saving members of all parents, recursively. Raise
+`SLK-ERROR' if CPP-CLASS has multiple superclasses or if any ancestor is a class
+template."
+  (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to save multiple parents of '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+               (lcp::cpp-type-name cpp-class)))
   (with-output-to-string (s)
     (dolist (parent (cpp-class-super-classes-for-slk cpp-class))
-      (let ((parent-class (lcp::find-cpp-class parent)))
-        (cond
-          ((not parent-class)
-           (slk-error
-            "Class '~A' has an unknown parent '~A', serialization is incomplete. Did you forget to mark '~A' as base?"
-            (lcp::cpp-type-base-name cpp-class) parent (lcp::cpp-type-base-name cpp-class)))
-          ((lcp::cpp-type-type-params parent-class)
-           (slk-error "Don't know how to save templated parent class '~A'"
-                      (lcp::cpp-type-base-name parent-class)))
-          (t
-           (format s "// Save parent ~A~%" (lcp::cpp-type-name parent))
-           (lcp::with-cpp-block-output (s)
-             (write-string (save-parents-recursively parent-class) s)
-             (write-string (save-members parent-class) s))))))))
+      (cond
+        ((not (lcp::cpp-type-known-p parent))
+         (slk-error
+          "Class '~A' has an unknown parent '~A', serialization is incomplete. Did you forget to mark '~A' as base?"
+          (lcp::cpp-type-name cpp-class)
+          (lcp::cpp-type-name parent)
+          (lcp::cpp-type-name cpp-class)))
+        ((lcp::cpp-type-class-template-p parent)
+         (slk-error "Don't know how to save parent class template '~A'"
+                    (lcp::cpp-type-name parent)))
+        (t
+         (format s "// Save parent ~A~%" (lcp::cpp-type-name parent))
+         (lcp::with-cpp-block-output (s)
+           (write-string (save-parents-recursively parent) s)
+           (write-string (save-members parent) s)))))))
 
 (defun load-parents-recursively (cpp-class)
-  "Generate code for loading members of all parents, recursively.  Raise
-`SLK-ERROR' if trying to load templated parent class or if using multiple
-inheritance."
-  (when (< 1 (list-length (cpp-class-super-classes-for-slk cpp-class)))
+  "Generate code for loading members of all parents, recursively. Raise
+`SLK-ERROR' if CPP-CLASS has multiple superclasses or if any ancestor is a class
+template."
+  (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to load multiple parents of '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+               (lcp::cpp-type-name cpp-class)))
   (with-output-to-string (s)
     (dolist (parent (cpp-class-super-classes-for-slk cpp-class))
-      (let ((parent-class (lcp::find-cpp-class parent)))
-        (cond
-          ((not parent-class)
-           (slk-error
-            "Class '~A' has an unknown parent '~A', serialization is incomplete. Did you forget to mark '~A' as base?"
-            (lcp::cpp-type-base-name cpp-class) parent (lcp::cpp-type-base-name cpp-class)))
-          ((lcp::cpp-type-type-params parent-class)
-           (slk-error "Don't know how to load templated parent class '~A'"
-                      (lcp::cpp-type-base-name parent-class)))
-          (t
-           (format s "// Load parent ~A~%" (lcp::cpp-type-name parent))
-           (lcp::with-cpp-block-output (s)
-             (write-string (load-parents-recursively parent-class) s)
-             (write-string (load-members parent-class) s))))))))
+      (cond
+        ((not (lcp::cpp-type-known-p parent))
+         (slk-error
+          "Class '~A' has an unknown parent '~A', serialization is incomplete. Did you forget to mark '~A' as base?"
+          (lcp::cpp-type-name cpp-class)
+          (lcp::cpp-type-name parent)
+          (lcp::cpp-type-name cpp-class)))
+        ((lcp::cpp-type-type-params parent)
+         (slk-error "Don't know how to load parent class template '~A'"
+                    (lcp::cpp-type-name parent)))
+        (t
+         (format s "// Load parent ~A~%" (lcp::cpp-type-name parent))
+         (lcp::with-cpp-block-output (s)
+           (write-string (load-parents-recursively parent) s)
+           (write-string (load-members parent) s)))))))
 
 (defun forward-save-to-subclasses (cpp-class)
   "Generate code which forwards the serialization to derived classes of
-CPP-CLASS.  Raise `SLK-ERROR' if a derived class has template parameters."
+CPP-CLASS. Raise `SLK-ERROR' if a derived class has template parameters."
   (with-output-to-string (s)
-    (let ((subclasses (lcp::direct-subclasses-of cpp-class)))
+    (let ((subclasses (lcp::cpp-class-direct-subclasses cpp-class)))
       (dolist (subclass subclasses)
-        (when (lcp::cpp-type-type-params subclass)
-          (slk-error "Don't know how to save derived templated class '~A'"
-                     (lcp::cpp-type-base-name subclass)))
+        (when (lcp::cpp-type-class-template-p subclass)
+          (slk-error "Don't know how to save derived class template '~A'"
+                     (lcp::cpp-type-name subclass)))
         (let ((derived-class (lcp::cpp-type-decl subclass))
-              (derived-var (lcp::cpp-variable-name (lcp::cpp-type-base-name subclass)))
+              (derived-var (lcp::cpp-name-for-variable (lcp::cpp-type-name subclass)))
               (extra-args (mapcar (lambda (name-and-type)
-                                    (lcp::cpp-variable-name (first name-and-type)))
+                                    (lcp::cpp-name-for-variable (first name-and-type)))
                                   (save-extra-args cpp-class))))
           (format s "if (const auto *~A_derived = utils::Downcast<const ~A>(&self)) {
                        return slk::Save(*~A_derived, builder~{, ~A~}); }~%"
                   derived-var derived-class derived-var extra-args))))))
 
 (defun save-function-code-for-class (cpp-class)
-  "Generate code for serializing CPP-CLASS.  Raise `SLK-ERROR' on unsupported
-C++ constructs, mostly related to templates."
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to save templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+  "Generate code for serializing CPP-CLASS. Raise `SLK-ERROR' on unsupported C++
+constructs, mostly related to templates."
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to save class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
   (with-output-to-string (s)
     (cond
-      ((lcp::direct-subclasses-of cpp-class)
+      ((lcp::cpp-class-direct-subclasses cpp-class)
        ;; We have more derived classes, so forward the call to them.
        (write-string (forward-save-to-subclasses cpp-class) s)
        (if (lcp::cpp-class-abstractp cpp-class)
@@ -255,16 +257,16 @@ C++ constructs, mostly related to templates."
        (write-string (save-members cpp-class) s)))))
 
 (defun construct-and-load-function-code-for-class (cpp-class)
-  "Generate code for serializing CPP-CLASS.  Raise `SLK-ERROR' on unsupported
-C++ constructs, mostly related to templates."
+  "Generate code for serializing CPP-CLASS. Raise `SLK-ERROR' on unsupported C++
+constructs, mostly related to templates."
   (assert (or (cpp-class-super-classes-for-slk cpp-class)
-              (lcp::direct-subclasses-of cpp-class)))
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to load templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+              (lcp::cpp-class-direct-subclasses cpp-class)))
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to load class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
   (labels ((concrete-subclasses-rec (class)
              (let ((concrete-classes nil))
-               (dolist (subclass (lcp::direct-subclasses-of class) concrete-classes)
+               (dolist (subclass (lcp::cpp-class-direct-subclasses class) concrete-classes)
                  (unless (lcp::cpp-class-abstractp subclass)
                    (push subclass concrete-classes))
                  (setf concrete-classes
@@ -277,9 +279,9 @@ C++ constructs, mostly related to templates."
           (push cpp-class concrete-classes))
         (dolist (concrete-class concrete-classes)
           (let ((type-decl (lcp::cpp-type-decl concrete-class))
-                (var-name (lcp::cpp-variable-name (lcp::cpp-type-base-name concrete-class)))
+                (var-name (lcp::cpp-name-for-variable (lcp::cpp-type-name concrete-class)))
                 (extra-args (mapcar (lambda (name-and-type)
-                                      (lcp::cpp-variable-name (first name-and-type)))
+                                      (lcp::cpp-name-for-variable (first name-and-type)))
                                     (load-extra-args cpp-class))))
             (lcp::with-cpp-block-output
                 (s :name (format nil "if (~A::kType.id == type_id)" type-decl))
@@ -289,25 +291,25 @@ C++ constructs, mostly related to templates."
         (write-line "throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");" s)))))
 
 (defun load-function-code-for-class (cpp-class)
-  "Generate code for serializing CPP-CLASS.  Raise `SLK-ERROR' on unsupported
-C++ constructs, mostly related to templates."
-  (when (lcp::cpp-type-type-params cpp-class)
-    (slk-error "Don't know how to load templated class '~A'"
-               (lcp::cpp-type-base-name cpp-class)))
+  "Generate code for serializing CPP-CLASS. Raise `SLK-ERROR' on unsupported C++
+constructs, mostly related to templates."
+  (when (lcp::cpp-type-class-template-p cpp-class)
+    (slk-error "Don't know how to load class template '~A'"
+               (lcp::cpp-type-name cpp-class)))
   (assert (not (lcp::cpp-class-abstractp cpp-class)))
   (with-output-to-string (s)
     ;; We are assuming that the generated code is called only in cases when we
     ;; really have this particular class instantiated and not any of the
     ;; derived ones.
-    (when (lcp::direct-subclasses-of cpp-class)
+    (when (lcp::cpp-class-direct-subclasses cpp-class)
       (format s "if (self->GetTypeInfo() != ~A::kType)~%" (lcp::cpp-type-decl cpp-class))
       (write-line "throw slk::SlkDecodeException(\"Trying to load incorrect derived type!\");" s))
     (write-string (load-parents-recursively cpp-class) s)
     (write-string (load-members cpp-class) s)))
 
 (defun save-function-definition-for-class (cpp-class)
-  "Generate SLK save function.  Raise `SLK-ERROR' if an unsupported or invalid
-class definition is encountered during code generation.  Note that the code
+  "Generate SLK save function. Raise `SLK-ERROR' if an unsupported or invalid
+class definition is encountered during code generation. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-class lcp::cpp-class)
   (with-output-to-string (cpp-out)
@@ -316,8 +318,8 @@ generation expects the declarations and definitions to be in `slk` namespace."
       (write-line (save-function-code-for-class cpp-class) cpp-out))))
 
 (defun load-function-definition-for-class (cpp-class)
-  "Generate SLK load function.  Raise `SLK-ERROR' if an unsupported or invalid
-class definition is encountered during code generation.  Note that the code
+  "Generate SLK load function. Raise `SLK-ERROR' if an unsupported or invalid
+class definition is encountered during code generation. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-class lcp::cpp-class)
   (with-output-to-string (cpp-out)
@@ -326,9 +328,9 @@ generation expects the declarations and definitions to be in `slk` namespace."
       (write-line (load-function-code-for-class cpp-class) cpp-out))))
 
 (defun construct-and-load-function-definition-for-class (cpp-class)
-  "Generate SLK construct and load function.  This function needs to be used
-to load pointers to polymorphic types.  Raise `SLK-ERROR' if an unsupported or
-invalid class definition is encountered during code generation.  Note that the
+  "Generate SLK construct and load function. This function needs to be used to
+load pointers to polymorphic types. Raise `SLK-ERROR' if an unsupported or
+invalid class definition is encountered during code generation. Note that the
 code generation expects the declarations and definitions to be in `slk`
 namespace."
   (check-type cpp-class lcp::cpp-class)
@@ -340,7 +342,7 @@ namespace."
 ;;; CPP-ENUM serialization generation
 
 (defun save-function-declaration-for-enum (cpp-enum)
-  "Generate SLK save function declaration for CPP-ENUM.  Note that the code
+  "Generate SLK save function declaration for CPP-ENUM. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
   (let ((self-arg
@@ -352,16 +354,16 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (with-output-to-string (s)
     (write-line "uint8_t enum_value;" s)
     (lcp::with-cpp-block-output (s :name "switch (self)")
-      (loop for enum-value in (lcp::cpp-enum-values cpp-enum)
-         and enum-ix from 0 do
-           (format s "case ~A::~A: enum_value = ~A; break;"
-                   (lcp::cpp-type-decl cpp-enum)
-                   (lcp::cpp-enumerator-name enum-value)
-                   enum-ix)))
+      (loop :for enum-value :in (lcp::cpp-enum-values cpp-enum)
+            :and enum-ix :from 0 :do
+              (format s "case ~A::~A: enum_value = ~A; break;"
+                      (lcp::cpp-type-decl cpp-enum)
+                      enum-value
+                      enum-ix)))
     (write-line "slk::Save(enum_value, builder);" s)))
 
 (defun save-function-definition-for-enum (cpp-enum)
-  "Generate SLK save function.  Note that the code generation expects the
+  "Generate SLK save function. Note that the code generation expects the
 declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
   (with-output-to-string (cpp-out)
@@ -370,7 +372,7 @@ declarations and definitions to be in `slk` namespace."
       (write-line (save-function-code-for-enum cpp-enum) cpp-out))))
 
 (defun load-function-declaration-for-enum (cpp-enum)
-  "Generate SLK load function declaration for CPP-ENUM.  Note that the code
+  "Generate SLK load function declaration for CPP-ENUM. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
   (let ((self-arg
@@ -383,16 +385,16 @@ generation expects the declarations and definitions to be in `slk` namespace."
     (write-line "uint8_t enum_value;" s)
     (write-line "slk::Load(&enum_value, reader);" s)
     (lcp::with-cpp-block-output (s :name "switch (enum_value)")
-      (loop for enum-value in (lcp::cpp-enum-values cpp-enum)
-         and enum-ix from 0 do
-           (format s "case static_cast<uint8_t>(~A): *self = ~A::~A; break;"
-                   enum-ix
-                   (lcp::cpp-type-decl cpp-enum)
-                   (lcp::cpp-enumerator-name enum-value)))
+      (loop :for enum-value :in (lcp::cpp-enum-values cpp-enum)
+            :and enum-ix :from 0 :do
+              (format s "case static_cast<uint8_t>(~A): *self = ~A::~A; break;"
+                      enum-ix
+                      (lcp::cpp-type-decl cpp-enum)
+                      enum-value))
       (write-line "default: throw slk::SlkDecodeException(\"Trying to load unknown enum value!\");" s))))
 
 (defun load-function-definition-for-enum (cpp-enum)
-  "Generate SLK save function.  Note that the code generation expects the
+  "Generate SLK save function. Note that the code generation expects the
 declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
   (with-output-to-string (cpp-out)

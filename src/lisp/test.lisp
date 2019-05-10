@@ -30,19 +30,33 @@
 (in-package #:lcp.test)
 
 (defun same-type-test (a b)
-  "Test whether A and B are the same C++ type under LCP::CPP-TYPE=."
-  (is a b :test #'lcp::cpp-type=))
+  "Test whether two CPP-TYPE designators, A and B, designate CPP-TYPE= CPP-TYPE
+instances."
+  (is (lcp::ensure-cpp-type a) (lcp::ensure-cpp-type b) :test #'lcp::cpp-type=))
+
+(defun different-type-test (a b)
+  "Test whether two CPP-TYPE designators, A and B, designate non-CPP-TYPE=
+CPP-TYPE instances."
+  (isnt (lcp::ensure-cpp-type a) (lcp::ensure-cpp-type b)
+        :test #'lcp::cpp-type=))
 
 (defun parse-test (type-decl cpp-type)
   "Test whether TYPE-DECL parses as the C++ type designated by CPP-TYPE."
   (is (lcp::parse-cpp-type-declaration type-decl) cpp-type
       :test #'lcp::cpp-type=))
 
-(defun decl-test (type-decl cpp-type &key (type-params t) (namespace t))
-  "Test whether the C++ type designated by CPP-TYPE prints as TYPE-DECL."
-  (is (lcp::cpp-type-decl cpp-type
-                          :type-params type-params
-                          :namespace namespace)
+(defun fail-parse-test (type-decl)
+  "Test whether TYPE-DECL fails to parse."
+  (is (lcp::parse-cpp-type-declaration type-decl) nil))
+
+(defun decl-test (type-decl cpp-type &key (namespacep t) (type-params-p t))
+  "Test whether the C++ type declaration of CPP-TYPE, as produced by
+CPP-TYPE-DECL, matches the string TYPE-DECL.
+
+The keyword arguments NAMESPACEP and TYPE-PARAMS-P are forwarded to
+CPP-TYPE-DECL."
+  (is (lcp::cpp-type-decl cpp-type :type-params-p type-params-p
+                                   :namespacep namespacep)
       type-decl))
 
 (defun different-parse-test (type-decl1 type-decl2)
@@ -50,21 +64,28 @@
         (lcp::parse-cpp-type-declaration type-decl2)
         :test #'lcp::cpp-type=))
 
-(deftest "supported"
+(deftest "types"
+  (subtest "primitive"
+    (mapc (lambda (name)
+            (is (string-downcase name) name))
+          lcp::+cpp-primitive-type-names+))
   (subtest "designators"
-    (mapc (lambda (sym)
-            (let ((type (lcp::make-cpp-primitive-type sym)))
-              (same-type-test sym type)
-              (same-type-test (string-downcase sym) type)
-              (same-type-test (string-upcase sym) type)
-              (same-type-test (string-capitalize sym) type)
-              (same-type-test (intern (string sym)) type)
-              (same-type-test (intern (string-downcase sym)) type)
-              (same-type-test (intern (string-upcase sym)) type)
-              (same-type-test (intern (string-capitalize sym)) type)
-              (same-type-test (lcp::make-cpp-primitive-type sym)
-                              type)))
-          lcp::+cpp-primitive-type-keywords+)
+    (mapc (lambda (name)
+            (same-type-test name name)
+            (same-type-test (string-downcase name) name)
+            (different-type-test (string-upcase name) name)
+            (different-type-test (string-capitalize name) name)
+            (same-type-test (make-symbol (string name)) name)
+            (same-type-test (make-symbol (string-downcase name)) name)
+            (same-type-test (make-symbol (string-upcase name)) name)
+            (same-type-test (make-symbol (string-capitalize name)) name)
+            (same-type-test
+             (lcp::make-cpp-type (string-downcase name)) name)
+            (different-type-test
+             (lcp::make-cpp-type (string-upcase name)) name)
+            (different-type-test
+             (lcp::make-cpp-type (string-capitalize name)) name))
+          lcp::+cpp-primitive-type-names+)
     (mapc (lambda (sym)
             (let ((type (lcp::make-cpp-type "MyClass")))
               (same-type-test sym type)))
@@ -78,26 +99,24 @@
     (parse-test "char *"
                 (lcp::make-cpp-type "*" :type-args '(:char)))
 
-    (parse-test "::std::pair<my_space::MyClass<std::function<void(int, bool)>, double>, char>"
-                (lcp::make-cpp-type
-                 "pair"
-                 :namespace'("" "std")
-                 :type-args
-                 `(,(lcp::make-cpp-type
-                     "MyClass"
-                     :namespace '("my_space")
-                     :type-args
-                     `(,(lcp::make-cpp-type
-                         "function"
-                         :namespace '("std")
-                         :type-args '("void(int, bool)"))
-                       :double))
-                    :char)))
-
     (parse-test "::my_namespace::EnclosingClass::Thing"
-                (lcp::make-cpp-type "Thing"
-                                    :namespace '("" "my_namespace")
-                                    :enclosing-class "EnclosingClass")))
+                (lcp::make-cpp-type
+                 "Thing"
+                 :namespace '("" "my_namespace")
+                 :enclosing-classes '("EnclosingClass")))
+
+    ;; Unsupported constructs
+    (fail-parse-test
+     "::std::pair<my_space::MyClass<std::function<void(int, bool)>, double>, char>")
+    (fail-parse-test "char (*)[]")
+    (fail-parse-test "char (*)[4]")
+
+    ;; We don't handle ordering
+    (different-parse-test "const char" "char const")
+    (different-parse-test "volatile char" "char volatile")
+    (different-parse-test "const volatile char" "char const volatile")
+    (different-parse-test "const char *" "char const *")
+    (different-parse-test "volatile char *" "char volatile *"))
 
   (subtest "printing"
     (decl-test "pair<T1, T2>"
@@ -118,7 +137,7 @@
     (decl-test "pair"
                (lcp::make-cpp-type
                 "pair" :type-params '("TIntegral1" "TIntegral2"))
-               :type-params nil))
+               :type-params-p nil))
 
   (subtest "finding defined enums"
     (let ((lcp::*cpp-classes* nil)
@@ -150,19 +169,7 @@
       (ok (not (lcp::find-cpp-enum "my_namespace::NonExistent")))
       (ok (not (lcp::find-cpp-enum "::NonExistent"))))))
 
-(deftest "unsupported"
-  (subtest "cv-qualifiers"
-    (different-parse-test "const char" "char const")
-    (different-parse-test "volatile char" "char volatile")
-    (different-parse-test "const volatile char" "char const volatile")
-    (different-parse-test "const char *" "char const *")
-    (different-parse-test "volatile char *" "char volatile *"))
-
-  (subtest "arrays"
-    (different-parse-test "char (*)[]" "char (*) []")
-    (different-parse-test "char (*)[4]" "char (*) [4]")))
-
-(deftest "fnv-hash"
+(deftest "util"
   (subtest "fnv1a64"
     (is (lcp::fnv1a64-hash-string "query::plan::LogicalOperator")
         #xCF6E3316FE845113)
@@ -242,7 +249,7 @@
                      (:serialize (:slk :ignore-other-base-classes t))))
                   "void Save(const Derived &self, slk::Builder *builder)")
     (undefine-cpp-types)
-    ;; Unsupported template classes
+    ;; Unsupported class templates
     (is-error (lcp.slk:save-function-declaration-for-class
                (lcp:define-class (derived t-param) (base)
                  ()))
@@ -513,22 +520,22 @@
                        slk::Load(&self->derived_member, reader);
                      }"))
     (undefine-cpp-types)
-    (let ((base-templated-class (lcp:define-struct (base t-param) ()
+    (let ((base-class-template (lcp:define-struct (base t-param) ()
                                   ((base-member :bool))))
           (derived-class (lcp:define-struct derived (base)
                            ((derived-member :int64_t)))))
-      (is-error (lcp.slk:save-function-definition-for-class base-templated-class)
+      (is-error (lcp.slk:save-function-definition-for-class base-class-template)
                 'lcp.slk:slk-error)
       (is-error (lcp.slk:save-function-definition-for-class derived-class)
                 'lcp.slk:slk-error))
     (undefine-cpp-types)
     (let ((base-class (lcp:define-struct base ()
                         ((base-member :bool))))
-          (derived-templated-class (lcp:define-struct (derived t-param) (base)
+          (derived-class-template (lcp:define-struct (derived t-param) (base)
                                      ((derived-member :int64_t)))))
       (is-error (lcp.slk:save-function-definition-for-class base-class)
                 'lcp.slk:slk-error)
-      (is-error (lcp.slk:save-function-definition-for-class derived-templated-class)
+      (is-error (lcp.slk:save-function-definition-for-class derived-class-template)
                 'lcp.slk:slk-error))
 
     (undefine-cpp-types)
@@ -797,7 +804,7 @@
                            (:clone))))
         (is-error (lcp.clone:clone-function-definition-for-class child-class)
                   'lcp.clone:clone-error))
-      ;; template classes
+      ;; Class templates
       (undefine-cpp-types)
       (let ((container-class (lcp:define-class (my-container t-element) ()
                                ((data "TElement *")
@@ -962,7 +969,7 @@
         (single-member-test (member "std::shared_ptr<Klondike>")
                             "object.member_ = member_ ? member_->Clone() : nullptr;"))
       (subtest "enum"
-        (lcp:define-enum enum '(val1 val2 val3))
+        (lcp:define-enum enum (val1 val2 val3))
         (single-member-test (member "Enum")
                             "object.member_ = member_;"))
       (subtest "builtin c++ types"
@@ -992,5 +999,3 @@
       (single-member-test (member "UnknownClass")
                           "object.member_ = member_;")
       (undefine-cpp-types))))
-
-

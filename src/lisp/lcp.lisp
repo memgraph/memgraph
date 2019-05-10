@@ -4,69 +4,64 @@
 (in-package #:lcp)
 (named-readtables:in-readtable lcp-syntax)
 
-(defvar +vim-read-only+ "vim: readonly")
-(defvar +emacs-read-only+ "-*- buffer-read-only: t; -*-")
-
 (defvar *generating-cpp-impl-p* nil
   "T if we are currently writing the .cpp file.")
 
-(defun fnv1a64-hash-string (string)
-  "Produce (UNSIGNED-BYTE 64) hash of the given STRING using FNV-1a algorithm.
-See https://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash."
-  (check-type string string)
-  (let ((hash 14695981039346656037) ;; offset basis
-        (prime 1099511628211))
-    (declare (type (unsigned-byte 64) hash prime))
-    (loop for c across string do
-         (setf hash (mod (* (boole boole-xor hash (char-code c)) prime)
-                         (expt 2 64) ;; Fit to 64bit
-                         )))
-    hash))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; C++ code generation
 
 (defun cpp-enum-definition (cpp-enum)
   "Get C++ style `CPP-ENUM' definition as a string."
-  (declare (type cpp-enum cpp-enum))
+  (check-type cpp-enum cpp-enum)
   (with-output-to-string (s)
     (when (cpp-type-documentation cpp-enum)
       (write-line (cpp-documentation (cpp-type-documentation cpp-enum)) s))
     (with-cpp-block-output (s :name (format nil "enum class ~A" (cpp-type-name cpp-enum))
                               :semicolonp t)
-      (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-enumerator-name (cpp-enum-values cpp-enum))))))
+      (format s "~{ ~A~^,~%~}~%" (cpp-enum-values cpp-enum)))))
 
-(defun cpp-member-declaration (cpp-member &key struct)
+(defun cpp-member-declaration (cpp-member)
   "Get C++ style `CPP-MEMBER' declaration as a string."
-  (declare (type cpp-member cpp-member)
-           (type boolean struct))
-  (let ((type-name (cpp-type-name (cpp-member-type cpp-member))))
+  (check-type cpp-member cpp-member)
+  (let ((type-name (cpp-type-decl (cpp-member-type cpp-member))))
     (with-output-to-string (s)
       (when (cpp-member-documentation cpp-member)
         (write-line (cpp-documentation (cpp-member-documentation cpp-member)) s))
       (if (cpp-member-initval cpp-member)
-          (format s "~A ~A{~A};" type-name
-                  (cpp-member-name cpp-member :struct struct) (cpp-member-initval cpp-member))
-          (format s "~A ~A;" type-name (cpp-member-name cpp-member :struct struct))))))
+          (format s "~A ~A{~A};"
+                  type-name
+                  (cpp-member-name cpp-member)
+                  (cpp-member-initval cpp-member))
+          (format s "~A ~A;"
+                  type-name
+                  (cpp-member-name cpp-member))))))
 
 (defun cpp-member-reader-definition (cpp-member)
   "Get C++ style `CPP-MEMBER' getter (reader) function."
-  (declare (type cpp-member cpp-member))
-  (if (typep (cpp-member-type cpp-member) 'cpp-primitive-type-keywords)
-      (format nil "auto ~A() const { return ~A; }" (cpp-member-name cpp-member :struct t) (cpp-member-name cpp-member))
-      (format nil "const auto &~A() const { return ~A; }" (cpp-member-name cpp-member :struct t) (cpp-member-name cpp-member))))
+  (check-type cpp-member cpp-member)
+  (if (cpp-type-primitive-p (cpp-member-type cpp-member))
+      (format nil "auto ~A() const { return ~A; }"
+              (cpp-member-reader-name cpp-member)
+              (cpp-member-name cpp-member))
+      (format nil "const auto &~A() const { return ~A; }"
+              (cpp-member-reader-name cpp-member)
+              (cpp-member-name cpp-member))))
 
 (defun cpp-template (type-params &optional stream)
   "Generate C++ template declaration from provided TYPE-PARAMS. If STREAM is
 NIL, returns a string."
-  (format stream "template <~{class ~A~^,~^ ~}>"
-          (mapcar #'cpp-type-name type-params)))
+  (format stream "template <~{class ~A~^,~^ ~}>" type-params))
 
 (defun type-info-declaration-for-class (cpp-class)
-  (assert (and (not (cpp-type-type-params cpp-class))
-               (not (cpp-type-type-args cpp-class))))
+  (assert (cpp-type-simple-class-p cpp-class))
   (with-output-to-string (s)
     (write-line "static const utils::TypeInfo kType;" s)
-    (let* ((type-info-basep (type-info-opts-base (cpp-class-type-info-opts cpp-class)))
-           (virtual (if (and (or type-info-basep (not (cpp-class-super-classes cpp-class)))
-                             (direct-subclasses-of cpp-class))
+    (let* ((type-info-basep (type-info-opts-base
+                             (cpp-class-type-info-opts cpp-class)))
+           (virtual (if (and (or type-info-basep
+                                 (not (cpp-class-super-classes cpp-class)))
+                             (cpp-class-direct-subclasses cpp-class))
                         "virtual"
                         ""))
            (override (if (and (not type-info-basep)
@@ -77,64 +72,66 @@ NIL, returns a string."
               virtual override))))
 
 (defun type-info-definition-for-class (cpp-class)
-  (assert (and (not (cpp-type-type-params cpp-class))
-               (not (cpp-type-type-args cpp-class))))
+  (assert (cpp-type-simple-class-p cpp-class))
   (with-output-to-string (s)
-    (let ((super-classes (when (not (type-info-opts-base (cpp-class-type-info-opts cpp-class)))
+    (let ((super-classes (when (not (type-info-opts-base
+                                     (cpp-class-type-info-opts cpp-class)))
                            (cpp-class-super-classes cpp-class))))
-      (when (type-info-opts-ignore-other-base-classes (cpp-class-type-info-opts cpp-class))
+      (when (type-info-opts-ignore-other-base-classes
+             (cpp-class-type-info-opts cpp-class))
         (setf super-classes (list (first super-classes))))
       (when (> (length super-classes) 1)
         (error "Unable to generate TypeInfo for class '~A' due to multiple inheritance!"
-               (cpp-type-base-name cpp-class)))
-      (flet ((get-super-type-info (super)
-               (let ((super-class (find-cpp-class super)))
-                 (format nil "&~A::kType"
-                         (if super-class
-                             (cpp-type-decl super-class)
-                             (cpp-type-name super))))))
-        (format s "const utils::TypeInfo ~A::kType{0x~XULL, \"~A\", ~A};~%"
-                (if *generating-cpp-impl-p*
-                    (cpp-type-name cpp-class)
-                    ;; Use full type declaration if class definition
-                    ;; isn't inside the .cpp file.
-                    (cpp-type-decl cpp-class))
-                ;; Use full type declaration for hash
-                (fnv1a64-hash-string (cpp-type-decl cpp-class))
-                (cpp-type-name cpp-class)
-                (if super-classes (get-super-type-info (first super-classes)) "nullptr"))))))
+               (cpp-type-name cpp-class)))
+      (format s "const utils::TypeInfo ~A::kType{0x~XULL, \"~A\", ~A};~%"
+              (if *generating-cpp-impl-p*
+                  (cpp-type-name cpp-class)
+                  ;; Use full type declaration if class definition
+                  ;; isn't inside the .cpp file.
+                  (cpp-type-decl cpp-class))
+              ;; Use full type declaration for hash
+              (fnv1a64-hash-string (cpp-type-decl cpp-class))
+              (cpp-type-name cpp-class)
+              (if super-classes
+                  (format nil "&~A::kType"
+                          (cpp-type-decl (first super-classes)))
+                  "nullptr")))))
 
 (defun cpp-class-definition (cpp-class)
   "Get C++ definition of the CPP-CLASS as a string."
-  (declare (type cpp-class cpp-class))
+  (check-type cpp-class cpp-class)
   (flet ((cpp-class-members-scoped (scope)
            (remove-if (lambda (m) (not (eq scope (cpp-member-scope m))))
                       (cpp-class-members cpp-class)))
          (member-declaration (member)
-           (cpp-member-declaration member :struct (cpp-class-structp cpp-class))))
+           (cpp-member-declaration member)))
     (with-output-to-string (s)
       (terpri s)
       (when (cpp-type-documentation cpp-class)
         (write-line (cpp-documentation (cpp-type-documentation cpp-class)) s))
-      (when (cpp-type-type-params cpp-class)
+      (when (cpp-type-class-template-p cpp-class)
         (cpp-template (cpp-type-type-params cpp-class) s))
       (if (cpp-class-structp cpp-class)
           (write-string "struct " s)
           (write-string "class " s))
       (format s "~A" (cpp-type-name cpp-class))
-      (when (cpp-class-super-classes cpp-class)
-        (format s " : ~{public ~A~^, ~}"
-                (mapcar #'cpp-type-name (cpp-class-super-classes cpp-class))))
+      (let ((super-classes (cpp-class-super-classes cpp-class)))
+        (when super-classes
+          (format s " : ~{public ~A~^, ~}"
+                  (mapcar #'cpp-type-decl super-classes))))
       (with-cpp-block-output (s :semicolonp t)
         (let ((reader-members (remove-if (complement #'cpp-member-reader)
                                          (cpp-class-members cpp-class))))
-          (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members
-                    ;; We at least have public TypeInfo object for non-template classes.
-                    (not (cpp-type-type-params cpp-class)))
+          (when (or (cpp-class-public cpp-class)
+                    (cpp-class-members-scoped :public)
+                    reader-members
+                    ;; We at least have public TypeInfo object for non-template
+                    ;; classes.
+                    (not (cpp-type-class-template-p cpp-class)))
             (unless (cpp-class-structp cpp-class)
               (write-line " public:" s))
-            (unless (cpp-type-type-params cpp-class)
-              ;; Skip generating TypeInfo for template classes.
+            ;; Skip generating TypeInfo for class templates.
+            (unless (cpp-type-class-template-p cpp-class)
               (write-line (type-info-declaration-for-class cpp-class) s))
             (format s "~%~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
             (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
@@ -152,9 +149,9 @@ NIL, returns a string."
           (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-private cpp-class)))
           (format s "~{  ~%~A~}~%"
                   (mapcar #'member-declaration (cpp-class-members-scoped :private)))))
-      ;; Define the TypeInfo object.  Relies on the fact that *CPP-IMPL* is
+      ;; Define the TypeInfo object. Relies on the fact that *CPP-IMPL* is
       ;; processed later.
-      (unless (cpp-type-type-params cpp-class)
+      (unless (cpp-type-class-template-p cpp-class)
         (let ((typeinfo-def (type-info-definition-for-class cpp-class)))
           (if *generating-cpp-impl-p*
               (write-line typeinfo-def s)
@@ -164,13 +161,13 @@ NIL, returns a string."
   "Generate a C++ top level function declaration named NAME as a string.  ARGS
 is a list of (variable type) function arguments. RETURNS is the return type of
 the function.  TYPE-PARAMS is a list of names for template argments"
-  (declare (type string name))
-  (declare (type string returns))
+  (check-type name string)
+  (check-type returns string)
   (let ((template (if type-params (cpp-template type-params) ""))
         (args (format nil "~:{~A ~A~:^, ~}"
                       (mapcar (lambda (name-and-type)
-                                (list (cpp-type-name (second name-and-type))
-                                      (cpp-variable-name (first name-and-type))))
+                                (list (ensure-typestring (second name-and-type))
+                                      (ensure-namestring-for-variable (first name-and-type))))
                               args))))
     (raw-cpp-string
      #>cpp
@@ -186,19 +183,21 @@ CLASS.  ARGS is a list of (variable type) arguments to method.  RETURNS is the
 return type of the function.  When INLINE is set to NIL, generates a
 declaration to be used outside of class definition.  Remaining keys are flags
 which generate the corresponding C++ keywords."
-  (declare (type cpp-class class)
-           (type string method-name))
+  (check-type class cpp-class)
+  (check-type method-name string)
   (let* ((type-params (cpp-type-type-params class))
          (template (if (or inline (not type-params)) "" (cpp-template type-params)))
          (static/virtual (cond
                            ((and inline static) "static")
                            ((and inline virtual) "virtual")
                            (t "")))
-         (namespace (if inline "" (format nil "~A::" (cpp-type-decl class :namespace nil))))
+         (namespace
+           (if inline "" (format nil "~A::" (cpp-type-decl
+                                             class :namespacep nil))))
          (args (format nil "~:{~A ~A~:^, ~}"
                        (mapcar (lambda (name-and-type)
-                                 (list (cpp-type-name (second name-and-type))
-                                       (cpp-variable-name (first name-and-type))))
+                                 (list (ensure-typestring (second name-and-type))
+                                       (ensure-namestring-for-variable (first name-and-type))))
                                args)))
          (const (if const "const" ""))
          (override (if (and override inline) "override" ""))
@@ -229,22 +228,20 @@ which generate the corresponding C++ keywords."
     (null "")
     (otherwise (error "Unknown conversion to C++ for ~S" (type-of cpp)))))
 
-(defun count-newlines (stream &key stop-position)
-  (loop for pos = (file-position stream)
-     and char = (read-char stream nil nil)
-     until (or (not char) (and stop-position (> pos stop-position)))
-     when (char= #\Newline char) count it))
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; The LCP Driver
 
+(defvar +vim-read-only+ "vim: readonly")
+(defvar +emacs-read-only+ "-*- buffer-read-only: t; -*-")
 
 (defvar *cpp-namespaces* nil
   "Stack of C++ namespaces we are generating the code in.")
 
 (defmacro namespace (name)
   "Push the NAME to currently set namespaces."
-  (declare (type symbol name))
-  (let ((cpp-namespace (cpp-variable-name name)))
+  (check-type name symbol)
+  (let ((cpp-namespace (cpp-name-for-variable name)))
     `(progn
        (push ,cpp-namespace *cpp-namespaces*)
        (make-raw-cpp
@@ -254,8 +251,9 @@ which generate the corresponding C++ keywords."
   (pop *cpp-namespaces*)
   #>cpp } cpp<#)
 
-(defvar *cpp-impl* nil "List of (namespace . C++ code) pairs that should be
-  written in the implementation (.cpp) file.")
+(defvar *cpp-impl* nil
+  "List of (namespace . C++ code) pairs that should be written in the
+  implementation (.cpp) file.")
 
 (defun in-impl (&rest args)
   (let ((namespaces (reverse *cpp-namespaces*)))
@@ -263,139 +261,34 @@ which generate the corresponding C++ keywords."
           (append *cpp-impl* (mapcar (lambda (cpp) (cons namespaces cpp))
                                      args)))))
 
-(defmacro define-rpc (name request response)
-  (declare (type list request response))
-  (assert (eq :request (car request)))
-  (assert (eq :response (car response)))
-  (flet ((decl-type-info (class-name))
-         (def-constructor (class-name members)
-           (let ((full-constructor
-                  (let ((init-members (remove-if (lambda (slot-def)
-                                                   ;; TODO: proper initarg
-                                                   (let ((initarg (member :initarg slot-def)))
-                                                     (and initarg (null (second initarg)))))
-                                                 members)))
-                    (with-output-to-string (s)
-                      (when init-members
-                        (format s "~A ~A(~:{~A ~A~:^, ~}) : ~:{~A(~A)~:^, ~} {}"
-                                (if (= 1 (list-length init-members)) "explicit" "")
-                                class-name
-                                (mapcar (lambda (member)
-                                          (list (cpp-type-name (second member))
-                                                (cpp-variable-name (first member))))
-                                        init-members)
-                                (mapcar (lambda (member)
-                                          (let ((var (cpp-variable-name (first member)))
-                                                (movep (eq :move (second (member :initarg member)))))
-                                            (list var (if movep
-                                                          (format nil "std::move(~A)" var)
-                                                          var))))
-                                        init-members)))))))
-             #>cpp
-             ${class-name}() {}
-             ${full-constructor}
-             cpp<#)))
-    (let* ((req-sym (intern (format nil "~A-~A" name 'req)))
-           (req-name (cpp-type-name req-sym))
-           (res-sym (intern (format nil "~A-~A" name 'res)))
-           (res-name (cpp-type-name res-sym))
-           (rpc-name (format nil "~ARpc" (cpp-type-name name)))
-           (rpc-decl
-            #>cpp
-             using ${rpc-name} = communication::rpc::RequestResponse<${req-name}, ${res-name}>;
-             cpp<#))
-      `(cpp-list
-        (define-struct ,req-sym ()
-          ,@(cdr request)
-          (:public
-           ,(decl-type-info req-name)
-           ,(def-constructor req-name (second request)))
-          (:serialize (:slk)))
-        (let ((req-class (find-cpp-class ',req-sym)))
-          (unless (lcp.slk::save-extra-args req-class)
-            (push ,(progn
-                     #>cpp
-                     static void Save(const ${req-name} &self, slk::Builder *builder);
-                     cpp<#)
-                  (cpp-class-public req-class))
-            (in-impl
-             ,(progn
-                #>cpp
-                void ${req-name}::Save(const ${req-name} &self, slk::Builder *builder) {
-                  slk::Save(self, builder);
-                }
-                cpp<#)))
-          (unless (lcp.slk::load-extra-args req-class)
-            (push ,(progn #>cpp
-                          static void Load(${req-name} *self, slk::Reader *reader);
-                          cpp<#)
-                  (cpp-class-public req-class))
-            (in-impl
-             ,(progn
-                #>cpp
-                void ${req-name}::Load(${req-name} *self, slk::Reader *reader) {
-                  slk::Load(self, reader);
-                }
-                cpp<#))))
-        (define-struct ,res-sym ()
-          ,@(cdr response)
-          (:public
-           ,(decl-type-info res-name)
-           ,(def-constructor res-name (second response)))
-          (:serialize (:slk)))
-        (let ((res-class (find-cpp-class ',res-sym)))
-          (unless (lcp.slk::save-extra-args res-class)
-            (push ,(progn
-                     #>cpp
-                     static void Save(const ${res-name} &self, slk::Builder *builder);
-                     cpp<#)
-                  (cpp-class-public res-class))
-            (in-impl
-             ,(progn
-                #>cpp
-                void ${res-name}::Save(const ${res-name} &self, slk::Builder *builder) {
-                  slk::Save(self, builder);
-                }
-                cpp<#)))
-          (unless (lcp.slk::load-extra-args res-class)
-            (push ,(progn #>cpp
-                          static void Load(${res-name} *self, slk::Reader *reader);
-                          cpp<#)
-                  (cpp-class-public res-class))
-            (in-impl
-             ,(progn
-                #>cpp
-                void ${res-name}::Load(${res-name} *self, slk::Reader *reader) {
-                  slk::Load(self, reader);
-                }
-                cpp<#))))
-        ,rpc-decl))))
-
 (defun read-lcp (filepath)
-  "Read the FILEPATH and return a list of C++ meta information that should be
-formatted and output."
+  "Read the file FILEPATH and return a list of C++ meta information that should
+be formatted and output."
   (with-open-file (in-stream filepath)
     (let ((*readtable* (named-readtables:find-readtable 'lcp-syntax))
           (stream-pos 0))
       (handler-case
-          (loop for form = (read-preserving-whitespace in-stream nil 'eof)
-             until (eq form 'eof)
-             for res = (handler-case (eval form)
-                         (error (err)
-                           (file-position in-stream 0) ;; start of stream
-                           (error "~%~A:~A: error:~2%~A~2%in:~2%~A"
-                                  (uiop:native-namestring filepath)
-                                  (count-newlines in-stream :stop-position (1+ stream-pos))
-                                  err form)))
-             do (setf stream-pos (file-position in-stream))
-             when (typep res '(or raw-cpp cpp-type cpp-list))
-             collect res)
+          (loop :for form := (read-preserving-whitespace in-stream nil 'eof)
+                :until (eq form 'eof)
+                :for res := (handler-case (eval form)
+                              (error (err)
+                                ;; Seek to the start of the stream.
+                                (file-position in-stream 0)
+                                (error "~%~A:~A: error:~2%~A~2%in:~2%~A"
+                                       (uiop:native-namestring filepath)
+                                       (count-newlines
+                                        in-stream
+                                        :stop-position (1+ stream-pos))
+                                       err form)))
+                :do (setf stream-pos (file-position in-stream))
+                :when (typep res '(or raw-cpp cpp-type cpp-list))
+                  :collect res)
         (end-of-file ()
-          (file-position in-stream 0) ;; start of stream
+          ;; Seek to the start of the stream.
+          (file-position in-stream 0)
           (error "~%~A:~A:error: READ error, did you forget a closing ')'?"
                  (uiop:native-namestring filepath)
-                 (count-newlines in-stream
-                                 :stop-position (1+ stream-pos))))))))
+                 (count-newlines in-stream :stop-position (1+ stream-pos))))))))
 
 (defun process-file (lcp-file &key slk-serialize)
   "Process a LCP-FILE and write the output to .hpp file in the same directory."
@@ -443,7 +336,7 @@ formatted and output."
                   (cpp-class
                    (format out "~A;~%" (lcp.slk:save-function-declaration-for-class type-for-slk))
                    (when (or (cpp-class-super-classes type-for-slk)
-                             (direct-subclasses-of type-for-slk))
+                             (cpp-class-direct-subclasses type-for-slk))
                      (format out "~A;~%" (lcp.slk:construct-and-load-function-declaration-for-class type-for-slk)))
                    (unless (cpp-class-abstractp type-for-slk)
                      (format out "~A;~%" (lcp.slk:load-function-declaration-for-class type-for-slk))))
@@ -476,7 +369,7 @@ formatted and output."
                      ;; Top level functions
                      (write-line (lcp.slk:save-function-definition-for-class cpp-type) out)
                      (when (or (cpp-class-super-classes cpp-type)
-                               (direct-subclasses-of cpp-type))
+                               (cpp-class-direct-subclasses cpp-type))
                        (format out "~A;~%" (lcp.slk:construct-and-load-function-definition-for-class cpp-type)))
                      (unless (cpp-class-abstractp cpp-type)
                        (write-line (lcp.slk:load-function-definition-for-class cpp-type) out)))
