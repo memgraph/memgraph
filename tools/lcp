@@ -1,10 +1,16 @@
 #!/bin/bash -e
 
-if [[ $# -ne 1 && $# -ne 2 ]]; then
-  echo "Usage: $0 LCP_FILE"
+if [[ ! ($# -ge 1 && $# -le 3) ]]; then
+  echo "Usage: $0 [--debug] LCP_FILE [SLK_SERIALIZE]"
   echo "Convert a LCP_FILE to C++ header file and output to stdout."
   echo "If SLK_SERIALIZE is provided, then SLK serialization is generated."
   exit 1
+fi
+
+debug=false
+if [[ "$1" == "--debug" ]]; then
+  debug=true
+  shift
 fi
 
 if [[ ! -r "$1" ]]; then
@@ -25,12 +31,22 @@ if [[ "$2" == "SLK_SERIALIZE" ]]; then
   slk_serialize=":slk-serialize t"
 fi
 
-echo \
-"
-(load \"${quicklisp_install_dir}/setup.lisp\")
-(ql:quickload :lcp :silent t)
-(lcp:process-file \"$lcp_file\" $slk_serialize)
-" | sbcl --script
+if [[ $debug == "true" ]]; then
+  echo \
+  "
+  (load \"${quicklisp_install_dir}/setup.lisp\")
+  (ql:quickload :lcp :silent t)
+  (let ((*debugger-hook* #'lcp.debug:lcp-debugger-hook))
+    (lcp:process-file \"$lcp_file\" $slk_serialize))
+  " | sbcl --noinform --noprint
+else
+  echo \
+  "
+  (load \"${quicklisp_install_dir}/setup.lisp\")
+  (ql:quickload :lcp :silent t)
+  (lcp:process-file \"$lcp_file\" $slk_serialize)
+  " | sbcl --script
+fi
 
 filename=`basename $lcp_file .lcp`
 hpp_file="$(dirname $lcp_file)/$filename.hpp"
