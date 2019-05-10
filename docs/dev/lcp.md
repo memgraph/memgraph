@@ -1164,7 +1164,7 @@ We have already seen two options that `:clone` accepts: `:return-type` and
 
 `:return-type` expects a function that takes a single argument which is the C++
 type name of the class and produces C++ code, which is a valid C++ type
-delcaration. Here we used it to specify that `Clone` function should return a
+declaration. Here we used it to specify that `Clone` function should return a
 `std::unique_ptr` to the newly created `Node` to override the default behavior.
 When `:return-type` option is not provided and class `T` is a member of an
 inheritance hierarchy, `Clone` will return `std::unique_ptr<Base>`, where
