@@ -197,26 +197,12 @@ import_external_library(zlib STATIC
 
 # Setup RocksDB
 import_external_library(rocksdb STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/librocksdb.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  # RocksDB's cmake on Linux doesn't generate static_lib target.
-  # That's the reason why NoOps (true) are used as configure
-  # and install commands. Build command uses RocksDB's Makefile.
-  CONFIGURE_COMMAND true
-  BUILD_COMMAND ROCKSDB_DISABLE_FALLOCATE=1
-                ROCKSDB_DISABLE_SNAPPY=1
-                ROCKSDB_DISABLE_LZ4=1
-                ROCKSDB_DISABLE_ZSTD=1
-                ROCKSDB_DISABLE_NUMA=1
-                ROCKSDB_DISABLE_TBB=1
-                ROCKSDB_DISABLE_JEMALLOC=1
-                ROCKSDB_DISABLE_TCMALLOC=1
-                make -C ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb static_lib
-                     -j${NPROC}
-                     CC=${CMAKE_C_COMPILER}
-                     CXX=${CMAKE_CXX_COMPILER}
-                     DISABLE_WARNING_AS_ERROR=1
-  INSTALL_COMMAND true)
+  CMAKE_ARGS -DUSE_RTTI=ON
+             -DWITH_TESTS=OFF
+             -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+  BUILD_COMMAND $(MAKE) rocksdb)
 
 # Setup librdkafka.
 import_external_library(librdkafka STATIC

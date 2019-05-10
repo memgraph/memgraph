@@ -132,7 +132,9 @@ sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMa
 rocksdb_tag="641fae60f63619ed5d0c9d9e4c4ea5a0ffa3e253" # v5.18.3 Feb 11, 2019
 clone git://deps.memgraph.io/rocksdb.git rocksdb $rocksdb_tag
 # fix compilation flags to work with clang 8
-sed -i 's/-Wshadow/-Wno-defaulted-function-deleted/' rocksdb/Makefile
+sed -i 's/-Wshadow/-Wno-defaulted-function-deleted/' rocksdb/CMakeLists.txt
+# remove shared library from install dependencies
+sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # kafka
 kafka_tag="c319b4e987d0bc4fe4f01cf91419d90b62061655" # Mar 8, 2018
