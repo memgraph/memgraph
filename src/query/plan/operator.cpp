@@ -689,7 +689,10 @@ class ExpandVariableCursor : public Cursor {
   ExpandVariableCursor(const ExpandVariable &self,
                        database::GraphDbAccessor *db,
                        utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(db, mem)) {}
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(db, mem)),
+        edges_(mem),
+        edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ExpandVariable");
@@ -741,14 +744,15 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  std::vector<decltype(ExpandFromVertex(std::declval<VertexAccessor>(),
-                                        EdgeAtom::Direction::IN,
-                                        self_.common_.edge_types))>
-      edges_;
+  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(),
+                                                EdgeAtom::Direction::IN,
+                                                self_.common_.edge_types));
+  std::vector<ExpandEdges, utils::Allocator<ExpandEdges>> edges_;
 
-  // an iterator indicating the possition in the corresponding edges_
-  // element
-  std::vector<decltype(edges_.begin()->begin())> edges_it_;
+  // an iterator indicating the position in the corresponding edges_ element
+  std::vector<decltype(edges_.begin()->begin()),
+              utils::Allocator<decltype(edges_.begin()->begin())>>
+      edges_it_;
 
   /**
    * Helper function that Pulls from the input vertex and
