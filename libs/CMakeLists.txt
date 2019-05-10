@@ -165,6 +165,7 @@ import_external_library(glog STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/glog/include
   DEPENDS gflags-proj
   CMAKE_ARGS -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags
+             -DBUILD_TESTING=OFF
              -DGLOG_NO_FILENAMES=${GLOG_DISABLE_OPTIONS}
              -DGLOG_NO_STACKTRACE=${GLOG_DISABLE_OPTIONS}
              -DGLOG_NO_BUFFER_SETTINGS=${GLOG_DISABLE_OPTIONS}
