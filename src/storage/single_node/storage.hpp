@@ -6,7 +6,6 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/single_node/constraints/existence_constraints.hpp"
 #include "storage/single_node/constraints/unique_label_property_constraint.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/indexes/key_index.hpp"
@@ -76,9 +75,6 @@ class Storage {
   // indexes
   KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
-
-  // existence constraints
-  storage::constraints::ExistenceConstraints existence_constraints_;
 
   // unique constraints
   storage::constraints::UniqueLabelPropertyConstraint

@@ -126,32 +126,6 @@ StateDelta StateDelta::DropIndex(tx::TransactionId tx_id, storage::Label label,
   return op;
 }
 
-StateDelta StateDelta::BuildExistenceConstraint(
-    tx::TransactionId tx_id, storage::Label label,
-    const std::string &label_name,
-    const std::vector<storage::Property> &properties,
-    const std::vector<std::string> &property_names) {
-  StateDelta op(StateDelta::Type::BUILD_EXISTENCE_CONSTRAINT, tx_id);
-  op.label = label;
-  op.label_name = label_name;
-  op.properties = properties;
-  op.property_names = property_names;
-  return op;
-}
-
-StateDelta StateDelta::DropExistenceConstraint(
-    tx::TransactionId tx_id, storage::Label label,
-    const std::string &label_name,
-    const std::vector<storage::Property> &properties,
-    const std::vector<std::string> &property_names) {
-  StateDelta op(StateDelta::Type::DROP_EXISTENCE_CONSTRAINT, tx_id);
-  op.label = label;
-  op.label_name = label_name;
-  op.properties = properties;
-  op.property_names = property_names;
-  return op;
-}
-
 StateDelta StateDelta::BuildUniqueConstraint(
     tx::TransactionId tx_id, storage::Label label,
     const std::string &label_name,
@@ -236,7 +210,6 @@ void StateDelta::Encode(
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       break;
-    case Type::BUILD_EXISTENCE_CONSTRAINT:
     case Type::BUILD_UNIQUE_CONSTRAINT:
       encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
@@ -248,7 +221,6 @@ void StateDelta::Encode(
         encoder.WriteString(name);
       }
       break;
-    case Type::DROP_EXISTENCE_CONSTRAINT:
     case Type::DROP_UNIQUE_CONSTRAINT:
       encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
@@ -341,7 +313,6 @@ std::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         break;
-      case Type::BUILD_EXISTENCE_CONSTRAINT:
       case Type::BUILD_UNIQUE_CONSTRAINT: {
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
         DECODE_MEMBER(label_name, ValueString)
@@ -358,7 +329,6 @@ std::optional<StateDelta> StateDelta::Decode(
         }
         break;
       }
-      case Type::DROP_EXISTENCE_CONSTRAINT:
       case Type::DROP_UNIQUE_CONSTRAINT: {
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
         DECODE_MEMBER(label_name, ValueString)
@@ -444,24 +414,6 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       LOG(FATAL) << "Index handling not handled in Apply";
       break;
     }
-    case Type::BUILD_EXISTENCE_CONSTRAINT: {
-      std::vector<storage::Property> properties;
-      properties.reserve(property_names.size());
-      for (auto &p : property_names) {
-        properties.push_back(dba.Property(p));
-      }
-
-      dba.BuildExistenceConstraint(dba.Label(label_name), properties);
-    } break;
-    case Type::DROP_EXISTENCE_CONSTRAINT: {
-      std::vector<storage::Property> properties;
-      properties.reserve(property_names.size());
-      for (auto &p : property_names) {
-        properties.push_back(dba.Property(p));
-      }
-
-      dba.DeleteExistenceConstraint(dba.Label(label_name), properties);
-    } break;
     case Type::BUILD_UNIQUE_CONSTRAINT: {
       std::vector<storage::Property> properties;
       properties.reserve(property_names.size());

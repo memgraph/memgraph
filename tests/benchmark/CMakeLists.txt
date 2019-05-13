@@ -18,9 +18,6 @@ function(add_benchmark test_cpp)
   add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_benchmark)
 
-add_benchmark(existence_constraint.cpp)
-target_link_libraries(${test_prefix}existence_constraint mg-single-node kvstore_dummy_lib)
-
 add_benchmark(data_structures/concurrent/map_mix_concurrent.cpp)
 target_link_libraries(${test_prefix}map_mix_concurrent mg-single-node kvstore_dummy_lib)
 

@@ -73,8 +73,6 @@ in StateDeltas.")
         remove-edge   ;; edge_id
         build-index   ;; label, label_name, property, property_name, unique
         drop-index   ;; label, label_name, property, property_name
-        build-existence-constraint ;; label, label_name, properties, property_names
-        drop-existence-constraint ;; label, label_name, properties, property_names
         build-unique_constraint ;; label, label_name, properties, property_names
         drop-unique_constraint ;; label, label_name, properties, property_names
         )
@@ -135,16 +133,6 @@ omitted in the comment."))
                                   const std::string &label_name,
                                   storage::Property property,
                                   const std::string &property_name);
-     static StateDelta BuildExistenceConstraint(
-                                  tx::TransactionId tx_id, storage::Label label,
-                                  const std::string &label_name,
-                                  const std::vector<storage::Property> &properties,
-                                  const std::vector<std::string> &property_names);
-     static StateDelta DropExistenceConstraint(
-                                  tx::TransactionId tx_id, storage::Label label,
-                                  const std::string &label_name,
-                                  const std::vector<storage::Property> &property,
-                                  const std::vector<std::string> &property_names);
      static StateDelta BuildUniqueConstraint(
                                   tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,

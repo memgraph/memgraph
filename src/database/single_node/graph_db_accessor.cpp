@@ -291,11 +291,6 @@ void GraphDbAccessor::UpdateOnAddLabel(storage::Label label,
         "Node couldn't be updated due to index constraint violation!");
   }
 
-  if (!db_->storage().existence_constraints_.CheckOnAddLabel(vertex, label)) {
-    throw IndexConstraintViolationException(
-        "Node couldn't be updated due to existence constraint violation!");
-  }
-
   db_->storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
 
@@ -325,71 +320,6 @@ void GraphDbAccessor::UpdateOnRemoveProperty(
     const Vertex *vertex) {
   db_->storage().unique_label_property_constraints_.UpdateOnRemoveProperty(
       property, accessor, transaction());
-
-  if (!db_->storage().existence_constraints_.CheckOnRemoveProperty(vertex,
-                                                                  property)) {
-    throw IndexConstraintViolationException(
-        "Node couldn't be updated due to existence constraint violation!");
-  }
-}
-
-void GraphDbAccessor::BuildExistenceConstraint(
-    storage::Label label, const std::vector<storage::Property> &properties) {
-  auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
-  storage::constraints::ExistenceRule rule{label, properties};
-
-  for (auto v : dba.Vertices(false)) {
-    if (!CheckIfSatisfiesExistenceRule(v.GetOld(), rule)) {
-      throw IndexConstraintViolationException(
-          "Existence constraint couldn't be built because existing data is "
-          "violating it!");
-    }
-  }
-
-  if (!db_->storage().existence_constraints_.AddConstraint(rule)) {
-    // Already exists
-    return;
-  }
-
-  std::vector<std::string> property_names(properties.size());
-  std::transform(properties.begin(), properties.end(), property_names.begin(),
-                 [&dba](auto p) { return dba.PropertyName(p); });
-
-  dba.wal().Emplace(database::StateDelta::BuildExistenceConstraint(
-      dba.transaction().id_, label, dba.LabelName(label), properties,
-      property_names));
-  dba.Commit();
-}
-
-void GraphDbAccessor::DeleteExistenceConstraint(
-    storage::Label label, const std::vector<storage::Property> &properties) {
-  auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
-  storage::constraints::ExistenceRule rule{label, properties};
-  if (!db_->storage().existence_constraints_.RemoveConstraint(rule)) {
-    // Nothing was deleted
-    return;
-  }
-
-  std::vector<std::string> property_names(properties.size());
-  std::transform(properties.begin(), properties.end(), property_names.begin(),
-                 [&dba](auto p) { return dba.PropertyName(p); });
-
-  dba.wal().Emplace(database::StateDelta::DropExistenceConstraint(
-      dba.transaction().id_, label, dba.LabelName(label), properties,
-      property_names));
-  dba.Commit();
-}
-
-bool GraphDbAccessor::ExistenceConstraintExists(
-    storage::Label label,
-    const std::vector<storage::Property> &properties) const {
-  storage::constraints::ExistenceRule rule{label, properties};
-  return db_->storage().existence_constraints_.Exists(rule);
-}
-
-std::vector<storage::constraints::ExistenceRule>
-GraphDbAccessor::ListExistenceConstraints() const {
-  return db_->storage().existence_constraints_.ListConstraints();
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {

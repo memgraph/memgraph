@@ -45,10 +45,6 @@ std::string StateDeltaTypeToString(database::StateDelta::Type type) {
       return "BUILD_INDEX";
     case database::StateDelta::Type::DROP_INDEX:
       return "DROP_INDEX";
-    case database::StateDelta::Type::BUILD_EXISTENCE_CONSTRAINT:
-      return "BUILD_EXISTENCE_CONSTRAINT";
-    case database::StateDelta::Type::DROP_EXISTENCE_CONSTRAINT:
-      return "DROP_EXISTENCE_CONSTRAINT";
     case database::StateDelta::Type::BUILD_UNIQUE_CONSTRAINT:
       return "BUILD_UNIQUE_CONSTRAINT";
     case database::StateDelta::Type::DROP_UNIQUE_CONSTRAINT:

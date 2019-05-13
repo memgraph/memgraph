@@ -69,7 +69,6 @@ set(mg_single_node_sources
     storage/common/types/property_value_store.cpp
     storage/single_node/record_accessor.cpp
     storage/single_node/vertex_accessor.cpp
-    storage/single_node/constraints/existence_constraints.cpp
     storage/single_node/constraints/record.cpp
     storage/single_node/constraints/unique_label_properties_constraint.cpp
     storage/single_node/constraints/unique_label_property_constraint.cpp

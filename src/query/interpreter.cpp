@@ -654,36 +654,36 @@ Callback HandleInfoQuery(InfoQuery *info_query,
 
 Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
                                database::GraphDbAccessor *db_accessor) {
-  Callback callback;
-  std::vector<std::string> property_names;
-  property_names.reserve(constraint_query->constraint_.properties.size());
-  for (const auto &prop_ix : constraint_query->constraint_.properties) {
-    property_names.push_back(prop_ix.name);
-  }
-  std::string label_name = constraint_query->constraint_.label.name;
-  std::string type;
-  switch (constraint_query->constraint_.type) {
-    case Constraint::Type::EXISTS:
-      type = "exists";
-      break;
-    case Constraint::Type::UNIQUE:
-      type = "unique";
-      break;
-    case Constraint::Type::NODE_KEY:
-      type = "node key";
-      break;
-  }
-  switch (constraint_query->action_type_) {
-    case ConstraintQuery::ActionType::CREATE:
-      throw utils::NotYetImplemented("create constraint :{}({}) {}", label_name,
-                                     utils::Join(property_names, ", "), type);
-      break;
-    case ConstraintQuery::ActionType::DROP:
-      throw utils::NotYetImplemented("drop constraint :{}({}) {}", label_name,
-                                     utils::Join(property_names, ", "), type);
-      break;
-  }
+#ifdef MG_SINGLE_NODE
+ Callback callback;
+ switch (constraint_query->action_type_) {
+   case ConstraintQuery::ActionType::CREATE: {
+     switch (constraint_query->constraint_.type) {
+       case Constraint::Type::NODE_KEY:
+         throw utils::NotYetImplemented("Node key constraints");
+       case Constraint::Type::EXISTS:
+         throw utils::NotYetImplemented("Existence constraints");
+       case Constraint::Type::UNIQUE:
+         throw utils::NotYetImplemented("Unique constraints");
+     }
+     break;
+   }
+   case ConstraintQuery::ActionType::DROP: {
+     switch (constraint_query->constraint_.type) {
+       case Constraint::Type::NODE_KEY:
+         throw utils::NotYetImplemented("Node key constraints");
+       case Constraint::Type::EXISTS:
+         throw utils::NotYetImplemented("Existence constraints");
+       case Constraint::Type::UNIQUE:
+         throw utils::NotYetImplemented("Unique constraints");
+     }
+     break;
+   }
+ }
   return callback;
+#else
+  throw utils::NotYetImplemented("Constraints");
+#endif
 }
 
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}

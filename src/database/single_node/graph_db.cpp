@@ -40,8 +40,6 @@ GraphDb::GraphDb(Config config) : config_(config) {
       durability::RecoverWal(config_.durability_directory, this, &recovery_data,
                              &recovery_transactions);
       durability::RecoverIndexes(this, recovery_data.indexes);
-      durability::RecoverExistenceConstraints(
-          this, recovery_data.existence_constraints);
       durability::RecoverUniqueConstraints(
           this, recovery_data.unique_constraints);
     }
