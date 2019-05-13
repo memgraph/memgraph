@@ -13,23 +13,27 @@ void Record::Insert(gid::Gid gid, const tx::Transaction &t) {
   // Insert
   //   - delete before or in this transaction and not aborted
   //   - insert before and aborted
-  // Throw SerializationError
+  // Throw SerializationException
   //   - delted of inserted after this transaction
-  // Throw IndexConstraintViolationException
+  // Throw ViolationException
   //   - insert before or in this transaction and not aborted
   //   - delete before and aborted
 
   t.TakeLock(lock_);
-  if (t.id_ < tx_id_cre || (tx_id_exp != 0 && t.id_ < tx_id_exp))
-    throw mvcc::SerializationError();
+  if (t.id_ < tx_id_cre || (tx_id_exp != 0 && t.id_ < tx_id_exp)) {
+    throw SerializationException(
+        "Node couldn't be updated due to unique constraint serialization "
+        "error!");
+  }
 
   bool has_entry = tx_id_exp == 0;
   bool is_aborted = has_entry ? t.engine_.Info(tx_id_cre).is_aborted()
                               : t.engine_.Info(tx_id_exp).is_aborted();
 
-  if ((has_entry && !is_aborted) || (!has_entry && is_aborted))
-    throw database::IndexConstraintViolationException(
+  if ((has_entry && !is_aborted) || (!has_entry && is_aborted)) {
+    throw ViolationException(
         "Node couldn't be updated due to unique constraint violation!");
+  }
 
   curr_gid = gid;
   tx_id_cre = t.id_;
@@ -43,7 +47,7 @@ void Record::Remove(gid::Gid gid, const tx::Transaction &t) {
   // Nothing
   //   - remove before or in this transaction and not aborted
   //   - insert before and aborted
-  // Throw SerializationError
+  // Throw SerializationException
   //   - delete or insert after this transaction
 
   t.TakeLock(lock_);

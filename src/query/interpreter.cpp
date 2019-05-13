@@ -556,14 +556,14 @@ Callback HandleIndexQuery(IndexQuery *index_query,
           db_accessor->BuildIndex(label, properties[0],
                                   action == IndexQuery::Action::CREATE_UNIQUE);
           invalidate_plan_cache();
-        } catch (const database::IndexConstraintViolationException &e) {
+        } catch (const database::ConstraintViolationException &e) {
           throw QueryRuntimeException(e.what());
         } catch (const database::IndexExistsException &e) {
           if (action == IndexQuery::Action::CREATE_UNIQUE) {
             throw QueryRuntimeException(e.what());
           }
           // Otherwise ignore creating an existing index.
-        } catch (const database::IndexTransactionException &e) {
+        } catch (const database::TransactionException &e) {
           throw QueryRuntimeException(e.what());
         }
         return std::vector<std::vector<TypedValue>>();
@@ -575,7 +575,7 @@ Callback HandleIndexQuery(IndexQuery *index_query,
           CHECK(properties.size() == 1);
           db_accessor->DeleteIndex(label, properties[0]);
           invalidate_plan_cache();
-        } catch (const database::IndexTransactionException &e) {
+        } catch (const database::TransactionException &e) {
           throw QueryRuntimeException(e.what());
         }
         return std::vector<std::vector<TypedValue>>();
@@ -630,7 +630,28 @@ Callback HandleInfoQuery(InfoQuery *info_query,
       };
       break;
     case InfoQuery::InfoType::CONSTRAINT:
-      throw utils::NotYetImplemented("constraint info");
+#ifdef MG_SINGLE_NODE
+      callback.header = {"constraint type", "label", "properties"};
+      callback.fn = [db_accessor] {
+        std::vector<std::vector<TypedValue>> results;
+        for (auto &e : db_accessor->ListUniqueConstraints()) {
+          std::vector<std::string> property_names(e.properties.size());
+          std::transform(e.properties.begin(), e.properties.end(),
+                         property_names.begin(), [&db_accessor](const auto &p) {
+                           return db_accessor->PropertyName(p);
+                         });
+
+          std::vector<TypedValue> constraint{"unique",
+                                             db_accessor->LabelName(e.label),
+                                             utils::Join(property_names, ",")};
+
+          results.emplace_back(constraint);
+        }
+        return results;
+      };
+#else
+      throw utils::NotYetImplemented("constraints info");
+#endif
       break;
     case InfoQuery::InfoType::RAFT:
 #if defined(MG_SINGLE_NODE_HA)
@@ -655,31 +676,56 @@ Callback HandleInfoQuery(InfoQuery *info_query,
 Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
                                database::GraphDbAccessor *db_accessor) {
 #ifdef MG_SINGLE_NODE
- Callback callback;
- switch (constraint_query->action_type_) {
-   case ConstraintQuery::ActionType::CREATE: {
-     switch (constraint_query->constraint_.type) {
-       case Constraint::Type::NODE_KEY:
-         throw utils::NotYetImplemented("Node key constraints");
-       case Constraint::Type::EXISTS:
-         throw utils::NotYetImplemented("Existence constraints");
-       case Constraint::Type::UNIQUE:
-         throw utils::NotYetImplemented("Unique constraints");
-     }
-     break;
-   }
-   case ConstraintQuery::ActionType::DROP: {
-     switch (constraint_query->constraint_.type) {
-       case Constraint::Type::NODE_KEY:
-         throw utils::NotYetImplemented("Node key constraints");
-       case Constraint::Type::EXISTS:
-         throw utils::NotYetImplemented("Existence constraints");
-       case Constraint::Type::UNIQUE:
-         throw utils::NotYetImplemented("Unique constraints");
-     }
-     break;
-   }
- }
+  std::vector<storage::Property> properties;
+  auto label = db_accessor->Label(constraint_query->constraint_.label.name);
+  properties.reserve(constraint_query->constraint_.properties.size());
+  for (const auto &prop : constraint_query->constraint_.properties) {
+    properties.push_back(db_accessor->Property(prop.name));
+  }
+
+  Callback callback;
+  switch (constraint_query->action_type_) {
+    case ConstraintQuery::ActionType::CREATE: {
+      switch (constraint_query->constraint_.type) {
+        case Constraint::Type::NODE_KEY:
+          throw utils::NotYetImplemented("Node key constraints");
+        case Constraint::Type::EXISTS:
+          throw utils::NotYetImplemented("Existence constraints");
+        case Constraint::Type::UNIQUE:
+          callback.fn = [label, properties, db_accessor] {
+            try {
+              db_accessor->BuildUniqueConstraint(label, properties);
+              return std::vector<std::vector<TypedValue>>();
+            } catch (const database::ConstraintViolationException &e) {
+              throw QueryRuntimeException(e.what());
+            } catch (const database::TransactionException &e) {
+              throw QueryRuntimeException(e.what());
+            } catch (const mvcc::SerializationError &e) {
+              throw QueryRuntimeException(e.what());
+            }
+          };
+          break;
+      }
+    } break;
+    case ConstraintQuery::ActionType::DROP: {
+      switch (constraint_query->constraint_.type) {
+        case Constraint::Type::NODE_KEY:
+          throw utils::NotYetImplemented("Node key constraints");
+        case Constraint::Type::EXISTS:
+          throw utils::NotYetImplemented("Existence constraints");
+        case Constraint::Type::UNIQUE:
+          callback.fn = [label, properties, db_accessor] {
+            try {
+              db_accessor->DeleteUniqueConstraint(label, properties);
+              return std::vector<std::vector<TypedValue>>();
+            } catch (const database::TransactionException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+          };
+          break;
+      }
+    } break;
+  }
   return callback;
 #else
   throw utils::NotYetImplemented("Constraints");

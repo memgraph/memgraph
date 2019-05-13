@@ -58,11 +58,13 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     // Write unique constraints to snapshoot
     {
       std::vector<communication::bolt::Value> unique_constraints;
-      for (const auto &rule : dba.ListUniqueLabelPropertyConstraints()) {
+      for (const auto &rule : dba.ListUniqueConstraints()) {
         unique_constraints.emplace_back(dba.LabelName(rule.label));
-        // UniqueLabelPropertyConstraint has label and single property rule
-        unique_constraints.emplace_back(1);
-        unique_constraints.emplace_back(dba.PropertyName(rule.property));
+        unique_constraints.emplace_back(
+            static_cast<int64_t>(rule.properties.size()));
+        for (auto &p : rule.properties) {
+          unique_constraints.emplace_back(dba.PropertyName(p));
+        }
       }
       encoder.WriteList(unique_constraints);
     }

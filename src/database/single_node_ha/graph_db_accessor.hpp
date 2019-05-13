@@ -24,7 +24,7 @@
 namespace database {
 
 /** Thrown when inserting in an index with constraint. */
-class IndexConstraintViolationException : public utils::BasicException {
+class ConstraintViolationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -33,14 +33,9 @@ class IndexExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-/** Thrown when creating an index which already exists. */
-class IndexCreationOnWorkerException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
 /// Thrown on concurrent index creation when the transaction engine fails to
 /// start a new transaction.
-class IndexTransactionException : public utils::BasicException {
+class TransactionException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 

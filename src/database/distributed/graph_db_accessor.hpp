@@ -29,7 +29,7 @@ class UpdatesRpcClients;
 namespace database {
 
 /** Thrown when inserting in an index with constraint. */
-class IndexConstraintViolationException : public utils::BasicException {
+class ConstraintViolationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -45,7 +45,7 @@ class IndexCreationOnWorkerException : public utils::BasicException {
 
 /// Thrown on concurrent index creation when the transaction engine fails to
 /// start a new transaction.
-class IndexTransactionException : public utils::BasicException {
+class TransactionException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 

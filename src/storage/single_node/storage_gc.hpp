@@ -101,6 +101,7 @@ class StorageGc {
       utils::Timer x;
       storage_.labels_index_.Refresh(snapshot_gc, tx_engine_);
       storage_.label_property_index_.Refresh(snapshot_gc, tx_engine_);
+      storage_.unique_constraints_.Refresh(snapshot_gc, tx_engine_);
       VLOG(21) << "Garbage collector index phase time: " << x.Elapsed().count();
     }
     {

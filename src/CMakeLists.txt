@@ -70,8 +70,7 @@ set(mg_single_node_sources
     storage/single_node/record_accessor.cpp
     storage/single_node/vertex_accessor.cpp
     storage/single_node/constraints/record.cpp
-    storage/single_node/constraints/unique_label_properties_constraint.cpp
-    storage/single_node/constraints/unique_label_property_constraint.cpp
+		storage/single_node/constraints/unique_constraints.cpp
     transactions/single_node/engine.cpp
     memgraph_init.cpp
 )

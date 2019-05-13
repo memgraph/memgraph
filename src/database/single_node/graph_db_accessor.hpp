@@ -427,31 +427,30 @@ class GraphDbAccessor {
   void EnableIndex(const LabelPropertyIndex::Key &key);
 
   /**
-   * Creates new unique constraint that consists of label and property.
+   * Creates new unique constraint that consists of a label and multiple
+   * properties.
    * If the constraint already exists, this method does nothing.
    *
-   * @throws IndexConstraintViolationException if constraint couldn't be build
+   * @throws ConstraintViolationException if constraint couldn't be build
    * due to existing constraint violation.
+   * @throws TransactionEngineError if the engine doesn't accept transactions.
+   * @throws mvcc::SerializationError on serialization errors.
    */
-  void BuildUniqueConstraint(storage::Label label, storage::Property property);
+  void BuildUniqueConstraint(storage::Label label,
+                             const std::vector<storage::Property> &properties);
 
   /**
    * Deletes existing unique constraint.
    * If the constraint doesn't exist, this method does nothing.
    */
-  void DeleteUniqueConstraint(storage::Label label, storage::Property property);
-
-  /**
-   * Checks if unique constraint exists.
-   */
-  bool UniqueConstraintExists(storage::Label label,
-                              storage::Property property) const;
+  void DeleteUniqueConstraint(storage::Label label,
+                              const std::vector<storage::Property> &properties);
 
   /**
    * Returns a list of currently active unique constraints.
    */
-  std::vector<storage::constraints::LabelProperty>
-  ListUniqueLabelPropertyConstraints() const;
+  std::vector<storage::constraints::ConstraintEntry> ListUniqueConstraints()
+      const;
 
   /**
    * @brief - Returns true if the given label+property index already exists and
@@ -616,7 +615,7 @@ class GraphDbAccessor {
   bool aborted_{false};
 
   /**
-   * Notifies storage about a change.
+   * Notifies storage about label addition.
    *
    * @param label - label that was added
    * @param vertex_accessor - vertex_accessor that was updated
@@ -627,7 +626,7 @@ class GraphDbAccessor {
                         const Vertex *vertex);
 
   /**
-   * Notifies storage about a change.
+   * Notifies storage about label removal.
    *
    * @param label - label that was removed
    * @param vertex_accessor - vertex_accessor that was updated
@@ -636,24 +635,30 @@ class GraphDbAccessor {
                            const RecordAccessor<Vertex> &accessor);
 
   /**
-   * Notifies storage about a change.
+   * Notifies storage about a property removal.
+   *
+   * @param property - property that was removed
+   * @param previous_value - previous value of the property
    * @param vertex_accessor - vertex_accessor that was updated
    * @param vertex - vertex that was updated
    */
   void UpdateOnRemoveProperty(storage::Property property,
+                              const PropertyValue &previous_value,
                               const RecordAccessor<Vertex> &accessor,
-                              const Vertex* vertex);
+                              const Vertex *vertex);
 
   /**
-   * Notifies storage about a change.
+   * Notifies storage about a property addition.
    *
    * @param property - property that was added
-   * @param value - corresponding value that was added
+   * @param previous_value - previous value of the property
+   * @param new_value - new value of the property
    * @param vertex_accessor - vertex accessor that was updated
    * @param vertex - vertex that was updated
    */
   void UpdateOnAddProperty(storage::Property property,
-                           const PropertyValue &value,
+                           const PropertyValue &previous_value,
+                           const PropertyValue &new_value,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *vertex);
 };

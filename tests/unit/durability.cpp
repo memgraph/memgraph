@@ -168,17 +168,22 @@ class DbGenerator {
 
 bool CompareUniqueConstraints(const database::GraphDbAccessor &dba1,
                               const database::GraphDbAccessor &dba2) {
-  auto c1 = dba1.ListUniqueLabelPropertyConstraints();
-  auto c2 = dba2.ListUniqueLabelPropertyConstraints();
+  auto c1 = dba1.ListUniqueConstraints();
+  auto c2 = dba2.ListUniqueConstraints();
 
   return c1.size() == c2.size() &&
-         std::is_permutation(c1.begin(), c1.end(), c2.begin(),
-                             [&dba1, &dba2](auto &r1, auto &r2) {
-                               return dba1.LabelName(r1.label) ==
-                                          dba2.LabelName(r2.label) &&
-                                      dba1.PropertyName(r1.property) ==
-                                          dba2.PropertyName(r2.property);
-                             });
+         std::is_permutation(
+             c1.begin(), c1.end(), c2.begin(),
+             [&dba1, &dba2](auto &r1, auto &r2) {
+               return dba1.LabelName(r1.label) == dba2.LabelName(r2.label) &&
+                      std::is_permutation(
+                          r1.properties.begin(), r1.properties.end(),
+                          r2.properties.begin(), r2.properties.end(),
+                          [&dba1, &dba2](auto &p1, auto &p2) {
+                            return dba1.PropertyName(p1) ==
+                                   dba2.PropertyName(p2);
+                          });
+             });
 }
 
 /** Checks if the given databases have the same contents (indices,
@@ -1017,14 +1022,14 @@ TEST_F(Durability, UniqueConstraintRecoveryWal) {
     gen.InsertVertex();
     auto l1 = dba.Label("l1");
     auto p1 = dba.Property("p1");
-    dba.BuildUniqueConstraint(l1, p1);
+    dba.BuildUniqueConstraint(l1, {p1});
     gen.InsertEdge();
     auto l2 = dba.Label("l2");
     auto p2 = dba.Property("p2");
-    dba.BuildUniqueConstraint(l2, p2);
+    dba.BuildUniqueConstraint(l2, {p2});
     gen.InsertVertex();
     gen.InsertEdge();
-    dba.DeleteUniqueConstraint(l1, p1);
+    dba.DeleteUniqueConstraint(l1, {p1});
     dba.Commit();
   }
   {
@@ -1048,14 +1053,14 @@ TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
     gen.InsertVertex();
     auto l1 = dba.Label("l1");
     auto p1 = dba.Property("p1");
-    dba.BuildUniqueConstraint(l1, p1);
+    dba.BuildUniqueConstraint(l1, {p1});
     gen.InsertEdge();
     auto l2 = dba.Label("l2");
     auto p2 = dba.Property("p2");
-    dba.BuildUniqueConstraint(l2, p2);
+    dba.BuildUniqueConstraint(l2, {p2});
     gen.InsertVertex();
     gen.InsertEdge();
-    dba.DeleteUniqueConstraint(l1, p1);
+    dba.DeleteUniqueConstraint(l1, {p1});
     dba.Commit();
   }
   // create snapshot with build unique constraint
@@ -1068,7 +1073,7 @@ TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
 
     auto l3 = dba.Label("l3");
     auto p3 = dba.Property("p3");
-    dba.BuildUniqueConstraint(l3, p3);
+    dba.BuildUniqueConstraint(l3, {p3});
     dba.Commit();
   }
   {

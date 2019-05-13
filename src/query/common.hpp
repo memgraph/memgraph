@@ -101,7 +101,7 @@ void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
   } catch (const RecordDeletedError &) {
     throw QueryRuntimeException(
         "Trying to set properties on a deleted graph element.");
-  } catch (const database::IndexConstraintViolationException &e) {
+  } catch (const database::ConstraintViolationException &e) {
     throw QueryRuntimeException(e.what());
   }
 }

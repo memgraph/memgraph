@@ -303,3 +303,51 @@ TEST_F(InterpreterTest, ShortestPath) {
     EXPECT_TRUE(any_match);
   }
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(InterpreterTest, UniqueConstraintTest) {
+  ResultStreamFaker<query::TypedValue> stream;
+  {
+    auto dba = db_.Access();
+    interpreter_("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;", dba,
+                 {}, true)
+        .PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true).PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true).PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    ASSERT_THROW(
+        interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true).PullAll(stream),
+        query::QueryRuntimeException);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", dba, {}, true)
+        .PullAll(stream);
+    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true).PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", dba, {}, true)
+        .PullAll(stream);
+    interpreter_("CREATE (n:A{a:2, b:2})", dba, {}, true).PullAll(stream);
+    dba.Commit();
+  }
+}

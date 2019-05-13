@@ -25,8 +25,9 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto &dba = db_accessor();
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
+  auto previous_value = PropsAt(key);
   update().properties_.set(key, value);
-  dba.UpdateOnAddProperty(key, value, *this, &update());
+  dba.UpdateOnAddProperty(key, previous_value, value, *this, &update());
   db_accessor().wal().Emplace(delta);
 }
 
@@ -47,8 +48,9 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto delta =
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
+  auto previous_value = PropsAt(key);
   update().properties_.set(key, PropertyValue::Null);
-  dba.UpdateOnRemoveProperty(key, *this, GetNew());
+  dba.UpdateOnRemoveProperty(key, previous_value, *this, &update());
   dba.wal().Emplace(delta);
 }
 

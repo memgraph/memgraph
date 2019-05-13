@@ -557,12 +557,10 @@ void RecoverUniqueConstraints(
       properties.push_back(dba.Property(prop));
     }
 
-    DCHECK(properties.size() == 1)
-        << "Unique constraint with multiple properties is not supported";
     if (constraint.create) {
-      dba.BuildUniqueConstraint(label, properties[0]);
+      dba.BuildUniqueConstraint(label, properties);
     } else {
-      dba.DeleteUniqueConstraint(label, properties[0]);
+      dba.DeleteUniqueConstraint(label, properties);
     }
   }
 }

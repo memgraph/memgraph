@@ -155,12 +155,12 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     dba.PopulateIndex(key);
     dba.EnableIndex(key);
     dba.Commit();
-  } catch (const IndexConstraintViolationException &) {
+  } catch (const ConstraintViolationException &) {
     db_->storage().label_property_index_.DeleteIndex(key);
     throw;
   } catch (const tx::TransactionEngineError &e) {
     db_->storage().label_property_index_.DeleteIndex(key);
-    throw IndexTransactionException(e.what());
+    throw TransactionException(e.what());
   }
 }
 
@@ -179,7 +179,7 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
       continue;
     if (!db_->storage().label_property_index_.UpdateOnLabelProperty(
             vertex.address(), vertex.current_)) {
-      throw IndexConstraintViolationException(
+      throw ConstraintViolationException(
           "Index couldn't be created due to constraint violation!");
     }
   }
@@ -200,7 +200,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
 
     dba.Commit();
   } catch (const tx::TransactionEngineError &e) {
-    throw IndexTransactionException(e.what());
+    throw TransactionException(e.what());
   }
 }
 
@@ -212,7 +212,7 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
 
   if (!db_->storage().label_property_index_.UpdateOnLabel(label, vlist_ptr,
                                                          vertex)) {
-    throw IndexConstraintViolationException(
+    throw ConstraintViolationException(
         "Node couldn't be updated due to index constraint violation!");
   }
   db_->storage().labels_index_.Update(label, vlist_ptr, vertex);
@@ -224,7 +224,7 @@ void GraphDbAccessor::UpdatePropertyIndex(
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   if (!db_->storage().label_property_index_.UpdateOnProperty(
           property, vertex_accessor.address(), vertex)) {
-    throw IndexConstraintViolationException(
+    throw ConstraintViolationException(
         "Node couldn't be updated due to index constraint violation!");
   }
 }

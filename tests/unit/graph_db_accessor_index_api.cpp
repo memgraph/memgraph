@@ -161,7 +161,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
           dba.BuildIndex(dba.Label("l" + std::to_string(index)),
                           dba.Property("p" + std::to_string(index)), false);
           // If it throws, make sure the exception is right.
-        } catch (const database::IndexTransactionException &e) {
+        } catch (const database::TransactionException &e) {
           // Nothing to see here, move along.
         } catch (...) {
           failed.store(true);
@@ -455,7 +455,7 @@ TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnInsert) {
   dba.BuildIndex(label, property, true);
   Commit();
   AddVertex(0);
-  EXPECT_THROW(AddVertex(0), database::IndexConstraintViolationException);
+  EXPECT_THROW(AddVertex(0), database::ConstraintViolationException);
 }
 
 TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
@@ -463,7 +463,7 @@ TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
   AddVertex(0);
   Commit();
   EXPECT_THROW(dba.BuildIndex(label, property, true),
-               database::IndexConstraintViolationException);
+               database::ConstraintViolationException);
 }
 
 TEST_F(GraphDbAccessorIndex, UniqueConstraintUpdateProperty) {
@@ -474,5 +474,5 @@ TEST_F(GraphDbAccessorIndex, UniqueConstraintUpdateProperty) {
   vertex_accessor.PropsSet(property, 10);
 
   EXPECT_THROW(vertex_accessor.PropsSet(property, 0),
-               database::IndexConstraintViolationException);
+               database::ConstraintViolationException);
 }

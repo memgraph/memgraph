@@ -421,9 +421,7 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
         properties.push_back(dba.Property(p));
       }
 
-      DCHECK(properties.size() == 1)
-          << "Unique constraint with multiple properties is not supported";
-      dba.BuildUniqueConstraint(dba.Label(label_name), properties[0]);
+      dba.BuildUniqueConstraint(dba.Label(label_name), properties);
     } break;
     case Type::DROP_UNIQUE_CONSTRAINT: {
       std::vector<storage::Property> properties;
@@ -432,9 +430,7 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
         properties.push_back(dba.Property(p));
       }
 
-      DCHECK(properties.size() == 1)
-          << "Unique constraint with multiple properties is not supported";
-      dba.DeleteUniqueConstraint(dba.Label(label_name), properties[0]);
+      dba.DeleteUniqueConstraint(dba.Label(label_name), properties);
     } break;
   }
 }
