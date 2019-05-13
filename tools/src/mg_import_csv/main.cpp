@@ -20,7 +20,7 @@
 #include "utils/timer.hpp"
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 10,
+static_assert(durability::kVersion == 11,
               "Wrong snapshot version, please update!");
 
 bool ValidateNotEmpty(const char *flagname, const std::string &value) {

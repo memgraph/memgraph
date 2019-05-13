@@ -1594,7 +1594,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       vertex.PropsSet(prop, value);
     }
     dba.Commit();
-    db.Access().BuildIndex(label, prop, false);
+    db.Access().BuildIndex(label, prop);
   }
   auto dba = db.Access();
   ASSERT_EQ(14, CountIterable(dba.Vertices(false)));
@@ -1659,7 +1659,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     string_vertex.add_label(label);
     string_vertex.PropsSet(prop, "string");
     dba.Commit();
-    db.Access().BuildIndex(label, prop, false);
+    db.Access().BuildIndex(label, prop);
   }
   auto dba = db.Access();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
@@ -1696,7 +1696,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     }
     dba.Commit();
   }
-  db.Access().BuildIndex(label, prop, false);
+  db.Access().BuildIndex(label, prop);
   auto dba = db.Access();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (m), (n :label {prop: m})
@@ -1724,7 +1724,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     }
     dba.Commit();
   }
-  db.Access().BuildIndex(label, prop, false);
+  db.Access().BuildIndex(label, prop);
   auto dba = db.Access();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (m), (n :label {prop: m})
@@ -1775,7 +1775,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     vertex_with_prop.add_label(label);
     vertex_with_prop.PropsSet(prop, 42);
     dba.Commit();
-    db.Access().BuildIndex(label, prop, false);
+    db.Access().BuildIndex(label, prop);
   }
   auto dba = db.Access();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
@@ -1809,7 +1809,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     vertex_with_prop.add_label(label);
     vertex_with_prop.PropsSet(prop, 42);
     dba.Commit();
-    db.Access().BuildIndex(label, prop, false);
+    db.Access().BuildIndex(label, prop);
   }
   auto dba = db.Access();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
@@ -1839,7 +1839,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     v.add_label(label);
     v.PropsSet(prop, 2);
     dba.Commit();
-    db.Access().BuildIndex(label, prop, false);
+    db.Access().BuildIndex(label, prop);
   }
   auto dba = db.Access();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
@@ -1879,7 +1879,7 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     dba.Commit();
   }
 
-  db.Access().BuildIndex(label, prop, false);
+  db.Access().BuildIndex(label, prop);
 
   // Make sure there are `vertex_count` vertices
   {

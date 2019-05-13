@@ -144,7 +144,7 @@ TEST_F(DistributedGraphDb, BuildIndexDistributed) {
 
   {
     auto dba = master().Access();
-    dba->BuildIndex(label, property, false);
+    dba->BuildIndex(label, property);
     EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 100);
   }
@@ -191,7 +191,7 @@ TEST_F(DistributedGraphDb, BuildIndexConcurrentInsert) {
   std::this_thread::sleep_for(0.5s);
   {
     auto dba = master().Access();
-    dba->BuildIndex(label, property, false);
+    dba->BuildIndex(label, property);
     EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
   }
 

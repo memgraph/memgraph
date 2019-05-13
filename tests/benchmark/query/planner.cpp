@@ -93,7 +93,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
                                   database::GraphDb &db) {
   auto label = db.Access().Label("label");
   auto prop = db.Access().Property("prop");
-  db.Access().BuildIndex(label, prop, false);
+  db.Access().BuildIndex(label, prop);
   auto dba = db.Access();
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {

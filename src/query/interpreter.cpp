@@ -547,22 +547,24 @@ Callback HandleIndexQuery(IndexQuery *index_query,
 
   Callback callback;
   switch (index_query->action_) {
-    case IndexQuery::Action::CREATE:
     case IndexQuery::Action::CREATE_UNIQUE:
+#ifdef MG_SINGLE_NODE
+      throw QueryRuntimeException(
+          "Unique index is not supported, use unique constraint instead ");
+#else
+      throw QueryRuntimeException("Unique index is not supported");
+#endif
+    case IndexQuery::Action::CREATE:
       callback.fn = [action, label, properties, db_accessor,
                      invalidate_plan_cache] {
         try {
           CHECK(properties.size() == 1);
-          db_accessor->BuildIndex(label, properties[0],
-                                  action == IndexQuery::Action::CREATE_UNIQUE);
+          db_accessor->BuildIndex(label, properties[0]);
           invalidate_plan_cache();
         } catch (const database::ConstraintViolationException &e) {
           throw QueryRuntimeException(e.what());
         } catch (const database::IndexExistsException &e) {
-          if (action == IndexQuery::Action::CREATE_UNIQUE) {
-            throw QueryRuntimeException(e.what());
-          }
-          // Otherwise ignore creating an existing index.
+          // Ignore creating an existing index.
         } catch (const database::TransactionException &e) {
           throw QueryRuntimeException(e.what());
         }

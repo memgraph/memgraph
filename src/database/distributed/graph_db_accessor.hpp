@@ -467,8 +467,7 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  virtual void BuildIndex(storage::Label label, storage::Property property,
-                          bool);
+  virtual void BuildIndex(storage::Label label, storage::Property property);
 
   /// Deletes the index responisble for (label, property).
   /// At the moment this isn't implemented in distributed.

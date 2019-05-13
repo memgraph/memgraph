@@ -43,7 +43,6 @@ struct DatabaseState {
   struct IndexKey {
     std::string label;
     std::string property;
-    bool is_unique;
   };
 
   std::set<Vertex> vertices;
@@ -70,9 +69,7 @@ bool operator<(const DatabaseState::Edge &first,
 bool operator<(const DatabaseState::IndexKey &first,
                const DatabaseState::IndexKey &second) {
   if (first.label != second.label) return first.label < second.label;
-  if (first.property != second.property)
-    return first.property < second.property;
-  return first.is_unique < second.is_unique;
+  return first.property < second.property;
 }
 
 bool operator==(const DatabaseState::Vertex &first,
@@ -89,8 +86,7 @@ bool operator==(const DatabaseState::Edge &first,
 
 bool operator==(const DatabaseState::IndexKey &first,
                 const DatabaseState::IndexKey &second) {
-  return first.label == second.label && first.property == second.property &&
-         first.is_unique == second.is_unique;
+  return first.label == second.label && first.property == second.property;
 }
 
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
@@ -196,8 +192,8 @@ class DatabaseEnvironment {
     // Capture all indices
     std::set<DatabaseState::IndexKey> indices;
     for (const auto &key : dba.GetIndicesKeys()) {
-      indices.insert({dba.LabelName(key.label_),
-                      dba.PropertyName(key.property_), key.unique_});
+      indices.insert(
+          {dba.LabelName(key.label_), dba.PropertyName(key.property_)});
     }
 
     return {vertices, edges, indices};
@@ -357,12 +353,12 @@ TEST(DumpTest, IndicesKeys) {
   DatabaseEnvironment db;
   db.CreateVertex({"Label1", "Label2"}, {{"prop", PropertyValue(10)}}, false);
   db.Execute("CREATE INDEX ON :Label1(prop);");
-  db.Execute("CREATE UNIQUE INDEX ON :Label2(prop);");
+  db.Execute("CREATE INDEX ON :Label2(prop);");
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
   EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label1(prop);");
-  EXPECT_EQ(DumpNext(&dump), "CREATE UNIQUE INDEX ON :Label2(prop);");
+  EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label2(prop);");
   EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
   EXPECT_EQ(DumpNext(&dump),
             "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0, prop: 10});");
@@ -403,7 +399,7 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   db.CreateEdge(w, z, "Knows", {{"how", "school"}});
   db.CreateEdge(w, z, "Likes", {{"how", "very much"}});
   // Create few indices
-  db.Execute("CREATE UNIQUE INDEX ON :Person(name);");
+  db.Execute("CREATE INDEX ON :Person(name);");
   db.Execute("CREATE INDEX ON :Person(unexisting_property);");
 
   const auto &db_initial_state = db.GetState();

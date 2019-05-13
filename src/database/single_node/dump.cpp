@@ -115,9 +115,7 @@ void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
 
 void DumpIndexKey(std::ostream *os, GraphDbAccessor *dba,
                   const LabelPropertyIndex::Key &key) {
-  *os << "CREATE ";
-  if (key.unique_) *os << "UNIQUE ";
-  *os << "INDEX ON :" << dba->LabelName(key.label_) << "("
+  *os << "CREATE INDEX ON :" << dba->LabelName(key.label_) << "("
       << dba->PropertyName(key.property_) << ");";
 }
 

@@ -39,7 +39,7 @@ class QueryCostEstimator : public ::testing::Test {
 
   void SetUp() {
     // create the index in the current db accessor and then swap it to a new one
-    dba.BuildIndex(label, property, false);
+    dba.BuildIndex(label, property);
     dba = db.Access();
   }
 

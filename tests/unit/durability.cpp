@@ -52,7 +52,7 @@ class DbGenerator {
 
   void BuildIndex(int seq_number) {
     dba_.BuildIndex(Label(seq_number % kLabelCount),
-                    Property(seq_number % kPropertyCount), false);
+                    Property(seq_number % kPropertyCount));
   }
 
   EdgeAccessor RandomEdge(bool remove_from_ids = false) {
@@ -376,7 +376,7 @@ TEST_F(Durability, WalEncoding) {
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
-    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"), false);
+    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.DeleteIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
 
@@ -430,7 +430,6 @@ TEST_F(Durability, WalEncoding) {
   EXPECT_EQ(deltas[8].type, Type::BUILD_INDEX);
   EXPECT_EQ(deltas[8].label_name, "l1");
   EXPECT_EQ(deltas[8].property_name, "p1");
-  EXPECT_EQ(deltas[8].unique, false);
   EXPECT_EQ(deltas[9].type, Type::TRANSACTION_COMMIT);
 
   // The next two deltas are the DeleteIndex internal transactions.
@@ -469,7 +468,7 @@ TEST_F(Durability, SnapshotEncoding) {
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     auto e1 = dba.InsertEdge(v2, v1, dba.EdgeType("et1"));
     ASSERT_EQ(e1.gid(), gid1);
-    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"), false);
+    dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
     MakeSnapshot(db);
   }
@@ -501,10 +500,9 @@ TEST_F(Durability, SnapshotEncoding) {
   ASSERT_TRUE(dv.IsList());
   // Label property indices.
   decoder.ReadValue(&dv);
-  ASSERT_EQ(dv.ValueList().size(), 3);
+  ASSERT_EQ(dv.ValueList().size(), 2);
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
-  EXPECT_EQ(dv.ValueList()[2].ValueBool(), false);
 
   // Unique constraints
   decoder.ReadValue(&dv);
@@ -943,7 +941,7 @@ TEST_F(Durability, UniqueIndexRecoverySnapshotAndWal) {
     auto label = dba.Label("A");
     auto property = dba.Property("x");
 
-    dba.BuildIndex(label, property, true);
+    dba.BuildIndex(label, property);
 
     auto v0 = dba.InsertVertex();
     v0.add_label(label);
@@ -987,7 +985,7 @@ TEST_F(Durability, UniqueIndexRecoveryWal) {
     auto label = dba.Label("A");
     auto property = dba.Property("x");
 
-    dba.BuildIndex(label, property, true);
+    dba.BuildIndex(label, property);
 
     auto v0 = dba.InsertVertex();
     v0.add_label(label);

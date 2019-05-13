@@ -411,8 +411,7 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  void BuildIndex(storage::Label label, storage::Property property,
-                  bool unique);
+  void BuildIndex(storage::Label label, storage::Property property);
 
   /// Deletes the index responisble for (label, property).
   ///

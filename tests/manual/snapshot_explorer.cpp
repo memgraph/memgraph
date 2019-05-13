@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
 
   // This makes sure we update the explorer when we bump the snapshot version.
   // Snapshot layout is described in durability/version.hpp
-  static_assert(durability::kVersion == 10,
+  static_assert(durability::kVersion == 11,
                 "Wrong snapshot version, please update!");
 
   fs::path snapshot_path(FLAGS_snapshot_file);

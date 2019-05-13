@@ -138,11 +138,11 @@ EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {
 }
 
 void GraphDbAccessor::BuildIndex(storage::Label label,
-                                 storage::Property property, bool unique) {
+                                 storage::Property property) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   // Create the index
-  const LabelPropertyIndex::Key key(label, property, unique);
+  const LabelPropertyIndex::Key key(label, property);
   if (db_->storage().label_property_index_.CreateIndex(key) == false) {
     throw IndexExistsException(
         "Index is either being created by another transaction or already "
@@ -155,9 +155,6 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     dba.PopulateIndex(key);
     dba.EnableIndex(key);
     dba.Commit();
-  } catch (const ConstraintViolationException &) {
-    db_->storage().label_property_index_.DeleteIndex(key);
-    throw;
   } catch (const tx::TransactionEngineError &e) {
     db_->storage().label_property_index_.DeleteIndex(key);
     throw TransactionException(e.what());
@@ -170,18 +167,15 @@ void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // built at this point even if this DBA's transaction aborts for some reason.
   raft()->Emplace(database::StateDelta::BuildIndex(
       transaction_id(), key.label_, LabelName(key.label_), key.property_,
-      PropertyName(key.property_), key.unique_));
+      PropertyName(key.property_)));
 }
 
 void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
   for (auto vertex : Vertices(key.label_, false)) {
     if (vertex.PropsAt(key.property_).type() == PropertyValue::Type::Null)
       continue;
-    if (!db_->storage().label_property_index_.UpdateOnLabelProperty(
-            vertex.address(), vertex.current_)) {
-      throw ConstraintViolationException(
-          "Index couldn't be created due to constraint violation!");
-    }
+    db_->storage().label_property_index_.UpdateOnLabelProperty(vertex.address(),
+                                                               vertex.current_);
   }
 }
 
@@ -210,11 +204,7 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
 
-  if (!db_->storage().label_property_index_.UpdateOnLabel(label, vlist_ptr,
-                                                         vertex)) {
-    throw ConstraintViolationException(
-        "Node couldn't be updated due to index constraint violation!");
-  }
+  db_->storage().label_property_index_.UpdateOnLabel(label, vlist_ptr, vertex);
   db_->storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
 
@@ -222,11 +212,8 @@ void GraphDbAccessor::UpdatePropertyIndex(
     storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
     const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  if (!db_->storage().label_property_index_.UpdateOnProperty(
-          property, vertex_accessor.address(), vertex)) {
-    throw ConstraintViolationException(
-        "Node couldn't be updated due to index constraint violation!");
-  }
+  db_->storage().label_property_index_.UpdateOnProperty(
+      property, vertex_accessor.address(), vertex);
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
@@ -427,9 +414,8 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   for (LabelPropertyIndex::Key key :
        db_->storage().label_property_index_.Keys()) {
-    info.emplace_back(fmt::format(":{}({}){}", LabelName(key.label_),
-                                  PropertyName(key.property_),
-                                  key.unique_ ? " unique" : ""));
+    info.emplace_back(fmt::format(":{}({})", LabelName(key.label_),
+                                  PropertyName(key.property_)));
   }
   return info;
 }

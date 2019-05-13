@@ -132,10 +132,8 @@ EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {
 }
 
 void GraphDbAccessor::BuildIndex(storage::Label label,
-                                 storage::Property property,
-                                 bool unique) {
+                                 storage::Property property) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  if (unique) throw utils::NotYetImplemented("Distributed unique index");
   db_.storage().index_build_tx_in_progress_.access().insert(transaction_.id_);
 
   // on function exit remove the create index transaction from

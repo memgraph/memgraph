@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 namespace durability {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 8,
+static_assert(durability::kVersion == 9,
               "Wrong snapshot version, please update!");
 
 namespace {
@@ -38,7 +38,6 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
       for (const auto &key : dba.GetIndicesKeys()) {
         index_vec.emplace_back(dba.LabelName(key.label_));
         index_vec.emplace_back(dba.PropertyName(key.property_));
-        index_vec.emplace_back(key.unique_);
       }
       encoder.WriteList(index_vec);
     }

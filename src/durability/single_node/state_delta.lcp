@@ -45,8 +45,7 @@ cpp<#
    (value "PropertyValue" :initval "PropertyValue::Null")
    (label "storage::Label")
    (label-name "std::string")
-   (check-empty :bool)
-   (unique :bool))
+   (check-empty :bool))
   (:documentation
    "Describes single change to the database state. Used for durability (WAL).
 
@@ -71,7 +70,7 @@ in StateDeltas.")
         remove-label  ;; vertex_id, label, label_name
         remove-vertex ;; vertex_id, check_empty
         remove-edge   ;; edge_id
-        build-index   ;; label, label_name, property, property_name, unique
+        build-index   ;; label, label_name, property, property_name
         drop-index   ;; label, label_name, property, property_name
         build-unique_constraint ;; label, label_name, properties, property_names
         drop-unique_constraint ;; label, label_name, properties, property_names
@@ -128,7 +127,7 @@ omitted in the comment."))
      static StateDelta BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,
-                                  const std::string &property_name, bool unique);
+                                  const std::string &property_name);
      static StateDelta DropIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,

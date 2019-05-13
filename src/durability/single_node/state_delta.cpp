@@ -103,14 +103,12 @@ StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id, gid::Gid edge_id) {
 StateDelta StateDelta::BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,
-                                  const std::string &property_name,
-                                  bool unique) {
+                                  const std::string &property_name) {
   StateDelta op(StateDelta::Type::BUILD_INDEX, tx_id);
   op.label = label;
   op.label_name = label_name;
   op.property = property;
   op.property_name = property_name;
-  op.unique = unique;
   return op;
 }
 
@@ -202,7 +200,6 @@ void StateDelta::Encode(
       encoder.WriteString(label_name);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
-      encoder.WriteBool(unique);
       break;
     case Type::DROP_INDEX:
       encoder.WriteInt(label.Id());
@@ -305,7 +302,6 @@ std::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER(label_name, ValueString)
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
-        DECODE_MEMBER(unique, ValueBool)
         break;
       case Type::DROP_INDEX:
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)

@@ -71,12 +71,10 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     auto label = *it++;
     RETURN_IF_NOT(it != index_value.end());
     auto property = *it++;
-    RETURN_IF_NOT(it != index_value.end());
-    auto unique = *it++;
-    RETURN_IF_NOT(label.IsString() && property.IsString() && unique.IsBool());
+    RETURN_IF_NOT(label.IsString() && property.IsString());
     recovery_data->indexes.emplace_back(
         IndexRecoveryData{label.ValueString(), property.ValueString(),
-                          /*create = */ true, unique.ValueBool()});
+                          /*create = */ true});
   }
 
   auto dba = db->Access();
@@ -162,7 +160,7 @@ void RecoverIndexes(database::GraphDb *db,
     auto label = dba.Label(index.label);
     auto property = dba.Property(index.property);
     if (index.create) {
-      dba.BuildIndex(label, property, index.unique);
+      dba.BuildIndex(label, property);
     } else {
       dba.DeleteIndex(label, property);
     }

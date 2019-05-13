@@ -104,7 +104,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   AddVertex(0);
 
   Commit();
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   Commit();
 
   EXPECT_EQ(dba.VerticesCount(label, property), 1);
@@ -112,8 +112,8 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   // confirm there is a differentiation of indexes based on (label, property)
   auto label2 = dba.Label("label2");
   auto property2 = dba.Property("property2");
-  dba.BuildIndex(label2, property, false);
-  dba.BuildIndex(label, property2, false);
+  dba.BuildIndex(label2, property);
+  dba.BuildIndex(label, property2);
   Commit();
 
   EXPECT_EQ(dba.VerticesCount(label, property), 1);
@@ -122,7 +122,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexDelete) {
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   Commit();
   EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
 
@@ -133,12 +133,12 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexDelete) {
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuildTwice) {
-  dba.BuildIndex(label, property, false);
-  EXPECT_THROW(dba.BuildIndex(label, property, false), utils::BasicException);
+  dba.BuildIndex(label, property);
+  EXPECT_THROW(dba.BuildIndex(label, property), utils::BasicException);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   EXPECT_EQ(dba.VerticesCount(label, property), 0);
   EXPECT_EQ(Count(dba.Vertices(label, property, true)), 0);
   for (int i = 0; i < 14; ++i) AddVertex(0);
@@ -159,7 +159,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
         try {
           // This could either pass or throw.
           dba.BuildIndex(dba.Label("l" + std::to_string(index)),
-                          dba.Property("p" + std::to_string(index)), false);
+                          dba.Property("p" + std::to_string(index)));
           // If it throws, make sure the exception is right.
         } catch (const database::TransactionException &e) {
           // Nothing to see here, move along.
@@ -186,7 +186,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
       x, testing::AllOf(testing::Ge(center - 2), testing::Le(center + 2)));
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
 
   // add some vertices without the property
   for (int i = 0; i < 20; i++) AddVertex();
@@ -230,7 +230,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
 #undef EXPECT_WITH_MARGIN
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   Commit();
 
   // insert 10 verties and and check visibility
@@ -243,7 +243,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   Commit();
 
   std::vector<PropertyValue> expected_property_value(50, 0);
@@ -371,7 +371,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
 class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
  protected:
   void SetUp() override {
-    dba.BuildIndex(label, property, false);
+    dba.BuildIndex(label, property);
     for (int i = 0; i < 100; i++) AddVertex(i / 10);
 
     ASSERT_EQ(Count(dba.Vertices(false)), 0);
@@ -449,30 +449,4 @@ TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
   // we can compare int to double
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(1000.0))), 100);
   EXPECT_EQ(Count(Vertices(Inclusive(0.0), nullopt)), 100);
-}
-
-TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnInsert) {
-  dba.BuildIndex(label, property, true);
-  Commit();
-  AddVertex(0);
-  EXPECT_THROW(AddVertex(0), database::ConstraintViolationException);
-}
-
-TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
-  AddVertex(0);
-  AddVertex(0);
-  Commit();
-  EXPECT_THROW(dba.BuildIndex(label, property, true),
-               database::ConstraintViolationException);
-}
-
-TEST_F(GraphDbAccessorIndex, UniqueConstraintUpdateProperty) {
-  dba.BuildIndex(label, property, true);
-  AddVertex(0);
-  auto vertex_accessor = dba.InsertVertex();
-  vertex_accessor.add_label(label);
-  vertex_accessor.PropsSet(property, 10);
-
-  EXPECT_THROW(vertex_accessor.PropsSet(property, 0),
-               database::ConstraintViolationException);
 }

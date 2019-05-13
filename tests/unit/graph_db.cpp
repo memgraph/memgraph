@@ -19,7 +19,7 @@ TEST(GraphDbTest, GarbageCollectIndices) {
   };
   auto label = dba.Label("label");
   auto property = dba.Property("property");
-  dba.BuildIndex(label, property, false);
+  dba.BuildIndex(label, property);
   commit();
 
   auto vertex = dba.InsertVertex();

@@ -147,7 +147,7 @@ class WorkerAccessor final : public GraphDbAccessor {
   WorkerAccessor(Worker *db, tx::TransactionId tx_id)
       : GraphDbAccessor(*db, tx_id) {}
 
-  void BuildIndex(storage::Label, storage::Property, bool) override {
+  void BuildIndex(storage::Label, storage::Property) override {
     // TODO: Rethink BuildIndex API or inheritance. It's rather strange that a
     // derived type blocks this functionality.
     LOG(FATAL) << "BuildIndex invoked on worker.";
