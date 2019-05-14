@@ -55,6 +55,10 @@ target_link_libraries(${test_prefix}graph_500_generate_snapshot mg-distributed k
 add_manual_test(ha_client.cpp)
 target_link_libraries(${test_prefix}ha_client mg-utils mg-communication)
 
+add_manual_test(ha_proxy.cpp)
+target_include_directories(${test_prefix}ha_proxy PRIVATE ${CMAKE_BINARY_DIR}/src)
+target_link_libraries(${test_prefix}ha_proxy mg-utils mg-communication)
+
 add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 
