@@ -6,7 +6,6 @@
 #include <optional>
 #include <vector>
 
-#include "database/single_node/counters.hpp"
 #include "durability/single_node/recovery.hpp"
 #include "durability/single_node/wal.hpp"
 #include "io/network/endpoint.hpp"
@@ -104,7 +103,6 @@ class GraphDb {
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
   storage::ConcurrentIdMapper<storage::Property> &property_mapper();
-  database::Counters &counters();
   void CollectGarbage();
 
   /// Makes a snapshot from the visibility of the given accessor
@@ -166,7 +164,6 @@ class GraphDb {
       storage_->PropertiesOnDisk()};
   storage::ConcurrentIdMapper<storage::Property> property_mapper_{
       storage_->PropertiesOnDisk()};
-  database::Counters counters_;
 };
 
 }  // namespace database

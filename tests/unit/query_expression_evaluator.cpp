@@ -1457,28 +1457,27 @@ TEST_F(FunctionTest, Assert) {
 
 TEST_F(FunctionTest, Counter) {
   EXPECT_THROW(EvaluateFunction("COUNTER", {}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTER", {"a"}), QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}), QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 1);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 2);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}).ValueInt(), 1);
-}
+  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b", "c"}), QueryRuntimeException);
 
-TEST_F(FunctionTest, CounterSet) {
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}),
-               QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}),
-               QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 0);
-  EvaluateFunction("COUNTERSET", {"c1", 12});
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 12);
-  EvaluateFunction("COUNTERSET", {"c2", 42});
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}).ValueInt(), 42);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}).ValueInt(), 13);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}).ValueInt(), 43);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1", 0}).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1", 0}).ValueInt(), 1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2", 0}).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1", 0}).ValueInt(), 2);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2", 0}).ValueInt(), 1);
+
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c3", -1}).ValueInt(), -1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c3", -1}).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c3", -1}).ValueInt(), 1);
+
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c4", 0, 5}).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c4", 0, 5}).ValueInt(), 5);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c4", 0, 5}).ValueInt(), 10);
+
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c5", 0, -5}).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c5", 0, -5}).ValueInt(), -5);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c5", 0, -5}).ValueInt(), -10);
 }
 
 TEST_F(FunctionTest, Id) {

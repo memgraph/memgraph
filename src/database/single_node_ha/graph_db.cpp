@@ -4,7 +4,6 @@
 
 #include <glog/logging.h>
 
-#include "database/single_node_ha/counters.hpp"
 #include "database/single_node_ha/graph_db_accessor.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage_gc.hpp"
@@ -83,8 +82,6 @@ storage::ConcurrentIdMapper<storage::EdgeType> &GraphDb::edge_type_mapper() {
 storage::ConcurrentIdMapper<storage::Property> &GraphDb::property_mapper() {
   return property_mapper_;
 }
-
-database::Counters &GraphDb::counters() { return counters_; }
 
 void GraphDb::CollectGarbage() { storage_gc_->CollectGarbage(); }
 

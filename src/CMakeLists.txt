@@ -115,7 +115,6 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 set(mg_distributed_sources
     ${lcp_common_cpp_files}
     audit/log.cpp
-    database/distributed/distributed_counters.cpp
     database/distributed/distributed_graph_db.cpp
     distributed/bfs_rpc_clients.cpp
     distributed/bfs_subcursor.cpp
@@ -193,7 +192,6 @@ set(mg_distributed_sources
 define_add_lcp(add_lcp_distributed mg_distributed_sources generated_lcp_distributed_files)
 
 add_lcp_distributed(durability/distributed/state_delta.lcp)
-add_lcp_distributed(database/distributed/counters_rpc_messages.lcp SLK_SERIALIZE)
 add_lcp_distributed(database/distributed/serialization.lcp SLK_SERIALIZE
                     DEPENDS durability/distributed/state_delta.lcp)
 add_lcp_distributed(distributed/bfs_rpc_messages.lcp SLK_SERIALIZE)

@@ -39,9 +39,6 @@ target_link_libraries(${test_prefix}concurrent_map_access mg-single-node kvstore
 add_unit_test(concurrent_map.cpp)
 target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_lib)
 
-add_unit_test(counters.cpp)
-target_link_libraries(${test_prefix}counters mg-distributed kvstore_dummy_lib)
-
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
 

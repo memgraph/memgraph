@@ -94,16 +94,6 @@ TEST_F(DistributedGraphDb, StorageTypes) {
                std::vector<storage::Property>{});
 }
 
-TEST_F(DistributedGraphDb, Counters) {
-  EXPECT_EQ(master().counters().Get("a"), 0);
-  EXPECT_EQ(worker(1).counters().Get("a"), 1);
-  EXPECT_EQ(worker(2).counters().Get("a"), 2);
-
-  EXPECT_EQ(worker(1).counters().Get("b"), 0);
-  EXPECT_EQ(worker(2).counters().Get("b"), 1);
-  EXPECT_EQ(master().counters().Get("b"), 2);
-}
-
 TEST_F(DistributedGraphDb, DispatchPlan) {
   auto kRPCWaitTime = 600ms;
   int64_t plan_id = 5;

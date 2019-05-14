@@ -649,32 +649,34 @@ TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &,
   return args[0];
 }
 
-TypedValue Counter(TypedValue *args, int64_t nargs, const EvaluationContext &,
-                   database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'counter' requires exactly one argument.");
-  }
-  if (!args[0].IsString())
-    throw QueryRuntimeException("'counter' argument must be a string.");
-
-  return dba->Counter(args[0].ValueString());
-}
-
-TypedValue CounterSet(TypedValue *args, int64_t nargs,
-                      const EvaluationContext &,
-                      database::GraphDbAccessor *dba) {
-  if (nargs != 2) {
-    throw QueryRuntimeException("'counterSet' requires two arguments.");
+#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
+TypedValue Counter(TypedValue *args, int64_t nargs,
+                   const EvaluationContext &context,
+                   database::GraphDbAccessor *) {
+  if (nargs < 2 || nargs > 3) {
+    throw QueryRuntimeException("'counter' requires two or three arguments.");
   }
   if (!args[0].IsString())
     throw QueryRuntimeException(
-        "First argument of 'counterSet' must be a string.");
+        "First argument of 'counter' must be a string.");
   if (!args[1].IsInt())
     throw QueryRuntimeException(
-        "Second argument of 'counterSet' must be an integer.");
-  dba->CounterSet(args[0].ValueString(), args[1].ValueInt());
-  return TypedValue::Null;
+        "Second argument of 'counter' must be an integer.");
+  if (nargs == 3 && !args[2].IsInt())
+    throw QueryRuntimeException(
+        "Third argument of 'counter' must be an integer.");
+
+  int64_t step = 1;
+  if (nargs == 3) step = args[2].ValueInt();
+
+  auto [it, inserted] =
+      context.counters.emplace(args[0].ValueString(), args[1].ValueInt());
+  auto value = it->second;
+  it->second += step;
+
+  return value;
 }
+#endif
 
 #ifdef MG_DISTRIBUTED
 TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
@@ -983,8 +985,9 @@ NameToFunction(const std::string &function_name) {
 
   // Memgraph specific functions
   if (function_name == "ASSERT") return Assert;
+#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
   if (function_name == "COUNTER") return Counter;
-  if (function_name == "COUNTERSET") return CounterSet;
+#endif
 #ifdef MG_SINGLE_NODE
   if (function_name == "DUMP") return Dump;
 #endif

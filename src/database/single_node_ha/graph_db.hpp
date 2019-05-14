@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "database/single_node_ha/config.hpp"
-#include "database/single_node_ha/counters.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/coordination.hpp"
 #include "raft/raft_server.hpp"
@@ -88,7 +87,6 @@ class GraphDb {
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
   storage::ConcurrentIdMapper<storage::Property> &property_mapper();
-  database::Counters &counters();
   void CollectGarbage();
 
   /// Releases the storage object safely and creates a new object, resets the tx
@@ -150,7 +148,6 @@ class GraphDb {
       storage_->PropertiesOnDisk()};
   storage::ConcurrentIdMapper<storage::Property> property_mapper_{
       storage_->PropertiesOnDisk()};
-  database::Counters counters_;
 };
 
 }  // namespace database

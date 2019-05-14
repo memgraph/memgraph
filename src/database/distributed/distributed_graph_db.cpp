@@ -1,6 +1,5 @@
 #include "database/distributed/distributed_graph_db.hpp"
 
-#include "database/distributed/distributed_counters.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/bfs_rpc_server.hpp"
 #include "distributed/bfs_subcursor.hpp"
@@ -282,7 +281,6 @@ class Master {
       std::make_unique<StorageGcMaster>(storage_.get(), &tx_engine_,
                                         config_.gc_cycle_sec, &coordination_);
   TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{&coordination_};
-  database::MasterCounters counters_{&coordination_};
   distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &coordination_,
                                                   &subcursor_storage_};
@@ -348,8 +346,6 @@ storage::ConcurrentIdMapper<storage::EdgeType> &Master::edge_type_mapper() {
 storage::ConcurrentIdMapper<storage::Property> &Master::property_mapper() {
   return impl_->typemap_pack_.property;
 }
-
-database::Counters &Master::counters() { return impl_->counters_; }
 
 void Master::CollectGarbage() { impl_->storage_gc_->CollectGarbage(); }
 
@@ -649,7 +645,6 @@ class Worker {
           coordination_.GetClientPool(0), config_.worker_id);
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
       coordination_.GetClientPool(0)};
-  database::WorkerCounters counters_{coordination_.GetClientPool(0)};
   distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &coordination_,
                                                   &subcursor_storage_};
@@ -718,8 +713,6 @@ storage::ConcurrentIdMapper<storage::EdgeType> &Worker::edge_type_mapper() {
 storage::ConcurrentIdMapper<storage::Property> &Worker::property_mapper() {
   return impl_->typemap_pack_.property;
 }
-
-database::Counters &Worker::counters() { return impl_->counters_; }
 
 void Worker::CollectGarbage() { return impl_->storage_gc_->CollectGarbage(); }
 

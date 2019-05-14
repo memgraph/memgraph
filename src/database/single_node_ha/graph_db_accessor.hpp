@@ -575,20 +575,6 @@ class GraphDbAccessor {
   auto &db() { return db_; }
   const auto &db() const { return db_; }
 
-  /**
-   * Returns the current value of the counter with the given name, and
-   * increments that counter. If the counter with the given name does not exist,
-   * a new counter is created and this function returns 0.
-   */
-  int64_t Counter(const std::string &name);
-
-  /**
-   * Sets the counter with the given name to the given value. Returns nothing.
-   * If the counter with the given name does not exist, a new counter is created
-   * and set to the given value.
-   */
-  void CounterSet(const std::string &name, int64_t value);
-
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
 

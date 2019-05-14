@@ -513,14 +513,6 @@ const std::string &GraphDbAccessor::PropertyName(
   return db_->property_mapper().id_to_value(property);
 }
 
-int64_t GraphDbAccessor::Counter(const std::string &name) {
-  return db_->counters().Get(name);
-}
-
-void GraphDbAccessor::CounterSet(const std::string &name, int64_t value) {
-  db_->counters().Set(name, value);
-}
-
 std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   std::vector<std::string> info;
   for (storage::Label label : db_->storage().labels_index_.Keys()) {

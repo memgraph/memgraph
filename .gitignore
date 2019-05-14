@@ -37,7 +37,6 @@ TAGS
 # LCP generated C++ files
 *.lcp.cpp
 
-src/database/distributed/counters_rpc_messages.hpp
 src/database/distributed/serialization.hpp
 src/database/single_node_ha/serialization.hpp
 src/distributed/bfs_rpc_messages.hpp

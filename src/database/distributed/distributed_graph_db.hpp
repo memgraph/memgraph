@@ -20,7 +20,6 @@ class Master final : public GraphDb {
   storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;
   storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
-  database::Counters &counters() override;
   void CollectGarbage() override;
   int WorkerId() const override;
   std::vector<int> GetWorkerIds() const override;
@@ -68,7 +67,6 @@ class Worker final : public GraphDb {
   storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;
   storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
-  database::Counters &counters() override;
   void CollectGarbage() override;
   int WorkerId() const override;
   std::vector<int> GetWorkerIds() const override;

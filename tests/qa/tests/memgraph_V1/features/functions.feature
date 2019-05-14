@@ -785,27 +785,13 @@ Feature: Functions
             """
         When executing query:
             """
-            MATCH (n) SET n.id = counter("n.id") WITH n SKIP 1
-            RETURN n.id, counter("other") AS c2
+            MATCH (n) SET n.id = counter("n.id", 0) WITH n SKIP 1
+            RETURN n.id, counter("other", 0) AS c2
             """
         Then the result should be:
             | n.id | c2 |
             | 1    | 0  |
             | 2    | 1  |
-
-
-    Scenario: CounterSet test:
-        Given an empty graph
-        When executing query:
-            """
-            WITH counter("n") AS zero
-            WITH counter("n") AS one, zero
-            WITH counterSet("n", 42) AS nothing, zero, one
-            RETURN counter("n") AS n, zero, one, counter("n2") AS n2
-            """
-        Then the result should be:
-            | n  | zero | one | n2 |
-            | 42 | 0    | 1   | 0  |
 
     Scenario: Vertex Id test:
         Given an empty graph

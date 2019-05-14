@@ -67,6 +67,9 @@ class GraphSession {
   ClientContextT context_{FLAGS_use_ssl};
   std::unique_ptr<ClientT> client_;
 
+  uint64_t vertex_id_{0};
+  uint64_t edge_id_{0};
+
   std::set<uint64_t> vertices_;
   std::set<uint64_t> edges_;
 
@@ -123,15 +126,17 @@ class GraphSession {
 
   void CreateVertices(uint64_t vertices_count) {
     if (vertices_count == 0) return;
-    auto ret =
-        Execute(fmt::format("UNWIND RANGE(1, {}) AS r CREATE (n:{} {{id: "
-                            "counter(\"vertex{}\")}}) RETURN min(n.id)",
-                            vertices_count, indexed_label_, id_));
+    auto ret = Execute(fmt::format(
+        "UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
+        vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
     CHECK(ret.records.size() == 1) << "Vertices creation failed!";
-    uint64_t min_id = ret.records[0][0].ValueInt();
+    CHECK(ret.records[0][0].ValueInt() == vertices_count)
+        << "Created " << ret.records[0][0].ValueInt() << " vertices instead of "
+        << vertices_count << "!";
     for (uint64_t i = 0; i < vertices_count; ++i) {
-      vertices_.insert(min_id + i);
+      vertices_.insert(vertex_id_ + i);
     }
+    vertex_id_ += vertices_count;
   }
 
   void RemoveVertex() {
@@ -173,27 +178,29 @@ class GraphSession {
         "MATCH (a:{0}) WITH a "
         "UNWIND range(0, {1}) AS i WITH a, tointeger(rand() * {2}) AS id "
         "MATCH (b:{0} {{id: id}}) WITH a, b "
-        "CREATE (a)-[e:EdgeType {{id: counter(\"edge{3}\")}}]->(b) RETURN "
-        "min(e.id), count(e)",
-        indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(), id_));
+        "CREATE (a)-[e:EdgeType {{id: counter(\"edge\", {3})}}]->(b) "
+        "RETURN count(e)",
+        indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(),
+        edge_id_));
 
     CHECK(ret.records.size() == 1) << "Failed to create edges";
-    uint64_t min_id = ret.records[0][0].ValueInt();
-    uint64_t count = ret.records[0][1].ValueInt();
+    uint64_t count = ret.records[0][0].ValueInt();
     for (uint64_t i = 0; i < count; ++i) {
-      edges_.insert(min_id + i);
+      edges_.insert(edge_id_ + i);
     }
+    edge_id_ += count;
   }
 
   void CreateEdge() {
-    auto ret =
-        Execute(fmt::format("MATCH (from:{} {{id: {}}}), (to:{} {{id: {}}}) "
-                            "CREATE (from)-[e:EdgeType {{id: "
-                            "counter(\"edge{}\")}}]->(to) RETURN e.id",
-                            indexed_label_, RandomElement(vertices_),
-                            indexed_label_, RandomElement(vertices_), id_));
+    auto ret = Execute(
+        fmt::format("MATCH (from:{} {{id: {}}}), (to:{} {{id: {}}}) "
+                    "CREATE (from)-[e:EdgeType {{id: "
+                    "counter(\"edge\", {})}}]->(to) RETURN e.id",
+                    indexed_label_, RandomElement(vertices_), indexed_label_,
+                    RandomElement(vertices_), edge_id_));
     if (ret.records.size() > 0) {
       edges_.insert(ret.records[0][0].ValueInt());
+      edge_id_ += 1;
     }
   }
 
@@ -384,8 +391,6 @@ int main(int argc, char **argv) {
   client.Execute("MATCH (n) DETACH DELETE n", {});
   for (int i = 0; i < FLAGS_worker_count; ++i) {
     client.Execute(fmt::format("CREATE INDEX ON :indexed_label{}(id)", i), {});
-    client.Execute(fmt::format("RETURN counterSet(\"vertex{}\", 0)", i), {});
-    client.Execute(fmt::format("RETURN counterSet(\"edge{}\", 0)", i), {});
   }
 
   // close client

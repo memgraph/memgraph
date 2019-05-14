@@ -5,7 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include "database/distributed/counters.hpp"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/wal.hpp"
 #include "io/network/endpoint.hpp"
@@ -118,7 +117,6 @@ class GraphDb {
   virtual storage::ConcurrentIdMapper<storage::EdgeType>
       &edge_type_mapper() = 0;
   virtual storage::ConcurrentIdMapper<storage::Property> &property_mapper() = 0;
-  virtual database::Counters &counters() = 0;
   virtual void CollectGarbage() = 0;
 
   /// Makes a snapshot from the visibility of the given accessor
