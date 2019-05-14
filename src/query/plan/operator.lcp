@@ -1538,25 +1538,6 @@ has been cached will be reconstructed before Pull returns.
      input_ = input;
    }
    cpp<#)
-  (:private
-   #>cpp
-   class AccumulateCursor : public Cursor {
-    public:
-     AccumulateCursor(const Accumulate &, database::GraphDbAccessor *,
-                      utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Accumulate &self_;
-     database::GraphDbAccessor &db_;
-     const UniqueCursorPtr input_cursor_;
-     std::vector<std::vector<TypedValue>> cache_;
-     decltype(cache_.begin()) cache_it_ = cache_.begin();
-     bool pulled_all_input_{false};
-   };
-   cpp<#)
   (:serialize (:slk))
   (:clone))
 

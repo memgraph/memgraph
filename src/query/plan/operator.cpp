@@ -2275,57 +2275,74 @@ Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Accumulate)
 
-UniqueCursorPtr Accumulate::MakeCursor(database::GraphDbAccessor *db,
-                                       utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<Accumulate::AccumulateCursor>(mem, *this, db, mem);
-}
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const {
   return symbols_;
 }
 
-Accumulate::AccumulateCursor::AccumulateCursor(const Accumulate &self,
-                                               database::GraphDbAccessor *db,
-                                               utils::MemoryResource *mem)
-    : self_(self), db_(*db), input_cursor_(self.input_->MakeCursor(db, mem)) {}
+class AccumulateCursor : public Cursor {
+ public:
+  AccumulateCursor(const Accumulate &self, database::GraphDbAccessor *db,
+                   utils::MemoryResource *mem)
+      : self_(self),
+        db_(*db),
+        input_cursor_(self.input_->MakeCursor(db, mem)),
+        cache_(mem) {}
 
-bool Accumulate::AccumulateCursor::Pull(Frame &frame,
-                                        ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Accumulate");
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Accumulate");
 
-  // cache all the input
-  if (!pulled_all_input_) {
-    while (input_cursor_->Pull(frame, context)) {
-      std::vector<TypedValue> row;
-      row.reserve(self_.symbols_.size());
-      for (const Symbol &symbol : self_.symbols_)
-        row.emplace_back(frame[symbol]);
-      cache_.emplace_back(std::move(row));
+    // cache all the input
+    if (!pulled_all_input_) {
+      while (input_cursor_->Pull(frame, context)) {
+        std::vector<TypedValue, utils::Allocator<TypedValue>> row(
+            cache_.get_allocator().GetMemoryResource());
+        row.reserve(self_.symbols_.size());
+        for (const Symbol &symbol : self_.symbols_)
+          row.emplace_back(frame[symbol]);
+        cache_.emplace_back(std::move(row));
+      }
+      pulled_all_input_ = true;
+      cache_it_ = cache_.begin();
+
+      if (self_.advance_command_) {
+        db_.AdvanceCommand();
+        for (auto &row : cache_)
+          for (auto &col : row) query::ReconstructTypedValue(col);
+      }
     }
-    pulled_all_input_ = true;
-    cache_it_ = cache_.begin();
 
-    if (self_.advance_command_) {
-      db_.AdvanceCommand();
-      for (auto &row : cache_)
-        for (auto &col : row) query::ReconstructTypedValue(col);
-    }
+    if (db_.should_abort()) throw HintedAbortError();
+    if (cache_it_ == cache_.end()) return false;
+    auto row_it = (cache_it_++)->begin();
+    for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
+    return true;
   }
 
-  if (db_.should_abort()) throw HintedAbortError();
-  if (cache_it_ == cache_.end()) return false;
-  auto row_it = (cache_it_++)->begin();
-  for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
-  return true;
-}
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
-void Accumulate::AccumulateCursor::Shutdown() { input_cursor_->Shutdown(); }
+  void Reset() override {
+    input_cursor_->Reset();
+    cache_.clear();
+    cache_it_ = cache_.begin();
+    pulled_all_input_ = false;
+  }
 
-void Accumulate::AccumulateCursor::Reset() {
-  input_cursor_->Reset();
-  cache_.clear();
-  cache_it_ = cache_.begin();
-  pulled_all_input_ = false;
+ private:
+  const Accumulate &self_;
+  database::GraphDbAccessor &db_;
+  const UniqueCursorPtr input_cursor_;
+  std::vector<
+      std::vector<TypedValue, utils::Allocator<TypedValue>>,
+      utils::Allocator<std::vector<TypedValue, utils::Allocator<TypedValue>>>>
+      cache_;
+  decltype(cache_.begin()) cache_it_ = cache_.begin();
+  bool pulled_all_input_{false};
+};
+
+UniqueCursorPtr Accumulate::MakeCursor(database::GraphDbAccessor *db,
+                                       utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, db, mem);
 }
 
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
