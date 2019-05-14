@@ -14,6 +14,8 @@
 #include "query/typed_value.hpp"
 #include "storage/common/types/property_value.hpp"
 
+using database::CypherDumpGenerator;
+
 const char *kPropertyId = "property_id";
 
 // A helper struct that contains info about database that is used to compare
@@ -69,6 +71,14 @@ bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges;
 }
 
+// Returns next query if the end is not reached, otherwise returns an empty
+// string.
+std::string DumpNext(CypherDumpGenerator *dump) {
+  std::ostringstream oss;
+  if (dump->NextQuery(&oss)) return oss.str();
+  return "";
+}
+
 class DatabaseEnvironment {
  public:
   std::string DumpStr() {
@@ -84,6 +94,8 @@ class DatabaseEnvironment {
     query::Interpreter()(query, dba, {}, false).PullAll(results);
     dba.Commit();
   }
+
+  database::GraphDbAccessor Access() { return db_.Access(); }
 
   VertexAccessor CreateVertex(const std::vector<std::string> &labels,
                               const std::map<std::string, PropertyValue> &props,
@@ -163,31 +175,53 @@ class DatabaseEnvironment {
 
 TEST(DumpTest, EmptyGraph) {
   DatabaseEnvironment db;
-  EXPECT_EQ("", db.DumpStr());
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, SingleVertex) {
   DatabaseEnvironment db;
   db.CreateVertex({}, {}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, VertexWithSingleLabel) {
   DatabaseEnvironment db;
   db.CreateVertex({"Label1"}, {}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0:Label1);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:Label1 {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, VertexWithMultipleLabels) {
   DatabaseEnvironment db;
   db.CreateVertex({"Label1", "Label2"}, {}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0:Label1:Label2);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:Label1:Label2 {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, VertexWithSingleProperty) {
   DatabaseEnvironment db;
   db.CreateVertex({}, {{"prop", PropertyValue(42)}}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0 {prop: 42});");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0, prop: 42});");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, MultipleVertices) {
@@ -195,7 +229,14 @@ TEST(DumpTest, MultipleVertices) {
   db.CreateVertex({}, {}, false);
   db.CreateVertex({}, {}, false);
   db.CreateVertex({}, {}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0), (n1), (n2);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 2});");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, SingleEdge) {
@@ -203,7 +244,16 @@ TEST(DumpTest, SingleEdge) {
   auto u = db.CreateVertex({}, {}, false);
   auto v = db.CreateVertex({}, {}, false);
   db.CreateEdge(u, v, "EdgeType", {}, false);
-  EXPECT_EQ(db.DumpStr(), "CREATE (n0), (n1), (n0)-[:EdgeType]->(n1);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump),
+            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+            "(u)-[:EdgeType]->(v);");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, MultipleEdges) {
@@ -214,10 +264,23 @@ TEST(DumpTest, MultipleEdges) {
   db.CreateEdge(u, v, "EdgeType", {}, false);
   db.CreateEdge(v, u, "EdgeType", {}, false);
   db.CreateEdge(v, w, "EdgeType", {}, false);
-  const char *expected =
-      "CREATE (n0), (n1), (n2), (n0)-[:EdgeType]->(n1), "
-      "(n1)-[:EdgeType]->(n0), (n1)-[:EdgeType]->(n2);";
-  EXPECT_EQ(db.DumpStr(), expected);
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 2});");
+  EXPECT_EQ(DumpNext(&dump),
+            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+            "(u)-[:EdgeType]->(v);");
+  EXPECT_EQ(DumpNext(&dump),
+            "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE "
+            "(u)-[:EdgeType]->(v);");
+  EXPECT_EQ(DumpNext(&dump),
+            "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE "
+            "(u)-[:EdgeType]->(v);");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, EdgeWithProperties) {
@@ -225,8 +288,16 @@ TEST(DumpTest, EdgeWithProperties) {
   auto u = db.CreateVertex({}, {}, false);
   auto v = db.CreateVertex({}, {}, false);
   db.CreateEdge(u, v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
-  EXPECT_EQ(db.DumpStr(),
-            "CREATE (n0), (n1), (n0)-[:EdgeType {prop: 13}]->(n1);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump),
+            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+            "(u)-[:EdgeType {prop: 13}]->(v);");
+  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), "");
 }
 
 TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
@@ -235,8 +306,14 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
       {"nested1", PropertyValue(1337)}, {"nested2", PropertyValue(3.14)}};
   db.CreateVertex({"Label1", "Label2"},
                   {{"prop1", prop1}, {"prop2", PropertyValue("$'\t'")}});
+
   DatabaseEnvironment db_dump;
-  db_dump.Execute(db.DumpStr());
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  std::string cmd;
+  while (!(cmd = DumpNext(&dump)).empty()) {
+    db_dump.Execute(cmd);
+  }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
 }
 
@@ -254,7 +331,13 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   db.CreateEdge(z, u, "Knows", {});
   db.CreateEdge(w, z, "Knows", {{"how", "school"}});
   db.CreateEdge(w, z, "Likes", {{"how", "very much"}});
+
   DatabaseEnvironment db_dump;
-  db_dump.Execute(db.DumpStr());
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  std::string cmd;
+  while (!(cmd = DumpNext(&dump)).empty()) {
+    db_dump.Execute(cmd);
+  }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
 }

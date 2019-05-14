@@ -1,6 +1,7 @@
 #include "database/single_node/dump.hpp"
 
 #include <map>
+#include <optional>
 #include <ostream>
 #include <utility>
 #include <vector>
@@ -14,6 +15,13 @@
 namespace database {
 
 namespace {
+
+// Property that is used to make a difference among vertices. It is added to
+// property set of vertices to match edges and removed after the entire graph
+// is built.
+// TODO(tsabolcec): We should create index for that property for faster
+// matching.
+const char *kInternalPropertyId = "__mg_id__";
 
 void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
   switch (value.type()) {
@@ -57,8 +65,13 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
 }
 
 void DumpProperties(std::ostream *os, GraphDbAccessor *dba,
-                    const PropertyValueStore &store) {
+                    const PropertyValueStore &store,
+                    std::optional<uint64_t> property_id = std::nullopt) {
   *os << "{";
+  if (property_id) {
+    *os << kInternalPropertyId << ": " << *property_id;
+    if (store.size() > 0) *os << ", ";
+  }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << dba->PropertyName(kv.first) << ": ";
     DumpPropertyValue(&os, kv.second);
@@ -68,62 +81,67 @@ void DumpProperties(std::ostream *os, GraphDbAccessor *dba,
 
 void DumpVertex(std::ostream *os, GraphDbAccessor *dba,
                 const VertexAccessor &vertex) {
-  *os << "(n" << vertex.gid();
+  *os << "CREATE (";
   for (const auto &label : vertex.labels()) {
     *os << ":" << dba->LabelName(label);
   }
-  const auto &props = vertex.Properties();
-  if (props.size() > 0) {
-    *os << " ";
-    DumpProperties(os, dba, props);
-  }
-  *os << ")";
+  if (!vertex.labels().empty()) *os << " ";
+  DumpProperties(os, dba, vertex.Properties(),
+                 std::optional<uint64_t>(vertex.CypherId()));
+  *os << ");";
 }
 
 void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
               const EdgeAccessor &edge) {
-  *os << "(n" << edge.from().gid() << ")-[";
+  *os << "MATCH (u), (v)";
+  *os << " WHERE ";
+  *os << "u." << kInternalPropertyId << " = " << edge.from().CypherId();
+  *os << " AND ";
+  *os << "v." << kInternalPropertyId << " = " << edge.to().CypherId() << " ";
+  *os << "CREATE (u)-[";
   *os << ":" << dba->EdgeTypeName(edge.EdgeType());
   const auto &props = edge.Properties();
   if (props.size() > 0) {
     *os << " ";
-    DumpProperties(os, dba, props);
+    DumpProperties(os, dba, edge.Properties());
   }
-  *os << "]->(n" << edge.to().gid() << ")";
+  *os << "]->(v);";
+}
+
+void DumpInternalIndexCleanup(std::ostream *os) {
+  // TODO(tsabolcec): Don't forget to drop the index by internal id.
+  *os << "MATCH (u) REMOVE u." << kInternalPropertyId << ";";
 }
 
 }  // namespace
 
-DumpGenerator::DumpGenerator(GraphDbAccessor *dba) : dba_(dba), first_(true) {
+CypherDumpGenerator::CypherDumpGenerator(GraphDbAccessor *dba)
+    : dba_(dba), cleaned_internals_(false) {
   CHECK(dba);
   vertices_state_.emplace(dba->Vertices(false));
   edges_state_.emplace(dba->Edges(false));
 }
 
-bool DumpGenerator::NextQuery(std::ostream *os) {
-  if (vertices_state_->ReachedEnd() && edges_state_->ReachedEnd()) return false;
-
-  if (first_) {
-    first_ = false;
-    *os << "CREATE ";
-  } else {
-    *os << ", ";
-  }
-
+bool CypherDumpGenerator::NextQuery(std::ostream *os) {
   if (!vertices_state_->ReachedEnd()) {
     DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
+    return true;
   } else if (!edges_state_->ReachedEnd()) {
     DumpEdge(os, dba_, *edges_state_->GetCurrentAndAdvance());
+    return true;
+  } else if (!vertices_state_->Empty() && !cleaned_internals_) {
+    DumpInternalIndexCleanup(os);
+    cleaned_internals_ = true;
+    return true;
   }
 
-  if (vertices_state_->ReachedEnd() && edges_state_->ReachedEnd()) *os << ";";
-  return true;
+  return false;
 }
 
 void DumpToCypher(std::ostream *os, GraphDbAccessor *dba) {
   CHECK(os && dba);
 
-  DumpGenerator dump(dba);
+  CypherDumpGenerator dump(dba);
   while (dump.NextQuery(os)) continue;
 }
 

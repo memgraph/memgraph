@@ -6,16 +6,14 @@
 
 namespace database {
 
-/// Class which generates parts of openCypher query which can be used to dump
-/// the database state.
+/// Class which generates sequence of openCypher queries which can be used to
+/// dump the database state.
 ///
-/// Currently, all parts combined form a single query which dumps an entire
-/// graph (vertices and edges). Since query can be quite long for larger graphs,
-/// the graph should be split in multiple queries in the future. Indexes,
-/// constraints, roles, etc. are currently not dumped.
-class DumpGenerator {
+/// Currently, only vertices and edges are being dumped, one-by-one in multiple
+/// queries. Indices keys, constraints, roles, etc. are currently not dumped.
+class CypherDumpGenerator {
  public:
-  explicit DumpGenerator(GraphDbAccessor *dba);
+  explicit CypherDumpGenerator(GraphDbAccessor *dba);
 
   bool NextQuery(std::ostream *os);
 
@@ -27,7 +25,8 @@ class DumpGenerator {
     explicit ContainerState(TContainer container)
         : container_(std::move(container)),
           current_(container_.begin()),
-          end_(container_.end()) {}
+          end_(container_.end()),
+          empty_(current_ == end_) {}
 
     auto GetCurrentAndAdvance() {
       auto to_be_returned = current_;
@@ -37,19 +36,22 @@ class DumpGenerator {
 
     bool ReachedEnd() const { return current_ == end_; }
 
+    // Returns true iff the container is empty.
+    bool Empty() const { return empty_; }
+
    private:
     TContainer container_;
 
     using TIterator = decltype(container_.begin());
     TIterator current_;
     TIterator end_;
+
+    bool empty_;
   };
 
   GraphDbAccessor *dba_;
 
-  // Boolean which indicates if the `NextQuery` method is called for the first
-  // time.
-  bool first_;
+  bool cleaned_internals_;
 
   std::optional<ContainerState<decltype(dba_->Vertices(false))>>
       vertices_state_;
