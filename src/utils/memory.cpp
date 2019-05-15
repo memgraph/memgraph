@@ -52,8 +52,14 @@ MonotonicBufferResource::MonotonicBufferResource(
 
 MonotonicBufferResource &MonotonicBufferResource::operator=(
     MonotonicBufferResource &&other) noexcept {
-  MonotonicBufferResource tmp(std::move(other));
-  std::swap(*this, tmp);
+  if (this == &other) return *this;
+  Release();
+  memory_ = other.memory_;
+  current_buffer_ = other.current_buffer_;
+  initial_size_ = other.initial_size_;
+  allocated_ = other.allocated_;
+  other.current_buffer_ = nullptr;
+  other.allocated_ = 0U;
   return *this;
 }
 
