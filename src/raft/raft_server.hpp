@@ -239,6 +239,13 @@ class RaftServer final : public RaftInterface {
   std::vector<uint64_t> next_index_;  ///< for each server, index of the next
                                       ///< log entry to send to that server.
 
+  std::vector<uint64_t> index_offset_; ///< for each server, the offset for
+                                       ///< which we reduce the next_index_
+                                       ///< field if the AppendEntries request
+                                       ///< is denied. We use "binary lifting"
+                                       ///< style technique to achieve at most
+                                       ///< O(logn) requests.
+
   std::vector<uint64_t> match_index_;  ///< for each server, index of the
                                        ///< highest log entry known to be
                                        ///< replicated on server.

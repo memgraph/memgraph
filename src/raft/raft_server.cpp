@@ -78,6 +78,7 @@ void RaftServer::Start() {
   // Peer state initialization
   auto cluster_size = coordination_->GetAllNodeCount() + 1;
   next_index_.resize(cluster_size);
+  index_offset_.resize(cluster_size);
   match_index_.resize(cluster_size);
   next_replication_.resize(cluster_size);
   next_heartbeat_.resize(cluster_size);
@@ -642,6 +643,7 @@ void RaftServer::Transition(const Mode &new_mode) {
       // is initialized to leader's last log index + 1"
       for (int i = 1; i <= coordination_->GetAllNodeCount(); ++i) {
         next_index_[i] = log_size_;
+        index_offset_[i] = 1;
         match_index_[i] = 0;
       }
 
@@ -781,7 +783,13 @@ void RaftServer::SendLogEntries(
   if (!reply->success) {
     // Replication can fail for the first log entry if the peer that we're
     // sending the entry is in the process of shutting down.
-    next_index_[peer_id] = std::max(next_index_[peer_id] - 1, 1UL);
+    if (next_index_[peer_id] > index_offset_[peer_id]) {
+      next_index_[peer_id] -= index_offset_[peer_id];
+      // Overflow should be prevented by snapshot threshold constant.
+      index_offset_[peer_id] <<= 1UL;
+    } else {
+      next_index_[peer_id] = 1UL;
+    }
   } else {
     uint64_t new_match_index = request_prev_log_index + request_entries.size();
     DCHECK(match_index_[peer_id] <= new_match_index)
@@ -789,6 +797,7 @@ void RaftServer::SendLogEntries(
     match_index_[peer_id] = new_match_index;
     if (request_entries.size() > 0) AdvanceCommitIndex();
     next_index_[peer_id] = match_index_[peer_id] + 1;
+    index_offset_[peer_id] = 1;
     next_replication_[peer_id] = Clock::now() + config_.heartbeat_interval;
   }
 
@@ -859,6 +868,7 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
 
   match_index_[peer_id] = snapshot_metadata.last_included_index;
   next_index_[peer_id] = snapshot_metadata.last_included_index + 1;
+  index_offset_[peer_id] = 1;
   next_replication_[peer_id] = Clock::now() + config_.heartbeat_interval;
 
   state_changed_.notify_all();
