@@ -6,6 +6,12 @@
 
 namespace communication {
 
+/**
+ * This class represents a context that should be used with network clients. One
+ * context can be reused between multiple clients (note: this mainly depends on
+ * the underlying OpenSSL implementation [see `SSL_new` in
+ * `openssl/ssl/ssl_lib.c`]).
+ */
 class ClientContext final {
  public:
   /**
@@ -23,6 +29,18 @@ class ClientContext final {
    */
   ClientContext(const std::string &key_file, const std::string &cert_file);
 
+  // This object can't be copied because the underlying SSL implementation is
+  // messy and ownership can't be handled correctly.
+  ClientContext(const ClientContext &) = delete;
+  ClientContext &operator=(const ClientContext &) = delete;
+
+  // Move constructor/assignment that handle ownership change correctly.
+  ClientContext(ClientContext &&other) noexcept;
+  ClientContext &operator=(ClientContext &&other) noexcept;
+
+  // Destructor that handles ownership of the SSL object.
+  ~ClientContext();
+
   SSL_CTX *context();
 
   bool use_ssl();
@@ -32,6 +50,12 @@ class ClientContext final {
   SSL_CTX *ctx_;
 };
 
+/**
+ * This class represents a context that should be used with network servers. One
+ * context can be reused between multiple servers (note: this mainly depends on
+ * the underlying OpenSSL implementation [see `SSL_new` in
+ * `openssl/ssl/ssl_lib.c`]).
+ */
 class ServerContext final {
  public:
   /**
@@ -50,6 +74,18 @@ class ServerContext final {
    */
   ServerContext(const std::string &key_file, const std::string &cert_file,
                 const std::string &ca_file = "", bool verify_peer = false);
+
+  // This object can't be copied because the underlying SSL implementation is
+  // messy and ownership can't be handled correctly.
+  ServerContext(const ServerContext &) = delete;
+  ServerContext &operator=(const ServerContext &) = delete;
+
+  // Move constructor/assignment that handle ownership change correctly.
+  ServerContext(ServerContext &&other) noexcept;
+  ServerContext &operator=(ServerContext &&other) noexcept;
+
+  // Destructor that handles ownership of the SSL object.
+  ~ServerContext();
 
   SSL_CTX *context();
 

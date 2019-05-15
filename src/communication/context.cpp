@@ -32,6 +32,37 @@ ClientContext::ClientContext(const std::string &key_file,
   }
 }
 
+ClientContext::ClientContext(ClientContext &&other) noexcept
+    : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+  other.use_ssl_ = false;
+  other.ctx_ = nullptr;
+}
+
+ClientContext &ClientContext::operator=(ClientContext &&other) noexcept {
+  if (this == &other) return *this;
+
+  // destroy my objects
+  if (use_ssl_) {
+    SSL_CTX_free(ctx_);
+  }
+
+  // move other objects to self
+  use_ssl_ = other.use_ssl_;
+  ctx_ = other.ctx_;
+
+  // reset other objects
+  other.use_ssl_ = false;
+  other.ctx_ = nullptr;
+
+  return *this;
+}
+
+ClientContext::~ClientContext() {
+  if (use_ssl_) {
+    SSL_CTX_free(ctx_);
+  }
+}
+
 SSL_CTX *ClientContext::context() { return ctx_; }
 
 bool ClientContext::use_ssl() { return use_ssl_; }
@@ -80,6 +111,37 @@ ServerContext::ServerContext(const std::string &key_file,
       SSL_CTX_set_verify(
           ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     }
+  }
+}
+
+ServerContext::ServerContext(ServerContext &&other) noexcept
+    : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+  other.use_ssl_ = false;
+  other.ctx_ = nullptr;
+}
+
+ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
+  if (this == &other) return *this;
+
+  // destroy my objects
+  if (use_ssl_) {
+    SSL_CTX_free(ctx_);
+  }
+
+  // move other objects to self
+  use_ssl_ = other.use_ssl_;
+  ctx_ = other.ctx_;
+
+  // reset other objects
+  other.use_ssl_ = false;
+  other.ctx_ = nullptr;
+
+  return *this;
+}
+
+ServerContext::~ServerContext() {
+  if (use_ssl_) {
+    SSL_CTX_free(ctx_);
   }
 }
 
