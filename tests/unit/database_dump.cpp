@@ -18,6 +18,11 @@ using database::CypherDumpGenerator;
 
 const char *kPropertyId = "property_id";
 
+const char *kCreateInternalIndex = "CREATE INDEX ON :__mg_vertex__(__mg_id__);";
+const char *kDropInternalIndex = "DROP INDEX ON :__mg_vertex__(__mg_id__);";
+const char *kRemoveInternalLabelProperty =
+    "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;";
+
 // A helper struct that contains info about database that is used to compare
 // two databases (to check if their states are the same). It is assumed that
 // each vertex and each edge have unique integer property under key
@@ -35,8 +40,15 @@ struct DatabaseState {
     std::map<std::string, PropertyValue> props;
   };
 
+  struct IndexKey {
+    std::string label;
+    std::string property;
+    bool is_unique;
+  };
+
   std::set<Vertex> vertices;
   std::set<Edge> edges;
+  std::set<IndexKey> indices;
 };
 
 bool operator<(const DatabaseState::Vertex &first,
@@ -55,6 +67,14 @@ bool operator<(const DatabaseState::Edge &first,
   return first.props < second.props;
 }
 
+bool operator<(const DatabaseState::IndexKey &first,
+               const DatabaseState::IndexKey &second) {
+  if (first.label != second.label) return first.label < second.label;
+  if (first.property != second.property)
+    return first.property < second.property;
+  return first.is_unique < second.is_unique;
+}
+
 bool operator==(const DatabaseState::Vertex &first,
                 const DatabaseState::Vertex &second) {
   return first.id == second.id && first.labels == second.labels &&
@@ -67,8 +87,15 @@ bool operator==(const DatabaseState::Edge &first,
          first.edge_type == second.edge_type && first.props == second.props;
 }
 
+bool operator==(const DatabaseState::IndexKey &first,
+                const DatabaseState::IndexKey &second) {
+  return first.label == second.label && first.property == second.property &&
+         first.is_unique == second.is_unique;
+}
+
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
-  return first.vertices == second.vertices && first.edges == second.edges;
+  return first.vertices == second.vertices && first.edges == second.edges &&
+         first.indices == second.indices;
 }
 
 // Returns next query if the end is not reached, otherwise returns an empty
@@ -166,7 +193,14 @@ class DatabaseEnvironment {
       edges.insert({from, to, edge_type_name, props});
     }
 
-    return {vertices, edges};
+    // Capture all indices
+    std::set<DatabaseState::IndexKey> indices;
+    for (const auto &key : dba.GetIndicesKeys()) {
+      indices.insert({dba.LabelName(key.label_),
+                      dba.PropertyName(key.property_), key.unique_});
+    }
+
+    return {vertices, edges, indices};
   }
 
  private:
@@ -186,8 +220,10 @@ TEST(DumpTest, SingleVertex) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -197,8 +233,10 @@ TEST(DumpTest, VertexWithSingleLabel) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:Label1 {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__:Label1 {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -208,8 +246,11 @@ TEST(DumpTest, VertexWithMultipleLabels) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:Label1:Label2 {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump),
+            "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -219,8 +260,11 @@ TEST(DumpTest, VertexWithSingleProperty) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0, prop: 42});");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump),
+            "CREATE (:__mg_vertex__ {__mg_id__: 0, prop: 42});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -232,10 +276,12 @@ TEST(DumpTest, MultipleVertices) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 2});");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -247,12 +293,14 @@ TEST(DumpTest, SingleEdge) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
   EXPECT_EQ(DumpNext(&dump),
             "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
             "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -267,9 +315,10 @@ TEST(DumpTest, MultipleEdges) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 2});");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
   EXPECT_EQ(DumpNext(&dump),
             "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
             "(u)-[:EdgeType]->(v);");
@@ -279,7 +328,8 @@ TEST(DumpTest, MultipleEdges) {
   EXPECT_EQ(DumpNext(&dump),
             "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE "
             "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -291,12 +341,33 @@ TEST(DumpTest, EdgeWithProperties) {
 
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE ({__mg_id__: 1});");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
   EXPECT_EQ(DumpNext(&dump),
             "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
             "(u)-[:EdgeType {prop: 13}]->(v);");
-  EXPECT_EQ(DumpNext(&dump), "MATCH (u) REMOVE u.__mg_id__;");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+  EXPECT_EQ(DumpNext(&dump), "");
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(DumpTest, IndicesKeys) {
+  DatabaseEnvironment db;
+  db.CreateVertex({"Label1", "Label2"}, {{"prop", PropertyValue(10)}}, false);
+  db.Execute("CREATE INDEX ON :Label1(prop);");
+  db.Execute("CREATE UNIQUE INDEX ON :Label2(prop);");
+
+  auto dba = db.Access();
+  CypherDumpGenerator dump(&dba);
+  EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label1(prop);");
+  EXPECT_EQ(DumpNext(&dump), "CREATE UNIQUE INDEX ON :Label2(prop);");
+  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+  EXPECT_EQ(DumpNext(&dump),
+            "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0, prop: 10});");
+  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -331,7 +402,11 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   db.CreateEdge(z, u, "Knows", {});
   db.CreateEdge(w, z, "Knows", {{"how", "school"}});
   db.CreateEdge(w, z, "Likes", {{"how", "very much"}});
+  // Create few indices
+  db.Execute("CREATE UNIQUE INDEX ON :Person(name);");
+  db.Execute("CREATE INDEX ON :Person(unexisting_property);");
 
+  const auto &db_initial_state = db.GetState();
   DatabaseEnvironment db_dump;
   auto dba = db.Access();
   CypherDumpGenerator dump(&dba);
@@ -340,4 +415,6 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     db_dump.Execute(cmd);
   }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
+  // Make sure that dump function doesn't make changes on the database.
+  EXPECT_EQ(db.GetState(), db_initial_state);
 }

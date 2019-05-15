@@ -23,6 +23,10 @@ namespace {
 // matching.
 const char *kInternalPropertyId = "__mg_id__";
 
+// Label that is attached to each vertex and is used for easier creation of
+// index on internal property id.
+const char *kInternalVertexLabel = "__mg_vertex__";
+
 void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
@@ -82,10 +86,11 @@ void DumpProperties(std::ostream *os, GraphDbAccessor *dba,
 void DumpVertex(std::ostream *os, GraphDbAccessor *dba,
                 const VertexAccessor &vertex) {
   *os << "CREATE (";
+  *os << ":" << kInternalVertexLabel;
   for (const auto &label : vertex.labels()) {
     *os << ":" << dba->LabelName(label);
   }
-  if (!vertex.labels().empty()) *os << " ";
+  *os << " ";
   DumpProperties(os, dba, vertex.Properties(),
                  std::optional<uint64_t>(vertex.CypherId()));
   *os << ");";
@@ -108,30 +113,51 @@ void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
   *os << "]->(v);";
 }
 
-void DumpInternalIndexCleanup(std::ostream *os) {
-  // TODO(tsabolcec): Don't forget to drop the index by internal id.
-  *os << "MATCH (u) REMOVE u." << kInternalPropertyId << ";";
+void DumpIndexKey(std::ostream *os, GraphDbAccessor *dba,
+                  const LabelPropertyIndex::Key &key) {
+  *os << "CREATE ";
+  if (key.unique_) *os << "UNIQUE ";
+  *os << "INDEX ON :" << dba->LabelName(key.label_) << "("
+      << dba->PropertyName(key.property_) << ");";
 }
 
 }  // namespace
 
 CypherDumpGenerator::CypherDumpGenerator(GraphDbAccessor *dba)
-    : dba_(dba), cleaned_internals_(false) {
+    : dba_(dba),
+      created_internal_index_(false),
+      cleaned_internal_index_(false),
+      cleaned_internal_label_property_(false) {
   CHECK(dba);
+  indices_state_.emplace(dba->GetIndicesKeys());
   vertices_state_.emplace(dba->Vertices(false));
   edges_state_.emplace(dba->Edges(false));
 }
 
 bool CypherDumpGenerator::NextQuery(std::ostream *os) {
-  if (!vertices_state_->ReachedEnd()) {
+  if (!indices_state_->ReachedEnd()) {
+    DumpIndexKey(os, dba_, *indices_state_->GetCurrentAndAdvance());
+    return true;
+  } else if (!vertices_state_->Empty() && !created_internal_index_) {
+    *os << "CREATE INDEX ON :" << kInternalVertexLabel << "("
+        << kInternalPropertyId << ");";
+    created_internal_index_ = true;
+    return true;
+  } else if (!vertices_state_->ReachedEnd()) {
     DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
     return true;
   } else if (!edges_state_->ReachedEnd()) {
     DumpEdge(os, dba_, *edges_state_->GetCurrentAndAdvance());
     return true;
-  } else if (!vertices_state_->Empty() && !cleaned_internals_) {
-    DumpInternalIndexCleanup(os);
-    cleaned_internals_ = true;
+  } else if (!vertices_state_->Empty() && !cleaned_internal_index_) {
+    *os << "DROP INDEX ON :" << kInternalVertexLabel << "("
+        << kInternalPropertyId << ");";
+    cleaned_internal_index_ = true;
+    return true;
+  } else if (!vertices_state_->Empty() && !cleaned_internal_label_property_) {
+    *os << "MATCH (u) REMOVE u:" << kInternalVertexLabel << ", u."
+        << kInternalPropertyId << ";";
+    cleaned_internal_label_property_ = true;
     return true;
   }
 

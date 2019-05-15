@@ -9,8 +9,10 @@ namespace database {
 /// Class which generates sequence of openCypher queries which can be used to
 /// dump the database state.
 ///
-/// Currently, only vertices and edges are being dumped, one-by-one in multiple
-/// queries. Indices keys, constraints, roles, etc. are currently not dumped.
+/// Currently only dumps index keys, vertices and edges, one-by-one in multiple
+/// queries.
+// TODO(tsabolcec): We should also dump constraints once that functionality is
+// integrated in MemGraph.
 class CypherDumpGenerator {
  public:
   explicit CypherDumpGenerator(GraphDbAccessor *dba);
@@ -51,8 +53,12 @@ class CypherDumpGenerator {
 
   GraphDbAccessor *dba_;
 
-  bool cleaned_internals_;
+  bool created_internal_index_;
+  bool cleaned_internal_index_;
+  bool cleaned_internal_label_property_;
 
+  std::optional<ContainerState<std::vector<LabelPropertyIndex::Key>>>
+      indices_state_;
   std::optional<ContainerState<decltype(dba_->Vertices(false))>>
       vertices_state_;
   std::optional<ContainerState<decltype(dba_->Edges(false))>> edges_state_;
