@@ -31,7 +31,7 @@ namespace raft {
 using Clock = std::chrono::system_clock;
 using TimePoint = std::chrono::system_clock::time_point;
 
-enum class Mode { FOLLOWER, CANDIDATE, LEADER, SHUTDOWN };
+enum class Mode { FOLLOWER, CANDIDATE, LEADER };
 
 inline std::string ModeToString(const Mode &mode) {
   switch (mode) {
@@ -41,8 +41,6 @@ inline std::string ModeToString(const Mode &mode) {
       return "CANDIDATE";
     case Mode::LEADER:
       return "LEADER";
-    case Mode::SHUTDOWN:
-      return "SHUTDOWN";
   }
 }
 
@@ -212,6 +210,8 @@ class RaftServer final : public RaftInterface {
   std::condition_variable hb_condition_; ///< Notifies the HBIssuer thread
                                          ///< that it should start sending
                                          ///< heartbeats.
+
+  std::atomic<bool> exiting_{false};  ///< True on server shutdown.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
