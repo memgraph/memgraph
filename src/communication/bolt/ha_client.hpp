@@ -1,6 +1,8 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <glog/logging.h>
@@ -89,6 +91,15 @@ class HAClient final {
                                num_retries_);
   }
 
+  /// Function that returns the current leader ID.
+  ///
+  /// @throws ClientFatalException when we couldn't find the leader server even
+  ///                              after `num_retries` tries
+  uint64_t GetLeaderId() {
+    Execute("SHOW RAFT INFO", {});
+    return leader_id_;
+  }
+
  private:
   void FindLeader() {
     // Reconnect clients that aren't available
@@ -118,8 +129,10 @@ class HAClient final {
 
     // Determine which server is the leader
     leader_ = nullptr;
-    int64_t leader_id = -1;
-    for (const auto &client : clients_) {
+    uint64_t leader_id = 0;
+    int64_t leader_term = -1;
+    for (uint64_t i = 0; i < clients_.size(); ++i) {
+      auto &client = clients_[i];
       try {
         auto ret = client->Execute("SHOW RAFT INFO", {});
         int64_t term_id = -1;
@@ -138,14 +151,16 @@ class HAClient final {
             continue;
           }
         }
-        if (is_leader && term_id > leader_id) {
-          leader_id = term_id;
+        if (is_leader && term_id > leader_term) {
+          leader_term = term_id;
+          leader_id = i + 1;
           leader_ = client.get();
         }
       } catch (const utils::BasicException &) {
         continue;
       }
     }
+    leader_id_ = leader_id;
     if (!leader_) {
       throw ClientFatalException("Couldn't find leader server!");
     }
@@ -159,6 +174,7 @@ class HAClient final {
   std::chrono::milliseconds retry_delay_;
   std::string client_name_;
 
+  uint64_t leader_id_ = 0;
   Client *leader_ = nullptr;
   std::vector<std::unique_ptr<Client>> clients_;
 };
