@@ -3128,59 +3128,72 @@ Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Unwind)
 
-UniqueCursorPtr Unwind::MakeCursor(database::GraphDbAccessor *db,
-                                   utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, db, mem);
-}
-
 std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
   return symbols;
 }
 
-Unwind::UnwindCursor::UnwindCursor(const Unwind &self,
-                                   database::GraphDbAccessor *db,
-                                   utils::MemoryResource *mem)
-    : self_(self), db_(*db), input_cursor_(self.input_->MakeCursor(db, mem)) {}
+class UnwindCursor : public Cursor {
+ public:
+  UnwindCursor(const Unwind &self, database::GraphDbAccessor *db,
+               utils::MemoryResource *mem)
+      : self_(self),
+        db_(*db),
+        input_cursor_(self.input_->MakeCursor(db, mem)) {}
 
-bool Unwind::UnwindCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Unwind");
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Unwind");
 
-  while (true) {
-    if (db_.should_abort()) throw HintedAbortError();
-    // if we reached the end of our list of values
-    // pull from the input
-    if (input_value_it_ == input_value_.end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+    while (true) {
+      if (db_.should_abort()) throw HintedAbortError();
+      // if we reached the end of our list of values
+      // pull from the input
+      if (input_value_it_ == input_value_.end()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
 
-      // successful pull from input, initialize value and iterator
-      ExpressionEvaluator evaluator(&frame, context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor, GraphView::OLD);
-      TypedValue input_value = self_.input_expression_->Accept(evaluator);
-      if (input_value.type() != TypedValue::Type::List)
-        throw QueryRuntimeException(
-            "Argument of UNWIND must be a list, but '{}' was provided.",
-            input_value.type());
-      input_value_ = input_value.Value<std::vector<TypedValue>>();
-      input_value_it_ = input_value_.begin();
+        // successful pull from input, initialize value and iterator
+        ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor, GraphView::OLD);
+        TypedValue input_value = self_.input_expression_->Accept(evaluator);
+        if (input_value.type() != TypedValue::Type::List)
+          throw QueryRuntimeException(
+              "Argument of UNWIND must be a list, but '{}' was provided.",
+              input_value.type());
+        input_value_ = input_value.Value<std::vector<TypedValue>>();
+        input_value_it_ = input_value_.begin();
+      }
+
+      // if we reached the end of our list of values goto back to top
+      if (input_value_it_ == input_value_.end()) continue;
+
+      frame[self_.output_symbol_] = *input_value_it_++;
+      return true;
     }
-
-    // if we reached the end of our list of values goto back to top
-    if (input_value_it_ == input_value_.end()) continue;
-
-    frame[self_.output_symbol_] = *input_value_it_++;
-    return true;
   }
-}
 
-void Unwind::UnwindCursor::Shutdown() { input_cursor_->Shutdown(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
-void Unwind::UnwindCursor::Reset() {
-  input_cursor_->Reset();
-  input_value_.clear();
-  input_value_it_ = input_value_.end();
+  void Reset() override {
+    input_cursor_->Reset();
+    input_value_.clear();
+    input_value_it_ = input_value_.end();
+  }
+
+ private:
+  const Unwind &self_;
+  database::GraphDbAccessor &db_;
+  const UniqueCursorPtr input_cursor_;
+  // typed values we are unwinding and yielding
+  std::vector<TypedValue> input_value_;
+  // current position in input_value_
+  std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
+};
+
+UniqueCursorPtr Unwind::MakeCursor(database::GraphDbAccessor *db,
+                                   utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, db, mem);
 }
 
 class DistinctCursor : public Cursor {

@@ -1951,26 +1951,6 @@ Input is optional (unwind can be the first clause in a query).")
      input_ = input;
    }
    cpp<#)
-  (:private
-   #>cpp
-   class UnwindCursor : public Cursor {
-    public:
-     UnwindCursor(const Unwind &, database::GraphDbAccessor *,
-                  utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Unwind &self_;
-     database::GraphDbAccessor &db_;
-     const UniqueCursorPtr input_cursor_;
-     // typed values we are unwinding and yielding
-     std::vector<TypedValue> input_value_;
-     // current position in input_value_
-     std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
-   };
-   cpp<#)
   (:serialize (:slk))
   (:clone))
 
