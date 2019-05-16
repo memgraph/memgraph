@@ -341,4 +341,50 @@ BENCHMARK_TEMPLATE(Aggregate, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void OrderBy(benchmark::State &state) {
+  query::AstStorage ast;
+  query::Parameters parameters;
+  database::GraphDb db;
+  AddVertices(&db, state.range(1));
+  query::SymbolTable symbol_table;
+  auto scan_all = std::make_shared<query::plan::ScanAll>(
+      nullptr, symbol_table.CreateSymbol("v", false));
+  std::vector<query::Symbol> symbols;
+  symbols.reserve(state.range(0));
+  // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
+  std::mt19937_64 rg(42);
+  std::vector<query::SortItem> sort_items;
+  sort_items.reserve(state.range(0));
+  for (int i = 0; i < state.range(0); ++i) {
+    symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
+    auto rand_value = utils::MemcpyCast<int64_t>(rg());
+    sort_items.push_back({query::Ordering::ASC,
+                          ast.Create<query::PrimitiveLiteral>(rand_value)});
+  }
+  query::plan::OrderBy order_by(scan_all, sort_items, symbols);
+  auto dba = db.Access();
+  query::Frame frame(symbol_table.max_position());
+  // Nothing should be used from the EvaluationContext, so leave it empty.
+  query::EvaluationContext evaluation_context;
+  while (state.KeepRunning()) {
+    query::ExecutionContext execution_context{&dba, symbol_table,
+                                              evaluation_context};
+    TMemory memory;
+    auto cursor = order_by.MakeCursor(&dba, memory.get());
+    while (cursor->Pull(frame, execution_context))
+      ;
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_TEMPLATE(OrderBy, NewDeleteResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(OrderBy, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_MAIN();

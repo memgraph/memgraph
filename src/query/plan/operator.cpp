@@ -2866,7 +2866,9 @@ class OrderByCursor : public Cursor {
  public:
   OrderByCursor(const OrderBy &self, database::GraphDbAccessor *db,
                 utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(db, mem)) {}
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(db, mem)),
+        cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("OrderBy");
@@ -2875,26 +2877,27 @@ class OrderByCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                     context.evaluation_context,
                                     context.db_accessor, GraphView::OLD);
+      auto *mem = cache_.get_allocator().GetMemoryResource();
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
-        std::vector<TypedValue> order_by;
+        std::vector<TypedValue, utils::Allocator<TypedValue>> order_by(mem);
         order_by.reserve(self_.order_by_.size());
         for (auto expression_ptr : self_.order_by_) {
           order_by.emplace_back(expression_ptr->Accept(evaluator));
         }
 
         // collect the output elements
-        std::vector<TypedValue> output;
+        std::vector<TypedValue, utils::Allocator<TypedValue>> output(mem);
         output.reserve(self_.output_symbols_.size());
         for (const Symbol &output_sym : self_.output_symbols_)
           output.emplace_back(frame[output_sym]);
 
-        cache_.emplace_back(std::move(order_by), std::move(output));
+        cache_.push_back(Element{std::move(order_by), std::move(output)});
       }
 
       std::sort(cache_.begin(), cache_.end(),
                 [this](const auto &pair1, const auto &pair2) {
-                  return self_.compare_(pair1.first, pair2.first);
+                  return self_.compare_(pair1.order_by, pair2.order_by);
                 });
 
       did_pull_all_ = true;
@@ -2906,11 +2909,11 @@ class OrderByCursor : public Cursor {
     if (context.db_accessor->should_abort()) throw HintedAbortError();
 
     // place the output values on the frame
-    DCHECK(self_.output_symbols_.size() == cache_it_->second.size())
+    DCHECK(self_.output_symbols_.size() == cache_it_->remember.size())
         << "Number of values does not match the number of output symbols "
            "in OrderBy";
     auto output_sym_it = self_.output_symbols_.begin();
-    for (const TypedValue &output : cache_it_->second)
+    for (const TypedValue &output : cache_it_->remember)
       frame[*output_sym_it++] = output;
 
     cache_it_++;
@@ -2926,15 +2929,17 @@ class OrderByCursor : public Cursor {
   }
 
  private:
+  struct Element {
+    std::vector<TypedValue, utils::Allocator<TypedValue>> order_by;
+    std::vector<TypedValue, utils::Allocator<TypedValue>> remember;
+  };
+
   const OrderBy &self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_all_{false};
   // a cache of elements pulled from the input
-  // first pair element is the order-by vector
-  // second pair is the remember vector
-  // the cache is filled and sorted (only on first pair elem) on first Pull
-  std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>>
-      cache_;
+  // the cache is filled and sorted (only on first elem) on first Pull
+  std::vector<Element, utils::Allocator<Element>> cache_;
   // iterator over the cache_, maintains state between Pulls
   decltype(cache_.begin()) cache_it_ = cache_.begin();
 };
