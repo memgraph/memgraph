@@ -291,4 +291,54 @@ BENCHMARK_TEMPLATE(Accumulate, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void Aggregate(benchmark::State &state) {
+  query::AstStorage ast;
+  query::Parameters parameters;
+  database::GraphDb db;
+  AddVertices(&db, state.range(1));
+  query::SymbolTable symbol_table;
+  auto scan_all = std::make_shared<query::plan::ScanAll>(
+      nullptr, symbol_table.CreateSymbol("v", false));
+  std::vector<query::Symbol> symbols;
+  symbols.reserve(state.range(0));
+  std::vector<query::Expression *> group_by;
+  group_by.reserve(state.range(0));
+  std::vector<query::plan::Aggregate::Element> aggregations;
+  aggregations.reserve(state.range(0));
+  for (int i = 0; i < state.range(0); ++i) {
+    auto sym = symbol_table.CreateSymbol(std::to_string(i), false);
+    symbols.push_back(sym);
+    group_by.push_back(ast.Create<query::Identifier>(sym.name())->MapTo(sym));
+    aggregations.push_back(
+        {ast.Create<query::PrimitiveLiteral>(i), nullptr,
+         query::Aggregation::Op::SUM,
+         symbol_table.CreateSymbol("out" + std::to_string(i), false)});
+  }
+  query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
+  auto dba = db.Access();
+  query::Frame frame(symbol_table.max_position());
+  // Nothing should be used from the EvaluationContext, so leave it empty.
+  query::EvaluationContext evaluation_context;
+  while (state.KeepRunning()) {
+    query::ExecutionContext execution_context{&dba, symbol_table,
+                                              evaluation_context};
+    TMemory memory;
+    auto cursor = aggregate.MakeCursor(&dba, memory.get());
+    frame[symbols.front()] = 0;  // initial group_by value
+    while (cursor->Pull(frame, execution_context))
+      frame[symbols.front()].ValueInt()++;  // new group_by value
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_TEMPLATE(Aggregate, NewDeleteResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Aggregate, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_MAIN();

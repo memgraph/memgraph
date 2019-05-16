@@ -68,6 +68,16 @@ bool TypedValueVectorEqual::operator()(
 
 namespace {
 
+struct TypedValueVectorAllocatorEqual {
+  bool operator()(
+      const std::vector<TypedValue, utils::Allocator<TypedValue>> &left,
+      const std::vector<TypedValue, utils::Allocator<TypedValue>> &right)
+      const {
+    return std::equal(left.begin(), left.end(), right.begin(), right.end(),
+                      TypedValue::BoolEqual());
+  }
+};
+
 // Returns boolean result of evaluating filter expression. Null is treated as
 // false. Other non boolean values raise a QueryRuntimeException.
 bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
@@ -2398,7 +2408,9 @@ class AggregateCursor : public Cursor {
  public:
   AggregateCursor(const Aggregate &self, database::GraphDbAccessor *db,
                   utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(db, mem)) {}
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(db, mem)),
+        aggregation_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Aggregate");
@@ -2452,14 +2464,17 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct AggregationValue {
+    explicit AggregationValue(utils::MemoryResource *mem)
+        : counts_(mem), values_(mem), remember_(mem) {}
+
     // how many input rows have been aggregated in respective values_ element so
     // far
-    std::vector<int> counts_;
+    std::vector<int, utils::Allocator<int>> counts_;
     // aggregated values. Initially Null (until at least one input row with a
     // valid value gets processed)
-    std::vector<TypedValue> values_;
+    std::vector<TypedValue, utils::Allocator<TypedValue>> values_;
     // remember values.
-    std::vector<TypedValue> remember_;
+    std::vector<TypedValue, utils::Allocator<TypedValue>> remember_;
   };
 
   const Aggregate &self_;
@@ -2467,13 +2482,17 @@ class AggregateCursor : public Cursor {
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
-  std::unordered_map<std::vector<TypedValue>, AggregationValue,
-                     // use FNV collection hashing specialized for a vector of
-                     // TypedValues
-                     utils::FnvCollection<std::vector<TypedValue>, TypedValue,
-                                          TypedValue::Hash>,
-                     // custom equality
-                     TypedValueVectorEqual>
+  std::unordered_map<
+      std::vector<TypedValue, utils::Allocator<TypedValue>>, AggregationValue,
+      // use FNV collection hashing specialized for a vector of TypedValues
+      utils::FnvCollection<
+          std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
+          TypedValue::Hash>,
+      // custom equality
+      TypedValueVectorAllocatorEqual,
+      utils::Allocator<
+          std::pair<const std::vector<TypedValue, utils::Allocator<TypedValue>>,
+                    AggregationValue>>>
       aggregation_;
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
@@ -2515,12 +2534,14 @@ class AggregateCursor : public Cursor {
    * Performs a single accumulation.
    */
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
-    std::vector<TypedValue> group_by;
+    auto *mem = aggregation_.get_allocator().GetMemoryResource();
+    std::vector<TypedValue, utils::Allocator<TypedValue>> group_by(mem);
     group_by.reserve(self_.group_by_.size());
     for (Expression *expression : self_.group_by_) {
       group_by.emplace_back(expression->Accept(*evaluator));
     }
-    auto &agg_value = aggregation_[group_by];
+    auto &agg_value =
+        aggregation_.try_emplace(std::move(group_by), mem).first->second;
     EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
   }
@@ -2689,7 +2710,6 @@ UniqueCursorPtr Aggregate::MakeCursor(database::GraphDbAccessor *db,
                                       utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, db, mem);
 }
-
 
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input,
            Expression *expression)
@@ -3143,16 +3163,6 @@ void Unwind::UnwindCursor::Reset() {
   input_value_.clear();
   input_value_it_ = input_value_.end();
 }
-
-struct TypedValueVectorAllocatorEqual {
-  bool operator()(
-      const std::vector<TypedValue, utils::Allocator<TypedValue>> &left,
-      const std::vector<TypedValue, utils::Allocator<TypedValue>> &right)
-      const {
-    return std::equal(left.begin(), left.end(), right.begin(), right.end(),
-                      TypedValue::BoolEqual());
-  }
-};
 
 class DistinctCursor : public Cursor {
  public:
