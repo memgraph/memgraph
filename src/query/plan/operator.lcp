@@ -1789,30 +1789,6 @@ are valid for usage after the OrderBy operator.")
      input_ = input;
    }
    cpp<#)
-  (:private
-   #>cpp
-   class OrderByCursor : public Cursor {
-    public:
-     OrderByCursor(const OrderBy &, database::GraphDbAccessor *,
-                   utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const OrderBy &self_;
-     const UniqueCursorPtr input_cursor_;
-     bool did_pull_all_{false};
-     // a cache of elements pulled from the input
-     // first pair element is the order-by vector
-     // second pair is the remember vector
-     // the cache is filled and sorted (only on first pair elem) on first Pull
-     std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>>
-         cache_;
-     // iterator over the cache_, maintains state between Pulls
-     decltype(cache_.begin()) cache_it_ = cache_.begin();
-   };
-   cpp<#)
   (:serialize (:slk))
   (:clone))
 
