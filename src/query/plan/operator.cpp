@@ -56,25 +56,19 @@
 
 namespace query::plan {
 
-bool TypedValueVectorEqual::operator()(
-    const std::vector<TypedValue> &left,
-    const std::vector<TypedValue> &right) const {
-  DCHECK(left.size() == right.size())
-      << "TypedValueVector comparison should only be done over vectors "
-         "of the same size";
-  return std::equal(left.begin(), left.end(), right.begin(),
-                    TypedValue::BoolEqual{});
-}
-
 namespace {
 
-struct TypedValueVectorAllocatorEqual {
-  bool operator()(
-      const std::vector<TypedValue, utils::Allocator<TypedValue>> &left,
-      const std::vector<TypedValue, utils::Allocator<TypedValue>> &right)
-      const {
-    return std::equal(left.begin(), left.end(), right.begin(), right.end(),
-                      TypedValue::BoolEqual());
+// Custom equality function for a vector of typed values.
+// Used in unordered_maps in Aggregate and Distinct operators.
+struct TypedValueVectorEqual {
+  template <class TAllocator>
+  bool operator()(const std::vector<TypedValue, TAllocator> &left,
+                  const std::vector<TypedValue, TAllocator> &right) const {
+    CHECK(left.size() == right.size())
+        << "TypedValueVector comparison should only be done over vectors "
+           "of the same size";
+    return std::equal(left.begin(), left.end(), right.begin(),
+                      TypedValue::BoolEqual{});
   }
 };
 
@@ -2489,7 +2483,7 @@ class AggregateCursor : public Cursor {
           std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
           TypedValue::Hash>,
       // custom equality
-      TypedValueVectorAllocatorEqual,
+      TypedValueVectorEqual,
       utils::Allocator<
           std::pair<const std::vector<TypedValue, utils::Allocator<TypedValue>>,
                     AggregationValue>>>
@@ -3242,7 +3236,7 @@ class DistinctCursor : public Cursor {
       utils::FnvCollection<
           std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
           TypedValue::Hash>,
-      TypedValueVectorAllocatorEqual,
+      TypedValueVectorEqual,
       utils::Allocator<std::vector<TypedValue, utils::Allocator<TypedValue>>>>
       seen_rows_;
 };

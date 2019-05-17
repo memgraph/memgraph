@@ -1541,17 +1541,6 @@ has been cached will be reconstructed before Pull returns.
   (:serialize (:slk))
   (:clone))
 
-#>cpp
-/**
- * Custom equality function for a vector of typed values.
- * Used in unordered_maps in Aggregate and Distinct operators.
- */
-struct TypedValueVectorEqual {
-  bool operator()(const std::vector<TypedValue> &left,
-                  const std::vector<TypedValue> &right) const;
-};
-cpp<#
-
 (lcp:define-class aggregate (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer

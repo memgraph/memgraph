@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include <glog/logging.h>
+
 #include "database/graph_db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -50,7 +52,7 @@ class TypedValueVectorCompare final {
                   const std::vector<TypedValue, TAllocator> &c2) const {
     // ordering is invalid if there are more elements in the collections
     // then there are in the ordering_ vector
-    DCHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
+    CHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
         << "Collections contain more elements then there are orderings";
 
     auto c1_it = c1.begin();
