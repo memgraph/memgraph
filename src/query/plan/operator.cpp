@@ -3140,7 +3140,8 @@ class UnwindCursor : public Cursor {
                utils::MemoryResource *mem)
       : self_(self),
         db_(*db),
-        input_cursor_(self.input_->MakeCursor(db, mem)) {}
+        input_cursor_(self.input_->MakeCursor(db, mem)),
+        input_value_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Unwind");
@@ -3161,7 +3162,12 @@ class UnwindCursor : public Cursor {
           throw QueryRuntimeException(
               "Argument of UNWIND must be a list, but '{}' was provided.",
               input_value.type());
-        input_value_ = input_value.Value<std::vector<TypedValue>>();
+        // Copy the evaluted input_value_list to our vector. Since we use a
+        // different allocator, we cannot just do
+        // input_value_ = input_value.ValueList();
+        const auto &input_value_list = input_value.ValueList();
+        input_value_.reserve(input_value_list.size());
+        input_value_.assign(input_value_list.begin(), input_value_list.end());
         input_value_it_ = input_value_.begin();
       }
 
@@ -3186,9 +3192,9 @@ class UnwindCursor : public Cursor {
   database::GraphDbAccessor &db_;
   const UniqueCursorPtr input_cursor_;
   // typed values we are unwinding and yielding
-  std::vector<TypedValue> input_value_;
+  std::vector<TypedValue, utils::Allocator<TypedValue>> input_value_;
   // current position in input_value_
-  std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
+  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
 };
 
 UniqueCursorPtr Unwind::MakeCursor(database::GraphDbAccessor *db,

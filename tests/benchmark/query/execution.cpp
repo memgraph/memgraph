@@ -387,4 +387,42 @@ BENCHMARK_TEMPLATE(OrderBy, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void Unwind(benchmark::State &state) {
+  query::AstStorage ast;
+  query::Parameters parameters;
+  database::GraphDb db;
+  AddVertices(&db, state.range(0));
+  query::SymbolTable symbol_table;
+  auto scan_all = std::make_shared<query::plan::ScanAll>(
+      nullptr, symbol_table.CreateSymbol("v", false));
+  auto list_sym = symbol_table.CreateSymbol("list", false);
+  auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
+  auto out_sym = symbol_table.CreateSymbol("out", false);
+  query::plan::Unwind unwind(scan_all, list_expr, out_sym);
+  auto dba = db.Access();
+  query::Frame frame(symbol_table.max_position());
+  frame[list_sym] = std::vector<query::TypedValue>(state.range(1));
+  // Nothing should be used from the EvaluationContext, so leave it empty.
+  query::EvaluationContext evaluation_context;
+  while (state.KeepRunning()) {
+    query::ExecutionContext execution_context{&dba, symbol_table,
+                                              evaluation_context};
+    TMemory memory;
+    auto cursor = unwind.MakeCursor(&dba, memory.get());
+    while (cursor->Pull(frame, execution_context))
+      ;
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_TEMPLATE(Unwind, NewDeleteResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Unwind, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_MAIN();
