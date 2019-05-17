@@ -98,10 +98,11 @@ this document updated with correct steps!
 
 ## Next Steps
 
-Familiarise yourself with our code conventions:
+Familiarise yourself with our code conventions and guidelines:
 
   * [C++ Code](cpp-code-conventions.md)
   * [Other Code](other-code-conventions.md)
+  * [Code Review Guidelines](code-review.md)
 
 Take a look at the list of [required reading](required-reading.md) for
 brushing up on technical skills.
