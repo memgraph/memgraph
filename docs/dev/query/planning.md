@@ -170,10 +170,10 @@ destination node is stored in `m`.
 
 Matching multiple relationships proceeds similarly, by repeating the same
 steps. The only difference is that we need to ensure different edges in the
-search pattern, map to different edges in the graph. This means that after
-each `Expand` operator, we need to generate an `ExpandUniquenessFilter`. We
-provide this operator with a list of symbols for the previously matched edges
-and the symbol for the current edge.
+search pattern, map to different edges in the graph. This means that after each
+`Expand` operator, we need to generate an `EdgeUniquenessFilter`. We provide
+this operator with a list of symbols for the previously matched edges and the
+symbol for the current edge.
 
 For example.
 
@@ -187,9 +187,9 @@ Then we look at each triplet in order and perform the described steps. This
 way, we would generate:
 
     ScanAll (n) > Expand (n, r1, m) > Expand (m, r2, l) >
-        ExpandUniquenessFilter ([r1], r2)
+        EdgeUniquenessFilter ([r1], r2)
 
-Note that we don't need to make `ExpandUniquenessFilter` after the first
+Note that we don't need to make `EdgeUniquenessFilter` after the first
 `Expand`, since there are no edges to compare to. This filtering needs to work
 across multiple pattern, but inside a *single* `MATCH` clause.
 
@@ -200,7 +200,7 @@ Let's take a look at the following.
 We would also generate the exact same operators.
 
     ScanAll (n) > Expand (n, r1, m) > Expand (m, r2, l) >
-        ExpandUniquenessFilter ([r1], r2)
+        EdgeUniquenessFilter ([r1], r2)
 
 On the other hand,
 
@@ -210,7 +210,7 @@ would reset the uniqueness filtering at the start of the second match. This
 would mean that we output the following:
 
     ScanAll (n) > Expand (n, r1, m) > Expand (m, r2, l) > Expand (l, r3, i) >
-        ExpandUniquenessFilter ([r2], r3)
+        EdgeUniquenessFilter ([r2], r3)
 
 There is a difference in how we handle edge uniqueness compared to Neo4j.
 Neo4j does not allow searching for a single edge multiple times, but we've
@@ -226,7 +226,7 @@ generate this plan.
 
     ScanAll (n) > Expand (n, r, m) > Expand (m, r, l)
 
-We do not put an `ExpandUniquenessFilter` operator between 2 `Expand`
+We do not put an `EdgeUniquenessFilter` operator between 2 `Expand`
 operators and we tell the 2nd `Expand` that it is an edge cycle. This, 2nd
 `Expand` will ensure we have matched both the same edges.
 
