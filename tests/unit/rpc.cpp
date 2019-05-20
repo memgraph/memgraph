@@ -54,7 +54,8 @@ void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
 }
 
 TEST(Rpc, Call) {
-  Server server({"127.0.0.1", 0});
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
     slk::Load(&req, req_reader);
@@ -64,7 +65,8 @@ TEST(Rpc, Call) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  Client client(server.endpoint());
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
   auto sum = client.Call<Sum>(10, 20);
   EXPECT_EQ(sum.sum, 30);
 
@@ -73,7 +75,8 @@ TEST(Rpc, Call) {
 }
 
 TEST(Rpc, Abort) {
-  Server server({"127.0.0.1", 0});
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
     slk::Load(&req, req_reader);
@@ -84,7 +87,8 @@ TEST(Rpc, Abort) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  Client client(server.endpoint());
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
 
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
@@ -104,7 +108,8 @@ TEST(Rpc, Abort) {
 }
 
 TEST(Rpc, ClientPool) {
-  Server server({"127.0.0.1", 0});
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
     SumReq req;
     Load(&req, req_reader);
@@ -115,7 +120,8 @@ TEST(Rpc, ClientPool) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  Client client(server.endpoint());
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
 
   // These calls should take more than 400ms because we're using a regular
   // client
@@ -136,7 +142,8 @@ TEST(Rpc, ClientPool) {
 
   EXPECT_GE(t1.Elapsed(), 400ms);
 
-  ClientPool pool(server.endpoint());
+  communication::ClientContext pool_context;
+  ClientPool pool(server.endpoint(), &pool_context);
 
   // These calls shouldn't take much more that 100ms because they execute in
   // parallel
@@ -159,7 +166,8 @@ TEST(Rpc, ClientPool) {
 }
 
 TEST(Rpc, LargeMessage) {
-  Server server({"127.0.0.1", 0});
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     slk::Load(&res, req_reader);
@@ -170,7 +178,8 @@ TEST(Rpc, LargeMessage) {
 
   std::string testdata(100000, 'a');
 
-  Client client(server.endpoint());
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
 
@@ -179,7 +188,8 @@ TEST(Rpc, LargeMessage) {
 }
 
 TEST(Rpc, JumboMessage) {
-  Server server({"127.0.0.1", 0});
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     slk::Load(&res, req_reader);
@@ -191,7 +201,8 @@ TEST(Rpc, JumboMessage) {
   // NOLINTNEXTLINE (bugprone-string-constructor)
   std::string testdata(10000000, 'a');
 
-  Client client(server.endpoint());
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
 

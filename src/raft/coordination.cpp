@@ -1,9 +1,13 @@
 #include "raft/coordination.hpp"
 
+#include <gflags/gflags.h>
 #include <json/json.hpp>
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"
+
+DEFINE_string(rpc_cert_file, "", "Certificate file to use (RPC).");
+DEFINE_string(rpc_key_file, "", "Key file to use (RPC).");
 
 namespace raft {
 
@@ -46,15 +50,23 @@ std::unordered_map<uint16_t, io::network::Endpoint> LoadNodesFromFile(
 Coordination::Coordination(
     uint16_t node_id,
     std::unordered_map<uint16_t, io::network::Endpoint> all_nodes)
-    : node_id_(node_id),
-      cluster_size_(all_nodes.size()),
-      server_(all_nodes[node_id], all_nodes.size() * 2) {
+    : node_id_(node_id), cluster_size_(all_nodes.size()) {
+  // Create and initialize all server elements.
+  if (!FLAGS_rpc_cert_file.empty() && !FLAGS_rpc_key_file.empty()) {
+    server_context_.emplace(FLAGS_rpc_key_file, FLAGS_rpc_cert_file);
+  } else {
+    server_context_.emplace();
+  }
+  server_.emplace(all_nodes[node_id_], &server_context_.value(),
+                  all_nodes.size() * 2);
+
   // Create all client elements.
   endpoints_.resize(cluster_size_);
   clients_.resize(cluster_size_);
   client_locks_.resize(cluster_size_);
 
   // Initialize all client elements.
+  client_context_.emplace(server_context_->use_ssl());
   for (uint16_t i = 1; i <= cluster_size_; ++i) {
     auto it = all_nodes.find(i);
     if (it == all_nodes.end()) {
@@ -93,7 +105,7 @@ uint16_t Coordination::GetAllNodeCount() { return cluster_size_; }
 
 uint16_t Coordination::GetOtherNodeCount() { return cluster_size_ - 1; }
 
-bool Coordination::Start() { return server_.Start(); }
+bool Coordination::Start() { return server_->Start(); }
 
 void Coordination::AwaitShutdown(
     std::function<void(void)> call_before_shutdown) {
@@ -106,8 +118,8 @@ void Coordination::AwaitShutdown(
   call_before_shutdown();
 
   // Shutdown our RPC server.
-  server_.Shutdown();
-  server_.AwaitShutdown();
+  server_->Shutdown();
+  server_->AwaitShutdown();
 }
 
 void Coordination::Shutdown() { alive_.store(false); }

@@ -19,7 +19,8 @@ namespace communication::rpc {
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  explicit Client(const io::network::Endpoint &endpoint);
+  Client(const io::network::Endpoint &endpoint,
+         communication::ClientContext *context);
 
   /// Call a previously defined and registered RPC call. This function can
   /// initiate only one request at a time. The call blocks until a response is
@@ -61,7 +62,7 @@ class Client {
 
     // Connect to the remote server.
     if (!client_) {
-      client_.emplace(&context_);
+      client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
         DLOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
         client_ = std::nullopt;
@@ -121,8 +122,7 @@ class Client {
 
  private:
   io::network::Endpoint endpoint_;
-  // TODO (mferencevic): currently the RPC client is hardcoded not to use SSL
-  communication::ClientContext context_;
+  communication::ClientContext *context_;
   std::optional<communication::Client> client_;
 
   std::mutex mutex_;

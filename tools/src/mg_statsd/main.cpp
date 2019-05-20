@@ -32,7 +32,10 @@ std::string GraphiteFormat(const stats::StatsReq &req) {
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::rpc::Server server({FLAGS_interface, (uint16_t)FLAGS_port});
+  // TODO(mferencevic): stats are currently hardcoded not to use SSL
+  communication::ServerContext server_context;
+  communication::rpc::Server server({FLAGS_interface, (uint16_t)FLAGS_port},
+                                    &server_context);
 
   io::network::Socket graphite_socket;
 

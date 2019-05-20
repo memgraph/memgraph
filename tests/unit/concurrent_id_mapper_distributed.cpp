@@ -15,6 +15,7 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
 
  protected:
   TestMasterCoordination coordination_;
+  communication::ClientContext client_context_;
   std::optional<communication::rpc::ClientPool> master_client_pool_;
   std::optional<storage::MasterConcurrentIdMapper<TId>> master_mapper_;
   std::optional<storage::WorkerConcurrentIdMapper<TId>> worker_mapper_;
@@ -22,7 +23,8 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   void SetUp() override {
     master_mapper_.emplace(&coordination_);
     coordination_.Start();
-    master_client_pool_.emplace(coordination_.GetServerEndpoint());
+    master_client_pool_.emplace(coordination_.GetServerEndpoint(),
+                                &client_context_);
     worker_mapper_.emplace(&master_client_pool_.value());
   }
   void TearDown() override {

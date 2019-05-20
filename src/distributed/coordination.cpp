@@ -10,7 +10,7 @@ Coordination::Coordination(const io::network::Endpoint &worker_endpoint,
                            int worker_id,
                            const io::network::Endpoint &master_endpoint,
                            int server_workers_count, int client_workers_count)
-    : server_(worker_endpoint, server_workers_count),
+    : server_(worker_endpoint, &server_context_, server_workers_count),
       thread_pool_(client_workers_count, "RPC client") {
   if (worker_id != 0) {
     // The master is always worker 0.
@@ -64,7 +64,7 @@ communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
   return &client_pools_
               .emplace(std::piecewise_construct,
                        std::forward_as_tuple(worker_id),
-                       std::forward_as_tuple(endpoint))
+                       std::forward_as_tuple(endpoint, &client_context_))
               .first->second;
 }
 

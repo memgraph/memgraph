@@ -95,6 +95,8 @@ class Coordination {
   /// Gets a worker name for the given endpoint.
   std::string GetWorkerName(const io::network::Endpoint &endpoint);
 
+  // TODO(mferencevic): distributed is currently hardcoded not to use SSL
+  communication::ServerContext server_context_;
   communication::rpc::Server server_;
 
   std::atomic<bool> cluster_alive_{true};
@@ -103,6 +105,8 @@ class Coordination {
   std::unordered_map<int, io::network::Endpoint> workers_;
   mutable std::mutex lock_;
 
+  // TODO(mferencevic): distributed is currently hardcoded not to use SSL
+  communication::ClientContext client_context_;
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   utils::ThreadPool thread_pool_;
 };

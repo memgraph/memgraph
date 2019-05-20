@@ -46,7 +46,9 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
   LOG(INFO) << "Stats dispatcher thread started";
   utils::ThreadSetName("Stats dispatcher");
 
-  communication::rpc::Client client(endpoint);
+  // TODO(mferencevic): stats are currently hardcoded not to use SSL
+  communication::ClientContext client_context;
+  communication::rpc::Client client(endpoint, &client_context);
 
   BatchStatsReq batch_request;
   batch_request.requests.reserve(MAX_BATCH_SIZE);

@@ -44,10 +44,15 @@ const int kThreadsNum = 16;
 
 DEFINE_string(server_address, "127.0.0.1", "Server address");
 DEFINE_int32(server_port, 0, "Server port");
+DEFINE_string(server_cert_file, "", "Server SSL certificate file");
+DEFINE_string(server_key_file, "", "Server SSL key file");
+DEFINE_bool(benchmark_use_ssl, false, "Set to true to benchmark using SSL");
 DEFINE_bool(run_server, true, "Set to false to use external server");
 DEFINE_bool(run_benchmark, true, "Set to false to only run server");
 
+std::optional<communication::ServerContext> server_context;
 std::optional<communication::rpc::Server> server;
+std::optional<communication::ClientContext> client_context;
 std::optional<communication::rpc::Client> clients[kThreadsNum];
 std::optional<communication::rpc::ClientPool> client_pool;
 std::optional<utils::ThreadPool> thread_pool;
@@ -105,9 +110,15 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   if (FLAGS_run_server) {
+    if (!FLAGS_server_cert_file.empty() && !FLAGS_server_key_file.empty()) {
+      FLAGS_benchmark_use_ssl = true;
+      server_context.emplace(FLAGS_server_key_file, FLAGS_server_cert_file);
+    } else {
+      server_context.emplace();
+    }
     server.emplace(
         io::network::Endpoint(FLAGS_server_address, FLAGS_server_port),
-        kThreadsNum);
+        &server_context.value(), kThreadsNum);
 
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
       EchoMessage res;
@@ -127,8 +138,10 @@ int main(int argc, char **argv) {
       endpoint = io::network::Endpoint(FLAGS_server_address, FLAGS_server_port);
     }
 
+    client_context.emplace(FLAGS_benchmark_use_ssl);
+
     for (int i = 0; i < kThreadsNum; ++i) {
-      clients[i].emplace(endpoint);
+      clients[i].emplace(endpoint, &client_context.value());
       clients[i]->Call<Echo>("init");
     }
 
@@ -137,7 +150,7 @@ int main(int argc, char **argv) {
     // of making connections to the server during the benchmark here we
     // simultaneously call the Echo RPC on the client pool to make the client
     // pool connect to the server `kThreadsNum` times.
-    client_pool.emplace(endpoint);
+    client_pool.emplace(endpoint, &client_context.value());
     std::thread threads[kThreadsNum];
     for (int i = 0; i < kThreadsNum; ++i) {
       threads[i] =

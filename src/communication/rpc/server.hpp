@@ -15,6 +15,7 @@ namespace communication::rpc {
 class Server {
  public:
   Server(const io::network::Endpoint &endpoint,
+         communication::ServerContext *context,
          size_t workers_count = std::thread::hardware_concurrency());
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -88,8 +89,6 @@ class Server {
   std::map<uint64_t, RpcCallback> callbacks_;
   std::map<uint64_t, RpcExtendedCallback> extended_callbacks_;
 
-  // TODO (mferencevic): currently the RPC server is hardcoded not to use SSL
-  communication::ServerContext context_;
   communication::Server<Session, Server> server_;
 };  // namespace communication::rpc
 

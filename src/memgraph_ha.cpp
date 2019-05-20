@@ -27,8 +27,8 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
                        "Time in seconds after which inactive sessions will be "
                        "closed.",
                        FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_string(cert_file, "", "Certificate file to use.");
-DEFINE_string(key_file, "", "Key file to use.");
+DEFINE_string(cert_file, "", "Certificate file to use (Bolt).");
+DEFINE_string(key_file, "", "Key file to use (Bolt).");
 
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;

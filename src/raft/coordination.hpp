@@ -80,7 +80,8 @@ class Coordination final {
 
     if (!client) {
       const auto &endpoint = endpoints_[other_id - 1];
-      client = std::make_unique<communication::rpc::Client>(endpoint);
+      client = std::make_unique<communication::rpc::Client>(
+          endpoint, &client_context_.value());
     }
 
     try {
@@ -95,7 +96,7 @@ class Coordination final {
   /// Registers a RPC call on this node.
   template <class TRequestResponse>
   void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
-    server_.Register<TRequestResponse>(callback);
+    server_->Register<TRequestResponse>(callback);
   }
 
   /// Registers an extended RPC call on this node.
@@ -103,7 +104,7 @@ class Coordination final {
   void Register(std::function<void(const io::network::Endpoint &, slk::Reader *,
                                    slk::Builder *)>
                     callback) {
-    server_.Register<TRequestResponse>(callback);
+    server_->Register<TRequestResponse>(callback);
   }
 
   /// Starts the coordination and its servers.
@@ -121,8 +122,10 @@ class Coordination final {
   uint16_t node_id_;
   uint16_t cluster_size_;
 
-  communication::rpc::Server server_;
+  std::optional<communication::ServerContext> server_context_;
+  std::optional<communication::rpc::Server> server_;
 
+  std::optional<communication::ClientContext> client_context_;
   std::vector<io::network::Endpoint> endpoints_;
   std::vector<std::unique_ptr<communication::rpc::Client>> clients_;
   std::vector<std::unique_ptr<std::mutex>> client_locks_;

@@ -3,20 +3,15 @@
 namespace communication::rpc {
 
 Server::Server(const io::network::Endpoint &endpoint,
-               size_t workers_count)
-    : server_(endpoint, this, &context_, -1, "RPC", workers_count) {}
+               communication::ServerContext *context, size_t workers_count)
+    : server_(endpoint, this, context, -1, context->use_ssl() ? "RPCS" : "RPC",
+              workers_count) {}
 
-bool Server::Start() {
-  return server_.Start();
-}
+bool Server::Start() { return server_.Start(); }
 
-void Server::Shutdown() {
-  server_.Shutdown();
-}
+void Server::Shutdown() { server_.Shutdown(); }
 
-void Server::AwaitShutdown() {
-  server_.AwaitShutdown();
-}
+void Server::AwaitShutdown() { server_.AwaitShutdown(); }
 
 const io::network::Endpoint &Server::endpoint() const {
   return server_.endpoint();
