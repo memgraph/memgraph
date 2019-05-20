@@ -105,6 +105,16 @@ uint16_t Coordination::GetAllNodeCount() { return cluster_size_; }
 
 uint16_t Coordination::GetOtherNodeCount() { return cluster_size_ - 1; }
 
+io::network::Endpoint Coordination::GetOtherNodeEndpoint(uint16_t other_id) {
+  CHECK(other_id != node_id_) << "Trying to execute RPC on self!";
+  CHECK(other_id >= 1 && other_id <= cluster_size_) << "Invalid node id!";
+  return endpoints_[other_id - 1];
+}
+
+communication::ClientContext *Coordination::GetRpcClientContext() {
+  return &client_context_.value();
+}
+
 bool Coordination::Start() { return server_->Start(); }
 
 void Coordination::AwaitShutdown(

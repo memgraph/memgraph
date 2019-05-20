@@ -10,6 +10,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/rpc/client.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/single_node_ha/paths.hpp"
 #include "durability/single_node_ha/recovery.hpp"
@@ -979,6 +980,11 @@ void RaftServer::HBThreadMain(uint16_t peer_id) {
   utils::ThreadSetName(fmt::format("HBThread{}", peer_id));
   std::unique_lock<std::mutex> lock(heartbeat_lock_);
 
+  // The heartbeat thread uses a dedicated RPC client for its peer so that it
+  // can issue heartbeats in parallel with other RPC requests that are being
+  // issued to the peer (replication, voting, etc.)
+  std::unique_ptr<communication::rpc::Client> rpc_client;
+
   while (!exiting_) {
     TimePoint wait_until;
 
@@ -993,8 +999,17 @@ void RaftServer::HBThreadMain(uint16_t peer_id) {
                  << peer_id << " (Term: " << current_term_ << ")";
 
         lock.unlock();
-        coordination_->ExecuteOnOtherNode<HeartbeatRpc>(peer_id, server_id_,
-                                                        current_term_);
+        if (!rpc_client) {
+          rpc_client = std::make_unique<communication::rpc::Client>(
+              coordination_->GetOtherNodeEndpoint(peer_id),
+              coordination_->GetRpcClientContext());
+        }
+        try {
+          rpc_client->Call<HeartbeatRpc>(server_id_, current_term_);
+        } catch (...) {
+          // Invalidate the client so that we reconnect next time.
+          rpc_client = nullptr;
+        }
         lock.lock();
 
         // This is ok even if we don't receive a reply.

@@ -65,6 +65,12 @@ class Coordination final {
   /// Returns number of other nodes.
   uint16_t GetOtherNodeCount();
 
+  /// Returns endpoint of other node.
+  io::network::Endpoint GetOtherNodeEndpoint(uint16_t other_id);
+
+  /// Returns the currently used RPC client context.
+  communication::ClientContext *GetRpcClientContext();
+
   /// Executes a RPC on another node in the cluster. If the RPC execution
   /// fails (because of underlying network issues) it returns a `std::nullopt`.
   template <class TRequestResponse, class... Args>
