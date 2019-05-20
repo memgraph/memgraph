@@ -14,7 +14,6 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/total_ordering.hpp"
 
 namespace query {
 
@@ -26,8 +25,7 @@ namespace query {
  * Values can be of a number of predefined types that are enumerated in
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
-class TypedValue
-    : public utils::TotalOrdering<TypedValue, TypedValue, TypedValue> {
+class TypedValue {
  public:
   /** Custom TypedValue equality function that returns a bool
    * (as opposed to returning TypedValue as the default equality does).
@@ -273,5 +271,21 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b);
 TypedValue operator^(const TypedValue &a, const TypedValue &b);
 // stream output
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type);
+
+inline TypedValue operator!=(const TypedValue &a, const TypedValue &b) {
+  return !(a == b);
+}
+
+inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
+  return a < b || a == b;
+}
+
+inline TypedValue operator>(const TypedValue &a, const TypedValue &b) {
+  return !(a <= b);
+}
+
+inline TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
+  return !(a < b);
+}
 
 }  // namespace query
