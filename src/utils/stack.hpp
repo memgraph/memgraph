@@ -46,8 +46,8 @@ class Stack {
                   "the size of Stack::Block is a multiple of the page size.");
   }
 
-  Stack(Stack &&other) : head_(other.head_) { other.head_ = nullptr; }
-  Stack &operator=(Stack &&other) {
+  Stack(Stack &&other) noexcept : head_(other.head_) { other.head_ = nullptr; }
+  Stack &operator=(Stack &&other) noexcept {
     while (head_ != nullptr) {
       Block *prev = head_->prev;
       delete head_;

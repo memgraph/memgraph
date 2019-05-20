@@ -470,7 +470,7 @@ class SkipList : private utils::Lockable<lock_t> {
     Accessor(const Accessor &) = delete;
 
     // cppcheck-suppress uninitMemberVar
-    Accessor(Accessor &&other)
+    Accessor(Accessor &&other) noexcept
         : skiplist(other.skiplist), status_(other.status_) {
       other.skiplist = nullptr;
     }

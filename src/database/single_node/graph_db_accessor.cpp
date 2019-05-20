@@ -32,7 +32,7 @@ GraphDbAccessor::GraphDbAccessor(GraphDb *db,
       transaction_(db->tx_engine().BeginBlocking(parent_tx)),
       transaction_starter_{true} {}
 
-GraphDbAccessor::GraphDbAccessor(GraphDbAccessor &&other)
+GraphDbAccessor::GraphDbAccessor(GraphDbAccessor &&other) noexcept
     : db_(other.db_),
       transaction_(other.transaction_),
       transaction_starter_(other.transaction_starter_),
@@ -43,7 +43,7 @@ GraphDbAccessor::GraphDbAccessor(GraphDbAccessor &&other)
   other.transaction_starter_ = false;
 }
 
-GraphDbAccessor &GraphDbAccessor::operator=(GraphDbAccessor &&other) {
+GraphDbAccessor &GraphDbAccessor::operator=(GraphDbAccessor &&other) noexcept {
   db_ = other.db_;
   transaction_ = other.transaction_;
   transaction_starter_ = other.transaction_starter_;

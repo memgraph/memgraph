@@ -73,15 +73,7 @@ class SkipListGC {
    * ones are alive and which ones are dead.
    */
   struct AccessorStatus {
-    AccessorStatus(const int64_t id, bool alive) : id_(id), alive_(alive) {}
-
-    AccessorStatus(AccessorStatus &&other) = default;
-
-    AccessorStatus(const AccessorStatus &other) = delete;
-    AccessorStatus operator=(const AccessorStatus &other) = delete;
-    AccessorStatus operator=(AccessorStatus &&other) = delete;
-
-    const int64_t id_{-1};
+    int64_t id_{-1};
     bool alive_{false};
   };
 
@@ -91,7 +83,7 @@ class SkipListGC {
    */
   AccessorStatus &CreateNewAccessor() {
     std::unique_lock<std::mutex> lock(mutex_);
-    accessors_.emplace_back(++last_accessor_id_, true);
+    accessors_.push_back({++last_accessor_id_, true});
     return accessors_.back();
   }
 

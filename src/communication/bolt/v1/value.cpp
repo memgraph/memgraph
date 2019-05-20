@@ -123,7 +123,7 @@ Value &Value::operator=(const Value &other) {
   return *this;
 }
 
-Value::Value(Value &&other) : type_(other.type_) {
+Value::Value(Value &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       break;
@@ -164,7 +164,7 @@ Value::Value(Value &&other) : type_(other.type_) {
   other.type_ = Type::Null;
 }
 
-Value &Value::operator=(Value &&other) {
+Value &Value::operator=(Value &&other) noexcept {
   if (this != &other) {
     this->~Value();
     // set the type of this
@@ -380,4 +380,4 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "path";
   }
 }
-}
+}  // namespace communication::bolt

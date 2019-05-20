@@ -78,7 +78,7 @@ class TypedValue {
   static const TypedValue Null;
 
   TypedValue(const TypedValue &other);
-  TypedValue(TypedValue &&other);
+  TypedValue(TypedValue &&other) noexcept;
 
   // constructors for primitive types
   TypedValue(bool value) : type_(Type::Bool) { bool_v = value; }
@@ -113,25 +113,26 @@ class TypedValue {
   TypedValue(const PropertyValue &value);
 
   // move constructors for non-primitive types
-  TypedValue(std::string &&value) : type_(Type::String) {
+  TypedValue(std::string &&value) noexcept : type_(Type::String) {
     new (&string_v) std::string(std::move(value));
   }
-  TypedValue(std::vector<TypedValue> &&value) : type_(Type::List) {
+  TypedValue(std::vector<TypedValue> &&value) noexcept : type_(Type::List) {
     new (&list_v) std::vector<TypedValue>(std::move(value));
   }
-  TypedValue(std::map<std::string, TypedValue> &&value) : type_(Type::Map) {
+  TypedValue(std::map<std::string, TypedValue> &&value) noexcept
+      : type_(Type::Map) {
     new (&map_v) std::map<std::string, TypedValue>(std::move(value));
   }
-  TypedValue(VertexAccessor &&vertex) : type_(Type::Vertex) {
+  TypedValue(VertexAccessor &&vertex) noexcept : type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
-  TypedValue(EdgeAccessor &&edge) : type_(Type::Edge) {
+  TypedValue(EdgeAccessor &&edge) noexcept : type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(std::move(edge));
   }
-  TypedValue(Path &&path) : type_(Type::Path) {
+  TypedValue(Path &&path) noexcept : type_(Type::Path) {
     new (&path_v) Path(std::move(path));
   }
-  TypedValue(PropertyValue &&value);
+  TypedValue(PropertyValue &&value) noexcept;
 
   // copy assignment operators
   TypedValue &operator=(const char *);
@@ -148,13 +149,13 @@ class TypedValue {
   TypedValue &operator=(const TypedValue &);
 
   // move assignment operators
-  TypedValue &operator=(std::string &&);
-  TypedValue &operator=(std::vector<TypedValue> &&);
-  TypedValue &operator=(TypedValue::value_map_t &&);
-  TypedValue &operator=(VertexAccessor &&);
-  TypedValue &operator=(EdgeAccessor &&);
-  TypedValue &operator=(Path &&);
-  TypedValue &operator=(TypedValue &&);
+  TypedValue &operator=(std::string &&) noexcept;
+  TypedValue &operator=(std::vector<TypedValue> &&) noexcept;
+  TypedValue &operator=(TypedValue::value_map_t &&) noexcept;
+  TypedValue &operator=(VertexAccessor &&) noexcept;
+  TypedValue &operator=(EdgeAccessor &&) noexcept;
+  TypedValue &operator=(Path &&) noexcept;
+  TypedValue &operator=(TypedValue &&) noexcept;
 
   ~TypedValue();
 

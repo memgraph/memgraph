@@ -54,8 +54,8 @@ class GraphDbAccessor {
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
 
-  GraphDbAccessor(GraphDbAccessor &&other);
-  GraphDbAccessor &operator=(GraphDbAccessor &&other);
+  GraphDbAccessor(GraphDbAccessor &&other) noexcept;
+  GraphDbAccessor &operator=(GraphDbAccessor &&other) noexcept;
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is

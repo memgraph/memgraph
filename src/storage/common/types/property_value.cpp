@@ -127,7 +127,8 @@ PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
   }
 }
 
-PropertyValue::PropertyValue(PropertyValue &&other) : type_(other.type_) {
+PropertyValue::PropertyValue(PropertyValue &&other) noexcept
+    : type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       return;
@@ -183,7 +184,7 @@ PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
   return *this;
 }
 
-PropertyValue &PropertyValue::operator=(PropertyValue &&other) {
+PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
   if (this != &other) {
     DestroyValue();
     type_ = other.type_;

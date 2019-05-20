@@ -56,22 +56,23 @@ class PropertyValue {
   }
 
   // move constructors for non-primitive types
-  PropertyValue(std::string &&value) : type_(Type::String) {
+  PropertyValue(std::string &&value) noexcept : type_(Type::String) {
     new (&string_v) std::string(std::move(value));
   }
-  PropertyValue(std::vector<PropertyValue> &&value) : type_(Type::List) {
+  PropertyValue(std::vector<PropertyValue> &&value) noexcept
+      : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(std::move(value));
   }
-  PropertyValue(std::map<std::string, PropertyValue> &&value)
+  PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept
       : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
   }
 
   PropertyValue &operator=(const PropertyValue &other);
-  PropertyValue &operator=(PropertyValue &&other);
+  PropertyValue &operator=(PropertyValue &&other) noexcept;
 
   PropertyValue(const PropertyValue &other);
-  PropertyValue(PropertyValue &&other);
+  PropertyValue(PropertyValue &&other) noexcept;
   ~PropertyValue();
 
   Type type() const { return type_; }

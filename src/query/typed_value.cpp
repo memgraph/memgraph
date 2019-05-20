@@ -51,7 +51,7 @@ TypedValue::TypedValue(const PropertyValue &value) {
   LOG(FATAL) << "Unsupported type";
 }
 
-TypedValue::TypedValue(PropertyValue &&value) {
+TypedValue::TypedValue(PropertyValue &&value) noexcept {
   switch (value.type()) {
     case PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -128,7 +128,7 @@ TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   LOG(FATAL) << "Unsupported TypedValue::Type";
 }
 
-TypedValue::TypedValue(TypedValue &&other) : type_(other.type_) {
+TypedValue::TypedValue(TypedValue &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       break;
@@ -335,7 +335,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
 
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, \
                                            member)                       \
-  TypedValue &TypedValue::operator=(type_param &&other) {                \
+  TypedValue &TypedValue::operator=(type_param &&other) noexcept {       \
     if (this->type_ == TypedValue::Type::typed_value_type) {             \
       this->member = std::move(other);                                   \
     } else {                                                             \
@@ -395,7 +395,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue &&other) {
+TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
   if (this != &other) {
     DestroyValue();
     type_ = other.type_;

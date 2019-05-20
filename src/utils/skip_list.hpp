@@ -71,7 +71,7 @@ struct SkipListNode {
   SkipListNode(const TObj &_obj, uint8_t _height)
       : obj(_obj), height(_height) {}
 
-  SkipListNode(TObj &&_obj, uint8_t _height)
+  SkipListNode(TObj &&_obj, uint8_t _height) noexcept
       : obj(std::move(_obj)), height(_height) {}
 
   // The items here are carefully placed to minimize padding gaps.
@@ -540,14 +540,15 @@ class SkipList final {
 
     Accessor(const Accessor &other)
         : skiplist_(other.skiplist_), id_(skiplist_->gc_.AllocateId()) {}
-    Accessor(Accessor &&other) : skiplist_(other.skiplist_), id_(other.id_) {
+    Accessor(Accessor &&other) noexcept
+        : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
     Accessor &operator=(const Accessor &other) {
       skiplist_ = other.skiplist_;
       id_ = skiplist_->gc_.AllocateId();
     }
-    Accessor &operator=(Accessor &&other) {
+    Accessor &operator=(Accessor &&other) noexcept {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
@@ -680,7 +681,7 @@ class SkipList final {
 
     ConstAccessor(const ConstAccessor &other)
         : skiplist_(other.skiplist_), id_(skiplist_->gc_.AllocateId()) {}
-    ConstAccessor(ConstAccessor &&other)
+    ConstAccessor(ConstAccessor &&other) noexcept
         : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
@@ -688,7 +689,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = skiplist_->gc_.AllocateId();
     }
-    ConstAccessor &operator=(ConstAccessor &&other) {
+    ConstAccessor &operator=(ConstAccessor &&other) noexcept {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
@@ -757,10 +758,11 @@ class SkipList final {
         SkipListNode<TObj>(kSkipListMaxHeight);
   }
 
-  SkipList(SkipList &&other) : head_(other.head_), size_(other.size_.load()) {
+  SkipList(SkipList &&other) noexcept
+      : head_(other.head_), size_(other.size_.load()) {
     other.head_ = nullptr;
   }
-  SkipList &operator=(SkipList &&other) {
+  SkipList &operator=(SkipList &&other) noexcept {
     TNode *head = head_;
     while (head != nullptr) {
       TNode *succ = head->nexts[0].load(std::memory_order_relaxed);
