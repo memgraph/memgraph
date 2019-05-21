@@ -40,7 +40,10 @@ class Address {
   Address() {}
 
   // Constructor for raw address value
-  explicit Address(StorageT storage) : storage_(storage) {}
+  explicit Address(StorageT storage) : storage_(storage) {
+    DCHECK(is_remote())
+        << "Constructor for raw address can only work with remote address";
+  }
 
   // Constructor for local Address.
   explicit Address(TLocalObj *ptr) {
@@ -82,7 +85,10 @@ class Address {
   }
 
   /// Returns raw address value
-  StorageT raw() const { return storage_; }
+  StorageT raw() const {
+    DCHECK(is_remote()) << "Can't return raw local address";
+    return storage_;
+  }
 
   bool operator==(const Address<TLocalObj> &other) const {
     return storage_ == other.storage_;
