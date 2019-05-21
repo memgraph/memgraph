@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <type_traits>
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -58,7 +59,19 @@ inline bool operator!=(const MemoryResource &a,
   return !(a == b);
 }
 
+MemoryResource *NewDeleteResource() noexcept;
+
 /// Allocator for a concrete type T using the underlying MemoryResource
+///
+/// Allocator does not propagate on container copy construction, copy
+/// assignment, move assignment or swap. Propagation is forbidden because of
+/// potential lifetime issues between the scope of the allocator and the
+/// container using it. This is the same as with std::polymorphic_allocator.
+/// As a result, move assignment of Allocator-using container classes may throw,
+/// and swapping two Allocator-using containers whose allocators do not compare
+/// equal results in undefined behaviour. The allocator does propagate on move
+/// construction and Allocator-using containers may have a `noexcept` move
+/// constructor.
 ///
 /// The API of the Allocator is made such that it fits with the C++ STL
 /// requirements. It can be freely used in STL containers while relying on our
@@ -67,6 +80,9 @@ template <class T>
 class Allocator {
  public:
   using value_type = T;
+  using propagate_on_container_copy_assignment = std::false_type;
+  using propagate_on_container_move_assignment = std::false_type;
+  using propagate_on_container_swap = std::false_type;
 
   /// Implicit conversion from MemoryResource.
   /// This makes working with STL containers much easier.
@@ -86,6 +102,11 @@ class Allocator {
 
   void deallocate(T *p, size_t count_elements) {
     memory_->Deallocate(p, count_elements * sizeof(T), alignof(T));
+  }
+
+  /// Return default NewDeleteResource() allocator.
+  Allocator select_on_container_copy_construction() const {
+    return utils::NewDeleteResource();
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
@@ -123,7 +144,7 @@ class StdMemoryResource final : public MemoryResource {
   bool DoIsEqual(const MemoryResource &other) const noexcept override {
     const auto *other_std = dynamic_cast<const StdMemoryResource *>(&other);
     if (!other_std) return false;
-    return memory_ == other_std->memory_;
+    return *memory_ == *other_std->memory_;
   }
 
   std::experimental::pmr::memory_resource *memory_;
