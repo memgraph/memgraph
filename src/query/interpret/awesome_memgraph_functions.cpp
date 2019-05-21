@@ -57,7 +57,7 @@ TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::List: {
-      const auto &list = args[0].Value<std::vector<TypedValue>>();
+      const auto &list = args[0].ValueList();
       if (list.empty()) return TypedValue::Null;
       return list[0];
     }
@@ -75,7 +75,7 @@ TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::List: {
-      const auto &list = args[0].Value<std::vector<TypedValue>>();
+      const auto &list = args[0].ValueList();
       if (list.empty()) return TypedValue::Null;
       return list.back();
     }
@@ -120,7 +120,7 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return TypedValue::Null;
     case TypedValue::Type::List:
       return static_cast<int64_t>(
-          args[0].Value<std::vector<TypedValue>>().size());
+          args[0].ValueList().size());
     case TypedValue::Type::String:
       return static_cast<int64_t>(args[0].Value<std::string>().size());
     case TypedValue::Type::Map:
@@ -413,7 +413,7 @@ TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::List: {
-      auto list = args[0].Value<std::vector<TypedValue>>();
+      auto list = args[0].ValueList();
       if (list.empty()) return list;
       list.erase(list.begin());
       return list;
@@ -440,7 +440,7 @@ TypedValue UniformSample(TypedValue *args, int64_t nargs,
           "Second argument of 'uniformSample' must be a non-negative integer.");
     case TypedValue::Type::List:
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        auto &population = args[0].Value<std::vector<TypedValue>>();
+        auto &population = args[0].ValueList();
         auto population_size = population.size();
         if (population_size == 0) return TypedValue::Null;
         auto desired_length = args[1].ValueInt();

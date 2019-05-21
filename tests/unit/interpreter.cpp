@@ -120,7 +120,7 @@ TEST_F(InterpreterTest, Parameters) {
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToList<int64_t>(
-        stream.GetResults()[0][0].Value<std::vector<query::TypedValue>>());
+        stream.GetResults()[0][0].ValueList());
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {

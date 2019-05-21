@@ -313,11 +313,11 @@ TEST_F(TypedValueArithmeticTest, Sum) {
   std::vector<TypedValue> out2 = {1, 2, true, "a", 2};
   std::vector<TypedValue> out3 = {1, 2, true, "a", 1, 2, true, "a"};
   EXPECT_PROP_EQ(
-      (TypedValue(2) + TypedValue(in)).Value<std::vector<TypedValue>>(), out1);
+      (TypedValue(2) + TypedValue(in)).ValueList(), out1);
   EXPECT_PROP_EQ(
-      (TypedValue(in) + TypedValue(2)).Value<std::vector<TypedValue>>(), out2);
+      (TypedValue(in) + TypedValue(2)).ValueList(), out2);
   EXPECT_PROP_EQ(
-      (TypedValue(in) + TypedValue(in)).Value<std::vector<TypedValue>>(), out3);
+      (TypedValue(in) + TypedValue(in)).ValueList(), out3);
 }
 
 TEST_F(TypedValueArithmeticTest, Difference) {

@@ -42,7 +42,7 @@ namespace test_common {
 template <typename T>
 auto ToList(const TypedValue &t) {
   std::vector<T> list;
-  for (auto x : t.Value<std::vector<TypedValue>>()) {
+  for (auto x : t.ValueList()) {
     list.push_back(x.Value<T>());
   }
   return list;

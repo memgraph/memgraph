@@ -287,7 +287,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
       return os << value.Value<std::string>();
     case TypedValue::Type::List:
       os << "[";
-      utils::PrintIterable(os, value.Value<std::vector<TypedValue>>());
+      utils::PrintIterable(os, value.ValueList());
       return os << "]";
     case TypedValue::Type::Map:
       os << "{";
@@ -576,8 +576,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       // well. Because, why not?
       // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
       // 2 = [2] compares to false.
-      auto &list_a = a.Value<std::vector<TypedValue>>();
-      auto &list_b = b.Value<std::vector<TypedValue>>();
+      auto &list_a = a.ValueList();
+      auto &list_b = b.ValueList();
       if (list_a.size() != list_b.size()) return false;
       // two arrays are considered equal (by neo) if all their
       // elements are bool-equal. this means that:
@@ -675,7 +675,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     std::vector<TypedValue> list;
     auto append_list = [&list](const TypedValue &v) {
       if (v.IsList()) {
-        auto list2 = v.Value<std::vector<TypedValue>>();
+        auto list2 = v.ValueList();
         list.insert(list.end(), list2.begin(), list2.end());
       } else {
         list.push_back(v);
@@ -821,7 +821,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return std::hash<std::string>{}(value.Value<std::string>());
     case TypedValue::Type::List: {
       return utils::FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
-          value.Value<std::vector<TypedValue>>());
+          value.ValueList());
     }
     case TypedValue::Type::Map: {
       size_t hash = 6543457;

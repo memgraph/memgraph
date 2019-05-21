@@ -873,7 +873,7 @@ class ExpandVariableCursor : public Cursor {
 
       // we use this a lot
       std::vector<TypedValue> &edges_on_frame =
-          frame[self_.common_.edge_symbol].Value<std::vector<TypedValue>>();
+          frame[self_.common_.edge_symbol].ValueList();
 
       // it is possible that edges_on_frame does not contain as many
       // elements as edges_ due to edge-uniqueness (when a whole layer
@@ -2242,7 +2242,7 @@ namespace {
  */
 bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
   auto compare_to_list = [](const TypedValue &list, const TypedValue &other) {
-    for (const TypedValue &list_elem : list.Value<std::vector<TypedValue>>())
+    for (const TypedValue &list_elem : list.ValueList())
       if (ContainsSameEdge(list_elem, other)) return true;
     return false;
   };
@@ -2605,7 +2605,7 @@ class AggregateCursor : public Cursor {
             *value_it = 1;
             break;
           case Aggregation::Op::COLLECT_LIST:
-            value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+            value_it->ValueList().push_back(input_value);
             break;
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem_it->key->Accept(*evaluator);
@@ -2657,7 +2657,7 @@ class AggregateCursor : public Cursor {
           *value_it = *value_it + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
-          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+          value_it->ValueList().push_back(input_value);
           break;
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem_it->key->Accept(*evaluator);

@@ -595,7 +595,7 @@ TEST(QueryPlan, Unwind) {
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     ASSERT_EQ(row[0].type(), TypedValue::Type::List);
-    EXPECT_EQ(row[0].Value<std::vector<TypedValue>>().size(),
+    EXPECT_EQ(row[0].ValueList().size(),
               *expected_x_card_it);
     EXPECT_EQ(row[1].type(), expected_y_it->type());
     expected_x_card_it++;

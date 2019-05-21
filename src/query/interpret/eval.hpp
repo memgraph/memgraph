@@ -131,7 +131,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (_list.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
     }
-    auto list = _list.Value<std::vector<TypedValue>>();
+    auto list = _list.ValueList();
 
     // If literal is NULL there is no need to try to compare it with every
     // element in the list since result of every comparison will be NULL. There
@@ -170,7 +170,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.Value<int64_t>();
-      const auto &list = lhs.Value<std::vector<TypedValue>>();
+      const auto &list = lhs.ValueList();
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
@@ -242,7 +242,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (is_null) {
       return TypedValue::Null;
     }
-    const auto &list = _list.Value<std::vector<TypedValue>>();
+    const auto &list = _list.ValueList();
     auto normalise_bound = [&](int64_t bound) {
       if (bound < 0) {
         bound = static_cast<int64_t>(list.size()) + bound;
@@ -382,7 +382,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("REDUCE expected a list, got {}.",
                                   list_value.type());
     }
-    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*reduce.identifier_);
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
@@ -403,7 +403,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.",
                                   list_value.type());
     }
-    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     std::vector<TypedValue> result;
     result.reserve(list.size());
@@ -427,7 +427,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("ALL expected a list, got {}.",
                                   list_value.type());
     }
-    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*all.identifier_);
     for (const auto &element : list) {
       frame_->at(symbol) = element;
@@ -453,7 +453,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("SINGLE expected a list, got {}.",
                                   list_value.type());
     }
-    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*single.identifier_);
     bool predicate_satisfied = false;
     for (const auto &element : list) {
@@ -550,7 +550,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         break;
       }
       case TypedValue::Type::List: {
-        auto &list = value.Value<std::vector<TypedValue>>();
+        auto &list = value.ValueList();
         for (auto &list_value : list) SwitchAccessors(list_value);
         break;
       }

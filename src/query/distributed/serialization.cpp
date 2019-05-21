@@ -29,7 +29,7 @@ void Save(const query::TypedValue &value, slk::Builder *builder,
       return;
     case query::TypedValue::Type::List: {
       slk::Save(static_cast<uint8_t>(5), builder);
-      const auto &values = value.Value<std::vector<query::TypedValue>>();
+      const auto &values = value.ValueList();
       size_t size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {

@@ -191,7 +191,7 @@ void ReconstructTypedValue(TypedValue &value) {
       if (!value.ValueEdge().Reconstruct()) throw ReconstructionException();
       break;
     case Type::List:
-      for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())
+      for (TypedValue &inner_value : value.ValueList())
         ReconstructTypedValue(inner_value);
       break;
     case Type::Map:
