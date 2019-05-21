@@ -289,6 +289,8 @@ class RaftServer final : public RaftInterface {
 
   std::map<uint64_t, LogEntry> log_;
 
+  std::optional<SnapshotMetadata> snapshot_metadata_;
+
   /// Recovers persistent data from disk and stores its in-memory copies
   /// that insure faster read-only operations. This method should be called
   /// on start-up. If parts of persistent data are missing, the method won't
