@@ -63,14 +63,14 @@ set(mg_single_node_sources
     query/plan/variable_start_planner.cpp
     query/repl.cpp
     query/typed_value.cpp
-    storage/single_node/edge_accessor.cpp
+    storage/common/constraints/record.cpp
+		storage/common/constraints/unique_constraints.cpp
     storage/common/locking/record_lock.cpp
     storage/common/types/property_value.cpp
     storage/common/types/property_value_store.cpp
+    storage/single_node/edge_accessor.cpp
     storage/single_node/record_accessor.cpp
     storage/single_node/vertex_accessor.cpp
-    storage/single_node/constraints/record.cpp
-		storage/single_node/constraints/unique_constraints.cpp
     transactions/single_node/engine.cpp
     memgraph_init.cpp
 )

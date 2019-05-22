@@ -7,7 +7,7 @@
 
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/single_node/constraints/record.hpp"
+#include "storage/common/constraints/record.hpp"
 
 namespace tx {
 class Snapshot;

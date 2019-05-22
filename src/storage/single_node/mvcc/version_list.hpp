@@ -1,21 +1,13 @@
 #pragma once
 
-#include "storage/single_node/gid.hpp"
 #include "storage/common/locking/record_lock.hpp"
+#include "storage/common/mvcc/exceptions.hpp"
+#include "storage/single_node/gid.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 
 namespace mvcc {
-
-class SerializationError : public utils::BasicException {
-  static constexpr const char *default_message =
-      "Can't serialize due to concurrent operations.";
-
- public:
-  using utils::BasicException::BasicException;
-  SerializationError() : BasicException(default_message) {}
-};
 
 template <class T>
 class VersionList {

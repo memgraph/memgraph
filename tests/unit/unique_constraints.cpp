@@ -2,7 +2,7 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "storage/single_node/constraints/unique_constraints.hpp"
+#include "storage/common/constraints/unique_constraints.hpp"
 
 using storage::constraints::ConstraintEntry;
 using storage::constraints::UniqueConstraints;

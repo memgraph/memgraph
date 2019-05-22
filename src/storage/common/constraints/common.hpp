@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "storage/common/types/property_value_store.hpp"
-#include "transactions/single_node/engine.hpp"
+#include "transactions/engine.hpp"
 #include "transactions/snapshot.hpp"
 
 namespace storage::constraints::common {

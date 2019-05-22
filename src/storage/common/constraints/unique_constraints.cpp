@@ -1,8 +1,8 @@
-#include "storage/single_node/constraints/unique_constraints.hpp"
+#include "storage/common/constraints/unique_constraints.hpp"
 
 #include <algorithm>
 
-#include "storage/single_node/vertex_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 
 namespace storage::constraints {
 

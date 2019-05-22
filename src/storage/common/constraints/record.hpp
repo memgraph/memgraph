@@ -3,7 +3,7 @@
 #pragma once
 
 #include "storage/common/locking/record_lock.hpp"
-#include "storage/single_node/gid.hpp"
+#include "storage/gid.hpp"
 #include "transactions/type.hpp"
 
 namespace tx {

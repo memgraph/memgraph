@@ -1,8 +1,8 @@
-#include "storage/single_node/constraints/record.hpp"
+#include "storage/common/constraints/record.hpp"
 
-#include "storage/single_node/constraints/exceptions.hpp"
-#include "storage/single_node/mvcc/version_list.hpp"
-#include "transactions/single_node/engine.hpp"
+#include "storage/common/constraints/exceptions.hpp"
+#include "storage/common/mvcc/exceptions.hpp"
+#include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
 
 namespace storage::constraints::impl {
