@@ -429,3 +429,34 @@ TEST_F(TypedValueLogicTest, LogicalXor) {
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(false), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(false), TypedValue(false));
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
+  std::vector<TypedValue> values_with_custom_memory;
+  utils::MonotonicBufferResource monotonic_memory(1024);
+  for (const auto &value : values_) {
+    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    TypedValue copy_constructed_value(value, &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    values_with_custom_memory.emplace_back(std::move(copy_constructed_value));
+    const auto &move_constructed_value = values_with_custom_memory.back();
+    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
+  std::vector<TypedValue> values_with_default_memory;
+  utils::MonotonicBufferResource monotonic_memory(1024);
+  for (const auto &value : values_) {
+    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    TypedValue copy_assigned_value(&monotonic_memory);
+    copy_assigned_value = value;
+    EXPECT_EQ(copy_assigned_value.GetMemoryResource(), &monotonic_memory);
+    values_with_default_memory.emplace_back(utils::NewDeleteResource());
+    auto &move_assigned_value = values_with_default_memory.back();
+    move_assigned_value = std::move(copy_assigned_value);
+    EXPECT_EQ(move_assigned_value.GetMemoryResource(),
+              utils::NewDeleteResource());
+  }
+}

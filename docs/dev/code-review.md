@@ -47,6 +47,7 @@ You need to watch out for the following.
   * Is the move assignment done correctly, also it may throw an exception.
   * Is the copy construction done with the right allocator.
   * Is the copy assignment done correctly.
+  * Using `auto` makes allocator propagation rules rather ambiguous.
 
 ## Classes & Object Oriented Programming
 

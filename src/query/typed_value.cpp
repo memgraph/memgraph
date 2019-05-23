@@ -14,7 +14,13 @@
 
 namespace query {
 
-TypedValue::TypedValue(const PropertyValue &value) {
+TypedValue::TypedValue(const PropertyValue &value)
+    // TODO: MemoryResource in PropertyValue
+    : TypedValue(value, utils::NewDeleteResource()) {}
+
+TypedValue::TypedValue(const PropertyValue &value,
+                       utils::MemoryResource *memory)
+    : memory_(memory) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -51,30 +57,35 @@ TypedValue::TypedValue(const PropertyValue &value) {
   LOG(FATAL) << "Unsupported type";
 }
 
-TypedValue::TypedValue(PropertyValue &&value) noexcept {
-  switch (value.type()) {
+TypedValue::TypedValue(PropertyValue &&other) /* noexcept */
+    // TODO: MemoryResource in PropertyValue, so this can be noexcept
+    : TypedValue(std::move(other), utils::NewDeleteResource()) {}
+
+TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
+    : memory_(memory) {
+  switch (other.type()) {
     case PropertyValue::Type::Null:
       type_ = Type::Null;
       break;
     case PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      bool_v = value.Value<bool>();
+      bool_v = other.Value<bool>();
       break;
     case PropertyValue::Type::Int:
       type_ = Type::Int;
-      int_v = value.Value<int64_t>();
+      int_v = other.Value<int64_t>();
       break;
     case PropertyValue::Type::Double:
       type_ = Type::Double;
-      double_v = value.Value<double>();
+      double_v = other.Value<double>();
       break;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) std::string(std::move(value.Value<std::string>()));
+      new (&string_v) std::string(std::move(other.Value<std::string>()));
       break;
     case PropertyValue::Type::List: {
       type_ = Type::List;
-      auto &vec = value.Value<std::vector<PropertyValue>>();
+      auto &vec = other.Value<std::vector<PropertyValue>>();
       new (&list_v)
           std::vector<TypedValue>(std::make_move_iterator(vec.begin()),
                                   std::make_move_iterator(vec.end()));
@@ -82,7 +93,7 @@ TypedValue::TypedValue(PropertyValue &&value) noexcept {
     }
     case PropertyValue::Type::Map: {
       type_ = Type::Map;
-      auto &map = value.Value<std::map<std::string, PropertyValue>>();
+      auto &map = other.Value<std::map<std::string, PropertyValue>>();
       new (&map_v) std::map<std::string, TypedValue>(
           std::make_move_iterator(map.begin()),
           std::make_move_iterator(map.end()));
@@ -90,10 +101,16 @@ TypedValue::TypedValue(PropertyValue &&value) noexcept {
     }
   }
 
-  value = PropertyValue::Null;
+  other = PropertyValue::Null;
 }
 
-TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
+TypedValue::TypedValue(const TypedValue &other)
+    : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
+                            select_on_container_copy_construction(other.memory_)
+                                .GetMemoryResource()) {}
+
+TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
+    : memory_(memory), type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       return;
@@ -128,7 +145,11 @@ TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   LOG(FATAL) << "Unsupported TypedValue::Type";
 }
 
-TypedValue::TypedValue(TypedValue &&other) noexcept : type_(other.type_) {
+TypedValue::TypedValue(TypedValue &&other) noexcept
+    : TypedValue(std::move(other), other.memory_) {}
+
+TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
+    : memory_(memory), type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       break;
@@ -247,7 +268,7 @@ bool TypedValue::IsPropertyValue() const {
   }
 }
 
-std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
+std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
   switch (type) {
     case TypedValue::Type::Null:
       return os << "null";
@@ -312,7 +333,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
     if (this->type_ == TypedValue::Type::typed_value_type) {             \
       this->member = other;                                              \
     } else {                                                             \
-      *this = TypedValue(other);                                         \
+      *this = TypedValue(other, memory_);                                \
     }                                                                    \
                                                                          \
     return *this;                                                        \
@@ -339,7 +360,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
     if (this->type_ == TypedValue::Type::typed_value_type) {             \
       this->member = std::move(other);                                   \
     } else {                                                             \
-      *this = TypedValue(std::move(other));                              \
+      *this = TypedValue(std::move(other), memory_);                     \
     }                                                                    \
                                                                          \
     return *this;                                                        \
@@ -356,6 +377,14 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
 
 TypedValue &TypedValue::operator=(const TypedValue &other) {
   if (this != &other) {
+    // NOTE: STL uses
+    // std::allocator_traits<>::propagate_on_container_copy_assignment to
+    // determine whether to take the allocator from `other`, or use the one in
+    // `this`. Our utils::Allocator never propagates, so we use the allocator
+    // from `this`.
+    static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::
+                      propagate_on_container_copy_assignment::value,
+                  "Allocator propagation not implemented");
     DestroyValue();
     type_ = other.type_;
 
@@ -398,6 +427,14 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
 TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
   if (this != &other) {
     DestroyValue();
+    // NOTE: STL uses
+    // std::allocator_traits<>::propagate_on_container_move_assignment to
+    // determine whether to take the allocator from `other`, or use the one in
+    // `this`. Our utils::Allocator never propagates, so we use the allocator
+    // from `this`.
+    static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::
+                      propagate_on_container_move_assignment::value,
+                  "Allocator propagation not implemented");
     type_ = other.type_;
 
     switch (other.type_) {
@@ -518,55 +555,56 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(),
                               b.type());
 
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
       throw TypedValueException("Invalid 'less' operand types({} + {})",
                                 a.type(), b.type());
     } else {
-      return a.Value<std::string>() < b.Value<std::string>();
+      return TypedValue(a.Value<std::string>() < b.Value<std::string>(),
+                        a.GetMemoryResource());
     }
   }
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return ToDouble(a) < ToDouble(b);
+    return TypedValue(ToDouble(a) < ToDouble(b), a.GetMemoryResource());
   } else {
-    return a.Value<int64_t>() < b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() < b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
-/** Equality between two typed values that returns either a bool
- * or Null TypedValue (never raises an exception).
- *
- * For the old version of equality that raised an exception
- * when comparing incompatible types, see the version of
- * this file at 2017-04-12.
- */
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   // check we have values that can be compared
   // this means that either they're the same type, or (int, double) combo
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return false;
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
+    return TypedValue(false, a.GetMemoryResource());
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return a.Value<bool>() == b.Value<bool>();
+      return TypedValue(a.Value<bool>() == b.Value<bool>(),
+                        a.GetMemoryResource());
     case TypedValue::Type::Int:
       if (b.IsDouble())
-        return ToDouble(a) == ToDouble(b);
+        return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
       else
-        return a.Value<int64_t>() == b.Value<int64_t>();
+        return TypedValue(a.Value<int64_t>() == b.Value<int64_t>(),
+                          a.GetMemoryResource());
     case TypedValue::Type::Double:
-      return ToDouble(a) == ToDouble(b);
+      return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
     case TypedValue::Type::String:
-      return a.Value<std::string>() == b.Value<std::string>();
+      return TypedValue(a.Value<std::string>() == b.Value<std::string>(),
+                        a.GetMemoryResource());
     case TypedValue::Type::Vertex:
-      return a.Value<VertexAccessor>() == b.Value<VertexAccessor>();
+      return TypedValue(a.Value<VertexAccessor>() == b.Value<VertexAccessor>(),
+                        a.GetMemoryResource());
     case TypedValue::Type::Edge:
-      return a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>();
+      return TypedValue(a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>(),
+                        a.GetMemoryResource());
     case TypedValue::Type::List: {
       // We are not compatible with neo4j at this point. In neo4j 2 = [2]
       // compares
@@ -576,39 +614,44 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       // well. Because, why not?
       // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
       // 2 = [2] compares to false.
-      auto &list_a = a.ValueList();
-      auto &list_b = b.ValueList();
-      if (list_a.size() != list_b.size()) return false;
+      const auto &list_a = a.ValueList();
+      const auto &list_b = b.ValueList();
+      if (list_a.size() != list_b.size())
+        return TypedValue(false, a.GetMemoryResource());
       // two arrays are considered equal (by neo) if all their
       // elements are bool-equal. this means that:
       //    [1] == [null] -> false
       //    [null] == [null] -> true
       // in that sense array-comparison never results in Null
-      return std::equal(list_a.begin(), list_a.end(), list_b.begin(),
-                        TypedValue::BoolEqual{});
+      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(),
+                                   TypedValue::BoolEqual{}),
+                        a.GetMemoryResource());
     }
     case TypedValue::Type::Map: {
-      auto &map_a = a.Value<std::map<std::string, TypedValue>>();
-      auto &map_b = b.Value<std::map<std::string, TypedValue>>();
-      if (map_a.size() != map_b.size()) return false;
-      for (auto &kv_a : map_a) {
+      const auto &map_a = a.Value<std::map<std::string, TypedValue>>();
+      const auto &map_b = b.Value<std::map<std::string, TypedValue>>();
+      if (map_a.size() != map_b.size())
+        return TypedValue(false, a.GetMemoryResource());
+      for (const auto &kv_a : map_a) {
         auto found_b_it = map_b.find(kv_a.first);
-        if (found_b_it == map_b.end()) return false;
+        if (found_b_it == map_b.end())
+          return TypedValue(false, a.GetMemoryResource());
         TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.Value<bool>()) return false;
+        if (comparison.IsNull() || !comparison.Value<bool>())
+          return TypedValue(false, a.GetMemoryResource());
       }
-      return true;
+      return TypedValue(true, a.GetMemoryResource());
     }
     case TypedValue::Type::Path:
-      return a.ValuePath() == b.ValuePath();
+      return TypedValue(a.ValuePath() == b.ValuePath(), a.GetMemoryResource());
     default:
       LOG(FATAL) << "Unhandled comparison for types";
   }
 }
 
 TypedValue operator!(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue::Null;
-  if (a.IsBool()) return TypedValue(!a.Value<bool>());
+  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsBool()) return TypedValue(!a.Value<bool>(), a.GetMemoryResource());
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
@@ -628,16 +671,18 @@ std::string ValueToString(const TypedValue &value) {
 }
 
 TypedValue operator-(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue::Null;
-  if (a.IsInt()) return -a.Value<int64_t>();
-  if (a.IsDouble()) return -a.Value<double>();
+  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsInt()) return TypedValue(-a.Value<int64_t>(), a.GetMemoryResource());
+  if (a.IsDouble())
+    return TypedValue(-a.Value<double>(), a.GetMemoryResource());
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
 TypedValue operator+(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue::Null;
-  if (a.IsInt()) return +a.Value<int64_t>();
-  if (a.IsDouble()) return +a.Value<double>();
+  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsInt()) return TypedValue(+a.Value<int64_t>(), a.GetMemoryResource());
+  if (a.IsDouble())
+    return TypedValue(+a.Value<double>(), a.GetMemoryResource());
   throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
@@ -669,7 +714,7 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b,
 }
 
 TypedValue operator+(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   if (a.IsList() || b.IsList()) {
     std::vector<TypedValue> list;
@@ -683,70 +728,78 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     };
     append_list(a);
     append_list(b);
-    return TypedValue(list);
+    return TypedValue(list, a.GetMemoryResource());
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() || b.IsString()) return ValueToString(a) + ValueToString(b);
+  if (a.IsString() || b.IsString())
+    return TypedValue(ValueToString(a) + ValueToString(b),
+                      a.GetMemoryResource());
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return ToDouble(a) + ToDouble(b);
+    return TypedValue(ToDouble(a) + ToDouble(b), a.GetMemoryResource());
   } else {
-    return a.Value<int64_t>() + b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() + b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "subtraction");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return ToDouble(a) - ToDouble(b);
+    return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
   } else {
-    return a.Value<int64_t>() - b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() - b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "division");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return ToDouble(a) / ToDouble(b);
+    return TypedValue(ToDouble(a) / ToDouble(b), a.GetMemoryResource());
   } else {
     if (b.Value<int64_t>() == 0LL)
       throw TypedValueException("Division by zero");
-    return a.Value<int64_t>() / b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() / b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
 TypedValue operator*(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "multiplication");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return ToDouble(a) * ToDouble(b);
+    return TypedValue(ToDouble(a) * ToDouble(b), a.GetMemoryResource());
   } else {
-    return a.Value<int64_t>() * b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() * b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
 TypedValue operator%(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   EnsureArithmeticallyOk(a, b, false, "modulo");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return (double)fmod(ToDouble(a), ToDouble(b));
+    return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))),
+                      a.GetMemoryResource());
   } else {
     if (b.Value<int64_t>() == 0LL) throw TypedValueException("Mod with zero");
-    return a.Value<int64_t>() % b.Value<int64_t>();
+    return TypedValue(a.Value<int64_t>() % b.Value<int64_t>(),
+                      a.GetMemoryResource());
   }
 }
 
@@ -761,31 +814,36 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical AND");
   // at this point we only have null and bool
   // if either operand is false, the result is false
-  if (a.IsBool() && !a.Value<bool>()) return false;
-  if (b.IsBool() && !b.Value<bool>()) return false;
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsBool() && !a.Value<bool>())
+    return TypedValue(false, a.GetMemoryResource());
+  if (b.IsBool() && !b.Value<bool>())
+    return TypedValue(false, a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   // neither is false, neither is null, thus both are true
-  return true;
+  return TypedValue(true, a.GetMemoryResource());
 }
 
 TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical OR");
   // at this point we only have null and bool
   // if either operand is true, the result is true
-  if (a.IsBool() && a.Value<bool>()) return true;
-  if (b.IsBool() && b.Value<bool>()) return true;
-  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  if (a.IsBool() && a.Value<bool>())
+    return TypedValue(true, a.GetMemoryResource());
+  if (b.IsBool() && b.Value<bool>())
+    return TypedValue(true, a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   // neither is true, neither is null, thus both are false
-  return false;
+  return TypedValue(false, a.GetMemoryResource());
 }
 
 TypedValue operator^(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical XOR");
   // at this point we only have null and bool
   if (a.IsNull() || b.IsNull())
-    return TypedValue::Null;
+    return TypedValue(a.GetMemoryResource());
   else
-    return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
+    return TypedValue(static_cast<bool>(a.Value<bool>() ^ b.Value<bool>()),
+                      a.GetMemoryResource());
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
