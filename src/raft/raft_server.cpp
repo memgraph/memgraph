@@ -119,8 +119,11 @@ void RaftServer::Start() {
             (!voted_for_ || voted_for_.value() == req.candidate_id) &&
             AtLeastUpToDate(req.last_log_index, req.last_log_term,
                             last_entry_data.first, last_entry_data.second);
+        if (grant_vote) {
+          SetVotedFor(req.candidate_id);
+          SetNextElectionTimePoint();
+        }
         RequestVoteRes res(grant_vote, current_term_);
-        if (grant_vote) SetNextElectionTimePoint();
         slk::Save(res, res_builder);
       });
 
