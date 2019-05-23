@@ -146,3 +146,62 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
   mem.Allocate(1, 1);
   EXPECT_THROW(mem.Allocate(max_size, 4), std::bad_alloc);
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+class ContainerWithAllocatorLast final {
+ public:
+  using allocator_type = utils::Allocator<int>;
+
+  ContainerWithAllocatorLast() = default;
+  explicit ContainerWithAllocatorLast(int value) : value_(value) {}
+  ContainerWithAllocatorLast(int value, utils::MemoryResource *memory)
+      : memory_(memory), value_(value) {}
+
+  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other)
+      : value_(other.value_) {}
+  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other,
+                             utils::MemoryResource *memory)
+      : memory_(memory), value_(other.value_) {}
+
+  utils::MemoryResource *memory_{nullptr};
+  int value_{0};
+};
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+class ContainerWithAllocatorFirst final {
+ public:
+  using allocator_type = utils::Allocator<int>;
+
+  ContainerWithAllocatorFirst() = default;
+  explicit ContainerWithAllocatorFirst(int value) : value_(value) {}
+  ContainerWithAllocatorFirst(std::allocator_arg_t,
+                              utils::MemoryResource *memory, int value)
+      : memory_(memory), value_(value) {}
+
+  ContainerWithAllocatorFirst(const ContainerWithAllocatorFirst &other)
+      : value_(other.value_) {}
+  ContainerWithAllocatorFirst(std::allocator_arg_t,
+                              utils::MemoryResource *memory,
+                              const ContainerWithAllocatorFirst &other)
+      : memory_(memory), value_(other.value_) {}
+
+  utils::MemoryResource *memory_{nullptr};
+  int value_{0};
+};
+
+template <class T>
+class AllocatorTest : public ::testing::Test {};
+
+using ContainersWithAllocators =
+    ::testing::Types<ContainerWithAllocatorLast, ContainerWithAllocatorFirst>;
+
+TYPED_TEST_CASE(AllocatorTest, ContainersWithAllocators);
+
+TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
+  std::vector<TypeParam, utils::Allocator<TypeParam>> vec(
+      utils::NewDeleteResource());
+  vec.emplace_back(42);
+  const auto &c = vec.front();
+  EXPECT_EQ(c.value_, 42);
+  EXPECT_EQ(c.memory_, utils::NewDeleteResource());
+}

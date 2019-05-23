@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <type_traits>
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
@@ -76,6 +77,11 @@ MemoryResource *NewDeleteResource() noexcept;
 /// The API of the Allocator is made such that it fits with the C++ STL
 /// requirements. It can be freely used in STL containers while relying on our
 /// implementations of MemoryResource.
+///
+/// Classes which have a member allocator_type typedef to this allocator will
+/// receive an instance of `this->GetMemoryResource()` upon construction if the
+/// outer container also uses this allocator. For concrete behaviour on how this
+/// is done refer to `std::uses_allocator` in C++ reference.
 template <class T>
 class Allocator {
  public:
@@ -98,6 +104,27 @@ class Allocator {
   T *allocate(size_t count_elements) {
     return static_cast<T *>(
         memory_->Allocate(count_elements * sizeof(T), alignof(T)));
+  }
+
+  template <class U, class... TArgs>
+  void construct(U *ptr, TArgs &&... args) {
+    if constexpr (std::uses_allocator_v<U, Allocator>) {
+      if constexpr (std::is_constructible_v<U, std::allocator_arg_t,
+                                            MemoryResource *, TArgs...>) {
+        ::new (ptr)
+            U(std::allocator_arg, memory_, std::forward<TArgs>(args)...);
+      } else if constexpr (std::is_constructible_v<U, TArgs...,
+                                                   MemoryResource *>) {
+        ::new (ptr) U(std::forward<TArgs>(args)..., memory_);
+      } else {
+        static_assert(!std::uses_allocator_v<U, Allocator>,
+                      "Class declares std::uses_allocator but has no valid "
+                      "constructor overload. Refer to 'Uses-allocator "
+                      "construction' rules in C++ reference.");
+      }
+    } else {
+      ::new (ptr) U(std::forward<TArgs>(args)...);
+    }
   }
 
   void deallocate(T *p, size_t count_elements) {
