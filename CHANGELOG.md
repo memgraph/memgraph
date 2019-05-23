@@ -7,6 +7,7 @@
 * `indexInfo()` function replaced with `SHOW INDEX INFO` syntax.
 * Write-ahead log format changed (not backward compatible).
 * Snapshot format changed (not backward compatible).
+* Removed support for unique index. Use unique constraints instead.
 
 ### Major Features and Improvements
 

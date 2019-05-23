@@ -1540,7 +1540,7 @@ cpp<#
                :clone (clone-name-ix-vector "Property")))
   (:public
    (lcp:define-enum action
-       (create create-unique drop)
+       (create drop)
      (:serialize))
 
     #>cpp

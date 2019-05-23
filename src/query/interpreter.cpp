@@ -533,7 +533,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
 Callback HandleIndexQuery(IndexQuery *index_query,
                           std::function<void()> invalidate_plan_cache,
                           database::GraphDbAccessor *db_accessor) {
-  auto action = index_query->action_;
   auto label = db_accessor->Label(index_query->label_.name);
   std::vector<storage::Property> properties;
   properties.reserve(index_query->properties_.size());
@@ -547,15 +546,8 @@ Callback HandleIndexQuery(IndexQuery *index_query,
 
   Callback callback;
   switch (index_query->action_) {
-    case IndexQuery::Action::CREATE_UNIQUE:
-#ifdef MG_SINGLE_NODE
-      throw QueryRuntimeException(
-          "Unique index is not supported, use unique constraint instead ");
-#else
-      throw QueryRuntimeException("Unique index is not supported");
-#endif
     case IndexQuery::Action::CREATE:
-      callback.fn = [action, label, properties, db_accessor,
+      callback.fn = [label, properties, db_accessor,
                      invalidate_plan_cache] {
         try {
           CHECK(properties.size() == 1);

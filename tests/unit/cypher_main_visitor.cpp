@@ -1766,35 +1766,6 @@ TEST_P(CypherMainVisitorTest, CreateIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
-TEST_P(CypherMainVisitorTest, CreateUniqueIndex) {
-  auto &ast_generator = *GetParam();
-  auto *index_query = dynamic_cast<IndexQuery *>(
-      ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko(slavko, pero)"));
-  ASSERT_TRUE(index_query);
-  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE_UNIQUE);
-  EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko"),
-                                              ast_generator.Prop("pero")};
-  ASSERT_EQ(index_query->properties_, expected_properties);
-}
-
-TEST_P(CypherMainVisitorTest, CreateUniqueIndexWithoutProperties) {
-  auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko()"),
-               SyntaxException);
-}
-
-TEST_P(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
-  auto &ast_generator = *GetParam();
-  auto *index_query = dynamic_cast<IndexQuery *>(
-      ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko(slavko)"));
-  ASSERT_TRUE(index_query);
-  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE_UNIQUE);
-  EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
-  ASSERT_EQ(index_query->properties_, expected_properties);
-}
-
 TEST_P(CypherMainVisitorTest, DropIndex) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(

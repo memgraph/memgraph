@@ -56,7 +56,7 @@ profileQuery : PROFILE cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ;
 
-indexQuery : createIndex | createUniqueIndex | dropIndex;
+indexQuery : createIndex | dropIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -298,8 +298,6 @@ integerLiteral : DecimalLiteral
                ;
 
 createIndex : CREATE INDEX ON ':' labelName '(' propertyKeyName ')' ;
-
-createUniqueIndex : CREATE UNIQUE INDEX ON ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
 dropIndex : DROP INDEX ON ':' labelName '(' propertyKeyName ')' ;
 

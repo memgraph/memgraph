@@ -244,12 +244,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::CreateIndexContext *ctx) override;
 
   /**
-   * @return CreateUniqueIndex*
-   */
-  antlrcpp::Any visitCreateUniqueIndex(
-      MemgraphCypher::CreateUniqueIndexContext *ctx) override;
-
-  /**
    * @return DropIndex*
    */
   antlrcpp::Any visitDropIndex(MemgraphCypher::DropIndexContext *ctx) override;

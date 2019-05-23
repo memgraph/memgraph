@@ -159,19 +159,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
   return index_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
-    MemgraphCypher::CreateUniqueIndexContext *ctx) {
-  auto *index_query = storage_->Create<IndexQuery>();
-  index_query->action_ = IndexQuery::Action::CREATE_UNIQUE;
-  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
-  index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (const auto &prop_name : ctx->propertyKeyName()) {
-    PropertyIx name_key = prop_name->accept(this);
-    index_query->properties_.push_back(name_key);
-  }
-  return index_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropIndex(
     MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
