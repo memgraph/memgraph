@@ -101,3 +101,13 @@
     - ../ha_test.py # raft test base module
     - ../../../../build_debug/memgraph_ha # memgraph ha binary
     - ../../../../build_debug/tests/manual/ha_client # tester binary
+
+- name: integration__ha_term_updates
+  cd: ha/term_updates
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - raft.json # raft configuration
+    - ../ha_test.py # raft test base module
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
+    - ../../../../build_debug/tests/integration/ha/term_updates/tester # tester binary

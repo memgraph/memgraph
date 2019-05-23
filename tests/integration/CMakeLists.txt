@@ -22,6 +22,9 @@ add_subdirectory(ha/basic)
 # distributed ha/index binaries
 add_subdirectory(ha/index)
 
+# distributed ha/term_updates binaries
+add_subdirectory(ha/term_updates)
+
 # audit test binaries
 add_subdirectory(audit)
 
