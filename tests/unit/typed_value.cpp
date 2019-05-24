@@ -460,3 +460,36 @@ TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
               utils::NewDeleteResource());
   }
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
+  utils::MonotonicBufferResource monotonic_memory(1024);
+  std::vector<TypedValue, utils::Allocator<TypedValue>>
+      values_with_custom_memory(&monotonic_memory);
+  for (const auto &value : values_) {
+    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    values_with_custom_memory.emplace_back(value);
+    const auto &copy_constructed_value = values_with_custom_memory.back();
+    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    TypedValue copy(values_with_custom_memory.back());
+    EXPECT_EQ(copy.GetMemoryResource(), utils::NewDeleteResource());
+    values_with_custom_memory.emplace_back(std::move(copy));
+    const auto &move_constructed_value = values_with_custom_memory.back();
+    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    if (value.type() == TypedValue::Type::List) {
+      ASSERT_EQ(move_constructed_value.type(), value.type());
+      const auto &original = value.ValueList();
+      const auto &moved = move_constructed_value.ValueList();
+      const auto &copied = copy_constructed_value.ValueList();
+      ASSERT_EQ(moved.size(), original.size());
+      ASSERT_EQ(copied.size(), original.size());
+      for (size_t i = 0; i < value.ValueList().size(); ++i) {
+        EXPECT_EQ(original[i].GetMemoryResource(), utils::NewDeleteResource());
+        EXPECT_EQ(moved[i].GetMemoryResource(), &monotonic_memory);
+        EXPECT_EQ(copied[i].GetMemoryResource(), &monotonic_memory);
+        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
+        EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
+      }
+    }
+  }
+}

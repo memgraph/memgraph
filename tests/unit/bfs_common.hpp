@@ -266,9 +266,10 @@ auto GetProp(const RecordAccessor<TRecord> &rec, std::string prop,
 
 // Checks if the given path is actually a path from source to sink and if all
 // of its edges exist in the given edge list.
+template <class TPathAllocator>
 void CheckPath(database::GraphDbAccessor *dba, const VertexAccessor &source,
                const VertexAccessor &sink,
-               const std::vector<query::TypedValue> &path,
+               const std::vector<query::TypedValue, TPathAllocator> &path,
                const std::vector<std::pair<int, int>> &edges) {
   VertexAccessor curr = source;
   for (const auto &edge_tv : path) {
@@ -276,7 +277,7 @@ void CheckPath(database::GraphDbAccessor *dba, const VertexAccessor &source,
     auto edge = edge_tv.ValueEdge();
 
     ASSERT_TRUE(edge.from() == curr || edge.to() == curr);
-    auto next = edge.from_is(curr) ? edge.to() : edge.from();
+    VertexAccessor next = edge.from_is(curr) ? edge.to() : edge.from();
 
     int from = GetProp(curr, "id", dba).Value<int64_t>();
     int to = GetProp(next, "id", dba).Value<int64_t>();

@@ -43,8 +43,10 @@ TypedValue::TypedValue(const PropertyValue &value,
       return;
     case PropertyValue::Type::List: {
       type_ = Type::List;
-      auto vec = value.Value<std::vector<PropertyValue>>();
-      new (&list_v) std::vector<TypedValue>(vec.begin(), vec.end());
+      const auto &vec = value.Value<std::vector<PropertyValue>>();
+      new (&list_v) TVector(memory_);
+      list_v.reserve(vec.size());
+      list_v.assign(vec.begin(), vec.end());
       return;
     }
     case PropertyValue::Type::Map: {
@@ -86,9 +88,10 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
     case PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.Value<std::vector<PropertyValue>>();
-      new (&list_v)
-          std::vector<TypedValue>(std::make_move_iterator(vec.begin()),
-                                  std::make_move_iterator(vec.end()));
+      new (&list_v) TVector(memory_);
+      list_v.reserve(vec.size());
+      list_v.assign(std::make_move_iterator(vec.begin()),
+                    std::make_move_iterator(vec.end()));
       break;
     }
     case PropertyValue::Type::Map: {
@@ -127,7 +130,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
       new (&string_v) std::string(other.string_v);
       return;
     case Type::List:
-      new (&list_v) std::vector<TypedValue>(other.list_v);
+      new (&list_v) TVector(other.list_v, memory_);
       return;
     case Type::Map:
       new (&map_v) std::map<std::string, TypedValue>(other.map_v);
@@ -166,7 +169,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       new (&string_v) std::string(std::move(other.string_v));
       break;
     case Type::List:
-      new (&list_v) std::vector<TypedValue>(std::move(other.list_v));
+      new (&list_v) TVector(std::move(other.list_v), memory_);
       break;
     case Type::Map:
       new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
@@ -181,7 +184,6 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       new (&path_v) Path(std::move(other.path_v));
       break;
   }
-
   other = TypedValue::Null;
 }
 
@@ -241,7 +243,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::string, String, string_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(std::vector<TypedValue>, List, list_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::value_map_t, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
@@ -345,8 +347,18 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string &, String, string_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::vector<TypedValue> &, List,
-                                   list_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TVector &, List, list_v)
+
+TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
+  if (type_ == Type::List) {
+    list_v.reserve(other.size());
+    list_v.assign(other.begin(), other.end());
+  } else {
+    *this = TypedValue(other, memory_);
+  }
+  return *this;
+}
+
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::value_map_t &, Map, map_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
@@ -356,7 +368,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
 
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, \
                                            member)                       \
-  TypedValue &TypedValue::operator=(type_param &&other) noexcept {       \
+  TypedValue &TypedValue::operator=(type_param &&other) {                \
     if (this->type_ == TypedValue::Type::typed_value_type) {             \
       this->member = std::move(other);                                   \
     } else {                                                             \
@@ -367,7 +379,18 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
   }
 
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(std::string, String, string_v)
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(std::vector<TypedValue>, List, list_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
+
+TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
+  if (type_ == Type::List) {
+    list_v.assign(std::make_move_iterator(other.begin()),
+                  std::make_move_iterator(other.end()));
+  } else {
+    *this = TypedValue(std::move(other), memory_);
+  }
+  return *this;
+}
+
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::value_map_t, Map, map_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
@@ -387,7 +410,6 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
                   "Allocator propagation not implemented");
     DestroyValue();
     type_ = other.type_;
-
     switch (other.type_) {
       case TypedValue::Type::Null:
         return *this;
@@ -404,7 +426,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&string_v) std::string(other.string_v);
         return *this;
       case TypedValue::Type::List:
-        new (&list_v) std::vector<TypedValue>(other.list_v);
+        new (&list_v) TVector(other.list_v, memory_);
         return *this;
       case TypedValue::Type::Map:
         new (&map_v) std::map<std::string, TypedValue>(other.map_v);
@@ -424,7 +446,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
+TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   if (this != &other) {
     DestroyValue();
     // NOTE: STL uses
@@ -436,7 +458,6 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
                       propagate_on_container_move_assignment::value,
                   "Allocator propagation not implemented");
     type_ = other.type_;
-
     switch (other.type_) {
       case TypedValue::Type::Null:
         break;
@@ -453,7 +474,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
         new (&string_v) std::string(std::move(other.string_v));
         break;
       case TypedValue::Type::List:
-        new (&list_v) std::vector<TypedValue>(std::move(other.list_v));
+        new (&list_v) TVector(std::move(other.list_v), memory_);
         break;
       case TypedValue::Type::Map:
         new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
@@ -468,10 +489,8 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept {
         new (&path_v) Path(std::move(other.path_v));
         break;
     }
-
     other = TypedValue::Null;
   }
-
   return *this;
 }
 
@@ -495,8 +514,7 @@ void TypedValue::DestroyValue() {
     string_v.~string();
     break;
   case Type::List:
-    using namespace std;
-    list_v.~vector<TypedValue>();
+    list_v.~TVector();
     break;
   case Type::Map:
     using namespace std;
@@ -717,7 +735,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
 
   if (a.IsList() || b.IsList()) {
-    std::vector<TypedValue> list;
+    TypedValue::TVector list(a.GetMemoryResource());
     auto append_list = [&list](const TypedValue &v) {
       if (v.IsList()) {
         auto list2 = v.ValueList();
@@ -728,7 +746,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     };
     append_list(a);
     append_list(b);
-    return TypedValue(list, a.GetMemoryResource());
+    return TypedValue(std::move(list), a.GetMemoryResource());
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
@@ -878,7 +896,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::String:
       return std::hash<std::string>{}(value.Value<std::string>());
     case TypedValue::Type::List: {
-      return utils::FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
+      return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(
           value.ValueList());
     }
     case TypedValue::Type::Map: {

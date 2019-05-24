@@ -20,11 +20,15 @@ namespace query {
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
- * Encapsulation of a value and it's type encapsulated in a class that has no
- * compiled-time info about that type.
+ * Stores a query runtime value and its type.
  *
  * Values can be of a number of predefined types that are enumerated in
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
+ *
+ * Non-primitive value types perform additional memory allocations. To tune the
+ * allocation scheme, each TypedValue stores a MemoryResource for said
+ * allocations. When copying and moving TypedValue instances, take care that the
+ * appropriate MemoryResource is used.
  */
 class TypedValue {
  public:
@@ -70,6 +74,7 @@ class TypedValue {
    */
   using unordered_set = std::unordered_set<TypedValue, Hash, BoolEqual>;
   using value_map_t = std::map<std::string, TypedValue>;
+  using TVector = std::vector<TypedValue, utils::Allocator<TypedValue>>;
 
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;
@@ -154,10 +159,33 @@ class TypedValue {
     new (&string_v) std::string(value);
   }
 
+  /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const std::vector<TypedValue> &value,
              utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
-    new (&list_v) std::vector<TypedValue>(value);
+    new (&list_v) TVector(memory_);
+    list_v.reserve(value.size());
+    list_v.assign(value.begin(), value.end());
+  }
+
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  TypedValue(const TVector &other)
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
+                              select_on_container_copy_construction(
+                                  other.get_allocator())
+                                  .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  TypedValue(const TVector &value, utils::MemoryResource *memory)
+      : memory_(memory), type_(Type::List) {
+    new (&list_v) TVector(value, memory_);
   }
 
   TypedValue(const std::map<std::string, TypedValue> &value,
@@ -200,14 +228,48 @@ class TypedValue {
     new (&string_v) std::string(std::move(value));
   }
 
-  TypedValue(std::vector<TypedValue> &&value) noexcept : type_(Type::List) {
-    new (&list_v) std::vector<TypedValue>(std::move(value));
+  /**
+   * Perform an element-wise move using default utils::NewDeleteResource().
+   * Other will be not be empty, though elements may be Null.
+   */
+  TypedValue(std::vector<TypedValue> &&other)
+      : TypedValue(std::move(other), utils::NewDeleteResource()) {}
+
+  /**
+   * Perform an element-wise move of the other and use the given MemoryResource.
+   * Other will be not be empty, though elements may be Null.
+   */
+  TypedValue(std::vector<TypedValue> &&other, utils::MemoryResource *memory)
+      : memory_(memory), type_(Type::List) {
+    new (&list_v) TVector(memory_);
+    list_v.reserve(other.size());
+    // std::vector<TypedValue> has std::allocator and there's no move
+    // constructor for std::vector using different allocator types. Since
+    // std::allocator is not propagated to elements, it is possible that some
+    // TypedValue elements have a MemoryResource that is the same as the one we
+    // are given. In such a case we would like to move those TypedValue
+    // instances, so we use move_iterator.
+    list_v.assign(std::make_move_iterator(other.begin()),
+                  std::make_move_iterator(other.end()));
   }
 
-  TypedValue(std::vector<TypedValue> &&value,
-             utils::MemoryResource *memory) noexcept
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left empty.
+   */
+  TypedValue(TVector &&other) noexcept
+      : TypedValue(std::move(other),
+                   other.get_allocator().GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other and use the given MemoryResource.
+   * If `other.get_allocator() != *memory`, this call will perform an
+   * element-wise move and other is not guaranteed to be empty.
+   */
+  TypedValue(TVector &&other, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::List) {
-    new (&list_v) std::vector<TypedValue>(std::move(value));
+    new (&list_v) TVector(std::move(other), memory_);
   }
 
   TypedValue(std::map<std::string, TypedValue> &&value) noexcept
@@ -269,6 +331,7 @@ class TypedValue {
   TypedValue &operator=(int64_t);
   TypedValue &operator=(double);
   TypedValue &operator=(const std::string &);
+  TypedValue &operator=(const TVector &);
   TypedValue &operator=(const std::vector<TypedValue> &);
   TypedValue &operator=(const TypedValue::value_map_t &);
   TypedValue &operator=(const VertexAccessor &);
@@ -279,15 +342,16 @@ class TypedValue {
   TypedValue &operator=(const TypedValue &other);
 
   // move assignment operators
-  TypedValue &operator=(std::string &&) noexcept;
-  TypedValue &operator=(std::vector<TypedValue> &&) noexcept;
-  TypedValue &operator=(TypedValue::value_map_t &&) noexcept;
-  TypedValue &operator=(VertexAccessor &&) noexcept;
-  TypedValue &operator=(EdgeAccessor &&) noexcept;
-  TypedValue &operator=(Path &&) noexcept;
+  TypedValue &operator=(std::string &&);
+  TypedValue &operator=(TVector &&);
+  TypedValue &operator=(std::vector<TypedValue> &&);
+  TypedValue &operator=(TypedValue::value_map_t &&);
+  TypedValue &operator=(VertexAccessor &&);
+  TypedValue &operator=(EdgeAccessor &&);
+  TypedValue &operator=(Path &&);
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  TypedValue &operator=(TypedValue &&other) noexcept;
+  TypedValue &operator=(TypedValue &&other) noexcept(false);
 
   ~TypedValue();
 
@@ -320,7 +384,18 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
   DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::string, String)
-  DECLARE_VALUE_AND_TYPE_GETTERS(std::vector<TypedValue>, List)
+
+  /**
+   * Get the list value.
+   * @throw TypedValueException if stored value is not a list.
+   */
+  TVector &ValueList();
+
+  const TVector &ValueList() const;
+
+  /** Check if the stored value is a list value */
+  bool IsList() const;
+
   DECLARE_VALUE_AND_TYPE_GETTERS(value_map_t, Map)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
@@ -358,7 +433,7 @@ class TypedValue {
     // complexity so it shouldn't be a problem. This is maybe even faster
     // because of data locality.
     std::string string_v;
-    std::vector<TypedValue> list_v;
+    TVector list_v;
     // clang doesn't allow unordered_map to have incomplete type as value so we
     // we use map.
     std::map<std::string, TypedValue> map_v;

@@ -604,7 +604,8 @@ class QueryPlanExpandVariable : public testing::Test {
                         Symbol symbol) {
     map_int count_per_length;
     for (const auto &edge_list :
-         GetResults<std::vector<TypedValue>>(input_op, symbol)) {
+         GetResults<std::vector<TypedValue, utils::Allocator<TypedValue>>>(
+             input_op, symbol)) {
       auto length = edge_list.size();
       auto found = count_per_length.find(length);
       if (found == count_per_length.end())

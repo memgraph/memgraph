@@ -822,24 +822,25 @@ class ExpandVariableCursor : public Cursor {
   }
 
   // Helper function for appending an edge to the list on the frame.
-  void AppendEdge(const EdgeAccessor &new_edge,
-                  std::vector<TypedValue> &edges_on_frame) {
+  void AppendEdge(
+      const EdgeAccessor &new_edge,
+      std::vector<TypedValue, utils::Allocator<TypedValue>> *edges_on_frame) {
     // We are placing an edge on the frame. It is possible that there already
     // exists an edge on the frame for this level. If so first remove it.
     DCHECK(edges_.size() > 0) << "Edges are empty";
     if (self_.is_reverse_) {
       // TODO: This is innefficient, we should look into replacing
       // vector with something else for TypedValue::List.
-      size_t diff = edges_on_frame.size() -
-                    std::min(edges_on_frame.size(), edges_.size() - 1U);
+      size_t diff = edges_on_frame->size() -
+                    std::min(edges_on_frame->size(), edges_.size() - 1U);
       if (diff > 0U)
-        edges_on_frame.erase(edges_on_frame.begin(),
-                             edges_on_frame.begin() + diff);
-      edges_on_frame.insert(edges_on_frame.begin(), new_edge);
+        edges_on_frame->erase(edges_on_frame->begin(),
+                              edges_on_frame->begin() + diff);
+      edges_on_frame->insert(edges_on_frame->begin(), new_edge);
     } else {
-      edges_on_frame.resize(
-          std::min(edges_on_frame.size(), edges_.size() - 1U));
-      edges_on_frame.emplace_back(new_edge);
+      edges_on_frame->resize(
+          std::min(edges_on_frame->size(), edges_.size() - 1U));
+      edges_on_frame->emplace_back(new_edge);
     }
   }
 
@@ -872,8 +873,7 @@ class ExpandVariableCursor : public Cursor {
       if (edges_.empty()) return false;
 
       // we use this a lot
-      std::vector<TypedValue> &edges_on_frame =
-          frame[self_.common_.edge_symbol].ValueList();
+      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
 
       // it is possible that edges_on_frame does not contain as many
       // elements as edges_ due to edge-uniqueness (when a whole layer
@@ -903,7 +903,7 @@ class ExpandVariableCursor : public Cursor {
                       });
       if (found_existing) continue;
 
-      AppendEdge(current_edge.first, edges_on_frame);
+      AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN
               ? current_edge.first.from()
@@ -1670,7 +1670,7 @@ class ConstructNamedPathCursor : public Cursor {
           last_was_edge_list = true;
           // We need to expand all edges in the list and intermediary
           // vertices.
-          const std::vector<TypedValue> &edges = expansion.ValueList();
+          const auto &edges = expansion.ValueList();
           for (const auto &edge_value : edges) {
             const EdgeAccessor &edge = edge_value.ValueEdge();
             const VertexAccessor from = edge.from();
