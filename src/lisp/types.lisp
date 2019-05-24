@@ -825,7 +825,7 @@ not an instance of UNSUPPORTED-CPP-TYPE)."
 (defun cpp-type-reference-p (cpp-type)
   "Test whether CPP-TYPE represents a reference type."
   (check-type cpp-type cpp-type)
-  (string= (cpp-type-name cpp-type) "*"))
+  (string= (cpp-type-name cpp-type) "&"))
 
 (defun cpp-type-smart-pointer-p (cpp-type)
   "Test whether CPP-TYPE represents a smart pointer type."
@@ -1038,10 +1038,26 @@ defined.")
   "A list of strings naming the enclosing classes of the current class being
 defined. The names are ordered from outermost to innermost enclosing class.")
 
+(defun cons-or-replace (element list &key (test #'eql) (key #'identity))
+  "Cons the ELEMENT to the LIST and remove existing elements.
+
+All elements that compare equal (under TEST) with ELEMENT are removed. KEY will
+be applied to each element of LIST before calling TEST."
+  (cons element (remove-if (lambda (other) (funcall test element other))
+                           list :key key)))
+
 (defun register-enum (cpp-enum)
+  "Register the given CPP-ENUM instance with the enum registry."
   (check-type cpp-enum cpp-enum)
   (prog1 cpp-enum
-    (push cpp-enum *cpp-enums*)
+    ;; Add or redefine the enum.
+    (setf *cpp-enums*
+          (cons cpp-enum
+                (delete-if
+                 (lambda (other)
+                   (string= (cpp-type-decl cpp-enum) (cpp-type-decl other)))
+                 *cpp-enums*)))
+    ;; Add to the parent's inner types.
     (unless (eq *cpp-inner-types* :toplevel)
       (push cpp-enum *cpp-inner-types*))))
 
@@ -1050,7 +1066,12 @@ defined. The names are ordered from outermost to innermost enclosing class.")
   (check-type cpp-class cpp-class)
   (prog1 cpp-class
     ;; Add or redefine the class.
-    (push cpp-class *cpp-classes*)
+    (setf *cpp-classes*
+          (cons cpp-class
+                (delete-if
+                 (lambda (other)
+                   (string= (cpp-type-decl cpp-class) (cpp-type-decl other)))
+                 *cpp-classes*)))
     ;; Add to the parent's inner types.
     (unless (eq *cpp-inner-types* :toplevel)
       (push cpp-class *cpp-inner-types*))))

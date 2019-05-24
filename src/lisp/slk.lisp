@@ -4,16 +4,12 @@
 
 (in-package #:lcp.slk)
 
-(define-condition slk-error (error)
-  ((message :type string :initarg :message :reader slk-error-message)
-   (format-args :type list :initform nil :initarg :format-args :reader slk-error-format-args))
-  (:report (lambda (condition stream)
-             (apply #'format stream
-                    (slk-error-message condition)
-                    (slk-error-format-args condition)))))
+(define-condition slk-error (simple-error)
+  ())
 
-(defun slk-error (message &rest format-args)
-  (error 'slk-error :message message :format-args format-args))
+(defun slk-error (format-control &rest format-arguments)
+  (error 'slk-error :format-control format-control
+                    :format-arguments format-arguments))
 
 ;;; CPP-CLASS serialization generation
 

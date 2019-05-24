@@ -182,8 +182,10 @@ CPP-TYPE-DECL."
      '(#\Newline)
      (uiop:run-program "clang-format -style=file" :input s :output '(:string :stripped t)))))
 
-(defun is-generated (got expected)
-  (is (clang-format got) (clang-format expected) :test #'string=))
+(defmacro is-generated (got expected)
+  `(is (let ((lcp::*cpp-gensym-counter* 0))
+         (clang-format ,got))
+       (clang-format ,expected) :test #'string=))
 
 (defun undefine-cpp-types ()
   (setf lcp::*cpp-classes* nil)
@@ -784,9 +786,9 @@ CPP-TYPE-DECL."
                       "Filter Clone(ExpressionStorage *exp_storage) const {
                        Filter object;
                        object.expressions_.resize(expressions_.size());
-                       for (auto i1 = 0; i1 < expressions_.size(); ++i1) {
-                         object.expressions_[i1] =
-                             expressions_[i1] ? expressions_[i1]->Clone(exp_storage) : nullptr;
+                       for (auto i0 = 0; i0 < expressions_.size(); ++i0) {
+                         object.expressions_[i0] =
+                             expressions_[i0] ? expressions_[i0]->Clone(exp_storage) : nullptr;
                        }
                        return object;
                      }")))
@@ -841,15 +843,15 @@ CPP-TYPE-DECL."
                             "object.member_ = member_;")
         (single-member-test (member "std::vector<Klondike>")
                             "object.member_.resize(member_.size());
-                             for (auto i1 = 0; i1 < member_.size(); ++i1) {
-                               object.member_[i1] = member_[i1].Clone();
+                             for (auto i0 = 0; i0 < member_.size(); ++i0) {
+                               object.member_[i0] = member_[i0].Clone();
                              }")
         (single-member-test (member "std::vector<std::vector<Klondike>>")
                             "object.member_.resize(member_.size());
-                             for (auto i1 = 0; i1 < member_.size(); ++i1) {
-                               object.member_[i1].resize(member_[i1].size());
-                               for (auto i2 = 0; i2 < member_[i1].size(); ++i2) {
-                                 object.member_[i1][i2] = member_[i1][i2].Clone();
+                             for (auto i0 = 0; i0 < member_.size(); ++i0) {
+                               object.member_[i0].resize(member_[i0].size());
+                               for (auto i1 = 0; i1 < member_[i0].size(); ++i1) {
+                                 object.member_[i0][i1] = member_[i0][i1].Clone();
                                }
                              }"))
       (subtest "optional"
@@ -857,9 +859,9 @@ CPP-TYPE-DECL."
                             "object.member_ = member_;")
         (single-member-test (member "std::optional<Klondike>")
                             "if (member_) {
-                               Klondike value1;
-                               value1 = (*member_).Clone();
-                               object.member_.emplace(std::move(value1));
+                               Klondike value0;
+                               value0 = (*member_).Clone();
+                               object.member_.emplace(std::move(value0));
                              } else {
                                object.member_ = std::nullopt;
                              }"))
@@ -869,52 +871,52 @@ CPP-TYPE-DECL."
         (single-member-test (member "std::unordered_map<int32_t, std::unordered_map<int32_t, std::string>>")
                             "object.member_ = member_;")
         (single-member-test (member "std::unordered_map<int32_t, Klondike>")
-                            "for (const auto &kv1 : member_) {
+                            "for (const auto &kv0 : member_) {
                                std::pair<int32_t, Klondike> entry1;
                                {
                                  int32_t first2;
-                                 first2 = kv1.first;
-                                 Klondike second2;
-                                 second2 = kv1.second.Clone();
-                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+                                 first2 = kv0.first;
+                                 Klondike second3;
+                                 second3 = kv0.second.Clone();
+                                 entry1 = std::make_pair(std::move(first2), std::move(second3));
                                }
 
                                object.member_.emplace(std::move(entry1));
                              }")
         (single-member-test (member "std::unordered_map<int32_t, std::unordered_map<int32_t, Klondike>>")
-                            "for (const auto &kv1 : member_) {
+                            "for (const auto &kv0 : member_) {
                                std::pair<int32_t, std::unordered_map<int32_t, Klondike>> entry1;
                                {
                                  int32_t first2;
-                                 first2 = kv1.first;
-                                 std::unordered_map<int32_t, Klondike> second2;
-                                 for (const auto &kv3 : kv1.second) {
-                                   std::pair<int32_t, Klondike> entry3;
+                                 first2 = kv0.first;
+                                 std::unordered_map<int32_t, Klondike> second3;
+                                 for (const auto &kv4 : kv0.second) {
+                                   std::pair<int32_t, Klondike> entry5;
                                    {
-                                     int32_t first4;
-                                     first4 = kv3.first;
-                                     Klondike second4;
-                                     second4 = kv3.second.Clone();
-                                     entry3 = std::make_pair(std::move(first4), std::move(second4));
+                                     int32_t first6;
+                                     first6 = kv4.first;
+                                     Klondike second7;
+                                     second7 = kv4.second.Clone();
+                                     entry5 = std::make_pair(std::move(first6), std::move(second7));
                                    }
 
-                                   second2.emplace(std::move(entry3));
+                                   second3.emplace(std::move(entry5));
                                  }
-                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+                                 entry1 = std::make_pair(std::move(first2), std::move(second3));
 
                                }
 
                                object.member_.emplace(std::move(entry1));
                              }")
         (single-member-test (member "std::unordered_map<Klondike, Klondike>")
-                            "for (const auto &kv1 : member_) {
+                            "for (const auto &kv0 : member_) {
                                std::pair<Klondike, Klondike> entry1;
                                {
                                  Klondike first2;
-                                 first2 = kv1.first.Clone();
-                                 Klondike second2;
-                                 second2 = kv1.second.Clone();
-                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+                                 first2 = kv0.first.Clone();
+                                 Klondike second3;
+                                 second3 = kv0.second.Clone();
+                                 entry1 = std::make_pair(std::move(first2), std::move(second3));
                                }
 
                                object.member_.emplace(std::move(entry1));
@@ -924,42 +926,42 @@ CPP-TYPE-DECL."
                             "object.member_ = member_;")
         (single-member-test (member "std::pair<int32_t, Klondike>")
                             "{
-                               int32_t first1;
-                               first1 = member_.first;
+                               int32_t first0;
+                               first0 = member_.first;
                                Klondike second1;
                                second1 = member_.second.Clone();
-                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                               object.member_ = std::make_pair(std::move(first0), std::move(second1));
                              }")
         (single-member-test (member "std::pair<Klondike, int32_t>")
                             "{
-                               Klondike first1;
-                               first1 = member_.first.Clone();
+                               Klondike first0;
+                               first0 = member_.first.Clone();
                                int32_t second1;
                                second1 = member_.second;
-                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                               object.member_ = std::make_pair(std::move(first0), std::move(second1));
                              }")
         (single-member-test (member "std::pair<Klondike, Klondike>")
                             "{
-                               Klondike first1;
-                               first1 = member_.first.Clone();
+                               Klondike first0;
+                               first0 = member_.first.Clone();
                                Klondike second1;
                                second1 = member_.second.Clone();
-                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                               object.member_ = std::make_pair(std::move(first0), std::move(second1));
                              }")
         (single-member-test (member "std::pair<std::string, std::pair<int32_t, Klondike>>")
                             "{
-                               std::string first1;
-                               first1 = member_.first;
+                               std::string first0;
+                               first0 = member_.first;
                                std::pair<int32_t, Klondike> second1;
                                {
                                  int32_t first2;
                                  first2 = member_.second.first;
-                                 Klondike second2;
-                                 second2 = member_.second.second.Clone();
-                                 second1 = std::make_pair(std::move(first2), std::move(second2));
+                                 Klondike second3;
+                                 second3 = member_.second.second.Clone();
+                                 second1 = std::make_pair(std::move(first2), std::move(second3));
                                }
 
-                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                               object.member_ = std::make_pair(std::move(first0), std::move(second1));
                              }"))
       (subtest "pointers"
         (single-member-test (member "Klondike *")

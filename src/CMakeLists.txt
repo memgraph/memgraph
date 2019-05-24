@@ -321,6 +321,9 @@ target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
 # END Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 
+add_custom_target(generate_lcp)
+add_dependencies(generate_lcp generate_lcp_single_node generate_lcp_single_node_ha generate_lcp_distributed)
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # STATIC library used to store key-value pairs

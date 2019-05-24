@@ -154,19 +154,20 @@ The name function's name is of the form CPP-<CPP-OBJECT>-NAME.
 
 The namestring function's name is of the form
 ENSURE-NAMESTRING-FOR-<CPP-OBJECT>."
-  `(progn
-     (defun ,(alexandria:symbolicate 'cpp-name-for- cpp-object)
-         (thing &key from-style)
-       ,(documentation name-op 'function)
-       (check-type thing (or symbol string))
-       (,name-op thing :from-style from-style))
-     (defun ,(alexandria:symbolicate 'ensure-namestring-for- cpp-object) (thing)
-       ,(format nil +cpp-namestring-docstring+
-                (string-downcase cpp-object)
-                (string-downcase cpp-object)
-                name-op)
-       (check-type thing (or symbol string))
-       (ensure-namestring-for thing #',name-op))))
+  (let ((cpp-name-for (alexandria:symbolicate 'cpp-name-for- cpp-object)))
+    `(progn
+       (defun ,cpp-name-for (thing &key from-style)
+         (check-type thing (or symbol string))
+         (,name-op thing :from-style from-style))
+       (setf (documentation ',cpp-name-for 'function)
+             (documentation ',name-op 'function))
+       (defun ,(alexandria:symbolicate 'ensure-namestring-for- cpp-object) (thing)
+         ,(format nil +cpp-namestring-docstring+
+                  (string-downcase cpp-object)
+                  (string-downcase cpp-object)
+                  name-op)
+         (check-type thing (or symbol string))
+         (ensure-namestring-for thing #',name-op)))))
 
 (define-cpp-name namespace  lower-snake-case-name)
 (define-cpp-name class      pascal-case-name)

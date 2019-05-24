@@ -3,7 +3,7 @@
 # Don't forget to repeat this list below in `define_add_lcp`.
 set(lcp_src_files
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
-    ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
+    ${CMAKE_SOURCE_DIR}/src/lisp/compile-lcp
     ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/names.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
@@ -13,12 +13,17 @@ set(lcp_src_files
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/debug.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/test.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
     ${CMAKE_SOURCE_DIR}/tools/lcp)
+
+# Make `lcp_src_files` a persistent (cache) variable so that
+# tests/unit/CMakeLists.txt can see it.
+set(lcp_src_files "${lcp_src_files}" CACHE INTERNAL "")
 
 add_custom_target(lcp
   DEPENDS ${lcp_src_files}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lcp-compile)
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/compile-lcp)
 
 # Define `add_lcp` function named `name` for registering a lcp file for generation.
 #
@@ -53,7 +58,7 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
     # not visible when invoked in another file.
     set(lcp_src_files
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
-        ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
+        ${CMAKE_SOURCE_DIR}/src/lisp/compile-lcp
         ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/names.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
@@ -63,6 +68,7 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/debug.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/test.lisp
+				${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
         ${CMAKE_SOURCE_DIR}/tools/lcp)
     add_custom_command(OUTPUT ${h_file} ${cpp_file}
       COMMAND ${CMAKE_SOURCE_DIR}/tools/lcp ${lcp_file} ${slk_serialize}

@@ -9,4 +9,5 @@ echo \
 "
 (load \"${quicklisp_install_dir}/setup.lisp\")
 (ql:quickload :lcp :silent t)
+(ql:quickload :lcp/test :silent t)
 " | sbcl --script

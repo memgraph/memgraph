@@ -1,18 +1,14 @@
 (in-package #:lcp.clone)
 
-(define-condition clone-error (error)
-  ((message :type string :initarg :message :reader clone-error-message)
-   (format-args :type list :initform nil :initarg :format-args :reader clone-error-format-args))
-  (:report (lambda (condition stream)
-             (apply #'format stream
-                    (clone-error-message condition)
-                    (clone-error-format-args condition)))))
+(define-condition clone-error (simple-error)
+  ())
 
-(defun clone-error (message &rest format-args)
-  (error 'clone-error :message message :format-args format-args))
+(defun clone-error (format-control &rest format-arguments)
+  (error 'clone-error :format-control format-control
+                      :format-arguments format-arguments))
 
 (defun cloning-parent (cpp-class)
-  (check-type cpp-class lcp::cpp-type)
+  (check-type cpp-class lcp::cpp-class)
   (let ((supers (lcp::cpp-class-super-classes cpp-class))
         (opts (lcp::cpp-class-clone-opts cpp-class)))
     (unless opts
@@ -29,14 +25,14 @@
        (car supers)))))
 
 (defun cloning-root (cpp-class)
-  (check-type cpp-class lcp::cpp-type)
+  (check-type cpp-class lcp::cpp-class)
   (let ((parent-class (cloning-parent cpp-class)))
     (if parent-class
         (cloning-root parent-class)
         cpp-class)))
 
 (defun members-for-cloning (cpp-class)
-  (check-type cpp-class lcp::cpp-type)
+  (check-type cpp-class lcp::cpp-class)
   (alexandria:flatten
    (reverse
     (loop :for current := cpp-class :then (cloning-parent current)
@@ -117,7 +113,7 @@
                       (lcp::cpp-type-decl object-type))))))
 
 (defun clone-vector (elem-type source-name dest-name &key args)
-  (lcp::with-vars ((loop-counter "i"))
+  (lcp::with-cpp-gensyms ((loop-counter "i"))
     (format nil
             "~A.resize(~A.size());
              for (auto ~A = 0; ~A < ~A.size(); ++~A) { ~A }"
@@ -129,7 +125,8 @@
                           :args args))))
 
 (defun clone-map (key-type value-type source-name dest-name &key args)
-  (lcp::with-vars ((loop-var "kv") (entry-var "entry"))
+  (lcp::with-cpp-gensyms ((loop-var "kv")
+                          (entry-var "entry"))
     (let ((entry-type (lcp::make-cpp-type
                        "pair"
                        :namespace '("std")
@@ -146,7 +143,7 @@
               dest-name entry-var))))
 
 (defun clone-optional (value-type source-name dest-name &key args)
-  (lcp::with-vars ((value-var "value"))
+  (lcp::with-cpp-gensyms ((value-var "value"))
     (format nil
             "if (~A) {
                ~A ~A;
@@ -165,7 +162,8 @@
           dest-name)))
 
 (defun clone-pair (first-type second-type source-name dest-name &key args)
-  (lcp::with-vars ((first-var "first") (second-var "second"))
+  (lcp::with-cpp-gensyms ((first-var "first")
+                          (second-var "second"))
     (with-output-to-string (cpp-out)
       (lcp::with-cpp-block-output (cpp-out)
         (format cpp-out
