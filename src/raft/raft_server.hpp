@@ -399,6 +399,11 @@ class RaftServer final : public RaftInterface {
   /// @param index Index of the log entry to be retrieved.
   LogEntry GetLogEntry(int index);
 
+  /// Retrieves the term of a log entry from the log at a given index.
+  ///
+  /// @param index Index of the log entry whose term is to be retrieved.
+  uint64_t GetLogEntryTerm(int index);
+
   /// Deletes log entries with indexes that are greater or equal to the given
   /// starting index.
   ///
