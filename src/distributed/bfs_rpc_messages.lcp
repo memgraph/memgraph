@@ -90,8 +90,6 @@ cpp<#
       (edge "std::optional<storage::EdgeAddress>"))
      (:public
       #>cpp
-      ReconstructPathReq() {}
-
       ReconstructPathReq(int64_t subcursor_id, storage::VertexAddress vertex)
           : subcursor_id(subcursor_id),
             vertex(vertex),
@@ -126,6 +124,7 @@ cpp<#
    (:serialize (:slk :save-args '((worker-id :int16_t))
                      :load-args '((dba "database::GraphDbAccessor *")
                                   (data-manager "distributed::DataManager *"))))
+   (:ctor nil)
    (:public
     #>cpp
     ReconstructPathRes() {}

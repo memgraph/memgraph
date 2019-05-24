@@ -1111,9 +1111,9 @@ Each ENUM-OPTION is of the type (KEY VALUE). The possible values of KEY are:
          (clone (assoc :clone options))
          (type-info (assoc-body :type-info options))
          (documentation (assoc-second :documentation options))
-         (public (assoc-body :public options))
-         (protected (assoc-body :protected options))
-         (private (assoc-body :private options)))
+         (public (concat (assoc-body-all :public options)))
+         (protected (concat (assoc-body-all :protected options)))
+         (private (concat (assoc-body-all :private options))))
     ;; Call REGISTER-CLASS within the original context.
     `(register-class
       ;; Save our original context.
@@ -1193,15 +1193,19 @@ The SLK serialization backend also introduces the following member options:
   namestring corresponding to the member. The function should return a RAW-CPP
   object representing the C++ code that loads the member.
 
-CLASS-OPTION is a pair (KEY VALUE*). VALUE is by default not evaluated. The
+CLASS-OPTION is a pair (KEY VALUE*). VALUE is by default not evaluated. Options
+by default have overriding behavior, meaning that if a key appears multiple
+times, the value associated with the leftmost one is taken. Options might
+instead have aggregating behavior, meaning that the value is formed by
+collecting the values associated with all of the appearances of the key. The
 possible values of KEY are:
 
 - :DOCUMENTATION -- String specifying the Doxygen documentation for the class.
 
-- :PUBLIC, :PROTECTED, :PRIVATE -- Evaluated. Lisp forms that evaluate to
-  RAW-CPP objects representing C++ code that is to be included within the
-  public (or protected or private) scope of the class body. Results that are not
-  of type RAW-CPP are ignored.
+- :PUBLIC, :PROTECTED, :PRIVATE -- Evaluated. Aggregated. Lisp forms that
+  evaluate to RAW-CPP objects representing C++ code that is to be included
+  within the public (or protected or private) scope of the class body. Results
+  that are not of type RAW-CPP are ignored.
 
 - :SERIALIZE -- Generate serialization code for the class using the given
   serialization backend.
@@ -1354,19 +1358,30 @@ names of the two structures.
 The names of the structures are formed by concatenating the namestring NAME with
 \"Req\" and \"Res\".
 
-The two options :REQUEST and :RESPONSE are mandatory. Their bodies should be
-similar to the body of DEFINE-STRUCT, i.e. ((SLOT*) STRUCT-OPTION*). Their
-bodies will be passed to DEFINE-STRUCT, but with any DEFINE-RPC-specific member
-and structure options removed.
+The two options :REQUEST and :RESPONSE are mandatory. Their bodies should follow
+the same syntax and conventions of DEFINE-STRUCT's (i.e. DEFINE-CLASS's) class
+and member options.
 
-DEFINE-RPC introduces an extra member option :INITARG that is described below.
+DEFINE-RPC introduces the following additional class options:
 
-For both structures two constructors are generated:
+- :CTOR -- If NIL, inhibits the generation of constructors.
 
-- A default constructor that does no explicit initialization of members.
+  For both structures two constructors are generated:
 
-- A user-defined constructor that accepts values and initializes members
-  according to their :INITARG option, in order of appearance.
+  - A default constructor that does no explicit initialization of members.
+
+  - A custom constructor that accepts values and initializes members according
+    to their :INITARG option, in order of appearance.
+
+    If the constructor ends up accepting just one member, it is marked
+    `explicit`.
+
+    If the constructor ends up accepting no members, it is not generated.
+
+DEFINE-RPC introduces the following additional member options:
+
+- :INITARG -- Controls the way in which the corresponding member participates in
+  the custom constructor.
 
   If the :INITARG option is omitted or NIL, the constructor doesn't accept a
   value for the member and the member is not explicitly initialized.
@@ -1375,12 +1390,7 @@ For both structures two constructors are generated:
   and the member is copy-initialized.
 
   If the :INITARG option is :MOVE, the constructor accepts a value for the
-  member and the member is move-initialized using `std::move`.
-
-  If the constructor ends up accepting just one member, it is marked
-  `explicit`.
-
-  If the constructor ends up accepting no members, it is not generated."
+  member and the member is move-initialized using `std::move`."
   (flet ((remove-rpc-options (body)
            `(,(mapcar
                (lambda (member)
@@ -1388,7 +1398,7 @@ For both structures two constructors are generated:
                    ,(second member)
                    ,@(alexandria:remove-from-plist (cddr member) :initarg)))
                (car body))
-             ,@(cdr body))))
+             ,@(remove :ctor (cdr body) :key #'car))))
     (let* ((name (ensure-namestring-for-class name))
            (rpc-name (format nil "~ARpc" name))
            (req-name (format nil "~AReq" name))
@@ -1398,18 +1408,22 @@ For both structures two constructors are generated:
              using ${rpc-name} = communication::rpc::RequestResponse<${req-name}, ${res-name}>;
              cpp<#)
            (request-body (cdr (assoc :request options)))
-           (response-body (cdr (assoc :response options))))
+           (response-body (cdr (assoc :response options)))
+           (req-ctor (assoc :ctor (cdr request-body)))
+           (res-ctor (assoc :ctor (cdr response-body))))
       `(cpp-list
         (define-struct ,req-name ()
           ,@(remove-rpc-options request-body)
-          (:public
-           ,(rpc-constructors req-name (first request-body)))
+          ,@(when (or (not req-ctor) (not (cdr req-ctor)))
+              `((:public
+                 ,(rpc-constructors req-name (first request-body)))))
           (:serialize (:slk)))
         ,(rpc-save-load req-name)
         (define-struct ,res-name ()
           ,@(remove-rpc-options response-body)
-          (:public
-           ,(rpc-constructors res-name (first response-body)))
+          ,@(when (or (not res-ctor) (not (cdr res-ctor)))
+              `((:public
+                 ,(rpc-constructors res-name (first response-body)))))
           (:serialize (:slk)))
         ,(rpc-save-load res-name)
         ,rpc-decl))))

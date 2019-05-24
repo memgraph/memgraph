@@ -76,6 +76,13 @@ if the body is empty. If the association doesn't exist, return NIL."
   (let ((acons (assoc item alist :key key :test test)))
     (and acons (or (cdr acons) (error "~s has no body" acons)))))
 
+(defun assoc-body-all (item alist &key (key #'identity) (test #'eql))
+  "Return all of the bodies (cdrs) of the associations with the key ITEM, but
+error if any of the bodies is empty. If no associations exist, return NIL."
+  (loop :for acons :in alist
+        :when (funcall test (funcall key (car acons)) item)
+          :collect (or (cdr acons) (error "~s has no body" acons))))
+
 (defun assoc-second (item alist &key (key #'identity) (test #'eql))
   "Return the second element (cadr) of the first association with the key ITEM,
 but error if the association's body is not a 1-element list. If the association
@@ -85,6 +92,10 @@ doesn't exist, return NIL."
       (unless (= (length acons) 2)
         (error "~s is not a pair" acons))
       (second acons))))
+
+(defun concat (lists)
+  "Concatenate all of the lists in LISTS."
+  (loop :for list :in lists :append list))
 
 (defmacro muffle-warnings (&body body)
   "Execute BODY in a dynamic context where a handler for conditions of type
