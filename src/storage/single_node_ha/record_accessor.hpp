@@ -149,6 +149,10 @@ class RecordAccessor {
    */
   int64_t CypherId() const;
 
+  /** Returns the current version (either new_ or old_) set on this
+   * RecordAccessor. */
+  const TRecord &current() const;
+
  protected:
   /**
    * Pointer to the version (either old_ or new_) that READ operations
@@ -159,10 +163,6 @@ class RecordAccessor {
    * mvcc.
    */
   mutable TRecord *current_{nullptr};
-
-  /** Returns the current version (either new_ or old_) set on this
-   * RecordAccessor. */
-  const TRecord &current() const;
 
  private:
   // The database accessor for which this record accessor is created

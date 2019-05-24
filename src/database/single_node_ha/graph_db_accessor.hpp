@@ -13,6 +13,7 @@
 
 #include "database/single_node_ha/graph_db.hpp"
 #include "raft/raft_interface.hpp"
+#include "storage/common/constraints/exceptions.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge_accessor.hpp"
 #include "storage/single_node_ha/vertex_accessor.hpp"
@@ -433,6 +434,32 @@ class GraphDbAccessor {
   void EnableIndex(const LabelPropertyIndex::Key &key);
 
   /**
+   * Creates new unique constraint that consists of a label and multiple
+   * properties.
+   * If the constraint already exists, this method does nothing.
+   *
+   * @throws ConstraintViolationException if constraint couldn't be build
+   * due to existing constraint violation.
+   * @throws TransactionEngineError if the engine doesn't accept transactions.
+   * @throws mvcc::SerializationError on serialization errors.
+   */
+  void BuildUniqueConstraint(storage::Label label,
+                             const std::vector<storage::Property> &properties);
+
+  /**
+   * Deletes existing unique constraint.
+   * If the constraint doesn't exist, this method does nothing.
+   */
+  void DeleteUniqueConstraint(storage::Label label,
+                              const std::vector<storage::Property> &properties);
+
+  /**
+   * Returns a list of currently active unique constraints.
+   */
+  std::vector<storage::constraints::ConstraintEntry> ListUniqueConstraints()
+      const;
+
+  /**
    * @brief - Returns true if the given label+property index already exists and
    * is ready for use.
    */
@@ -608,15 +635,52 @@ class GraphDbAccessor {
   bool aborted_{false};
 
   /**
-   * Insert this vertex into corresponding any label + 'property' index.
-   * @param property - vertex will be inserted into indexes which contain this
-   * property
-   * @param vertex_accessor - vertex accessor to insert
-   * @param vertex - vertex to insert
+   * Notifies storage about label addition.
+   *
+   * @param label - label that was added
+   * @param vertex_accessor - vertex_accessor that was updated
+   * @param vertex - vertex that was updated
    */
-  void UpdatePropertyIndex(storage::Property property,
+  void UpdateOnAddLabel(storage::Label label,
+                        const VertexAccessor &vertex_accessor,
+                        const Vertex *vertex);
+
+  /**
+   * Notifies storage about label removal.
+   *
+   * @param label - label that was removed
+   * @param vertex_accessor - vertex_accessor that was updated
+   */
+  void UpdateOnRemoveLabel(storage::Label label,
+                           const RecordAccessor<Vertex> &accessor);
+
+  /**
+   * Notifies storage about a property removal.
+   *
+   * @param property - property that was removed
+   * @param previous_value - previous value of the property
+   * @param vertex_accessor - vertex_accessor that was updated
+   * @param vertex - vertex that was updated
+   */
+  void UpdateOnRemoveProperty(storage::Property property,
+                              const PropertyValue &previous_value,
+                              const RecordAccessor<Vertex> &accessor,
+                              const Vertex *vertex);
+
+  /**
+   * Notifies storage about a property addition.
+   *
+   * @param property - property that was added
+   * @param previous_value - previous value of the property
+   * @param new_value - new value of the property
+   * @param vertex_accessor - vertex accessor that was updated
+   * @param vertex - vertex that was updated
+   */
+  void UpdateOnAddProperty(storage::Property property,
+                           const PropertyValue &previous_value,
+                           const PropertyValue &new_value,
                            const RecordAccessor<Vertex> &vertex_accessor,
-                           const Vertex *const vertex);
+                           const Vertex *vertex);
 };
 
 }  // namespace database

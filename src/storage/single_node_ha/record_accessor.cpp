@@ -25,9 +25,10 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto &dba = db_accessor();
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
+  auto previous_value = PropsAt(key);
   update().properties_.set(key, value);
-  dba.UpdatePropertyIndex(key, *this, &update());
-  db_accessor().raft()->Emplace(delta);
+  dba.UpdateOnAddProperty(key, previous_value, value, *this, &update());
+  dba.raft()->Emplace(delta);
 }
 
 template <>
@@ -38,7 +39,7 @@ void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                         dba.PropertyName(key), value);
 
   update().properties_.set(key, value);
-  db_accessor().raft()->Emplace(delta);
+  dba.raft()->Emplace(delta);
 }
 
 template <>
@@ -47,8 +48,10 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto delta =
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
+  auto previous_value = PropsAt(key);
   update().properties_.set(key, PropertyValue::Null);
-  db_accessor().raft()->Emplace(delta);
+  dba.UpdateOnRemoveProperty(key, previous_value, *this, &update());
+  dba.raft()->Emplace(delta);
 }
 
 template <>
@@ -58,7 +61,7 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
       StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
                                dba.PropertyName(key), PropertyValue::Null);
   update().properties_.set(key, PropertyValue::Null);
-  db_accessor().raft()->Emplace(delta);
+  dba.raft()->Emplace(delta);
 }
 
 template <typename TRecord>

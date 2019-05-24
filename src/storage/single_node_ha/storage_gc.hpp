@@ -96,7 +96,7 @@ class StorageGc {
 
       vertices_.gc_.Run(snapshot_gc, tx_engine_);
       edges_.gc_.Run(snapshot_gc, tx_engine_);
-
+      storage_.unique_constraints_.Refresh(snapshot_gc, tx_engine_);
       VLOG(21) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
     }
     // This has to be run sequentially after gc because gc modifies

@@ -82,6 +82,16 @@
     - ../../../../build_debug/memgraph_ha # memgraph ha binary
     - ../../../../build_debug/tests/integration/ha/basic/tester # tester binary
 
+- name: integration__ha_constraints
+  cd: ha/constraints
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - raft.json # raft configuration
+    - ../ha_test.py # raft test base module
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
+    - ../../../../build_debug/tests/integration/ha/constraints/tester # tester binary
+
 - name: integration__ha_index
   cd: ha/index
   commands: ./runner.py

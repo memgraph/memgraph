@@ -25,7 +25,7 @@ void VertexAccessor::add_label(storage::Label label) {
   if (!utils::Contains(vertex.labels_, label)) {
     vertex.labels_.emplace_back(label);
     dba.raft()->Emplace(delta);
-    dba.UpdateLabelIndices(label, *this, &vertex);
+    dba.UpdateOnAddLabel(label, *this, &vertex);
   }
 }
 
@@ -40,6 +40,7 @@ void VertexAccessor::remove_label(storage::Label label) {
     std::swap(*found, labels.back());
     labels.pop_back();
     dba.raft()->Emplace(delta);
+    dba.UpdateOnRemoveLabel(label, *this);
   }
 }
 

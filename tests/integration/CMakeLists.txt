@@ -19,6 +19,9 @@ add_subdirectory(distributed)
 # distributed ha/basic binaries
 add_subdirectory(ha/basic)
 
+# distributed ha/constraints binaries
+add_subdirectory(ha/constraints)
+
 # distributed ha/index binaries
 add_subdirectory(ha/index)
 

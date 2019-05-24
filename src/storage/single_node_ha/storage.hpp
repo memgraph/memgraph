@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "storage/common/constraints/unique_constraints.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge.hpp"
@@ -74,6 +75,9 @@ class Storage {
   // indexes
   KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
+
+  // unique constraints
+	storage::constraints::UniqueConstraints unique_constraints_;
 
   std::vector<std::string> properties_on_disk_;
 

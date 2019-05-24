@@ -271,6 +271,8 @@ set(mg_single_node_ha_sources
     query/plan/variable_start_planner.cpp
     query/repl.cpp
     query/typed_value.cpp
+    storage/common/constraints/record.cpp
+		storage/common/constraints/unique_constraints.cpp
     storage/common/types/property_value.cpp
     storage/common/types/slk.cpp
     storage/common/types/property_value_store.cpp

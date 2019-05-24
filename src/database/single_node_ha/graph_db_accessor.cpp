@@ -198,22 +198,140 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
   }
 }
 
-void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
-                                         const VertexAccessor &vertex_accessor,
-                                         const Vertex *const vertex) {
+void GraphDbAccessor::BuildUniqueConstraint(
+    storage::Label label, const std::vector<storage::Property> &properties) {
+  DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  storage::constraints::ConstraintEntry entry{label, properties};
+  if (!db_->storage().unique_constraints_.AddConstraint(entry)) {
+    // Already exists
+    return;
+  }
+
+  try {
+    auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
+
+    for (auto v : dba.Vertices(false)) {
+      if (std::find(v.labels().begin(), v.labels().end(), label) !=
+          v.labels().end()) {
+        db_->storage().unique_constraints_.Update(v, dba.transaction());
+      }
+    }
+
+    std::vector<std::string> property_names(properties.size());
+    std::transform(properties.begin(), properties.end(), property_names.begin(),
+                   [&dba](storage::Property property) {
+                     return dba.PropertyName(property);
+                   });
+
+    dba.raft()->Emplace(database::StateDelta::BuildUniqueConstraint(
+        dba.transaction().id_, label, dba.LabelName(label), properties,
+        property_names));
+
+    dba.Commit();
+
+  } catch (const tx::TransactionEngineError &e) {
+    db_->storage().unique_constraints_.RemoveConstraint(entry);
+    throw TransactionException(e.what());
+  } catch (const storage::constraints::ViolationException &e) {
+    db_->storage().unique_constraints_.RemoveConstraint(entry);
+    throw ConstraintViolationException(e.what());
+  } catch (const storage::constraints::SerializationException &e) {
+    db_->storage().unique_constraints_.RemoveConstraint(entry);
+    throw mvcc::SerializationError();
+  } catch (...) {
+    db_->storage().unique_constraints_.RemoveConstraint(entry);
+    throw;
+  }
+}
+
+void GraphDbAccessor::DeleteUniqueConstraint(
+    storage::Label label, const std::vector<storage::Property> &properties) {
+  storage::constraints::ConstraintEntry entry{label, properties};
+  try {
+    auto dba = db_->AccessBlocking(std::make_optional(transaction().id_));
+
+    if (!db_->storage().unique_constraints_.RemoveConstraint(entry)) {
+      // Nothing was deleted
+      return;
+    }
+
+    std::vector<std::string> property_names(properties.size());
+    std::transform(properties.begin(), properties.end(), property_names.begin(),
+                   [&dba](storage::Property property) {
+                     return dba.PropertyName(property);
+                   });
+
+    dba.raft()->Emplace(database::StateDelta::DropUniqueConstraint(
+        dba.transaction().id_, label, dba.LabelName(label), properties,
+        property_names));
+
+    dba.Commit();
+  } catch (const tx::TransactionEngineError &e) {
+    throw TransactionException(e.what());
+  }
+}
+
+std::vector<storage::constraints::ConstraintEntry>
+GraphDbAccessor::ListUniqueConstraints() const {
+  return db_->storage().unique_constraints_.ListConstraints();
+}
+
+void GraphDbAccessor::UpdateOnAddLabel(storage::Label label,
+                                       const VertexAccessor &vertex_accessor,
+                                       const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
+
+  try {
+    db_->storage().unique_constraints_.UpdateOnAddLabel(label, vertex_accessor,
+                                                        transaction());
+  } catch (const storage::constraints::SerializationException &e) {
+    throw mvcc::SerializationError();
+  } catch (const storage::constraints::ViolationException &e) {
+    throw ConstraintViolationException(e.what());
+  }
 
   db_->storage().label_property_index_.UpdateOnLabel(label, vlist_ptr, vertex);
   db_->storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
 
-void GraphDbAccessor::UpdatePropertyIndex(
-    storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
-    const Vertex *const vertex) {
+void GraphDbAccessor::UpdateOnRemoveLabel(
+    storage::Label label, const RecordAccessor<Vertex> &accessor) {
+  db_->storage().unique_constraints_.UpdateOnRemoveLabel(label, accessor,
+                                                         transaction());
+}
+
+void GraphDbAccessor::UpdateOnAddProperty(
+    storage::Property property, const PropertyValue &previous_value,
+    const PropertyValue &new_value,
+    const RecordAccessor<Vertex> &vertex_accessor, const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  try {
+    db_->storage().unique_constraints_.UpdateOnAddProperty(
+        property, previous_value, new_value, vertex_accessor, transaction());
+  } catch (const storage::constraints::SerializationException &e) {
+    throw mvcc::SerializationError();
+  } catch (const storage::constraints::ViolationException &e) {
+    throw ConstraintViolationException(e.what());
+  }
+
   db_->storage().label_property_index_.UpdateOnProperty(
       property, vertex_accessor.address(), vertex);
+}
+
+void GraphDbAccessor::UpdateOnRemoveProperty(
+    storage::Property property, const PropertyValue &previous_value,
+    const RecordAccessor<Vertex> &accessor, const Vertex *vertex) {
+  DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  try {
+    db_->storage().unique_constraints_.UpdateOnRemoveProperty(
+        property, previous_value, accessor, transaction());
+  } catch (const storage::constraints::SerializationException &e) {
+    throw mvcc::SerializationError();
+  }
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
