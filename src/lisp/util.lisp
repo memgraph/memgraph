@@ -70,6 +70,22 @@ Return the position of the found closing delimiter or NIL if one wasn't found."
               (when (zerop count)
                 (return i))))))
 
+(defun assoc-body (item alist &key (key #'identity) (test #'eql))
+  "Return the body (cdr) of the first association with the key ITEM, but error
+if the body is empty. If the association doesn't exist, return NIL."
+  (let ((acons (assoc item alist :key key :test test)))
+    (and acons (or (cdr acons) (error "~s has no body" acons)))))
+
+(defun assoc-second (item alist &key (key #'identity) (test #'eql))
+  "Return the second element (cadr) of the first association with the key ITEM,
+but error if the association's body is not a 1-element list. If the association
+doesn't exist, return NIL."
+  (let ((acons (assoc item alist :key key :test test)))
+    (when acons
+      (unless (= (length acons) 2)
+        (error "~s is not a pair" acons))
+      (second acons))))
+
 (defmacro muffle-warnings (&body body)
   "Execute BODY in a dynamic context where a handler for conditions of type
 WARNING has been established. The handler muffles the warning by calling

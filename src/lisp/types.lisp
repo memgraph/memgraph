@@ -1038,6 +1038,23 @@ defined.")
   "A list of strings naming the enclosing classes of the current class being
 defined. The names are ordered from outermost to innermost enclosing class.")
 
+(defun register-enum (cpp-enum)
+  (check-type cpp-enum cpp-enum)
+  (prog1 cpp-enum
+    (push cpp-enum *cpp-enums*)
+    (unless (eq *cpp-inner-types* :toplevel)
+      (push cpp-enum *cpp-inner-types*))))
+
+(defun register-class (cpp-class)
+  "Register the given CPP-CLASS instance with the class registry."
+  (check-type cpp-class cpp-class)
+  (prog1 cpp-class
+    ;; Add or redefine the class.
+    (push cpp-class *cpp-classes*)
+    ;; Add to the parent's inner types.
+    (unless (eq *cpp-inner-types* :toplevel)
+      (push cpp-class *cpp-inner-types*))))
+
 (defmacro define-enum (name values &rest options)
   "Define a C++ enum.
 
@@ -1055,21 +1072,82 @@ Each ENUM-OPTION is of the type (KEY VALUE). The possible values of KEY are:
 - :DOCUMENTATION -- String specifying the Doxygen documentation for the enum.
 
 - :SERIALIZE -- If T, generate serialization code for this enum."
-  (check-type name (or symbol string))
-  (let ((documentation (second (assoc :documentation options)))
-        (enum (gensym (format nil "ENUM-~A" name))))
-    `(let ((,enum (make-instance
-                   'cpp-enum
-                   :documentation ',documentation
-                   :name ',(ensure-namestring-for-class name)
-                   :values ',(mapcar #'ensure-namestring-for-enumerator values)
-                   :namespace (reverse *cpp-namespaces*)
-                   :enclosing-classes (reverse *cpp-enclosing-classes*)
-                   :serializep ',(if (assoc :serialize options) t))))
-       (prog1 ,enum
-         (push ,enum *cpp-enums*)
-         (unless (eq *cpp-inner-types* :toplevel)
-           (push ,enum *cpp-inner-types*))))))
+  `(register-enum
+    (make-instance
+     'cpp-enum
+     :documentation ',(assoc-second :documentation options)
+     :name ',(ensure-namestring-for-class name)
+     :values ',(mapcar #'ensure-namestring-for-enumerator values)
+     :namespace (reverse *cpp-namespaces*)
+     :enclosing-classes (reverse *cpp-enclosing-classes*)
+     :serializep ',(if (assoc :serialize options) t))))
+
+(defun generate-make-cpp-member (slot-definition &key structp)
+  (destructuring-bind (name type &rest kwargs &key reader scope
+                       &allow-other-keys)
+      slot-definition
+    (let ((scope (or scope (if structp :public :private))))
+      (when (and structp reader (eq :private scope))
+        (error "~A is a private member with a getter, but a struct is being defined" name))
+      (when (and structp reader (eq :public scope))
+        (error "~A is a public member, but a getter was defined" name))
+      `(make-cpp-member
+        :name ,(ensure-namestring-for-member name :structp structp)
+        :type (process-typestring ,(ensure-typestring type))
+        :scope ',scope
+        ,@kwargs))))
+
+(defun generate-define-class (name super-classes slots options)
+  "Generate the expansion for DEFINE-CLASS."
+  (let* ((name (alexandria:ensure-list name))
+         (class-name (ensure-namestring-for-class (car name)))
+         (type-params (mapcar #'ensure-namestring-for-type-param (cdr name)))
+         (structp (assoc-second :structp options))
+         (abstractp (assoc-second :abstractp options))
+         (members (mapcar (lambda (s) (generate-make-cpp-member s :structp structp)) slots))
+         (super-classes (mapcar #'ensure-typestring super-classes))
+         (serialize (assoc-body :serialize options))
+         (slk (assoc :slk serialize))
+         (clone (assoc :clone options))
+         (type-info (assoc-body :type-info options))
+         (documentation (assoc-second :documentation options))
+         (public (assoc-body :public options))
+         (protected (assoc-body :protected options))
+         (private (assoc-body :private options)))
+    ;; Call REGISTER-CLASS within the original context.
+    `(register-class
+      ;; Save our original context.
+      ,(alexandria:once-only ((cpp-enclosing-classes '*cpp-enclosing-classes*))
+         ;; Evaluate the subforms of DEFINE-CLASS within a nested context, so
+         ;; that recursive invocations of the same macro are handled properly.
+         `(let ((*cpp-inner-types* '())
+                (*cpp-enclosing-classes* (cons ,class-name *cpp-enclosing-classes*)))
+            ;; Explicitly sequence the evaluation of user-provided subforms to aid clarity.
+            ,(alexandria:once-only
+                 ((public `(list ,@public))
+                  (protected `(list ,@protected))
+                  (private `(list ,@private))
+                  (slk (and slk `(make-slk-opts ,@(cdr slk))))
+                  (clone (and clone `(make-clone-opts ,@(cdr clone))))
+                  (type-info `(make-type-info-opts ,@type-info)))
+               `(make-instance
+                 'cpp-class
+                 :documentation ',documentation
+                 :namespace (reverse *cpp-namespaces*)
+                 :enclosing-classes (reverse ,cpp-enclosing-classes)
+                 :name ,class-name
+                 :type-params ',type-params
+                 :structp ',structp
+                 :super-classes (mapcar #'process-typestring ',super-classes)
+                 :members (list ,@members)
+                 :public ,public
+                 :protected ,protected
+                 :private ,private
+                 :slk-opts ,slk
+                 :clone-opts ,clone
+                 :type-info-opts ,type-info
+                 :inner-types *cpp-inner-types*
+                 :abstractp ',abstractp)))))))
 
 (defmacro define-class (name super-classes slots &rest options)
   "Define a simple C++ class or a C++ class template.
@@ -1186,68 +1264,7 @@ possible values of KEY are:
   only useful in serialization code).
 
 - :STRUCTP -- If T, define a struct instead of a class."
-  (let ((structp (second (assoc :structp options))))
-    (flet ((parse-slot (slot-name type &rest kwargs
-                        &key reader scope &allow-other-keys)
-             (let ((scope (if scope scope (if structp :public :private))))
-               (when (and structp reader (eq :private scope))
-                 (error "Slot ~A is declared private with reader in a struct. You should use define-class" slot-name))
-               (when (and structp reader (eq :public scope))
-                 (error "Slot ~A is public, you shouldn't specify :reader" slot-name))
-               `(make-cpp-member
-                 :name ',(ensure-namestring-for-member
-                          slot-name :structp structp)
-                 :type (process-typestring (ensure-typestring ',type))
-                 :scope ',scope
-                 ,@kwargs))))
-      (let* ((name (alexandria:ensure-list name))
-             (class-name (ensure-namestring-for-class (car name)))
-             (type-params (mapcar #'ensure-namestring-for-type-param (cdr name)))
-             (class (gensym (format nil "CLASS-~A" class-name)))
-             (serialize (cdr (assoc :serialize options)))
-             (abstractp (second (assoc :abstractp options)))
-             (members (mapcar (lambda (s) (apply #'parse-slot s))
-                              slots)))
-        `(let ((,class
-                 (let ((*cpp-inner-types* '())
-                       (*cpp-enclosing-classes*
-                         (cons ',class-name *cpp-enclosing-classes*)))
-                   (make-instance
-                    'cpp-class
-                    :name ,class-name
-                    :type-params ',type-params
-                    :structp ,(second (assoc :structp options))
-                    :documentation ',(second (assoc :documentation options))
-                    :public (list ,@(cdr (assoc :public options)))
-                    :protected (list ,@(cdr (assoc :protected options)))
-                    :private (list ,@(cdr (assoc :private options)))
-                    :slk-opts
-                    ,(when (assoc :slk serialize)
-                       `(make-slk-opts ,@(cdr (assoc :slk serialize))))
-                    :clone-opts
-                    ,(when (assoc :clone options)
-                       `(make-clone-opts ,@(cdr (assoc :clone options))))
-                    :type-info-opts
-                    (make-type-info-opts ,@(when (assoc :type-info options)
-                                             (cdr (assoc :type-info options))))
-                    :abstractp ',abstractp
-                    :namespace (reverse *cpp-namespaces*)
-                    ;; Set the inner types at the end. This works because CL
-                    ;; specifies the order of evaluation from left to right.
-                    :inner-types *cpp-inner-types*))))
-           (prog1 ,class
-             (push ,class *cpp-classes*)
-             ;; Set the parent's inner types
-             (unless (eq *cpp-inner-types* :toplevel)
-               (push ,class *cpp-inner-types*))
-             (setf (%cpp-type-enclosing-classes ,class)
-                   (reverse *cpp-enclosing-classes*))
-             (setf (%cpp-class-super-classes ,class)
-                   (mapcar (lambda (super-class)
-                             (process-typestring
-                              (ensure-typestring super-class)))
-                           ',super-classes))
-             (setf (%cpp-class-members ,class) (list ,@members))))))))
+  (generate-define-class name super-classes slots options))
 
 (defmacro define-struct (name super-classes slots &rest options)
   "The same as DEFINE-CLASS, except that a struct is defined instead (by passing
