@@ -15,6 +15,7 @@
 #include "storage/common/types/property_value.hpp"
 
 using database::CypherDumpGenerator;
+using database::GraphDbAccessor;
 
 const char *kPropertyId = "property_id";
 
@@ -111,50 +112,7 @@ class DatabaseEnvironment {
     return oss.str();
   }
 
-  void Execute(const std::string &query) {
-    auto dba = db_.Access();
-    ResultStreamFaker<query::TypedValue> results;
-    query::Interpreter()(query, dba, {}, false).PullAll(results);
-    dba.Commit();
-  }
-
-  database::GraphDbAccessor Access() { return db_.Access(); }
-
-  VertexAccessor CreateVertex(const std::vector<std::string> &labels,
-                              const std::map<std::string, PropertyValue> &props,
-                              bool add_property_id = true) {
-    auto dba = db_.Access();
-    auto vertex = dba.InsertVertex();
-    for (const auto &label_name : labels) {
-      vertex.add_label(dba.Label(label_name));
-    }
-    for (const auto &kv : props) {
-      vertex.PropsSet(dba.Property(kv.first), kv.second);
-    }
-    if (add_property_id) {
-      vertex.PropsSet(dba.Property(kPropertyId),
-                      PropertyValue(static_cast<int64_t>(vertex.gid())));
-    }
-    dba.Commit();
-    return vertex;
-  }
-
-  EdgeAccessor CreateEdge(VertexAccessor from, VertexAccessor to,
-                          const std::string &edge_type_name,
-                          const std::map<std::string, PropertyValue> &props,
-                          bool add_property_id = true) {
-    auto dba = db_.Access();
-    auto edge = dba.InsertEdge(from, to, dba.EdgeType(edge_type_name));
-    for (const auto &kv : props) {
-      edge.PropsSet(dba.Property(kv.first), kv.second);
-    }
-    if (add_property_id) {
-      edge.PropsSet(dba.Property(kPropertyId),
-                    PropertyValue(static_cast<int64_t>(edge.gid())));
-    }
-    dba.Commit();
-    return edge;
-  }
+  GraphDbAccessor Access() { return db_.Access(); }
 
   DatabaseState GetState() {
     // Capture all vertices
@@ -203,6 +161,48 @@ class DatabaseEnvironment {
   database::GraphDb db_;
 };
 
+void Execute(GraphDbAccessor *dba, const std::string &query) {
+  CHECK(dba);
+  ResultStreamFaker<query::TypedValue> results;
+  query::Interpreter()(query, *dba, {}, false).PullAll(results);
+}
+
+VertexAccessor CreateVertex(GraphDbAccessor *dba,
+                            const std::vector<std::string> &labels,
+                            const std::map<std::string, PropertyValue> &props,
+                            bool add_property_id = true) {
+  CHECK(dba);
+  auto vertex = dba->InsertVertex();
+  for (const auto &label_name : labels) {
+    vertex.add_label(dba->Label(label_name));
+  }
+  for (const auto &kv : props) {
+    vertex.PropsSet(dba->Property(kv.first), kv.second);
+  }
+  if (add_property_id) {
+    vertex.PropsSet(dba->Property(kPropertyId),
+                    PropertyValue(static_cast<int64_t>(vertex.gid())));
+  }
+  return vertex;
+}
+
+EdgeAccessor CreateEdge(GraphDbAccessor *dba, VertexAccessor from,
+                        VertexAccessor to, const std::string &edge_type_name,
+                        const std::map<std::string, PropertyValue> &props,
+                        bool add_property_id = true) {
+  CHECK(dba);
+  auto edge = dba->InsertEdge(from, to, dba->EdgeType(edge_type_name));
+  for (const auto &kv : props) {
+    edge.PropsSet(dba->Property(kv.first), kv.second);
+  }
+  if (add_property_id) {
+    edge.PropsSet(dba->Property(kPropertyId),
+                  PropertyValue(static_cast<int64_t>(edge.gid())));
+  }
+  return edge;
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, EmptyGraph) {
   DatabaseEnvironment db;
   auto dba = db.Access();
@@ -210,205 +210,285 @@ TEST(DumpTest, EmptyGraph) {
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleVertex) {
   DatabaseEnvironment db;
-  db.CreateVertex({}, {}, false);
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {}, {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithSingleLabel) {
   DatabaseEnvironment db;
-  db.CreateVertex({"Label1"}, {}, false);
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {"Label1"}, {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__:Label1 {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE (:__mg_vertex__:Label1 {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithMultipleLabels) {
   DatabaseEnvironment db;
-  db.CreateVertex({"Label1", "Label2"}, {}, false);
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {"Label1", "Label2"}, {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump),
-            "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithSingleProperty) {
   DatabaseEnvironment db;
-  db.CreateVertex({}, {{"prop", PropertyValue(42)}}, false);
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {}, {{"prop", PropertyValue(42)}}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump),
-            "CREATE (:__mg_vertex__ {__mg_id__: 0, prop: 42});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE (:__mg_vertex__ {__mg_id__: 0, prop: 42});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, MultipleVertices) {
   DatabaseEnvironment db;
-  db.CreateVertex({}, {}, false);
-  db.CreateVertex({}, {}, false);
-  db.CreateVertex({}, {}, false);
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {}, {}, false);
+    CreateVertex(&dba, {}, {}, false);
+    CreateVertex(&dba, {}, {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleEdge) {
   DatabaseEnvironment db;
-  auto u = db.CreateVertex({}, {}, false);
-  auto v = db.CreateVertex({}, {}, false);
-  db.CreateEdge(u, v, "EdgeType", {}, false);
+  {
+    auto dba = db.Access();
+    auto u = CreateVertex(&dba, {}, {}, false);
+    auto v = CreateVertex(&dba, {}, {}, false);
+    CreateEdge(&dba, u, v, "EdgeType", {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump),
-            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-            "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+    EXPECT_EQ(DumpNext(&dump),
+              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+              "(u)-[:EdgeType]->(v);");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, MultipleEdges) {
   DatabaseEnvironment db;
-  auto u = db.CreateVertex({}, {}, false);
-  auto v = db.CreateVertex({}, {}, false);
-  auto w = db.CreateVertex({}, {}, false);
-  db.CreateEdge(u, v, "EdgeType", {}, false);
-  db.CreateEdge(v, u, "EdgeType", {}, false);
-  db.CreateEdge(v, w, "EdgeType", {}, false);
+  {
+    auto dba = db.Access();
+    auto u = CreateVertex(&dba, {}, {}, false);
+    auto v = CreateVertex(&dba, {}, {}, false);
+    auto w = CreateVertex(&dba, {}, {}, false);
+    CreateEdge(&dba, u, v, "EdgeType", {}, false);
+    CreateEdge(&dba, v, u, "EdgeType", {}, false);
+    CreateEdge(&dba, v, w, "EdgeType", {}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
-  EXPECT_EQ(DumpNext(&dump),
-            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-            "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump),
-            "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE "
-            "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump),
-            "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE "
-            "(u)-[:EdgeType]->(v);");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
+    EXPECT_EQ(DumpNext(&dump),
+              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+              "(u)-[:EdgeType]->(v);");
+    EXPECT_EQ(DumpNext(&dump),
+              "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE "
+              "(u)-[:EdgeType]->(v);");
+    EXPECT_EQ(DumpNext(&dump),
+              "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE "
+              "(u)-[:EdgeType]->(v);");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, EdgeWithProperties) {
   DatabaseEnvironment db;
-  auto u = db.CreateVertex({}, {}, false);
-  auto v = db.CreateVertex({}, {}, false);
-  db.CreateEdge(u, v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
+  {
+    auto dba = db.Access();
+    auto u = CreateVertex(&dba, {}, {}, false);
+    auto v = CreateVertex(&dba, {}, {}, false);
+    CreateEdge(&dba, u, v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-  EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
-  EXPECT_EQ(DumpNext(&dump),
-            "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-            "(u)-[:EdgeType {prop: 13}]->(v);");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
+    EXPECT_EQ(DumpNext(&dump),
+              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+              "(u)-[:EdgeType {prop: 13}]->(v);");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, IndicesKeys) {
   DatabaseEnvironment db;
-  db.CreateVertex({"Label1", "Label2"}, {{"prop", PropertyValue(10)}}, false);
-  db.Execute("CREATE INDEX ON :Label1(prop);");
-  db.Execute("CREATE INDEX ON :Label2(prop);");
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {"Label1", "Label2"}, {{"p", PropertyValue(1)}}, false);
+    Execute(&dba, "CREATE INDEX ON :Label1(prop);");
+    Execute(&dba, "CREATE INDEX ON :Label2(prop);");
+    dba.Commit();
+  }
 
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label1(prop);");
-  EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label2(prop);");
-  EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
-  EXPECT_EQ(DumpNext(&dump),
-            "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0, prop: 10});");
-  EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
-  EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
-  EXPECT_EQ(DumpNext(&dump), "");
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label1(prop);");
+    EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label2(prop);");
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0, p: 1});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   DatabaseEnvironment db;
-  std::map<std::string, PropertyValue> prop1 = {
-      {"nested1", PropertyValue(1337)}, {"nested2", PropertyValue(3.14)}};
-  db.CreateVertex({"Label1", "Label2"},
-                  {{"prop1", prop1}, {"prop2", PropertyValue("$'\t'")}});
+  {
+    auto dba = db.Access();
+    std::map<std::string, PropertyValue> prop1 = {
+        {"nested1", PropertyValue(1337)}, {"nested2", PropertyValue(3.14)}};
+    CreateVertex(&dba, {"Label1", "Label2"},
+                 {{"prop1", prop1}, {"prop2", PropertyValue("$'\t'")}});
+    dba.Commit();
+  }
 
   DatabaseEnvironment db_dump;
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  std::string cmd;
-  while (!(cmd = DumpNext(&dump)).empty()) {
-    db_dump.Execute(cmd);
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    std::string cmd;
+    while (!(cmd = DumpNext(&dump)).empty()) {
+      auto dba_dump = db_dump.Access();
+      Execute(&dba_dump, cmd);
+      dba_dump.Commit();
+    }
   }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateSimpleGraph) {
   DatabaseEnvironment db;
-  auto u = db.CreateVertex({"Person"}, {{"name", "Ivan"}});
-  auto v = db.CreateVertex({"Person"}, {{"name", "Josko"}});
-  auto w = db.CreateVertex({"Person"}, {{"name", "Bosko"}});
-  auto z = db.CreateVertex({"Person"}, {{"name", "Buha"}});
-  db.CreateEdge(u, v, "Knows", {});
-  db.CreateEdge(v, w, "Knows", {{"how_long", 5}});
-  db.CreateEdge(w, u, "Knows", {{"how", "distant past"}});
-  db.CreateEdge(v, u, "Knows", {});
-  db.CreateEdge(v, u, "Likes", {});
-  db.CreateEdge(z, u, "Knows", {});
-  db.CreateEdge(w, z, "Knows", {{"how", "school"}});
-  db.CreateEdge(w, z, "Likes", {{"how", "very much"}});
-  // Create few indices
-  db.Execute("CREATE INDEX ON :Person(name);");
-  db.Execute("CREATE INDEX ON :Person(unexisting_property);");
+  {
+    auto dba = db.Access();
+    auto u = CreateVertex(&dba, {"Person"}, {{"name", "Ivan"}});
+    auto v = CreateVertex(&dba, {"Person"}, {{"name", "Josko"}});
+    auto w = CreateVertex(&dba, {"Person"}, {{"name", "Bosko"}});
+    auto z = CreateVertex(&dba, {"Person"}, {{"name", "Buha"}});
+    CreateEdge(&dba, u, v, "Knows", {});
+    CreateEdge(&dba, v, w, "Knows", {{"how_long", 5}});
+    CreateEdge(&dba, w, u, "Knows", {{"how", "distant past"}});
+    CreateEdge(&dba, v, u, "Knows", {});
+    CreateEdge(&dba, v, u, "Likes", {});
+    CreateEdge(&dba, z, u, "Knows", {});
+    CreateEdge(&dba, w, z, "Knows", {{"how", "school"}});
+    CreateEdge(&dba, w, z, "Likes", {{"how", "very much"}});
+    // Create few indices
+    Execute(&dba, "CREATE INDEX ON :Person(name);");
+    Execute(&dba, "CREATE INDEX ON :Person(unexisting_property);");
+  }
 
   const auto &db_initial_state = db.GetState();
   DatabaseEnvironment db_dump;
-  auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
-  std::string cmd;
-  while (!(cmd = DumpNext(&dump)).empty()) {
-    db_dump.Execute(cmd);
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    std::string cmd;
+    while (!(cmd = DumpNext(&dump)).empty()) {
+      auto dba_dump = db_dump.Access();
+      Execute(&dba_dump, cmd);
+      dba_dump.Commit();
+    }
   }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
   // Make sure that dump function doesn't make changes on the database.
