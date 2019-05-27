@@ -245,7 +245,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
       else
         return a.Value<double>() < b.Value<double>();
     case TypedValue::Type::String:
-      return a.Value<std::string>() < b.Value<std::string>();
+      return a.ValueString() < b.ValueString();
     case TypedValue::Type::List:
     case TypedValue::Type::Map:
     case TypedValue::Type::Vertex:

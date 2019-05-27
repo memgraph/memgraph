@@ -122,7 +122,7 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return static_cast<int64_t>(
           args[0].ValueList().size());
     case TypedValue::Type::String:
-      return static_cast<int64_t>(args[0].Value<std::string>().size());
+      return static_cast<int64_t>(args[0].ValueString().size());
     case TypedValue::Type::Map:
       // neo4j doesn't implement size for map, but I don't see a good reason not
       // to do it.
@@ -217,7 +217,7 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Int:
       return args[0].ValueInt() != 0L;
     case TypedValue::Type::String: {
-      auto s = utils::ToUpperCase(utils::Trim(args[0].Value<std::string>()));
+      auto s = utils::ToUpperCase(utils::Trim(args[0].ValueString()));
       if (s == "TRUE") return true;
       if (s == "FALSE") return false;
       // I think this is just stupid and that exception should be thrown, but
@@ -244,7 +244,7 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return args[0];
     case TypedValue::Type::String:
       try {
-        return utils::ParseDouble(utils::Trim(args[0].Value<std::string>()));
+        return utils::ParseDouble(utils::Trim(args[0].ValueString()));
       } catch (const utils::BasicException &) {
         return TypedValue::Null;
       }
@@ -273,7 +273,7 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs, const EvaluationContext &,
         // Yup, this is correct. String is valid if it has floating point
         // number, then it is parsed and converted to int.
         return static_cast<int64_t>(
-            utils::ParseDouble(utils::Trim(args[0].Value<std::string>())));
+            utils::ParseDouble(utils::Trim(args[0].ValueString())));
       } catch (const utils::BasicException &) {
         return TypedValue::Null;
       }
@@ -603,8 +603,8 @@ TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
   check_arg(args[0]);
   check_arg(args[1]);
   if (has_null) return TypedValue::Null;
-  const auto &s1 = args[0].Value<std::string>();
-  const auto &s2 = args[1].Value<std::string>();
+  const auto &s1 = args[0].ValueString();
+  const auto &s2 = args[1].ValueString();
   return Predicate(s1, s2);
 }
 

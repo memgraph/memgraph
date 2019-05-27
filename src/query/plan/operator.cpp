@@ -2612,7 +2612,7 @@ class AggregateCursor : public Cursor {
             if (key.type() != TypedValue::Type::String)
               throw QueryRuntimeException("Map key must be a string.");
             value_it->Value<std::map<std::string, TypedValue>>().emplace(
-                key.Value<std::string>(), input_value);
+                key.ValueString(), input_value);
             break;
         }
         continue;
@@ -2664,7 +2664,7 @@ class AggregateCursor : public Cursor {
           if (key.type() != TypedValue::Type::String)
             throw QueryRuntimeException("Map key must be a string.");
           value_it->Value<std::map<std::string, TypedValue>>().emplace(
-              key.Value<std::string>(), input_value);
+              key.ValueString(), input_value);
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations

@@ -184,7 +184,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException("Expected a string as a map index, got {}.",
                                     index.type());
       const auto &map = lhs.Value<std::map<std::string, TypedValue>>();
-      auto found = map.find(index.Value<std::string>());
+      auto found = map.find(index.ValueString());
       if (found == map.end()) return TypedValue::Null;
       return found->second;
     }
@@ -194,7 +194,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<VertexAccessor>().PropsAt(
-          dba_->Property(index.Value<std::string>()));
+          dba_->Property(index.ValueString()));
     }
 
     if (lhs.IsEdge()) {
@@ -202,7 +202,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<EdgeAccessor>().PropsAt(
-          dba_->Property(index.Value<std::string>()));
+          dba_->Property(index.ValueString()));
     }
 
     // lhs is Null

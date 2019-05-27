@@ -49,7 +49,7 @@ TEST_F(RecoveryTest, TestPropertyNull) {
   for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
     auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
     auto browser = query::TypedValue(vertex.PropsAt(dba.Property("browser")));
-    if (id_prop.IsString() && id_prop.Value<std::string>() == "2") {
+    if (id_prop.IsString() && id_prop.ValueString() == "2") {
       EXPECT_FALSE(found);
       found = true;
       EXPECT_TRUE(browser.IsNull());
@@ -73,9 +73,9 @@ TEST_F(RecoveryTest, TestQuote) {
   for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
     auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
     auto country = query::TypedValue(vertex.PropsAt(dba.Property("country")));
-    if (id_prop.IsString() && id_prop.Value<std::string>() == "1") {
+    if (id_prop.IsString() && id_prop.ValueString() == "1") {
       EXPECT_TRUE(country.IsString());
-      EXPECT_EQ(country.Value<std::string>(), "United Kingdom");
+      EXPECT_EQ(country.ValueString(), "United Kingdom");
     }
   }
 }

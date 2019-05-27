@@ -307,7 +307,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
     case TypedValue::Type::Double:
       return os << value.Value<double>();
     case TypedValue::Type::String:
-      return os << value.Value<std::string>();
+      return os << value.ValueString();
     case TypedValue::Type::List:
       os << "[";
       utils::PrintIterable(os, value.ValueList());
@@ -580,7 +580,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       throw TypedValueException("Invalid 'less' operand types({} + {})",
                                 a.type(), b.type());
     } else {
-      return TypedValue(a.Value<std::string>() < b.Value<std::string>(),
+      return TypedValue(a.ValueString() < b.ValueString(),
                         a.GetMemoryResource());
     }
   }
@@ -615,7 +615,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Double:
       return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
     case TypedValue::Type::String:
-      return TypedValue(a.Value<std::string>() == b.Value<std::string>(),
+      return TypedValue(a.ValueString() == b.ValueString(),
                         a.GetMemoryResource());
     case TypedValue::Type::Vertex:
       return TypedValue(a.Value<VertexAccessor>() == b.Value<VertexAccessor>(),
@@ -680,7 +680,7 @@ TypedValue operator!(const TypedValue &a) {
  * @return A string.
  */
 std::string ValueToString(const TypedValue &value) {
-  if (value.IsString()) return value.Value<std::string>();
+  if (value.IsString()) return value.ValueString();
   if (value.IsInt()) return std::to_string(value.Value<int64_t>());
   if (value.IsDouble()) return fmt::format("{}", value.Value<double>());
   // unsupported situations
@@ -894,7 +894,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Double:
       return std::hash<double>{}(value.Value<double>());
     case TypedValue::Type::String:
-      return std::hash<std::string>{}(value.Value<std::string>());
+      return std::hash<std::string>{}(value.ValueString());
     case TypedValue::Type::List: {
       return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(
           value.ValueList());

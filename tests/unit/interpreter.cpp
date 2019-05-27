@@ -111,7 +111,7 @@ TEST_F(InterpreterTest, Parameters) {
     auto stream = Interpret("RETURN $2 + $`a b`", {{"2", "da"}, {"a b", "ne"}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<std::string>(), "dane");
+    ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
   }
   {
     // Non-primitive literal.

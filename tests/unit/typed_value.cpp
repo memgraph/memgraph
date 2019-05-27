@@ -82,8 +82,8 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(true).Value<bool>(), true);
   EXPECT_EQ(TypedValue(false).Value<bool>(), false);
 
-  EXPECT_EQ(TypedValue(std::string("bla")).Value<std::string>(), "bla");
-  EXPECT_EQ(TypedValue("bla2").Value<std::string>(), "bla2");
+  EXPECT_EQ(TypedValue(std::string("bla")).ValueString(), "bla");
+  EXPECT_EQ(TypedValue("bla2").ValueString(), "bla2");
 
   EXPECT_EQ(TypedValue(55).Value<int64_t>(), 55);
 
@@ -298,15 +298,15 @@ TEST_F(TypedValueArithmeticTest, Sum) {
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int64_t>(), 5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) + TypedValue(1.25)).Value<double>(), 3.75);
-  EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<std::string>(),
+  EXPECT_EQ((TypedValue("one") + TypedValue("two")).ValueString(),
             "onetwo");
 
   // sum of string and numbers
-  EXPECT_EQ((TypedValue("one") + TypedValue(1)).Value<std::string>(), "one1");
-  EXPECT_EQ((TypedValue(1) + TypedValue("one")).Value<std::string>(), "1one");
-  EXPECT_EQ((TypedValue("one") + TypedValue(3.2)).Value<std::string>(),
+  EXPECT_EQ((TypedValue("one") + TypedValue(1)).ValueString(), "one1");
+  EXPECT_EQ((TypedValue(1) + TypedValue("one")).ValueString(), "1one");
+  EXPECT_EQ((TypedValue("one") + TypedValue(3.2)).ValueString(),
             "one3.2");
-  EXPECT_EQ((TypedValue(3.2) + TypedValue("one")).Value<std::string>(),
+  EXPECT_EQ((TypedValue(3.2) + TypedValue("one")).ValueString(),
             "3.2one");
   std::vector<TypedValue> in = {1, 2, true, "a"};
   std::vector<TypedValue> out1 = {2, 1, 2, true, "a"};

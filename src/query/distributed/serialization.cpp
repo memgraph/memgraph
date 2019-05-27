@@ -25,7 +25,7 @@ void Save(const query::TypedValue &value, slk::Builder *builder,
       return;
     case query::TypedValue::Type::String:
       slk::Save(static_cast<uint8_t>(4), builder);
-      slk::Save(value.Value<std::string>(), builder);
+      slk::Save(value.ValueString(), builder);
       return;
     case query::TypedValue::Type::List: {
       slk::Save(static_cast<uint8_t>(5), builder);
