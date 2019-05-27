@@ -19,6 +19,10 @@ if (READLINE_FOUND)
 endif()
 target_link_libraries(mg_client ${CLIENT_LIBS})
 
+# Memgraph Dump Target
+add_executable(mg_dump mg_dump/main.cpp)
+target_link_libraries(mg_dump mg-communication mg-io)
+
 
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)

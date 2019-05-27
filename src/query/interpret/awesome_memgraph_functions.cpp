@@ -904,9 +904,13 @@ TypedValue Dump(TypedValue *args, int64_t nargs, const EvaluationContext &,
   if (nargs != 0) {
     throw QueryRuntimeException("'dump' does not expect any arguments.");
   }
-  std::ostringstream oss;
-  database::DumpToCypher(&oss, dba);
-  return oss.str();
+
+  std::vector<TypedValue> queries;
+  database::CypherDumpGenerator dump(dba);
+  for (std::ostringstream oss; dump.NextQuery(&oss); oss.str("")) {
+    queries.emplace_back(oss.str());
+  }
+  return queries;
 }
 #endif  // MG_SINGLE_NODE
 
