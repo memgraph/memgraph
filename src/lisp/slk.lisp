@@ -55,10 +55,10 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to save multiple parents of '~A'"
                (lcp::cpp-type-name cpp-class)))
-  (let ((self-arg
-          (list 'self (format nil "const ~A &"
-                              (lcp::cpp-type-decl cpp-class))))
-        (builder-arg (list 'builder "slk::Builder *")))
+  (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
+                        (lcp::cpp-type-wrap cpp-class '("const" "&"))))
+        (builder-arg (list (lcp::ensure-namestring-for-variable 'builder)
+                           (lcp::ensure-cpp-type "slk::Builder *"))))
     (lcp::cpp-function-declaration
      "Save" :args (list* self-arg builder-arg (save-extra-args cpp-class))
             :type-params (lcp::cpp-type-type-params cpp-class))))
@@ -75,10 +75,10 @@ namespace."
   (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to load multiple parents of '~A'"
                (lcp::cpp-type-name cpp-class)))
-  (let ((self-arg
-          (list 'self (format nil "std::unique_ptr<~A> *"
-                              (lcp::cpp-type-decl cpp-class))))
-        (reader-arg (list 'reader "slk::Reader *")))
+  (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
+                        (lcp::cpp-type-wrap cpp-class '("std::unique_ptr" "*"))))
+        (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
+                          (lcp::ensure-cpp-type "slk::Reader *"))))
     (lcp::cpp-function-declaration
      "ConstructAndLoad"
      :args (list* self-arg reader-arg (load-extra-args cpp-class))
@@ -94,9 +94,10 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (when (> (length (cpp-class-super-classes-for-slk cpp-class)) 1)
     (slk-error "Don't know how to load multiple parents of '~A'"
                (lcp::cpp-type-name cpp-class)))
-  (let ((self-arg
-          (list 'self (format nil "~A *" (lcp::cpp-type-decl cpp-class))))
-        (reader-arg (list 'reader "slk::Reader *")))
+  (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
+                        (lcp::cpp-type-wrap cpp-class '("*"))))
+        (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
+                          (lcp::ensure-cpp-type "slk::Reader *"))))
     (lcp::cpp-function-declaration
      "Load" :args (list* self-arg reader-arg (load-extra-args cpp-class))
             :type-params (lcp::cpp-type-type-params cpp-class))))
@@ -217,9 +218,7 @@ CPP-CLASS. Raise `SLK-ERROR' if a derived class has template parameters."
                      (lcp::cpp-type-name subclass)))
         (let ((derived-class (lcp::cpp-type-decl subclass))
               (derived-var (lcp::cpp-name-for-variable (lcp::cpp-type-name subclass)))
-              (extra-args (mapcar (lambda (name-and-type)
-                                    (lcp::cpp-name-for-variable (first name-and-type)))
-                                  (save-extra-args cpp-class))))
+              (extra-args (mapcar #'first (save-extra-args cpp-class))))
           (format s "if (const auto *~A_derived = utils::Downcast<const ~A>(&self)) {
                        return slk::Save(*~A_derived, builder~{, ~A~}); }~%"
                   derived-var derived-class derived-var extra-args))))))
@@ -276,9 +275,7 @@ constructs, mostly related to templates."
         (dolist (concrete-class concrete-classes)
           (let ((type-decl (lcp::cpp-type-decl concrete-class))
                 (var-name (lcp::cpp-name-for-variable (lcp::cpp-type-name concrete-class)))
-                (extra-args (mapcar (lambda (name-and-type)
-                                      (lcp::cpp-name-for-variable (first name-and-type)))
-                                    (load-extra-args cpp-class))))
+                (extra-args (mapcar #'first (load-extra-args cpp-class))))
             (lcp::with-cpp-block-output
                 (s :name (format nil "if (~A::kType.id == type_id)" type-decl))
               (format s "auto ~A_instance = std::make_unique<~A>();~%" var-name type-decl)
@@ -341,9 +338,10 @@ namespace."
   "Generate SLK save function declaration for CPP-ENUM. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
-  (let ((self-arg
-         (list 'self (format nil "const ~A &" (lcp::cpp-type-decl cpp-enum))))
-        (builder-arg (list 'builder "slk::Builder *")))
+  (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
+                        (lcp::cpp-type-wrap cpp-enum '("const" "&"))))
+        (builder-arg (list (lcp::ensure-namestring-for-variable 'builder)
+                           (lcp::ensure-cpp-type "slk::Builder *"))))
     (lcp::cpp-function-declaration "Save" :args (list self-arg builder-arg))))
 
 (defun save-function-code-for-enum (cpp-enum)
@@ -371,9 +369,10 @@ declarations and definitions to be in `slk` namespace."
   "Generate SLK load function declaration for CPP-ENUM. Note that the code
 generation expects the declarations and definitions to be in `slk` namespace."
   (check-type cpp-enum lcp::cpp-enum)
-  (let ((self-arg
-         (list 'self (format nil "~A *" (lcp::cpp-type-decl cpp-enum))))
-        (reader-arg (list 'reader "slk::Reader *")))
+  (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
+                        (lcp::cpp-type-wrap cpp-enum '("*"))))
+        (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
+                          (lcp::ensure-cpp-type "slk::Reader *"))))
     (lcp::cpp-function-declaration "Load" :args (list self-arg reader-arg))))
 
 (defun load-function-code-for-enum (cpp-enum)

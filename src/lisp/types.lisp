@@ -225,8 +225,8 @@ parse (doesn't support)."))
   ;; though it may have parents.
   (base nil :type boolean :read-only t)
   ;; Extra arguments to the generated save function. List of (name cpp-type).
-  (save-args nil :read-only t)
-  (load-args nil :read-only t)
+  (save-args nil)
+  (load-args nil)
   ;; In case of multiple inheritance, pretend we only inherit the 1st base
   ;; class.
   (ignore-other-base-classes nil :type boolean :read-only t))
@@ -234,7 +234,7 @@ parse (doesn't support)."))
 (defstruct clone-opts
   "Cloning options for C++ class."
   ;; Extra arguments to the generated clone function. List of (name cpp-type).
-  (args nil :read-only t)
+  (args nil)
   (return-type nil :type (or null function) :read-only t)
   (base nil :read-only t)
   (ignore-other-base-classes nil :read-only t)
@@ -277,12 +277,12 @@ parse (doesn't support)."))
     :type (or null slk-opts)
     :initarg :slk-opts
     :initform nil
-    :reader cpp-class-slk-opts)
+    :reader %cpp-class-slk-opts)
    (clone-opts
     :type (or null clone-opts)
     :initarg :clone-opts
     :initform nil
-    :reader cpp-class-clone-opts)
+    :reader %cpp-class-clone-opts)
    (type-info-opts
     :type type-info-opts
     :initarg :type-info-opts
@@ -320,7 +320,11 @@ arguments."
            (apply #'cpp-type-decl cpp-type kwargs)))
     (with-output-to-string (s)
       (cond
-        ;; Handle pointers and references specially.
+        ;; Handle const.
+        ((cpp-type-const-p cpp-type)
+         (format s "~A " (cpp-type-name cpp-type))
+         (write-string (rec (car (cpp-type-type-args cpp-type))) s))
+        ;; Handle pointers and references.
         ((or (cpp-type-raw-pointer-p cpp-type)
              (cpp-type-reference-p cpp-type))
          (write-string (rec (car (cpp-type-type-args cpp-type))) s)
@@ -827,6 +831,11 @@ not an instance of UNSUPPORTED-CPP-TYPE)."
   (check-type cpp-type cpp-type)
   (string= (cpp-type-name cpp-type) "&"))
 
+(defun cpp-type-const-p (cpp-type)
+  "Test whether CPP-TYPE represents a constant type."
+  (check-type cpp-type cpp-type)
+  (string= (cpp-type-name cpp-type) "const"))
+
 (defun cpp-type-smart-pointer-p (cpp-type)
   "Test whether CPP-TYPE represents a smart pointer type."
   (check-type cpp-type cpp-type)
@@ -961,6 +970,37 @@ C++ class CPP-CLASS."
                 (cpp-member-type member) cpp-class)))))
    (%cpp-class-members cpp-class)))
 
+(defmethod cpp-class-slk-opts (cpp-class)
+  (alexandria:when-let ((opts (%cpp-class-slk-opts cpp-class)))
+    (let ((opts (copy-slk-opts opts)))
+      (prog1 opts
+        (setf (slk-opts-save-args opts)
+              (mapcar
+               (lambda (arg)
+                 (destructuring-bind (namestring typestring) arg
+                   (list namestring (resolve-typestring-for-member
+                                     typestring cpp-class))))
+               (slk-opts-save-args opts)))
+        (setf (slk-opts-load-args opts)
+              (mapcar
+               (lambda (arg)
+                 (destructuring-bind (namestring typestring) arg
+                   (list namestring (resolve-typestring-for-member
+                                     typestring cpp-class))))
+               (slk-opts-load-args opts)))))))
+
+(defmethod cpp-class-clone-opts (cpp-class)
+  (alexandria:when-let ((opts (%cpp-class-clone-opts cpp-class)))
+    (let ((opts (copy-clone-opts opts)))
+      (prog1 opts
+        (setf (clone-opts-args opts)
+              (mapcar
+               (lambda (arg)
+                 (destructuring-bind (namestring typestring) arg
+                   (list namestring (resolve-typestring-for-member
+                                     typestring cpp-class))))
+               (clone-opts-args opts)))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Type utilities
@@ -1017,6 +1057,14 @@ is included."
 (defun cpp-class-members-for-save (cpp-class)
   (check-type cpp-class cpp-class)
   (remove-if #'cpp-member-dont-save (cpp-class-members cpp-class)))
+
+(defun cpp-type-wrap (cpp-type class-templates)
+  (check-type cpp-type lcp::cpp-type)
+  (reduce (lambda (cpp-type class-template)
+            (lcp::make-cpp-type
+             (lcp::ensure-namestring-for-class class-template)
+             :type-args (list cpp-type)))
+          class-templates :initial-value cpp-type))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -1118,6 +1166,34 @@ Each ENUM-OPTION is of the type (KEY VALUE). The possible values of KEY are:
         :scope ',scope
         ,@kwargs))))
 
+(defun ensure-arg-list (args)
+  (mapcar (lambda (arg)
+            (destructuring-bind (namestring typestring) arg
+              (list (ensure-namestring-for-variable namestring)
+                    (process-typestring (ensure-typestring typestring)))))
+          args))
+
+(defun generate-slk-opts (opts)
+  (destructuring-bind (&rest kwargs &key save-args load-args
+                       &allow-other-keys)
+      opts
+    (let ((save-args (and save-args `(:save-args (ensure-arg-list ,save-args))))
+          (load-args (and load-args `(:load-args (ensure-arg-list ,load-args)))))
+      `(make-slk-opts ,@save-args
+                      ,@load-args
+                      ,@(alexandria:remove-from-plist
+                         kwargs
+                         (and save-args :save-args)
+                         (and load-args :load-args))))))
+
+(defun generate-clone-opts (opts)
+  (destructuring-bind (&rest kwargs &key args &allow-other-keys)
+      opts
+    (let ((args (and args `(:args (ensure-arg-list ,args)))))
+      `(make-clone-opts ,@args
+                        ,@(alexandria:remove-from-plist
+                           kwargs (and args :args))))))
+
 (defun generate-define-class (name super-classes slots options)
   "Generate the expansion for DEFINE-CLASS."
   (let* ((name (alexandria:ensure-list name))
@@ -1148,8 +1224,8 @@ Each ENUM-OPTION is of the type (KEY VALUE). The possible values of KEY are:
                  ((public `(list ,@public))
                   (protected `(list ,@protected))
                   (private `(list ,@private))
-                  (slk (and slk `(make-slk-opts ,@(cdr slk))))
-                  (clone (and clone `(make-clone-opts ,@(cdr clone))))
+                  (slk (and slk (generate-slk-opts (cdr slk))))
+                  (clone (and clone (generate-clone-opts (cdr clone))))
                   (type-info `(make-type-info-opts ,@type-info)))
                `(make-instance
                  'cpp-class

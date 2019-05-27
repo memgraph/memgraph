@@ -158,16 +158,25 @@ NIL, returns a string."
               (in-impl typeinfo-def)))))))
 
 (defun cpp-function-declaration (name &key args (returns "void") type-params)
-  "Generate a C++ top level function declaration named NAME as a string.  ARGS
-is a list of (variable type) function arguments. RETURNS is the return type of
-the function.  TYPE-PARAMS is a list of names for template argments"
+  "Generate, as a string, a top level C++ function declaration for the
+function (or function template) named by NAME.
+
+NAME is a namestring for a function.
+
+ARGS is a list of (NAME TYPE) pairs representing the function's arguments, where
+NAME is a namestring for a variable and TYPE is a CPP-TYPE.
+
+RETURNS is a typestring for the return type of the function.
+
+TYPE-PARAMS is a list of strings naming the template type parameters if NAME
+names a function template rather than a function."
   (check-type name string)
   (check-type returns string)
   (let ((template (if type-params (cpp-template type-params) ""))
         (args (format nil "~:{~A ~A~:^, ~}"
                       (mapcar (lambda (name-and-type)
-                                (list (ensure-typestring (second name-and-type))
-                                      (ensure-namestring-for-variable (first name-and-type))))
+                                (list (cpp-type-decl (second name-and-type))
+                                      (first name-and-type)))
                               args))))
     (raw-cpp-string
      #>cpp
@@ -178,11 +187,19 @@ the function.  TYPE-PARAMS is a list of names for template argments"
 (defun cpp-method-declaration (class method-name
                                &key args (returns "void") (inline t) static
                                  virtual const override delete)
-  "Generate a C++ method declaration as a string for the given METHOD-NAME on
-CLASS.  ARGS is a list of (variable type) arguments to method.  RETURNS is the
-return type of the function.  When INLINE is set to NIL, generates a
-declaration to be used outside of class definition.  Remaining keys are flags
-which generate the corresponding C++ keywords."
+  "Generate, as a string, a C++ method declaration for the method named by
+METHOD-NAME of the C++ class CLASS.
+
+ARGS is a list of (NAME TYPE) pairs representing the method's arguments, where
+NAME is a variable namestring and TYPE is a CPP-TYPE.
+
+RETURNS is a typestring for the return type of the method.
+
+If INLINE is T, a declaration appropriate for inclusion into the body of a class
+declaration is generated. Otherwise, a top level declaration is generated.
+
+If VIRTUAL, CONST, OVERRIDE or DELETE is T, the corresponding C++ keyword is
+included in the method declaration."
   (check-type class cpp-class)
   (check-type method-name string)
   (let* ((type-params (cpp-type-type-params class))
@@ -196,8 +213,8 @@ which generate the corresponding C++ keywords."
                                              class :namespacep nil))))
          (args (format nil "~:{~A ~A~:^, ~}"
                        (mapcar (lambda (name-and-type)
-                                 (list (ensure-typestring (second name-and-type))
-                                       (ensure-namestring-for-variable (first name-and-type))))
+                                 (list (cpp-type-decl (second name-and-type))
+                                       (first name-and-type)))
                                args)))
          (const (if const "const" ""))
          (override (if (and override inline) "override" ""))
