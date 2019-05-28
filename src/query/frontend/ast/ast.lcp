@@ -2064,7 +2064,8 @@ cpp<#
          show-users-for-role)
       (:serialize))
     (lcp:define-enum privilege
-        (create delete match merge set remove index stats auth stream constraint)
+        (create delete match merge set remove index stats auth stream constraint
+         dump)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2094,12 +2095,12 @@ cpp<#
 #>cpp
 /// Constant that holds all available privileges.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
-    AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
-    AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
-    AuthQuery::Privilege::SET,    AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,  AuthQuery::Privilege::STATS,
-    AuthQuery::Privilege::AUTH,   AuthQuery::Privilege::STREAM,
-    AuthQuery::Privilege::CONSTRAINT};
+    AuthQuery::Privilege::CREATE,     AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,      AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,        AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,      AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,       AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP};
 cpp<#
 
 (lcp:define-class stream-query (query)
@@ -2209,6 +2210,14 @@ cpp<#
         (create drop)
       (:serialize))
 
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class dump-query (query) ()
+  (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)

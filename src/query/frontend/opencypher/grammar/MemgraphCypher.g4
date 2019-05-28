@@ -13,8 +13,10 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCHES
                       | CLEAR
                       | DATA
+                      | DATABASE
                       | DENY
                       | DROP
+                      | DUMP
                       | FOR
                       | FROM
                       | GRANT
@@ -54,6 +56,7 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | streamQuery
+      | dumpQuery
       ;
 
 authQuery : createRole
@@ -101,7 +104,7 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | STATS | AUTH | STREAM | CONSTRAINT ;
+          | REMOVE | INDEX | STATS | AUTH | STREAM | CONSTRAINT | DUMP ;
 
 privilegeList : privilege ( ',' privilege )* ;
 
@@ -146,3 +149,5 @@ startAllStreams : START ALL STREAMS ;
 stopAllStreams : STOP ALL STREAMS ;
 
 testStream : K_TEST STREAM streamName ( limitBatchesOption )? ;
+
+dumpQuery: DUMP DATABASE ;

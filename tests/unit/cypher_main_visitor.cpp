@@ -2911,4 +2911,12 @@ TEST_P(CypherMainVisitorTest, RegexMatch) {
   }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(CypherMainVisitorTest, DumpDatabase) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<DumpQuery *>(ast_generator.ParseQuery("DUMP DATABASE"));
+  ASSERT_TRUE(query);
+}
+
 }  // namespace

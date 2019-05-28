@@ -187,6 +187,13 @@ antlrcpp::Any CypherMainVisitor::visitStreamQuery(
   return stream_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDumpQuery(
+    MemgraphCypher::DumpQueryContext *ctx) {
+  auto *dump_query = storage_->Create<DumpQuery>();
+  query_ = dump_query;
+  return dump_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();

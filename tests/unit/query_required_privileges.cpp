@@ -173,3 +173,10 @@ TEST_F(TestPrivilegeExtractor, DropConstraint) {
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(TestPrivilegeExtractor, DumpDatabase) {
+  auto *query = storage.Create<DumpQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::DUMP));
+}

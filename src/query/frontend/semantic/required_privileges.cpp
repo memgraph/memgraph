@@ -64,6 +64,10 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     }
   }
 
+  void Visit(DumpQuery &dump_query) override {
+    AddPrivilege(AuthQuery::Privilege::DUMP);
+  }
+
   bool PreVisit(Create &) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;

@@ -36,12 +36,14 @@ std::string PermissionToString(Permission permission) {
       return "INDEX";
     case Permission::STATS:
       return "STATS";
+    case Permission::CONSTRAINT:
+      return "CONSTRAINT";
+    case Permission::DUMP:
+      return "DUMP";
     case Permission::AUTH:
       return "AUTH";
     case Permission::STREAM:
       return "STREAM";
-    case Permission::CONSTRAINT:
-      return "CONSTRAINT";
   }
 }
 

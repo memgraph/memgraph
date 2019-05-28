@@ -188,6 +188,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::StreamQueryContext *ctx) override;
 
   /**
+   * @return DumpQuery*
+   */
+  antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(

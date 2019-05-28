@@ -726,6 +726,10 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
 #endif
 }
 
+Callback HandleDumpQuery(database::GraphDbAccessor *db_accessor) {
+  throw utils::NotYetImplemented("Dump database");
+}
+
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
 
 Interpreter::Results Interpreter::operator()(
@@ -988,6 +992,9 @@ Interpreter::Results Interpreter::operator()(
   } else if (auto *constraint_query =
                  utils::Downcast<ConstraintQuery>(parsed_query.query)) {
     callback = HandleConstraintQuery(constraint_query, &db_accessor);
+  } else if (auto *dump_query =
+                 utils::Downcast<DumpQuery>(parsed_query.query)) {
+    callback = HandleDumpQuery(&db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }
