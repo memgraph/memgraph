@@ -13,7 +13,7 @@
 STRING and reports whether it was successful.
 
 If EOF-ERROR-P is T and EOF is reached before all of the characters are matched,
-an END-OF-FILE error is signalled.
+an END-OF-FILE error is signaled.
 
 Otherwise, returns 2 values, SUCCESSP and COUNT. SUCCESSP is a boolean denoting
 whether it was able to match all of the characters. COUNT is the number of

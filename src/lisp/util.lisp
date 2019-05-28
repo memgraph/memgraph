@@ -103,3 +103,58 @@ WARNING has been established. The handler muffles the warning by calling
 MUFFLE-WARNING."
   `(handler-bind ((warning #'muffle-warning))
      ,@body))
+
+(defmacro with-retry-restart ((restart format-string
+                               &optional (format-arguments nil format-arguments-p))
+                              &body body)
+  "Set up a restart as if by WITH-SIMPLE-RESTART, but with retry behavior. The
+restart can be used to re-execute BODY an arbitrary number of times. The most
+common use case is restarting the execution of some BODY until it succeeds, i.e.
+finishes without any errors.
+
+RESTART, FORMAT-STRING, FORMAT-ARGUMENTS and BODY are as in WITH-SIMPLE-RESTART.
+The value produced by the implicit progn BODY is returned."
+  (alexandria:with-gensyms (block)
+    `(loop :named ,block :do
+      (with-simple-restart (,restart
+                            ,format-string
+                            ,@(when format-arguments-p format-arguments))
+        (return-from ,block
+          (progn ,@body))))))
+
+(defun generate-decline-case-handlers (block clauses)
+  (loop :for (type lambda-list . body) :in clauses
+        :for c := (first lambda-list)
+        :for condition := (or c (gensym (string 'condition)))
+        :for fbody
+          := `(,@(unless c
+                   `((declare (ignore ,condition))))
+               (with-simple-restart (decline "Decline the condition")
+                 (return-from ,block
+                   (progn ,@body))))
+        :collect `(lambda (,condition) ,@fbody)))
+
+(defmacro decline-case (form &body clauses)
+  "Bind a number of condition handlers but allow the handlers to decline the
+handling at any time by invoking a special restart. The behavior is a hybrid of
+HANDLER-BIND and HANDLER-CASE.
+
+Once a handler has been found, its body is executed without performing a
+transfer of control (HANDLER-BIND-like). However, if the execution of the body
+finishes normally (without transferring control), control is transferred to the
+first form after DECLINE-CASE (HANDLER-CASE-like).
+
+The declining functionality is provided by establishing a restart named DECLINE
+around the body of the handler. At any point within the body of the handler,
+invoking the restart will decline the handling of the condition, transferring
+control back to the signalling function in search of a new handler.
+
+FORM and CLAUSES are as in HANDLER-CASE. The value produced by the form FORM is
+returned in case a condition, if any, isn't handled. Otherwise, the value of the
+last form within the body of the corresponding handler is returned."
+  (alexandria:with-gensyms (block)
+    (let ((types (mapcar #'first clauses))
+          (handlers (generate-decline-case-handlers block clauses)))
+      `(block ,block
+         (handler-bind (,@(mapcar #'list types handlers))
+           ,form)))))

@@ -225,6 +225,10 @@ included in the method declaration."
      ${returns} ${namespace}${method-name}(${args}) ${const} ${override} ${delete}
      cpp<#)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; C++ elements
+
 (defstruct cpp-list
   values)
 
@@ -278,118 +282,257 @@ included in the method declaration."
           (append *cpp-impl* (mapcar (lambda (cpp) (cons namespaces cpp))
                                      args)))))
 
-(defun read-lcp (filepath)
-  "Read the file FILEPATH and return a list of C++ meta information that should
-be formatted and output."
-  (with-open-file (in-stream filepath)
-    (let ((*readtable* (named-readtables:find-readtable 'lcp-syntax))
-          (stream-pos 0))
-      (handler-case
-          (loop :for form := (read-preserving-whitespace in-stream nil 'eof)
-                :until (eq form 'eof)
-                :for res := (handler-case (eval form)
-                              (error (err)
-                                ;; Seek to the start of the stream.
-                                (file-position in-stream 0)
-                                (error "~%~A:~A: error:~2%~A~2%in:~2%~A"
-                                       (uiop:native-namestring filepath)
-                                       (count-newlines
-                                        in-stream
-                                        :stop-position (1+ stream-pos))
-                                       err form)))
-                :do (setf stream-pos (file-position in-stream))
-                :when (typep res '(or raw-cpp cpp-type cpp-list))
-                  :collect res)
-        (end-of-file ()
-          ;; Seek to the start of the stream.
-          (file-position in-stream 0)
-          (error "~%~A:~A:error: READ error, did you forget a closing ')'?"
-                 (uiop:native-namestring filepath)
-                 (count-newlines in-stream :stop-position (1+ stream-pos))))))))
+(defun process-lcp (cpp-elements &key cpp hpp lcp-file hpp-file cpp-file slk-serialize-p)
+  "Process a list of C++ elements.
 
-(defun process-file (lcp-file &key slk-serialize)
-  "Process a LCP-FILE and write the output to .hpp file in the same directory."
+To process a C++ element means to generate code for it and any of the
+additional functionalities that have been specified.
+
+A C++ element can be:
+
+- an instance of CPP-CLASS or CPP-ENUM (e.g. returned by DEFINE-CLASS or
+  DEFINE-ENUM) -- specifies the definition of a C++ class or enum, along with
+  any additional functionality
+
+- an instance of RAW-CPP -- specifies raw C++ code to include into the generated
+  code
+
+- an instance of CPP-LIST -- specifies a list of C++ elements which are
+  processed recursively
+
+CPP and HPP are streams to which the generated hpp and cpp code will be output.
+Note that these can be any streams, not just file streams.
+
+LCP-FILE, HPP-FILE and CPP-FILE are pathname designators that will be used for
+the purposes of C++ includes or other such functionality. They can be omitted,
+in which case the string \"<UNKNOWN>\" will be used.
+
+SLK-SERIALIZE-P determines whether SLK serialization code is generated."
+  (generate-hpp cpp-elements hpp
+                :lcp-file lcp-file
+                :hpp-file hpp-file
+                :cpp-file cpp-file
+                :slk-serialize-p slk-serialize-p)
+  ;; NOTE: Some code may rely on the fact that the .cpp file is generated after
+  ;; the .hpp.
+  (let ((*generating-cpp-impl-p* t))
+    (generate-cpp cpp-elements cpp
+                  :lcp-file lcp-file
+                  :hpp-file hpp-file
+                  :cpp-file cpp-file
+                  :slk-serialize-p slk-serialize-p)))
+
+(defun generate-hpp (cpp-elements out &key lcp-file hpp-file cpp-file slk-serialize-p)
+  "Process a list of C++ elements to generate C++ header file code.
+
+OUT is a stream to write the generated code to.
+
+LCP-FILE, HPP-FILE, CPP-FILE and SLK-SERIALIZE-P are as in PROCESS-LCP."
+  (declare (ignore hpp-file cpp-file))
+  (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
+  (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
+          (or lcp-file "<UNKNOWN>"))
+  (dolist (res cpp-elements)
+    (write-line (cpp-code res) out))
+  (alexandria:when-let
+      ((types-for-slk
+        (when slk-serialize-p
+          (append (remove-if (complement #'cpp-class-slk-opts) *cpp-classes*)
+                  (remove-if (complement #'cpp-enum-serializep) *cpp-enums*)))))
+    ;; Append top-level declarations for SLK serialization
+    (terpri out)
+    (write-line "// SLK serialization declarations" out)
+    (write-line "#include \"slk/serialization.hpp\"" out)
+    (with-namespaced-output (out open-namespace)
+      (open-namespace '("slk"))
+      (dolist (type-for-slk types-for-slk)
+        (ctypecase type-for-slk
+          (cpp-class
+           (format out "~A;~%" (lcp.slk:save-function-declaration-for-class type-for-slk))
+           (when (or (cpp-class-super-classes type-for-slk)
+                     (cpp-class-direct-subclasses type-for-slk))
+             (format out "~A;~%" (lcp.slk:construct-and-load-function-declaration-for-class type-for-slk)))
+           (unless (cpp-class-abstractp type-for-slk)
+             (format out "~A;~%" (lcp.slk:load-function-declaration-for-class type-for-slk))))
+          (cpp-enum
+           (format out "~A;~%" (lcp.slk:save-function-declaration-for-enum type-for-slk))
+           (format out "~A;~%" (lcp.slk:load-function-declaration-for-enum type-for-slk))))))))
+
+(defun generate-cpp (cpp-elements out &key lcp-file hpp-file cpp-file slk-serialize-p)
+  "Process a list of C++ elements to generate C++ source file code.
+
+OUT is a stream to write the generated code to.
+
+LCP-FILE, HPP-FILE, CPP-FILE and SLK-SERIALIZE-P are as in PROCESS-LCP."
+  (declare (ignore cpp-elements cpp-file))
+  (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
+  (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
+          (or lcp-file "<UNKNOWN>"))
+  (format out "#include \"~A\"~2%" (or hpp-file "<UNKNOWN>"))
+  ;; First output the C++ code from the user
+  (with-namespaced-output (out open-namespace)
+    (dolist (cpp *cpp-impl*)
+      (destructuring-bind (namespaces . code) cpp
+        (open-namespace namespaces)
+        (write-line (cpp-code code) out))))
+  ;; Generate SLK serialization
+  (alexandria:when-let
+      ((types-for-slk
+        (when slk-serialize-p
+          (append (remove-if (complement #'cpp-class-slk-opts) *cpp-classes*)
+                  (remove-if (complement #'cpp-enum-serializep) *cpp-enums*)))))
+    (write-line "// Autogenerated SLK serialization code" out)
+    (with-namespaced-output (out open-namespace)
+      (open-namespace '("slk"))
+      (dolist (cpp-type types-for-slk)
+        (ctypecase cpp-type
+          (cpp-class
+           (format out "// Serialize code for ~A~2%" (cpp-type-name cpp-type))
+           ;; Top level functions
+           (write-line (lcp.slk:save-function-definition-for-class cpp-type) out)
+           (when (or (cpp-class-super-classes cpp-type)
+                     (cpp-class-direct-subclasses cpp-type))
+             (format out "~A;~%" (lcp.slk:construct-and-load-function-definition-for-class cpp-type)))
+           (unless (cpp-class-abstractp cpp-type)
+             (write-line (lcp.slk:load-function-definition-for-class cpp-type) out)))
+          (cpp-enum
+           (write-line (lcp.slk:save-function-definition-for-enum cpp-type) out)
+           (write-line (lcp.slk:load-function-definition-for-enum cpp-type) out)))))))
+
+(defun read-lcp (stream)
+  "Read and evaluate LCP forms.
+
+Forms are read from the stream STREAM and immediately evaluated, one by one. The
+given stream is read until EOF is reached. In the case of a reading error, a
+condition of type END-OF-FILE is signaled.
+
+Return a list of results."
+  (let ((*readtable* (named-readtables:find-readtable 'lcp-syntax)))
+    (loop :for form := (read-preserving-whitespace stream nil 'eof)
+          :until (eq form 'eof)
+          :for res := (eval form)
+          :when (typep res '(or raw-cpp cpp-type cpp-list))
+            :collect res)))
+
+(defun read-lcp-file (stream)
+  "Read and evaluate LCP forms from a file stream.
+
+The behavior is just as in READ-LCP, except that STREAM must be a file stream.
+The reported error messages will contain the name of the file and the line
+number on which the error ocurred.
+
+In case of a reading error, a condition of type ERROR is signaled reporting the
+file and the line number of the erroneous form.
+
+In case of an evaluation error, a condition of type ERROR is signaled reporting
+the file and the line number of the erroneous form. Additionally, a restart
+named DECLINE will be established around the newly signaled condition which can
+be used by a handler to force the signalling of the original error instead.
+
+Return a list of results."
+  (let ((filepath (pathname stream))
+        (*readtable* (named-readtables:find-readtable 'lcp-syntax))
+        (stream-pos 0))
+    (handler-case
+        (loop :for form := (read-preserving-whitespace stream nil 'eof)
+              :until (eq form 'eof)
+              :for res
+                := (decline-case (eval form)
+                     (error (err)
+                       ;; Seek to the start of the stream.
+                       (file-position stream 0)
+                       (error "~%~A:~A: error:~2%~A~2%in:~2%~A"
+                              (uiop:native-namestring filepath)
+                              (count-newlines
+                               stream
+                               :stop-position (1+ stream-pos))
+                              err form)))
+              :do (setf stream-pos (file-position stream))
+              :when (typep res '(or raw-cpp cpp-type cpp-list))
+                :collect res)
+      (end-of-file ()
+        ;; Seek to the start of the stream.
+        (file-position stream 0)
+        (error "~%~A:~A:error: READ error, did you forget a closing ')'?"
+               (uiop:native-namestring filepath)
+               (count-newlines stream :stop-position (1+ stream-pos)))))))
+
+(defun process-lcp-string (string &key slk-serialize-p)
+  "Process the C++ elements produced by reading and evaluating LCP forms from
+the string STRING.
+
+SLK-SERIALIZE-P is as in PROCESS-LCP.
+
+The generated code is returned as two values, both of which are strings. The
+strings represent the C++ source file and C++ header file code respectively."
+  (with-retry-restart (reprocess-lcp-string "Reprocess the LCP string")
+    (restart-case
+        (let* (;; Reset globals that influence the evaluation of LCP forms
+               (*cpp-inner-types* :toplevel)
+               (*cpp-impl* '())
+               (*cpp-namespaces* '())
+               (cpp-elements (with-input-from-string (lcp string)
+                               (read-lcp lcp))))
+          ;; Check for unclosed namespaces in the LCP file
+          (when *cpp-namespaces*
+            (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
+          ;; Process the result
+          (with-output-to-string (hpp)
+            (with-output-to-string (cpp)
+              (process-lcp cpp-elements
+                           :cpp cpp
+                           :hpp hpp
+                           :lcp-file "<PROCESS-LCP-STRING>"
+                           :hpp-file "<PROCESS-LCP-STRING>"
+                           :cpp-file "<PROCESS-LCP-STRING>"
+                           :slk-serialize-p slk-serialize-p)
+              (return-from process-lcp-string
+                (values (get-output-stream-string hpp)
+                        (get-output-stream-string cpp))))))
+      (clean-reprocess-lcp-string ()
+        :report "Reprocess the LCP string with a clean registry"
+        (setf *cpp-classes* '()
+              *cpp-enums* '())
+        (invoke-restart 'reprocess-lcp-string)))))
+
+(defun process-lcp-file (lcp-file &key slk-serialize-p)
+  "Process the C++ elements produced by reading and evaluating LCP forms from
+the file named by the pathname designator LCP-FILE.
+
+SLK-SERIALIZE-P is as in PROCESS-LCP.
+
+The generated code is written into two files. The files are in the same
+directory as the LCP file. C++ source file code is written to
+\"<LCP-FILENAME>.lcp.cpp\" while C++ header file code is written to
+\"<LCP-FILENAME>.hpp\"."
   (multiple-value-bind (filename extension)
       (uiop:split-name-type lcp-file)
     (assert (string= (string-downcase extension) "lcp"))
     (let ((hpp-file (concatenate 'string filename ".hpp"))
-          ;; Unlike hpp, for cpp file use the full path. This allows us to
-          ;; have our own accompanying .cpp files
-          (cpp-file (concatenate 'string lcp-file ".cpp"))
-          (serializep slk-serialize)
-          ;; Reset globals
-          (*cpp-inner-types* nil)
-          (*cpp-impl*)
-          ;; Don't reset *cpp-classes* if we want to have support for
-          ;; procesing multiple files.
-          ;; (*cpp-classes* nil)
-          ;; (*cpp-enums* nil)
-          )
-      ;; First read and evaluate the whole file, then output the evaluated
-      ;; cpp-code. This allows us to generate code which may rely on
-      ;; evaluation done after the code definition.
-      (with-open-file (out hpp-file :direction :output :if-exists :supersede)
-        (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
-        (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
-                (file-namestring lcp-file))
-        (dolist (res (read-lcp lcp-file))
-          (write-line (cpp-code res) out)))
-      (when *cpp-namespaces*
-        (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
-      ;; Collect types for serialization
-      (let ((types-for-slk (when serializep
-                             (append (remove-if (complement #'cpp-class-slk-opts) *cpp-classes*)
-                                     (remove-if (complement #'cpp-enum-serializep) *cpp-enums*)))))
-        (when types-for-slk
-          ;; Append top-level declarations for SLK serialization
-          (with-open-file (out hpp-file :direction :output :if-exists :append)
-            (terpri out)
-            (write-line "// SLK serialization declarations" out)
-            (write-line "#include \"slk/serialization.hpp\"" out)
-            (with-namespaced-output (out open-namespace)
-              (open-namespace '("slk"))
-              (dolist (type-for-slk types-for-slk)
-                (ctypecase type-for-slk
-                  (cpp-class
-                   (format out "~A;~%" (lcp.slk:save-function-declaration-for-class type-for-slk))
-                   (when (or (cpp-class-super-classes type-for-slk)
-                             (cpp-class-direct-subclasses type-for-slk))
-                     (format out "~A;~%" (lcp.slk:construct-and-load-function-declaration-for-class type-for-slk)))
-                   (unless (cpp-class-abstractp type-for-slk)
-                     (format out "~A;~%" (lcp.slk:load-function-declaration-for-class type-for-slk))))
-                  (cpp-enum
-                   (format out "~A;~%" (lcp.slk:save-function-declaration-for-enum type-for-slk))
-                   (format out "~A;~%" (lcp.slk:load-function-declaration-for-enum type-for-slk))))))))
-        ;; Generate the .cpp file.  Note, that some code may rely on the fact
-        ;; that .cpp file is generated after .hpp.
-        (let ((*generating-cpp-impl-p* t))
-          (with-open-file (out cpp-file :direction :output :if-exists :supersede)
-            (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
-            (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
-                    (file-namestring lcp-file))
-            (format out "#include \"~A\"~2%" (file-namestring hpp-file))
-            ;; First output the C++ code from the user
-            (with-namespaced-output (out open-namespace)
-              (dolist (cpp *cpp-impl*)
-                (destructuring-bind (namespaces . code) cpp
-                  (open-namespace namespaces)
-                  (write-line (cpp-code code) out))))
-            ;; Generate SLK serialization
-            (when types-for-slk
-              (write-line "// Autogenerated SLK serialization code" out)
-              (with-namespaced-output (out open-namespace)
-                (open-namespace '("slk"))
-                (dolist (cpp-type types-for-slk)
-                  (ctypecase cpp-type
-                    (cpp-class
-                     (format out "// Serialize code for ~A~2%" (cpp-type-name cpp-type))
-                     ;; Top level functions
-                     (write-line (lcp.slk:save-function-definition-for-class cpp-type) out)
-                     (when (or (cpp-class-super-classes cpp-type)
-                               (cpp-class-direct-subclasses cpp-type))
-                       (format out "~A;~%" (lcp.slk:construct-and-load-function-definition-for-class cpp-type)))
-                     (unless (cpp-class-abstractp cpp-type)
-                       (write-line (lcp.slk:load-function-definition-for-class cpp-type) out)))
-                    (cpp-enum
-                     (write-line (lcp.slk:save-function-definition-for-enum cpp-type) out)
-                     (write-line (lcp.slk:load-function-definition-for-enum cpp-type) out))))))))))))
+          (cpp-file (concatenate 'string lcp-file ".cpp")))
+      (with-retry-restart (reprocess-lcp-file "Reprocess the LCP file")
+        (restart-case
+            (let* (;; Reset globals that influence the evaluation of LCP forms
+                   (*cpp-inner-types* :toplevel)
+                   (*cpp-impl* '())
+                   (*cpp-namespaces* '())
+                   (cpp-elements (with-open-file (lcp lcp-file)
+                                   (read-lcp-file lcp))))
+              ;; Check for unclosed namespaces in the LCP file
+              (when *cpp-namespaces*
+                (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
+              ;; Process the results
+              (with-open-file (hpp hpp-file :direction :output :if-exists :supersede)
+                (with-open-file (cpp cpp-file :direction :output :if-exists :supersede)
+                  (process-lcp cpp-elements
+                               :cpp cpp
+                               :hpp hpp
+                               :lcp-file lcp-file
+                               :hpp-file hpp-file
+                               :cpp-file cpp-file
+                               :slk-serialize-p slk-serialize-p))))
+          (clean-reprocess-lcp-file ()
+            :report "Reprocess the LCP file with a clean registry"
+            (setf *cpp-classes* '()
+                  *cpp-enums* '())
+            (invoke-restart 'reprocess-lcp-file)))))))

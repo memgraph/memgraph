@@ -8,7 +8,7 @@
 ;;; IS-CONDITION which uses HANDLER-CASE to catch *any* condition (any subclass
 ;;; of CONDITION). This is wrong, because not every condition is an error.
 ;;; Because of this, Prove used to catch LCP's warnings and would fail because
-;;; an LCP error was expected (which would have been signalled).
+;;; an LCP error was expected (which would have been signaled).
 
 (in-package #:prove.test)
 

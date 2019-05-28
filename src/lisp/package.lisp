@@ -8,7 +8,7 @@
            #:in-impl
            #:namespace
            #:pop-namespace
-           #:process-file
+           #:process-lcp-file
            #:lcp-syntax))
 
 (defpackage #:lcp.slk

@@ -28,7 +28,7 @@ fi
 
 slk_serialize=""
 if [[ "$2" == "SLK_SERIALIZE" ]]; then
-  slk_serialize=":slk-serialize t"
+  slk_serialize=":slk-serialize-p t"
 fi
 
 if [[ $debug == "true" ]]; then
@@ -37,14 +37,14 @@ if [[ $debug == "true" ]]; then
   (load \"${quicklisp_install_dir}/setup.lisp\")
   (ql:quickload :lcp :silent t)
   (let ((*debugger-hook* #'lcp.debug:lcp-debugger-hook))
-    (lcp:process-file \"$lcp_file\" $slk_serialize))
+    (lcp:process-lcp-file \"$lcp_file\" $slk_serialize))
   " | sbcl --noinform --noprint
 else
   echo \
   "
   (load \"${quicklisp_install_dir}/setup.lisp\")
   (ql:quickload :lcp :silent t)
-  (lcp:process-file \"$lcp_file\" $slk_serialize)
+  (lcp:process-lcp-file \"$lcp_file\" $slk_serialize)
   " | sbcl --script
 fi
 
