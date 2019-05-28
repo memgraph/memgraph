@@ -48,6 +48,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       db_recover_on_startup_(db_recover_on_startup),
       commit_index_(0),
       last_applied_(0),
+      last_entry_term_(0),
       issue_hb_(false),
       replication_timeout_(config.replication_timeout),
       disk_storage_(fs::path(durability_dir) / kRaftDir) {}
@@ -59,6 +60,7 @@ void RaftServer::Start() {
       RecoverSnapshot(snapshot_metadata_->snapshot_filename);
       last_applied_ = snapshot_metadata_->last_included_index;
       commit_index_ = snapshot_metadata_->last_included_index;
+      last_entry_term_ = snapshot_metadata_->last_included_term;
     }
   } else {
     // We need to clear persisted data if we don't want any recovery.
@@ -439,6 +441,7 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
 
   log_[log_size_] = new_entry;
   disk_storage_.Put(LogEntryKey(log_size_), SerializeLogEntry(new_entry));
+  last_entry_term_ = new_entry.term;
   SetLogSize(log_size_ + 1);
 
   // Force replication
@@ -560,6 +563,14 @@ void RaftServer::RecoverPersistentData() {
 
   auto opt_log_size = disk_storage_.Get(kLogSizeKey);
   if (opt_log_size) log_size_ = std::stoull(opt_log_size.value());
+
+  if (log_size_ != 0) {
+    auto opt_last_log_entry = disk_storage_.Get(LogEntryKey(log_size_ - 1));
+    DCHECK(opt_last_log_entry != std::nullopt)
+        << "Log size is equal to " << log_size_
+        << ", but there is no log entry on index: " << log_size_ - 1;
+    last_entry_term_ = DeserializeLogEntry(opt_last_log_entry.value()).term;
+  }
 }
 
 void RaftServer::Transition(const Mode &new_mode) {
@@ -1159,7 +1170,7 @@ std::pair<uint64_t, uint64_t> RaftServer::LastEntryData() {
       snapshot_metadata_->last_included_index == log_size_ - 1) {
     return {log_size_, snapshot_metadata_->last_included_term};
   }
-  return {log_size_, GetLogEntryTerm(log_size_ - 1)};
+  return {log_size_, last_entry_term_};
 }
 
 bool RaftServer::AtLeastUpToDate(uint64_t last_log_index_a,
@@ -1198,16 +1209,6 @@ LogEntry RaftServer::GetLogEntry(int index) {
   DCHECK(opt_value != std::nullopt)
       << "Log index (" << index << ") out of bounds.";
   return DeserializeLogEntry(opt_value.value());
-}
-
-uint64_t RaftServer::GetLogEntryTerm(int index) {
-  auto it = log_.find(index);
-  if (it != log_.end())
-    return it->second.term; // retrieve in-mem if possible
-  auto opt_value = disk_storage_.Get(LogEntryKey(index));
-  DCHECK(opt_value != std::nullopt)
-      << "Log index (" << index << ") out of bounds.";
-  return DeserializeLogEntry(opt_value.value()).term;
 }
 
 void RaftServer::DeleteLogSuffix(int starting_index) {
@@ -1252,6 +1253,8 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
   if (leader_commit_index > commit_index_) {
     commit_index_ = std::min(leader_commit_index, log_size_ - 1);
   }
+
+  last_entry_term_ = GetLogEntry(log_size_ - 1).term;
 }
 
 std::string RaftServer::LogEntryKey(uint64_t index) {
