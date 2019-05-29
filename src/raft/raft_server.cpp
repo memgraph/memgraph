@@ -110,6 +110,14 @@ void RaftServer::Start() {
           if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
         }
 
+        if (voted_for_) {
+          bool grant_vote = voted_for_.value() == req.candidate_id;
+          if (grant_vote) SetNextElectionTimePoint();
+          RequestVoteRes res(grant_vote, current_term_);
+          slk::Save(res, res_builder);
+          return;
+        }
+
         // [Raft paper 5.2, 5.4]
         // "Each server will vote for at most one candidate in a given
         // term, on a first-come-first-serve basis with an additional
@@ -118,7 +126,6 @@ void RaftServer::Start() {
         // up-to-date than that of the candidate"
         auto last_entry_data = LastEntryData();
         bool grant_vote =
-            (!voted_for_ || voted_for_.value() == req.candidate_id) &&
             AtLeastUpToDate(req.last_log_index, req.last_log_term,
                             last_entry_data.first, last_entry_data.second);
         if (grant_vote) {
