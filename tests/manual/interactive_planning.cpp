@@ -489,7 +489,7 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
 }
 
 void RunInteractivePlanning(database::GraphDbAccessor *dba) {
-  auto in_db_filename = utils::Trim(FLAGS_load_mock_db_file);
+  std::string in_db_filename(utils::Trim(FLAGS_load_mock_db_file));
   if (!in_db_filename.empty() && !std::filesystem::exists(in_db_filename)) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
@@ -529,7 +529,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
       std::cout << "Error: " << e.what() << std::endl;
     }
   }
-  auto db_filename = utils::Trim(FLAGS_save_mock_db_file);
+  std::string db_filename(utils::Trim(FLAGS_save_mock_db_file));
   if (!db_filename.empty()) {
     std::ofstream db_file(db_filename);
     interactive_db.Save(db_file);

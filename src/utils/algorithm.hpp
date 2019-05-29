@@ -142,13 +142,21 @@ inline bool Contains(const TIterable &iterable, const TElement &element) {
 }
 
 /**
- * Returns a *copy* of a collection with its elements in reversed order.
- *
- * @param collection Collection to be reversed.
+ * Return a reversed copy of the given collection.
+ * The copy is allocated using the default allocator.
  */
 template <class TCollection>
 TCollection Reversed(const TCollection &collection) {
   return TCollection(std::rbegin(collection), std::rend(collection));
+}
+
+/**
+ * Return a reversed copy of the given collection.
+ * The copy is allocated with the given `alloc`.
+ */
+template <class TCollection, class TAllocator>
+TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
+  return TCollection(std::rbegin(collection), std::rend(collection), alloc);
 }
 
 /**

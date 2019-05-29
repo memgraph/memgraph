@@ -344,7 +344,7 @@ static std::optional<std::string> GetQuery() {
           PrintHelp();
           return "";
         } else {
-          EchoFailure("Unsupported command", trimmed_line);
+          EchoFailure("Unsupported command", std::string(trimmed_line));
           PrintHelp();
           return "";
         }

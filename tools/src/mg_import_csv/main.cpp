@@ -258,7 +258,7 @@ communication::bolt::Value StringToValue(const std::string &str,
   std::vector<communication::bolt::Value> array;
   array.reserve(elems.size());
   for (const auto &elem : elems) {
-    array.push_back(convert(utils::Trim(elem), elem_type));
+    array.push_back(convert(std::string(utils::Trim(elem)), elem_type));
   }
   return array;
 }
@@ -279,7 +279,7 @@ void WriteNodeRow(
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
-    auto value = utils::Trim(row[i]);
+    std::string value(utils::Trim(row[i]));
     if (utils::StartsWith(field.type, "id")) {
       CHECK(!id) << "Only one node ID must be specified";
       NodeId node_id{value, GetIdSpace(field.type)};
@@ -340,7 +340,7 @@ void WriteRelationshipsRow(
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
-    auto value = utils::Trim(row[i]);
+    std::string value(utils::Trim(row[i]));
     if (utils::StartsWith(field.type, "start_id")) {
       CHECK(!start_id) << "Only one node ID must be specified";
       NodeId node_id{value, GetIdSpace(field.type)};
@@ -460,7 +460,7 @@ std::string GetOutputPath() {
   // other flags which are defined in this file.
   LoadConfig();
   // Without durability_directory, we have to require 'out' flag.
-  auto durability_dir = utils::Trim(FLAGS_durability_directory);
+  std::string durability_dir(utils::Trim(FLAGS_durability_directory));
   if (durability_dir.empty())
     LOG(FATAL) << "Unable to determine snapshot output location. Please, "
                   "provide the 'out' flag";

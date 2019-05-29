@@ -158,8 +158,9 @@ std::vector<io::network::Endpoint> GetEndpoints() {
   for (const auto &endpoint : utils::Split(FLAGS_endpoints, ",")) {
     auto split = utils::Split(utils::Trim(endpoint), ":");
     CHECK(split.size() == 2) << "Invalid endpoint!";
-    ret.emplace_back(io::network::ResolveHostname(utils::Trim(split[0])),
-                     static_cast<uint16_t>(std::stoi(utils::Trim(split[1]))));
+    ret.emplace_back(
+        io::network::ResolveHostname(std::string(utils::Trim(split[0]))),
+        static_cast<uint16_t>(std::stoi(std::string(utils::Trim(split[1])))));
   }
   return ret;
 }

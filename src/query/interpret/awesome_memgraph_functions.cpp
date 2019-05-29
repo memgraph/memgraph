@@ -807,7 +807,7 @@ TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &,
       case TypedValue::Type::Null:                                            \
         return TypedValue::Null;                                              \
       case TypedValue::Type::String:                                          \
-        return function(args[0].ValueString());                               \
+        return std::string(function(args[0].ValueString()));                  \
       default:                                                                \
         throw QueryRuntimeException("'" #lowercased_name                      \
                                     "' argument should be a string.");        \

@@ -171,7 +171,7 @@ GraphState BuildFromConfig(int num_workers, const nlohmann::json &config) {
   GraphState state(num_workers);
 
   for (const auto &index : GetWithDefault(config, "indexes", {})) {
-    auto index_parts = utils::Split(index, ".");
+    auto index_parts = utils::Split(std::string(index), ".");
     CHECK(index_parts.size() == 2) << "Index format should be Label.Property";
     state.CreateIndex(index_parts[0], index_parts[1]);
   }

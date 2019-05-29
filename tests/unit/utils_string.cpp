@@ -12,6 +12,7 @@ TEST(String, LTrim) {
   EXPECT_EQ(LTrim(" \t\n\r ab\r\n\t ab \r\t "), "ab\r\n\t ab \r\t ");
   EXPECT_EQ(LTrim(" \t\n\r"), "");
   EXPECT_EQ(LTrim("run()"), "run()");
+  EXPECT_EQ(LTrim("run()", "rn"), "un()");
   EXPECT_EQ(LTrim(""), "");
 }
 
@@ -19,6 +20,7 @@ TEST(String, RTrim) {
   EXPECT_EQ(RTrim(" \t\n\r ab\r\n\t ab \r\t "), " \t\n\r ab\r\n\t ab");
   EXPECT_EQ(RTrim(" \t\n\r"), "");
   EXPECT_EQ(RTrim("run()"), "run()");
+  EXPECT_EQ(RTrim("run()", "u()"), "run");
   EXPECT_EQ(RTrim(""), "");
 }
 

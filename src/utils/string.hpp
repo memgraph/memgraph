@@ -1,3 +1,4 @@
+/** @file */
 #pragma once
 
 #include <algorithm>
@@ -9,284 +10,328 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "utils/exceptions.hpp"
 
 namespace utils {
 
-/**
- * Removes whitespace characters from the start of a string.
- *
- * @param str string that is going to be trimmed
- *
- * @return trimmed string
- */
-inline std::string LTrim(const std::string &s) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
+/** Remove whitespace characters from the start of a string. */
+inline std::string_view LTrim(const std::string_view &s) {
+  size_t start = 0;
+  while (start < s.size() && isspace(s[start])) {
+    ++start;
   }
-  while (begin < end && isspace(*begin)) {
-    ++begin;
+  return std::string_view(s.data() + start, s.size() - start);
+}
+
+/** Remove characters found in `chars` from the start of a string. */
+inline std::string_view LTrim(const std::string_view &s,
+                              const std::string_view &chars) {
+  size_t start = 0;
+  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+    ++start;
   }
-  return std::string(begin, end);
+  return std::string_view(s.data() + start, s.size() - start);
+}
+
+/** Remove whitespace characters from the end of a string. */
+inline std::string_view RTrim(const std::string_view &s) {
+  size_t count = s.size();
+  while (count > static_cast<size_t>(0) && isspace(s[count - 1])) {
+    --count;
+  }
+  return std::string_view(s.data(), count);
+}
+
+/** Remove characters found in `chars` from the end of a string. */
+inline std::string_view RTrim(const std::string_view &s,
+                              const std::string_view &chars) {
+  size_t count = s.size();
+  while (count > static_cast<size_t>(0) &&
+         chars.find(s[count - 1]) != std::string::npos) {
+    --count;
+  }
+  return std::string_view(s.data(), count);
+}
+
+/** Remove whitespace characters from the start and from the end of a string. */
+inline std::string_view Trim(const std::string_view &s) {
+  size_t start = 0;
+  size_t count = s.size();
+  while (start < s.size() && isspace(s[start])) {
+    ++start;
+  }
+  while (count > start && isspace(s[count - 1])) {
+    --count;
+  }
+  return std::string_view(s.data() + start, count - start);
+}
+
+/** Remove characters found in `chars` from the start and the end of `s`. */
+inline std::string_view Trim(const std::string_view &s,
+                             const std::string_view &chars) {
+  size_t start = 0;
+  size_t count = s.size();
+  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+    ++start;
+  }
+  while (count > start && chars.find(s[count - 1]) != std::string::npos) {
+    --count;
+  }
+  return std::string_view(s.data() + start, count - start);
 }
 
 /**
- * Removes characters contained in chars from the start of a string.
- *
- * @param s string that is going to be trimmed
- * @param chars string that contains chars that are to be removed
- *
- * @return trimmed string
+ * Lowercase all characters of a string and store the result in `out`.
+ * Transformation is locale independent.
+ * @return pointer to `out`.
  */
-inline std::string LTrim(const std::string &s, const std::string &chars) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
-  }
-  while (begin < end && chars.find(*begin) != std::string::npos) {
-    ++begin;
-  }
-  return std::string(begin, end);
-}
-
-/**
- * Removes whitespace characters from the end of a string.
- *
- * @param str string that is going to be trimmed
- *
- * @return trimmed string
- */
-inline std::string RTrim(const std::string &s) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
-  }
-  while (end > begin && isspace(*std::prev(end))) {
-    --end;
-  }
-  return std::string(begin, end);
-}
-
-/**
- * Removes characters contained in chars from the end of a string.
- *
- * @param s string that is going to be trimmed
- * @param chars string that contains chars that are to be removed
- *
- * @return trimmed string
- */
-inline std::string RTrim(const std::string &s, const std::string &chars) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
-  }
-  while (end > begin && chars.find(*std::prev(end)) != std::string::npos) {
-    --end;
-  }
-  return std::string(begin, end);
-}
-
-/**
- * Removes whitespace characters from the start and from the end of a string.
- *
- * @param str string that is going to be trimmed
- *
- * @return trimmed string
- */
-inline std::string Trim(const std::string &s) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
-  }
-  while (begin < end && isspace(*begin)) {
-    ++begin;
-  }
-  while (end > begin && isspace(*std::prev(end))) {
-    --end;
-  }
-  return std::string(begin, end);
-}
-
-/**
- * Removes characters contained in chars from the start and the end of a string.
- *
- * @param s string that is going to be trimmed
- * @param chars string that contains chars that are to be removed
- *
- * @return trimmed string
- */
-inline std::string Trim(const std::string &s, const std::string &chars) {
-  auto begin = s.begin();
-  auto end = s.end();
-  if (begin == end) {
-    // Need to check this to be sure that std::prev(end) exists.
-    return s;
-  }
-  while (begin < end && chars.find(*begin) != std::string::npos) {
-    ++begin;
-  }
-  while (end > begin && chars.find(*std::prev(end)) != std::string::npos) {
-    --end;
-  }
-  return std::string(begin, end);
-}
-
-/**
- * Return string with all lowercased characters (locale independent).
- */
-inline std::string ToLowerCase(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *ToLowerCase(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    const std::string_view &s) {
+  out->resize(s.size());
+  std::transform(s.begin(), s.end(), out->begin(),
                  [](char c) { return tolower(c); });
-  return s;
+  return out;
 }
 
 /**
- * Return string with all uppercased characters (locale independent).
+ * Lowercase all characters of a string.
+ * Transformation is locale independent.
  */
-inline std::string ToUpperCase(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
+inline std::string ToLowerCase(const std::string_view &s) {
+  std::string res;
+  ToLowerCase(&res, s);
+  return res;
+}
+
+/**
+ * Uppercase all characters of a string and store the result in `out`.
+ * Transformation is locale independent.
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *ToUpperCase(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    const std::string_view &s) {
+  out->resize(s.size());
+  std::transform(s.begin(), s.end(), out->begin(),
                  [](char c) { return toupper(c); });
-  return s;
+  return out;
 }
 
 /**
- * Join strings in vector separated by a given separator.
+ * Uppercase all characters of a string and store the result in `out`.
+ * Transformation is locale independent.
  */
-inline std::string Join(const std::vector<std::string> &strings,
-                        const std::string &separator) {
-  if (strings.size() == 0U) return "";
+inline std::string ToUpperCase(const std::string_view &s) {
+  std::string res;
+  ToUpperCase(&res, s);
+  return res;
+}
+
+/**
+ * Join the `strings` collection separated by a given separator into `out`.
+ * @return pointer to `out`.
+ */
+template <class TCollection, class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    const TCollection &strings, const std::string_view &separator) {
+  out->clear();
+  if (strings.empty()) return out;
   int64_t total_size = 0;
   for (const auto &x : strings) {
     total_size += x.size();
   }
   total_size += separator.size() * (static_cast<int64_t>(strings.size()) - 1);
-  std::string s;
-  s.reserve(total_size);
-  s += strings[0];
+  out->reserve(total_size);
+  *out += strings[0];
   for (auto it = strings.begin() + 1; it != strings.end(); ++it) {
-    s += separator;
-    s += *it;
+    *out += separator;
+    *out += *it;
   }
-  return s;
+  return out;
 }
 
 /**
- * Replaces all occurences of <match> in <src> with <replacement>.
+ * Join the `strings` collection separated by a given separator.
  */
-// TODO: This could be implemented much more efficiently.
-inline std::string Replace(std::string src, const std::string &match,
-                           const std::string &replacement) {
-  for (size_t pos = src.find(match); pos != std::string::npos;
-       pos = src.find(match, pos + replacement.size())) {
-    src.erase(pos, match.length()).insert(pos, replacement);
-  }
-  return src;
+inline std::string Join(const std::vector<std::string> &strings,
+                        const std::string_view &separator) {
+  std::string res;
+  Join(&res, strings, separator);
+  return res;
 }
 
 /**
- * Split string by delimeter and return vector of results.
- *
- * @param src - The string to split.
- * @param delimitier - The delimiter to split on.
- * @param splits - The maximum number of splits. For the given value N the
- * returned vector will contain at most (N + 1) elements. If given a negative
- * value, all possible splits are performed.
- * @return - a vector of splits.
+ * Replace all occurrences of `match` in `src` with `replacement`.
+ * @return pointer to `out`.
  */
-inline std::vector<std::string> Split(const std::string &src,
-                                      const std::string &delimiter,
-                                      int splits = -1) {
-  std::vector<std::string> res;
-  if (src.empty()) {
-    return res;
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    const std::string_view &src, const std::string_view &match,
+    const std::string_view &replacement, const TAllocator &alloc) {
+  // TODO: This could be implemented much more efficiently.
+  *out = src;
+  for (size_t pos = out->find(match); pos != std::string::npos;
+       pos = out->find(match, pos + replacement.size())) {
+    out->erase(pos, match.length()).insert(pos, replacement);
   }
+  return out;
+}
+
+/** Replace all occurrences of `match` in `src` with `replacement`. */
+inline std::string Replace(const std::string_view &src,
+                           const std::string_view &match,
+                           const std::string_view &replacement) {
+  std::string res;
+  Replace(&res, src, match, replacement, std::allocator<char>());
+  return res;
+}
+
+/**
+ * Split a string by `delimiter` with a maximum of `splits` into a vector.
+ * The vector will have at most `splits` + 1 elements. Negative value of
+ * `splits` indicates to perform all possible splits.
+ * @return pointer to `out`.
+ */
+template <class TString, class TAllocator>
+std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out,
+                                        const std::string_view &src,
+                                        const std::string_view &delimiter,
+                                        int splits = -1) {
+  out->clear();
+  if (src.empty()) return out;
   size_t index = 0;
   while (splits < 0 || splits-- != 0) {
     auto n = src.find(delimiter, index);
     if (n == std::string::npos) break;
-    res.emplace_back(src.substr(index, n - index));
+    out->emplace_back(src.substr(index, n - index));
     index = n + delimiter.size();
   }
-
-  res.emplace_back(src.substr(index));
-  return res;
+  out->emplace_back(src.substr(index));
+  return out;
 }
 
 /**
- * Split string by delimiter, from right to left, and return vector of results.
- * For example, RSplit("a.b.c.", ".", 1) results in {"a.b", "c"}.
- *
- * @param src - The string to split.
- * @param delimitier - The delimiter to split on.
- * @param splits - The maximum number of splits. For the given value N the
- * returned vector will contain at most (N + 1) elements. If given a negative
- * value, all possible splits are performed.
+ * Split a string by `delimiter` with a maximum of `splits` into a vector.
+ * The vector will have at most `splits` + 1 elements. Negative value of
+ * `splits` indicates to perform all possible splits.
  */
-inline std::vector<std::string> RSplit(const std::string &src,
-                                       const std::string &delimiter,
-                                       int splits = -1) {
+inline std::vector<std::string> Split(const std::string_view &src,
+                                      const std::string_view &delimiter,
+                                      int splits = -1) {
   std::vector<std::string> res;
-  if (src.empty()) {
-    return res;
-  }
-  size_t index = src.size();
-  while (splits < 0 || splits-- != 0) {
-    auto n = src.rfind(delimiter, index - 1);
-    if (n == std::string::npos) break;
-    res.emplace_back(
-        src.substr(n + delimiter.size(), index - n - delimiter.size()));
-    index = n;
-    if (n == 0) break;
-  }
-
-  res.emplace_back(src.substr(0, index));
-  std::reverse(res.begin(), res.end());
+  Split(&res, src, delimiter, splits);
   return res;
 }
 
 /**
- * Split string by whitespace and return vector of results.
+ * Split a string by whitespace into a vector.
+ * Runs of consecutive whitespace are regarded as a single delimiter.
+ * Additionally, the result will not contain empty strings at the start or end
+ * as if the string was trimmed before splitting.
+ * @return pointer to `out`.
+ */
+template <class TString, class TAllocator>
+std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out,
+                                        const std::string_view &src) {
+  out->clear();
+  if (src.empty()) return out;
+  // TODO: Investigate how much regex allocate and perhaps replace with custom
+  // solution doing no allocations.
+  std::regex not_whitespace("[^\\s]+");
+  auto matches_begin =
+      std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
+  auto matches_end = std::cregex_iterator();
+  out->reserve(std::distance(matches_begin, matches_end));
+  for (auto match = matches_begin; match != matches_end; ++match) {
+    std::string_view match_view(&src[match->position()], match->length());
+    out->emplace_back(match_view);
+  }
+  return out;
+}
+
+/**
+ * Split a string by whitespace into a vector.
  * Runs of consecutive whitespace are regarded as a single delimiter.
  * Additionally, the result will not contain empty strings at the start or end
  * as if the string was trimmed before splitting.
  */
-inline std::vector<std::string> Split(const std::string &src) {
-  if (src.empty()) {
-    return {};
-  }
-  std::regex not_whitespace("[^\\s]+");
-  auto matches_begin =
-      std::sregex_iterator(src.begin(), src.end(), not_whitespace);
-  auto matches_end = std::sregex_iterator();
+inline std::vector<std::string> Split(const std::string_view &src) {
   std::vector<std::string> res;
-  res.reserve(std::distance(matches_begin, matches_end));
-  for (auto match = matches_begin; match != matches_end; ++match) {
-    res.emplace_back(match->str());
-  }
+  Split(&res, src);
   return res;
 }
 
 /**
- * Parse double using classic locale, throws BasicException if it wasn't able to
- * parse whole string.
+ * Like `Split` but string is processed from right to left.
+ * For example, RSplit("a.b.c.", ".", 1) results in {"a.b", "c"}.
+ * The returned vector and its elements use `std::allocator<>`. The vector will
+ * have at most `splits` + 1 elements. Negative value of `splits` indicates to
+ * perform all possible splits.
+ * @return pointer to `out`.
  */
-inline double ParseDouble(const std::string &s) {
+template <class TString, class TAllocator>
+std::vector<TString, TAllocator> *RSplit(std::vector<TString, TAllocator> *out,
+                                         const std::string_view &src,
+                                         const std::string_view &delimiter,
+                                         int splits = -1) {
+  out->clear();
+  if (src.empty()) return out;
+  size_t index = src.size();
+  while (splits < 0 || splits-- != 0) {
+    auto n = src.rfind(delimiter, index - 1);
+    if (n == std::string::npos) break;
+    out->emplace_back(
+        src.substr(n + delimiter.size(), index - n - delimiter.size()));
+    index = n;
+    if (n == 0) break;
+  }
+  out->emplace_back(src.substr(0, index));
+  std::reverse(out->begin(), out->end());
+  return out;
+}
+
+/**
+ * Like `Split` but string is processed from right to left.
+ * For example, RSplit("a.b.c.", ".", 1) results in {"a.b", "c"}.
+ * The returned vector and its elements use `std::allocator<>`. The vector will
+ * have at most `splits` + 1 elements. Negative value of `splits` indicates to
+ * perform all possible splits.
+ */
+inline std::vector<std::string> RSplit(const std::string_view &src,
+                                       const std::string_view &delimiter,
+                                       int splits = -1) {
+  std::vector<std::string> res;
+  RSplit(&res, src, delimiter, splits);
+  return res;
+}
+
+/**
+ * Parse a double floating point value from a string using classic locale.
+ * Note, the current implementation copies the given string which may perform a
+ * heap allocation if the string is big enough.
+ *
+ * @throw BasicException if unable to parse the whole string.
+ */
+inline double ParseDouble(const std::string_view &s) {
   // stod would be nicer but it uses current locale so we shouldn't use it.
   double t = 0.0;
-  std::istringstream iss(s);
+  // NOTE: Constructing std::istringstream will make a copy of the string, which
+  // may make a heap allocation if string is large enough. There is no
+  // std::istringstream constructor accepting a custom allocator. We could pass
+  // a std::basic_string with a custom allocator, but std::istringstream will
+  // probably invoke
+  // std::allocator_traits<>::select_on_container_copy_construction which
+  // doesn't really help as most allocators default to global new/delete
+  // allocator.
+  std::istringstream iss(std::string(s.data(), s.size()));
   iss.imbue(std::locale::classic());
   iss >> t;
   if (iss.fail() || !iss.eof()) {
@@ -295,25 +340,21 @@ inline double ParseDouble(const std::string &s) {
   return t;
 }
 
-/**
- * Checks if the given string `s` ends with the given `suffix`.
- */
-inline bool EndsWith(const std::string &s, const std::string &suffix) {
+/** Check if the given string `s` ends with the given `suffix`. */
+inline bool EndsWith(const std::string_view &s,
+                     const std::string_view &suffix) {
   return s.size() >= suffix.size() &&
          s.compare(s.size() - suffix.size(), std::string::npos, suffix) == 0;
 }
 
-/**
- * Checks if the given string `s` starts with the given `prefix`.
- */
-inline bool StartsWith(const std::string &s, const std::string &prefix) {
+/** Check if the given string `s` starts with the given `prefix`. */
+inline bool StartsWith(const std::string_view &s,
+                       const std::string_view &prefix) {
   return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
 }
 
-/**
- * Case-insensitive string comparison.
- */
-inline bool IEquals(const std::string &lhs, const std::string &rhs) {
+/** Perform case-insensitive string equality test. */
+inline bool IEquals(const std::string_view &lhs, const std::string_view &rhs) {
   if (lhs.size() != rhs.size()) return false;
   for (size_t i = 0; i < lhs.size(); ++i) {
     if (tolower(lhs[i]) != tolower(rhs[i])) return false;
@@ -321,8 +362,14 @@ inline bool IEquals(const std::string &lhs, const std::string &rhs) {
   return true;
 }
 
-/** Creates a random alphanumeric string of the given length. */
-inline std::string RandomString(size_t length) {
+/**
+ * Create a random alphanumeric string of the given length.
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    size_t length) {
   static const char charset[] =
       "0123456789"
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -330,37 +377,57 @@ inline std::string RandomString(size_t length) {
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
   static thread_local std::uniform_int_distribution<size_t> rand_dist{
       0, strlen(charset) - 1};
-  std::string str(length, 0);
+  out->resize(length);
   for (size_t i = 0; i < length; ++i)
-    str[i] = charset[rand_dist(pseudo_rand_gen)];
-  return str;
+    (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
+  return out;
 }
 
-/// Escapes all whitespace and quotation characters to produce a string
-/// which can be used as a string literal.
-inline std::string Escape(const std::string &src) {
-  std::string ret;
-  ret.reserve(src.size() + 2);
-  ret.append(1, '"');
+/** Create a random alphanumeric string of the given length. */
+inline std::string RandomString(size_t length) {
+  std::string res;
+  RandomString(&res, length);
+  return res;
+}
+
+/**
+ * Escape all whitespace and quotation characters in the given string.
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *Escape(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
+    const std::string_view &src) {
+  out->clear();
+  out->reserve(src.size() + 2);
+  out->append(1, '"');
   for (auto c : src) {
     if (c == '\\' || c == '\'' || c == '"') {
-      ret.append(1, '\\');
-      ret.append(1, c);
+      out->append(1, '\\');
+      out->append(1, c);
     } else if (c == '\b') {
-      ret.append("\\b");
+      out->append("\\b");
     } else if (c == '\f') {
-      ret.append("\\f");
+      out->append("\\f");
     } else if (c == '\n') {
-      ret.append("\\n");
+      out->append("\\n");
     } else if (c == '\r') {
-      ret.append("\\r");
+      out->append("\\r");
     } else if (c == '\t') {
-      ret.append("\\t");
+      out->append("\\t");
     } else {
-      ret.append(1, c);
+      out->append(1, c);
     }
   }
-  ret.append(1, '"');
-  return ret;
+  out->append(1, '"');
+  return out;
 }
+
+/** Escape all whitespace and quotation characters in the given string. */
+inline std::string Escape(const std::string_view &src) {
+  std::string res;
+  Escape(&res, src);
+  return res;
+}
+
 }  // namespace utils
