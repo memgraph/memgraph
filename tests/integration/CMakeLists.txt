@@ -22,6 +22,9 @@ add_subdirectory(ha/basic)
 # distributed ha/index binaries
 add_subdirectory(ha/index)
 
+# distributed ha/large_log_entries binaries
+add_subdirectory(ha/large_log_entries)
+
 # distributed ha/term_updates binaries
 add_subdirectory(ha/term_updates)
 
