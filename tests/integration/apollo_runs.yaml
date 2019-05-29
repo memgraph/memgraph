@@ -104,7 +104,7 @@
 
 - name: integration__ha_large_log_entries
   cd: ha/large_log_entries
-  commands: TIMEOUT=360 ./runner.py
+  commands: TIMEOUT=600 ./runner.py
   infiles:
     - runner.py # runner script
     - raft.json # raft configuration

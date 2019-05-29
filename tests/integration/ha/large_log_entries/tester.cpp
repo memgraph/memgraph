@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     std::chrono::milliseconds retry_delay(1000);
     communication::ClientContext context(FLAGS_use_ssl);
     communication::bolt::HAClient client(endpoints, &context, FLAGS_username,
-                                         FLAGS_password, 20, retry_delay);
+                                         FLAGS_password, 60, retry_delay);
 
     if (FLAGS_step == "create") {
       client.Execute("UNWIND RANGE(1, " + std::to_string(FLAGS_create_nodes) +
