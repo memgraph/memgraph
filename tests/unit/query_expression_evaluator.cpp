@@ -1171,8 +1171,9 @@ TEST_F(FunctionTest, Labels) {
   v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
   auto _labels = EvaluateFunction("LABELS", {v}).ValueList();
+  labels.reserve(_labels.size());
   for (auto label : _labels) {
-    labels.push_back(label.ValueString());
+    labels.emplace_back(label.ValueString());
   }
   ASSERT_THAT(labels, UnorderedElementsAre("label1", "label2"));
   ASSERT_THROW(EvaluateFunction("LABELS", {2}), QueryRuntimeException);
@@ -1251,7 +1252,7 @@ TEST_F(FunctionTest, Keys) {
   auto prop_keys_to_string = [](TypedValue t) {
     std::vector<std::string> keys;
     for (auto property : t.ValueList()) {
-      keys.push_back(property.ValueString());
+      keys.emplace_back(property.ValueString());
     }
     return keys;
   };

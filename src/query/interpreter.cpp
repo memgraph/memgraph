@@ -114,9 +114,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
 
         std::lock_guard<std::mutex> lock(auth->WithLock());
         auto user = auth->AddUser(
-            username, password.IsString()
-                          ? std::make_optional(password.ValueString())
-                          : std::nullopt);
+            username,
+            password.IsString()
+                ? std::make_optional(std::string(password.ValueString()))
+                : std::nullopt);
         if (!user) {
           throw QueryRuntimeException("User or role '{}' already exists.",
                                       username);
@@ -146,9 +147,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
         if (!user) {
           throw QueryRuntimeException("User '{}' doesn't exist.", username);
         }
-        user->UpdatePassword(password.IsString()
-                                 ? std::make_optional(password.ValueString())
-                                 : std::nullopt);
+        user->UpdatePassword(
+            password.IsString()
+                ? std::make_optional(std::string(password.ValueString()))
+                : std::nullopt);
         auth->SaveUser(*user);
         return std::vector<std::vector<TypedValue>>();
       };

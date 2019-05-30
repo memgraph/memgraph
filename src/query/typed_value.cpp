@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 #include "glog/logging.h"
@@ -39,7 +40,7 @@ TypedValue::TypedValue(const PropertyValue &value,
       return;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) std::string(value.Value<std::string>());
+      new (&string_v) TString(value.Value<std::string>(), memory_);
       return;
     case PropertyValue::Type::List: {
       type_ = Type::List;
@@ -83,7 +84,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
       break;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) std::string(std::move(other.Value<std::string>()));
+      new (&string_v) TString(other.Value<std::string>(), memory_);
       break;
     case PropertyValue::Type::List: {
       type_ = Type::List;
@@ -127,7 +128,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
       this->double_v = other.double_v;
       return;
     case TypedValue::Type::String:
-      new (&string_v) std::string(other.string_v);
+      new (&string_v) TString(other.string_v, memory_);
       return;
     case Type::List:
       new (&list_v) TVector(other.list_v, memory_);
@@ -166,7 +167,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       this->double_v = other.double_v;
       break;
     case TypedValue::Type::String:
-      new (&string_v) std::string(std::move(other.string_v));
+      new (&string_v) TString(std::move(other.string_v), memory_);
       break;
     case Type::List:
       new (&list_v) TVector(std::move(other.list_v), memory_);
@@ -198,7 +199,7 @@ TypedValue::operator PropertyValue() const {
     case TypedValue::Type::Double:
       return PropertyValue(double_v);
     case TypedValue::Type::String:
-      return PropertyValue(string_v);
+      return PropertyValue(std::string(string_v));
     case TypedValue::Type::List:
       return PropertyValue(
           std::vector<PropertyValue>(list_v.begin(), list_v.end()));
@@ -242,7 +243,7 @@ TypedValue::operator PropertyValue() const {
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(double, Double, double_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(std::string, String, string_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::value_map_t, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
@@ -346,7 +347,10 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TString &, String,
+                                   string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string &, String, string_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string_view &, String, string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TVector &, List, list_v)
 
 TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
@@ -378,7 +382,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
     return *this;                                                        \
   }
 
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(std::string, String, string_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TString, String, string_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
 
 TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
@@ -423,7 +427,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         this->double_v = other.double_v;
         return *this;
       case TypedValue::Type::String:
-        new (&string_v) std::string(other.string_v);
+        new (&string_v) TString(other.string_v, memory_);
         return *this;
       case TypedValue::Type::List:
         new (&list_v) TVector(other.list_v, memory_);
@@ -471,7 +475,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         this->double_v = other.double_v;
         break;
       case TypedValue::Type::String:
-        new (&string_v) std::string(std::move(other.string_v));
+        new (&string_v) TString(std::move(other.string_v), memory_);
         break;
       case TypedValue::Type::List:
         new (&list_v) TVector(std::move(other.list_v), memory_);
@@ -508,10 +512,7 @@ void TypedValue::DestroyValue() {
     // we need to call destructors for non primitive types since we used
     // placement new
   case Type::String:
-    // Clang fails to compile ~std::string. It seems it is a bug in some
-    // versions of clang. using namespace std statement solves the issue.
-    using namespace std;
-    string_v.~string();
+    string_v.~TString();
     break;
   case Type::List:
     list_v.~TVector();
@@ -680,7 +681,8 @@ TypedValue operator!(const TypedValue &a) {
  * @return A string.
  */
 std::string ValueToString(const TypedValue &value) {
-  if (value.IsString()) return value.ValueString();
+  // TODO: Should this allocate a string through value.GetMemoryResource()?
+  if (value.IsString()) return std::string(value.ValueString());
   if (value.IsInt()) return std::to_string(value.Value<int64_t>());
   if (value.IsDouble()) return fmt::format("{}", value.Value<double>());
   // unsupported situations
@@ -894,7 +896,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Double:
       return std::hash<double>{}(value.Value<double>());
     case TypedValue::Type::String:
-      return std::hash<std::string>{}(value.ValueString());
+      return std::hash<std::string_view>{}(value.ValueString());
     case TypedValue::Type::List: {
       return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(
           value.ValueList());

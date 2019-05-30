@@ -54,7 +54,7 @@ Value ToBoltValue(const query::TypedValue &value) {
     case query::TypedValue::Type::Double:
       return Value(value.ValueDouble());
     case query::TypedValue::Type::String:
-      return Value(value.ValueString());
+      return Value(std::string(value.ValueString()));
     case query::TypedValue::Type::List: {
       std::vector<Value> values;
       values.reserve(value.ValueList().size());

@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -66,6 +67,10 @@ class TypedValue {
     Edge,
     Path
   };
+
+  /** Concrete value type of character string */
+  using TString =
+      std::basic_string<char, std::char_traits<char>, utils::Allocator<char>>;
 
   /**
    * Unordered set of TypedValue items. Can contain at most one Null element,
@@ -150,13 +155,40 @@ class TypedValue {
   TypedValue(const std::string &value,
              utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
-    new (&string_v) std::string(value);
+    new (&string_v) TString(value, memory_);
   }
 
   TypedValue(const char *value,
              utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
-    new (&string_v) std::string(value);
+    new (&string_v) TString(value, memory_);
+  }
+
+  explicit TypedValue(
+      const std::string_view &value,
+      utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::String) {
+    new (&string_v) TString(value, memory_);
+  }
+
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  TypedValue(const TString &other)
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
+                              select_on_container_copy_construction(
+                                  other.get_allocator())
+                                  .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  TypedValue(const TString &other, utils::MemoryResource *memory)
+      : memory_(memory), type_(Type::String) {
+    new (&string_v) TString(other, memory_);
   }
 
   /** Construct a copy using the given utils::MemoryResource */
@@ -219,13 +251,23 @@ class TypedValue {
   TypedValue(const PropertyValue &value, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
-  TypedValue(std::string &&value) noexcept : type_(Type::String) {
-    new (&string_v) std::string(std::move(value));
-  }
 
-  TypedValue(std::string &&value, utils::MemoryResource *memory) noexcept
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left in unspecified state.
+   */
+  TypedValue(TString &&other) noexcept
+      : TypedValue(std::move(other),
+                   other.get_allocator().GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other and use the given MemoryResource
+   * After the move, other will be left in unspecified state.
+   */
+  TypedValue(TString &&other, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::String) {
-    new (&string_v) std::string(std::move(value));
+    new (&string_v) TString(std::move(other), memory_);
   }
 
   /**
@@ -330,7 +372,9 @@ class TypedValue {
   TypedValue &operator=(bool);
   TypedValue &operator=(int64_t);
   TypedValue &operator=(double);
+  TypedValue &operator=(const TString &);
   TypedValue &operator=(const std::string &);
+  TypedValue &operator=(const std::string_view &);
   TypedValue &operator=(const TVector &);
   TypedValue &operator=(const std::vector<TypedValue> &);
   TypedValue &operator=(const TypedValue::value_map_t &);
@@ -342,7 +386,7 @@ class TypedValue {
   TypedValue &operator=(const TypedValue &other);
 
   // move assignment operators
-  TypedValue &operator=(std::string &&);
+  TypedValue &operator=(TString &&);
   TypedValue &operator=(TVector &&);
   TypedValue &operator=(std::vector<TypedValue> &&);
   TypedValue &operator=(TypedValue::value_map_t &&);
@@ -383,7 +427,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(bool, Bool)
   DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
   DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
-  DECLARE_VALUE_AND_TYPE_GETTERS(std::string, String)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String)
 
   /**
    * Get the list value.
@@ -432,7 +476,7 @@ class TypedValue {
     // but most of algorithms (concatenations, serialisation...) has linear time
     // complexity so it shouldn't be a problem. This is maybe even faster
     // because of data locality.
-    std::string string_v;
+    TString string_v;
     TVector list_v;
     // clang doesn't allow unordered_map to have incomplete type as value so we
     // we use map.

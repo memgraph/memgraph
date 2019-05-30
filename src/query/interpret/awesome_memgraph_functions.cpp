@@ -1,5 +1,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -583,7 +584,8 @@ TypedValue Rand(TypedValue *, int64_t nargs, const EvaluationContext &,
   return rand_dist_(pseudo_rand_gen_);
 }
 
-template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
+template <bool (*Predicate)(const TypedValue::TString &s1,
+                            const TypedValue::TString &s2)>
 TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
                                const EvaluationContext &,
                                database::GraphDbAccessor *) {
@@ -609,21 +611,24 @@ TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
 }
 
 // Check if s1 starts with s2.
-bool StartsWithPredicate(const std::string &s1, const std::string &s2) {
+bool StartsWithPredicate(const TypedValue::TString &s1,
+                         const TypedValue::TString &s2) {
   if (s1.size() < s2.size()) return false;
   return std::equal(s2.begin(), s2.end(), s1.begin());
 }
 auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 
 // Check if s1 ends with s2.
-bool EndsWithPredicate(const std::string &s1, const std::string &s2) {
+bool EndsWithPredicate(const TypedValue::TString &s1,
+                       const TypedValue::TString &s2) {
   if (s1.size() < s2.size()) return false;
   return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
 }
 auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 
 // Check if s1 contains s2.
-bool ContainsPredicate(const std::string &s1, const std::string &s2) {
+bool ContainsPredicate(const TypedValue::TString &s1,
+                       const TypedValue::TString &s2) {
   if (s1.size() < s2.size()) return false;
   return s1.find(s2) != std::string::npos;
 }
@@ -642,7 +647,10 @@ TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &,
         "Second argument of 'assert' must be a string.");
   if (!args[0].ValueBool()) {
     std::string message("Assertion failed");
-    if (nargs == 2) message += ": " + args[1].ValueString();
+    if (nargs == 2) {
+      message += ": ";
+      message += args[1].ValueString();
+    }
     message += ".";
     throw QueryRuntimeException(message);
   }
@@ -760,7 +768,10 @@ TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &,
           "Second argument of 'left' must be a non-negative integer.");
     case TypedValue::Type::String:
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        return args[0].ValueString().substr(0, args[1].ValueInt());
+        auto *memory = args[0].GetMemoryResource();
+        return TypedValue(
+            utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()),
+            memory);
       }
       throw QueryRuntimeException(
           "Second argument of 'left' must be a non-negative integer.");
@@ -784,8 +795,12 @@ TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::String: {
       const auto &str = args[0].ValueString();
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        int len = args[1].ValueInt();
-        return len <= str.size() ? str.substr(str.size() - len, len) : str;
+        auto len = args[1].ValueInt();
+        auto *memory = args[0].GetMemoryResource();
+        return len <= str.size()
+                   ? TypedValue(utils::Substr(str, str.size() - len, len),
+                                memory)
+                   : TypedValue(str, memory);
       }
       throw QueryRuntimeException(
           "Second argument of 'right' must be a non-negative integer.");
@@ -796,30 +811,69 @@ TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
 }
 
-#define WRAP_STRING_FUNCTION(name, lowercased_name, function)                 \
-  TypedValue name(TypedValue *args, int64_t nargs, const EvaluationContext &, \
-                  database::GraphDbAccessor *) {                              \
-    if (nargs != 1) {                                                         \
-      throw QueryRuntimeException("'" #lowercased_name                        \
-                                  "' requires exactly one argument.");        \
-    }                                                                         \
-    switch (args[0].type()) {                                                 \
-      case TypedValue::Type::Null:                                            \
-        return TypedValue::Null;                                              \
-      case TypedValue::Type::String:                                          \
-        return std::string(function(args[0].ValueString()));                  \
-      default:                                                                \
-        throw QueryRuntimeException("'" #lowercased_name                      \
-                                    "' argument should be a string.");        \
-    }                                                                         \
+TypedValue CallStringFunction(
+    TypedValue *args, int64_t nargs, const std::string &name,
+    std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'" + name +
+                                "' requires exactly one argument.");
   }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue(args[0].GetMemoryResource());
+    case TypedValue::Type::String:
+      return fun(args[0].ValueString());
+    default:
+      throw QueryRuntimeException("'" + name +
+                                  "' argument should be a string.");
+  }
+}
 
-WRAP_STRING_FUNCTION(LTrim, lTrim, utils::LTrim);
-WRAP_STRING_FUNCTION(RTrim, rTrim, utils::RTrim);
-WRAP_STRING_FUNCTION(Trim, trim, utils::Trim);
-WRAP_STRING_FUNCTION(Reverse, reverse, utils::Reversed);
-WRAP_STRING_FUNCTION(ToLower, toLower, utils::ToLowerCase);
-WRAP_STRING_FUNCTION(ToUpper, toUpper, utils::ToUpperCase);
+TypedValue LTrim(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "lTrim", [](const auto &str) {
+    return TypedValue::TString(utils::LTrim(str), str.get_allocator());
+  });
+}
+
+TypedValue RTrim(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "rTrim", [](const auto &str) {
+    return TypedValue::TString(utils::RTrim(str), str.get_allocator());
+  });
+}
+
+TypedValue Trim(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "trim", [](const auto &str) {
+    return TypedValue::TString(utils::Trim(str), str.get_allocator());
+  });
+}
+
+TypedValue Reverse(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "reverse", [](const auto &str) {
+    return utils::Reversed(str, str.get_allocator());
+  });
+}
+
+TypedValue ToLower(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "toLower", [](const auto &str) {
+    TypedValue::TString res(str.get_allocator());
+    utils::ToLowerCase(&res, str);
+    return res;
+  });
+}
+
+TypedValue ToUpper(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *) {
+  return CallStringFunction(args, nargs, "toUpper", [](const auto &str) {
+    TypedValue::TString res(str.get_allocator());
+    utils::ToUpperCase(&res, str);
+    return res;
+  });
+}
 
 TypedValue Replace(TypedValue *args, int64_t nargs, const EvaluationContext &,
                    database::GraphDbAccessor *dba) {
@@ -890,12 +944,13 @@ TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,
     return TypedValue::Null;
   }
   const auto &str = args[0].ValueString();
-  int start = args[1].ValueInt();
+  auto start = args[1].ValueInt();
+  auto *memory = args[0].GetMemoryResource();
   if (nargs == 2) {
-    return start < str.size() ? str.substr(start) : "";
+    return TypedValue(utils::Substr(str, start), memory);
   }
-  int len = args[2].ValueInt();
-  return start < str.size() ? str.substr(start, len) : "";
+  auto len = args[2].ValueInt();
+  return TypedValue(utils::Substr(str, start, len), memory);
 }
 
 #if MG_SINGLE_NODE

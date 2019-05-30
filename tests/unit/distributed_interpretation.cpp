@@ -153,7 +153,7 @@ TEST_F(DistributedInterpretationTest, RemoteExpandTest2) {
     std::vector<std::string> row;
     row.reserve(res.size());
     for (const auto &col : res) {
-      row.push_back(col.ValueString());
+      row.emplace_back(col.ValueString());
     }
     got.push_back(row);
   }
