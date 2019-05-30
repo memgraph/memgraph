@@ -430,4 +430,17 @@ inline std::string Escape(const std::string_view &src) {
   return res;
 }
 
+/**
+ * Return a view into substring [pos, pos+count).
+ * If the bounds extend past the length of the string then both sides are
+ * clamped to a valid interval. Therefore, this function never throws
+ * std::out_of_range, unlike std::basic_string::substr.
+ */
+inline std::string_view Substr(const std::string_view &string, size_t pos = 0,
+                               size_t count = std::string::npos) {
+  if (pos >= string.size()) return std::string_view(string.data(), 0);
+  auto len = std::min(string.size() - pos, count);
+  return std::string_view(string.data() + pos, len);
+}
+
 }  // namespace utils
