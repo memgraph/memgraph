@@ -51,7 +51,7 @@ auto ToList(const TypedValue &t) {
 template <typename TElement>
 auto ToMap(const TypedValue &t) {
   std::map<std::string, TElement> map;
-  for (const auto &kv : t.Value<std::map<std::string, TypedValue>>())
+  for (const auto &kv : t.ValueMap())
     map.emplace(kv.first, kv.second.Value<TElement>());
   return map;
 };

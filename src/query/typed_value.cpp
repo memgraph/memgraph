@@ -315,8 +315,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
       return os << "]";
     case TypedValue::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.Value<std::map<std::string, TypedValue>>(),
-                           ", ", [](auto &stream, const auto &pair) {
+      utils::PrintIterable(os, value.ValueMap(), ", ",
+                           [](auto &stream, const auto &pair) {
                              stream << pair.first << ": " << pair.second;
                            });
       return os << "}";
@@ -647,8 +647,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
                         a.GetMemoryResource());
     }
     case TypedValue::Type::Map: {
-      const auto &map_a = a.Value<std::map<std::string, TypedValue>>();
-      const auto &map_b = b.Value<std::map<std::string, TypedValue>>();
+      const auto &map_a = a.ValueMap();
+      const auto &map_b = b.ValueMap();
       if (map_a.size() != map_b.size())
         return TypedValue(false, a.GetMemoryResource());
       for (const auto &kv_a : map_a) {
@@ -903,7 +903,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     }
     case TypedValue::Type::Map: {
       size_t hash = 6543457;
-      for (const auto &kv : value.Value<std::map<std::string, TypedValue>>()) {
+      for (const auto &kv : value.ValueMap()) {
         hash ^= std::hash<std::string>{}(kv.first);
         hash ^= this->operator()(kv.second);
       }

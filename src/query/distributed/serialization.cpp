@@ -39,7 +39,7 @@ void Save(const query::TypedValue &value, slk::Builder *builder,
     }
     case query::TypedValue::Type::Map: {
       slk::Save(static_cast<uint8_t>(6), builder);
-      const auto &map = value.Value<std::map<std::string, query::TypedValue>>();
+      const auto &map = value.ValueMap();
       size_t size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {

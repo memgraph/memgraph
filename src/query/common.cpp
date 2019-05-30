@@ -195,7 +195,7 @@ void ReconstructTypedValue(TypedValue &value) {
         ReconstructTypedValue(inner_value);
       break;
     case Type::Map:
-      for (auto &kv : value.Value<std::map<std::string, TypedValue>>())
+      for (auto &kv : value.ValueMap())
         ReconstructTypedValue(kv.second);
       break;
     case Type::Path:

@@ -128,7 +128,7 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
       // neo4j doesn't implement size for map, but I don't see a good reason not
       // to do it.
       return static_cast<int64_t>(
-          args[0].Value<std::map<std::string, TypedValue>>().size());
+          args[0].ValueMap().size());
     case TypedValue::Type::Path:
       return static_cast<int64_t>(args[0].ValuePath().edges().size());
     default:

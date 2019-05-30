@@ -2034,7 +2034,7 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
       set_props(rhs.Value<VertexAccessor>().Properties());
       break;
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.Value<std::map<std::string, TypedValue>>())
+      for (const auto &kv : rhs.ValueMap())
         PropsSetChecked(&record, db_.Property(kv.first), kv.second);
       break;
     }
@@ -2611,8 +2611,7 @@ class AggregateCursor : public Cursor {
             auto key = agg_elem_it->key->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String)
               throw QueryRuntimeException("Map key must be a string.");
-            value_it->Value<std::map<std::string, TypedValue>>().emplace(
-                key.ValueString(), input_value);
+            value_it->ValueMap().emplace(key.ValueString(), input_value);
             break;
         }
         continue;
@@ -2663,8 +2662,7 @@ class AggregateCursor : public Cursor {
           auto key = agg_elem_it->key->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String)
             throw QueryRuntimeException("Map key must be a string.");
-          value_it->Value<std::map<std::string, TypedValue>>().emplace(
-              key.ValueString(), input_value);
+          value_it->ValueMap().emplace(key.ValueString(), input_value);
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations
