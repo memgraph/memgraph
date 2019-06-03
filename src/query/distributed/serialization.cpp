@@ -43,7 +43,7 @@ void Save(const query::TypedValue &value, slk::Builder *builder,
       size_t size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
-        slk::Save(kv.first, builder);
+        slk::Save(std::string(kv.first), builder);
         slk::Save(kv.second, builder, versions, worker_id);
       }
       return;

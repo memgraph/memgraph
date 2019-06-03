@@ -490,6 +490,27 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
       }
+    } else if (value.type() == TypedValue::Type::Map) {
+      ASSERT_EQ(move_constructed_value.type(), value.type());
+      const auto &original = value.ValueMap();
+      const auto &moved = move_constructed_value.ValueMap();
+      const auto &copied = copy_constructed_value.ValueMap();
+      auto expect_allocator = [](const auto &kv, auto *memory_resource) {
+        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(),
+                  *memory_resource);
+        EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
+      };
+      for (const auto &kv : original) {
+        expect_allocator(kv, utils::NewDeleteResource());
+        auto moved_it = moved.find(kv.first);
+        ASSERT_NE(moved_it, moved.end());
+        expect_allocator(*moved_it, &monotonic_memory);
+        auto copied_it = copied.find(kv.first);
+        ASSERT_NE(copied_it, copied.end());
+        expect_allocator(*copied_it, &monotonic_memory);
+        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, moved_it->second));
+        EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, copied_it->second));
+      }
     }
   }
 }

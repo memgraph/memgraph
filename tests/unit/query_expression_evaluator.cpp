@@ -1009,7 +1009,7 @@ TEST_F(FunctionTest, Properties) {
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
     for (auto property : t.ValueMap()) {
-      properties[property.first] = property.second.ValueInt();
+      properties[std::string(property.first)] = property.second.ValueInt();
     }
     return properties;
   };

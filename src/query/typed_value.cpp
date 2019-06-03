@@ -52,8 +52,9 @@ TypedValue::TypedValue(const PropertyValue &value,
     }
     case PropertyValue::Type::Map: {
       type_ = Type::Map;
-      auto map = value.Value<std::map<std::string, PropertyValue>>();
-      new (&map_v) std::map<std::string, TypedValue>(map.begin(), map.end());
+      const auto &map = value.Value<std::map<std::string, PropertyValue>>();
+      new (&map_v) TMap(memory_);
+      for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
     }
   }
@@ -98,9 +99,8 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
     case PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.Value<std::map<std::string, PropertyValue>>();
-      new (&map_v) std::map<std::string, TypedValue>(
-          std::make_move_iterator(map.begin()),
-          std::make_move_iterator(map.end()));
+      new (&map_v) TMap(memory_);
+      for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
     }
   }
@@ -134,7 +134,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
       new (&list_v) TVector(other.list_v, memory_);
       return;
     case Type::Map:
-      new (&map_v) std::map<std::string, TypedValue>(other.map_v);
+      new (&map_v) TMap(other.map_v, memory_);
       return;
     case Type::Vertex:
       new (&vertex_v) VertexAccessor(other.vertex_v);
@@ -173,7 +173,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       new (&list_v) TVector(std::move(other.list_v), memory_);
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
+      new (&map_v) TMap(std::move(other.map_v), memory_);
       break;
     case Type::Vertex:
       new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
@@ -203,9 +203,11 @@ TypedValue::operator PropertyValue() const {
     case TypedValue::Type::List:
       return PropertyValue(
           std::vector<PropertyValue>(list_v.begin(), list_v.end()));
-    case TypedValue::Type::Map:
-      return PropertyValue(
-          std::map<std::string, PropertyValue>(map_v.begin(), map_v.end()));
+    case TypedValue::Type::Map: {
+      std::map<std::string, PropertyValue> map;
+      for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
+      return PropertyValue(std::move(map));
+    }
     default:
       break;
   }
@@ -245,7 +247,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::value_map_t, Map, map_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
@@ -363,7 +365,14 @@ TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
   return *this;
 }
 
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::value_map_t &, Map, map_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
+
+TypedValue &TypedValue::operator=(
+    const std::map<std::string, TypedValue> &other) {
+  *this = TypedValue(other, memory_);
+  return *this;
+}
+
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
@@ -395,7 +404,13 @@ TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   return *this;
 }
 
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::value_map_t, Map, map_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TMap, Map, map_v)
+
+TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
+  *this = TypedValue(std::move(other), memory_);
+  return *this;
+}
+
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
@@ -433,7 +448,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&list_v) TVector(other.list_v, memory_);
         return *this;
       case TypedValue::Type::Map:
-        new (&map_v) std::map<std::string, TypedValue>(other.map_v);
+        new (&map_v) TMap(other.map_v, memory_);
         return *this;
       case TypedValue::Type::Vertex:
         new (&vertex_v) VertexAccessor(other.vertex_v);
@@ -481,7 +496,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&list_v) TVector(std::move(other.list_v), memory_);
         break;
       case TypedValue::Type::Map:
-        new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
+        new (&map_v) TMap(std::move(other.map_v), memory_);
         break;
       case TypedValue::Type::Vertex:
         new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
@@ -518,8 +533,7 @@ void TypedValue::DestroyValue() {
     list_v.~TVector();
     break;
   case Type::Map:
-    using namespace std;
-    map_v.~map<std::string, TypedValue>();
+    map_v.~TMap();
     break;
   case Type::Vertex:
     vertex_v.~VertexAccessor();
@@ -904,7 +918,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Map: {
       size_t hash = 6543457;
       for (const auto &kv : value.ValueMap()) {
-        hash ^= std::hash<std::string>{}(kv.first);
+        hash ^= std::hash<std::string_view>{}(kv.first);
         hash ^= this->operator()(kv.second);
       }
       return hash;

@@ -6,7 +6,6 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -72,13 +71,17 @@ class TypedValue {
   using TString =
       std::basic_string<char, std::char_traits<char>, utils::Allocator<char>>;
 
-  /**
-   * Unordered set of TypedValue items. Can contain at most one Null element,
-   * and treats an integral and floating point value as same if they are equal
-   * in the floating point domain (TypedValue operator== behaves the same).
-   */
-  using unordered_set = std::unordered_set<TypedValue, Hash, BoolEqual>;
-  using value_map_t = std::map<std::string, TypedValue>;
+  // TypedValue at this exact moment of compilation is an incomplete type, and
+  // the standard says that instantiating a container with an incomplete type
+  // invokes undefined behaviour. The libstdc++-8.3.0 we are using supports
+  // std::map with incomplete type, but this is still murky territory. Note that
+  // since C++17, std::vector is explicitly said to support incomplete types.
+
+  // Use transparent std::less<void> which forwards to `operator<`, so that it's
+  // possible to use `find` with C-style (null terminated) strings without
+  // actually constructing (and allocating) a key.
+  using TMap = std::map<TString, TypedValue, std::less<void>,
+                        utils::Allocator<std::pair<const TString, TypedValue>>>;
   using TVector = std::vector<TypedValue, utils::Allocator<TypedValue>>;
 
   /** Allocator type so that STL containers are aware that we need one */
@@ -220,10 +223,32 @@ class TypedValue {
     new (&list_v) TVector(value, memory_);
   }
 
+  /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const std::map<std::string, TypedValue> &value,
              utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
-    new (&map_v) std::map<std::string, TypedValue>(value);
+    new (&map_v) TMap(memory_);
+    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
+  }
+
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  TypedValue(const TMap &other)
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
+                              select_on_container_copy_construction(
+                                  other.get_allocator())
+                                  .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  TypedValue(const TMap &value, utils::MemoryResource *memory)
+      : memory_(memory), type_(Type::Map) {
+    new (&map_v) TMap(value, memory_);
   }
 
   TypedValue(const VertexAccessor &vertex,
@@ -279,7 +304,7 @@ class TypedValue {
 
   /**
    * Perform an element-wise move of the other and use the given MemoryResource.
-   * Other will be not be empty, though elements may be Null.
+   * Other will be not be left empty, though elements may be Null.
    */
   TypedValue(std::vector<TypedValue> &&other, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::List) {
@@ -314,15 +339,44 @@ class TypedValue {
     new (&list_v) TVector(std::move(other), memory_);
   }
 
-  TypedValue(std::map<std::string, TypedValue> &&value) noexcept
-      : type_(Type::Map) {
-    new (&map_v) std::map<std::string, TypedValue>(std::move(value));
+  /**
+   * Perform an element-wise move using default utils::NewDeleteResource().
+   * Other will not be left empty, i.e. keys will exist but their values may
+   * be Null.
+   */
+  TypedValue(std::map<std::string, TypedValue> &&other)
+      : TypedValue(std::move(other), utils::NewDeleteResource()) {}
+
+  /**
+   * Perform an element-wise move using the given MemoryResource.
+   * Other will not be left empty, i.e. keys will exist but their values may
+   * be Null.
+   */
+  TypedValue(std::map<std::string, TypedValue> &&other,
+             utils::MemoryResource *memory)
+      : memory_(memory), type_(Type::Map) {
+    new (&map_v) TMap(memory_);
+    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
   }
 
-  TypedValue(std::map<std::string, TypedValue> &&value,
-             utils::MemoryResource *memory) noexcept
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left empty.
+   */
+  TypedValue(TMap &&other) noexcept
+      : TypedValue(std::move(other),
+                   other.get_allocator().GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other and use the given MemoryResource.
+   * If `other.get_allocator() != *memory`, this call will perform an
+   * element-wise move and other is not guaranteed to be empty, i.e. keys may
+   * exist but their values may be Null.
+   */
+  TypedValue(TMap &&other, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::Map) {
-    new (&map_v) std::map<std::string, TypedValue>(std::move(value));
+    new (&map_v) TMap(std::move(other), memory_);
   }
 
   TypedValue(VertexAccessor &&vertex) noexcept : type_(Type::Vertex) {
@@ -377,7 +431,8 @@ class TypedValue {
   TypedValue &operator=(const std::string_view &);
   TypedValue &operator=(const TVector &);
   TypedValue &operator=(const std::vector<TypedValue> &);
-  TypedValue &operator=(const TypedValue::value_map_t &);
+  TypedValue &operator=(const TMap &);
+  TypedValue &operator=(const std::map<std::string, TypedValue> &);
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const Path &);
@@ -389,7 +444,8 @@ class TypedValue {
   TypedValue &operator=(TString &&);
   TypedValue &operator=(TVector &&);
   TypedValue &operator=(std::vector<TypedValue> &&);
-  TypedValue &operator=(TypedValue::value_map_t &&);
+  TypedValue &operator=(TMap &&);
+  TypedValue &operator=(std::map<std::string, TypedValue> &&);
   TypedValue &operator=(VertexAccessor &&);
   TypedValue &operator=(EdgeAccessor &&);
   TypedValue &operator=(Path &&);
@@ -440,7 +496,7 @@ class TypedValue {
   /** Check if the stored value is a list value */
   bool IsList() const;
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(value_map_t, Map)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
@@ -478,9 +534,7 @@ class TypedValue {
     // because of data locality.
     TString string_v;
     TVector list_v;
-    // clang doesn't allow unordered_map to have incomplete type as value so we
-    // we use map.
-    std::map<std::string, TypedValue> map_v;
+    TMap map_v;
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
     Path path_v;

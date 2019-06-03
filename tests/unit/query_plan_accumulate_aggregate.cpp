@@ -327,7 +327,8 @@ TEST(QueryPlan, AggregateGroupByValues) {
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
-  TypedValue::unordered_set result_group_bys;
+  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>
+      result_group_bys;
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     result_group_bys.insert(row[1]);

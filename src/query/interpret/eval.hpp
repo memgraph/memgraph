@@ -184,7 +184,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException("Expected a string as a map index, got {}.",
                                     index.type());
       const auto &map = lhs.ValueMap();
-      auto found = map.find(std::string(index.ValueString()));
+      auto found = map.find(index.ValueString());
       if (found == map.end()) return TypedValue::Null;
       return found->second;
     }
@@ -276,8 +276,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return expression_result.Value<EdgeAccessor>().PropsAt(
             GetProperty(property_lookup.property_));
       case TypedValue::Type::Map: {
-        auto &map = expression_result.ValueMap();
-        auto found = map.find(property_lookup.property_.name);
+        const auto &map = expression_result.ValueMap();
+        auto found = map.find(property_lookup.property_.name.c_str());
         if (found == map.end()) return TypedValue::Null;
         return found->second;
       }

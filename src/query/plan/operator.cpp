@@ -2035,7 +2035,8 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
       break;
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.ValueMap())
-        PropsSetChecked(&record, db_.Property(kv.first), kv.second);
+        PropsSetChecked(&record, db_.Property(std::string(kv.first)),
+                        kv.second);
       break;
     }
     default:
