@@ -6,7 +6,9 @@
 
 #include <cstddef>
 #include <memory>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -101,9 +103,20 @@ class Allocator {
   template <class U>
   Allocator &operator=(const Allocator<U> &) = delete;
 
+  MemoryResource *GetMemoryResource() const { return memory_; }
+
   T *allocate(size_t count_elements) {
     return static_cast<T *>(
         memory_->Allocate(count_elements * sizeof(T), alignof(T)));
+  }
+
+  void deallocate(T *p, size_t count_elements) {
+    memory_->Deallocate(p, count_elements * sizeof(T), alignof(T));
+  }
+
+  /// Return default NewDeleteResource() allocator.
+  Allocator select_on_container_copy_construction() const {
+    return utils::NewDeleteResource();
   }
 
   template <class U, class... TArgs>
@@ -127,19 +140,72 @@ class Allocator {
     }
   }
 
-  void deallocate(T *p, size_t count_elements) {
-    memory_->Deallocate(p, count_elements * sizeof(T), alignof(T));
+  // Overloads for constructing a std::pair. Needed until C++20, when allocator
+  // propagation to std::pair in std::map is resolved. These are all modeled
+  // after std::pmr::polymorphic_allocator<>::construct, documentation
+  // referenced here:
+  // https://en.cppreference.com/w/cpp/memory/polymorphic_allocator/construct
+
+  template <class T1, class T2, class... Args1, class... Args2>
+  void construct(std::pair<T1, T2> *p, std::piecewise_construct_t,
+                 std::tuple<Args1...> x, std::tuple<Args2...> y) {
+    auto xprime = MakePairElementArguments<T1>(&x);
+    auto yprime = MakePairElementArguments<T2>(&y);
+    ::new (p) std::pair<T1, T2>(std::piecewise_construct, std::move(xprime),
+                                std::move(yprime));
   }
 
-  /// Return default NewDeleteResource() allocator.
-  Allocator select_on_container_copy_construction() const {
-    return utils::NewDeleteResource();
+  template <class T1, class T2>
+  void construct(std::pair<T1, T2> *p) {
+    construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
   }
 
-  MemoryResource *GetMemoryResource() const { return memory_; }
+  template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1, T2> *p, U &&x, V &&y) {
+    construct(p, std::piecewise_construct,
+              std::forward_as_tuple(std::forward<U>(x)),
+              std::forward_as_tuple(std::forward<V>(y)));
+  }
+
+  template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1, T2> *p, const std::pair<U, V> &xy) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first),
+              std::forward_as_tuple(xy.second));
+  }
+
+  template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1, T2> *p, std::pair<U, V> &&xy) {
+    construct(p, std::piecewise_construct,
+              std::forward_as_tuple(std::forward<U>(xy.first)),
+              std::forward_as_tuple(std::forward<V>(xy.second)));
+  }
 
  private:
   MemoryResource *memory_;
+
+  template <class TElem, class... TArgs>
+  auto MakePairElementArguments(std::tuple<TArgs...> *args) {
+    if constexpr (std::uses_allocator_v<TElem, Allocator>) {
+      if constexpr (std::is_constructible_v<TElem, std::allocator_arg_t,
+                                            MemoryResource *, TArgs...>) {
+        return std::tuple_cat(std::make_tuple(std::allocator_arg, memory_),
+                              std::move(*args));
+      } else if constexpr (std::is_constructible_v<TElem, TArgs...,
+                                                   MemoryResource *>) {
+        return std::tuple_cat(std::move(*args), std::make_tuple(memory_));
+      } else {
+        static_assert(!std::uses_allocator_v<TElem, Allocator>,
+                      "Class declares std::uses_allocator but has no valid "
+                      "constructor overload. Refer to 'Uses-allocator "
+                      "construction' rules in C++ reference.");
+      }
+    } else {
+      // Explicitly do a move as we don't want a needless copy of `*args`.
+      // Previous return statements return a temporary, so the compiler should
+      // optimize that.
+      return std::move(*args);
+    }
+  }
 };
 
 template <class T, class U>

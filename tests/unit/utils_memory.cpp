@@ -205,3 +205,28 @@ TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
   EXPECT_EQ(c.value_, 42);
   EXPECT_EQ(c.memory_, utils::NewDeleteResource());
 }
+
+TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
+  {
+    std::vector<std::pair<ContainerWithAllocatorFirst, TypeParam>,
+                utils::Allocator<TypeParam>>
+        vec(utils::NewDeleteResource());
+    vec.emplace_back(1, 2);
+    const auto &pair = vec.front();
+    EXPECT_EQ(pair.first.value_, 1);
+    EXPECT_EQ(pair.second.value_, 2);
+    EXPECT_EQ(pair.first.memory_, utils::NewDeleteResource());
+    EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
+  }
+  {
+    std::vector<std::pair<ContainerWithAllocatorLast, TypeParam>,
+                utils::Allocator<TypeParam>>
+        vec(utils::NewDeleteResource());
+    vec.emplace_back(1, 2);
+    const auto &pair = vec.front();
+    EXPECT_EQ(pair.first.value_, 1);
+    EXPECT_EQ(pair.second.value_, 2);
+    EXPECT_EQ(pair.first.memory_, utils::NewDeleteResource());
+    EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
+  }
+}
