@@ -14,6 +14,7 @@ DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
 DEFINE_int32(cluster_size, 3, "Size of the raft cluster.");
 DEFINE_int32(create_nodes, 250000, "Number of nodes to be created.");
+DEFINE_int32(offset_nodes, 0, "Initial ID of created nodes");
 DEFINE_int32(check_nodes, -1, "Number of nodes that should be in the database");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
@@ -38,9 +39,9 @@ int main(int argc, char **argv) {
                                          FLAGS_password, 60, retry_delay);
 
     if (FLAGS_step == "create") {
-      client.Execute("UNWIND RANGE(1, " + std::to_string(FLAGS_create_nodes) +
-                         ") AS x CREATE(:Node {id:x})",
-                     {});
+      client.Execute("UNWIND RANGE($start, $stop) AS x CREATE(:Node {id: x})",
+                     {{"start", FLAGS_offset_nodes},
+                      {"stop", FLAGS_offset_nodes + FLAGS_create_nodes - 1}});
       return 0;
     } else if (FLAGS_step == "check") {
       auto result = client.Execute("MATCH (n) RETURN COUNT(n)", {});

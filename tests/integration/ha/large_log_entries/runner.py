@@ -17,12 +17,13 @@ from ha_test import HaTestBase
 
 
 class HaLargeLogEntriesTest(HaTestBase):
-    def execute_step(self, step, node_count):
+    def execute_step(self, step, node_count, offset_nodes=None):
         if step == "create":
             print("Executing create query")
             client = subprocess.Popen([self.tester_binary, "--step", "create",
-                "--cluster_size", str(self.cluster_size),
-                "--create_nodes", str(node_count)])
+                "--cluster-size", str(self.cluster_size),
+                "--create-nodes", str(node_count),
+                "--offset-nodes", str(offset_nodes)])
 
         elif step == "check":
             print("Executing check query")
@@ -50,18 +51,18 @@ class HaLargeLogEntriesTest(HaTestBase):
         self.start_cluster()
 
         for i in range(self.cluster_size):
-            assert self.execute_step("create", nodes) == 0, \
+            assert self.execute_step("create", nodes, i * nodes) == 0, \
                     "Error while executing create query"
 
             # Kill worker.
-            print("Killing worker {}".format(i))
+            print("Killing worker {}".format(i + 1))
             self.kill_worker(i)
 
             assert self.execute_step("check", (i + 1) * nodes) == 0, \
                     "Error while executing check query"
 
             # Bring worker back to life.
-            print("Starting worker {}".format(i))
+            print("Starting worker {}".format(i + 1))
             self.start_worker(i)
 
 
