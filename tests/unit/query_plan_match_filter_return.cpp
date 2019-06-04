@@ -447,7 +447,8 @@ TEST_F(ExpandFixture, ExpandPath) {
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
-  std::vector<query::Path> expected_paths{{v1, r2, v3}, {v1, r1, v2}};
+  std::vector<query::Path> expected_paths{query::Path(v1, r2, v3),
+                                          query::Path(v1, r1, v2)};
   auto context = MakeContext(storage, symbol_table, &dba_);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);

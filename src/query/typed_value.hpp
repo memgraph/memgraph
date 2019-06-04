@@ -266,7 +266,7 @@ class TypedValue {
   TypedValue(const Path &path,
              utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(path);
+    new (&path_v) Path(path, memory_);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
@@ -397,13 +397,22 @@ class TypedValue {
     new (&edge_v) EdgeAccessor(std::move(edge));
   }
 
-  TypedValue(Path &&path) noexcept : type_(Type::Path) {
-    new (&path_v) Path(std::move(path));
-  }
+  /**
+   * Construct with the value of path.
+   * utils::MemoryResource is obtained from path. After the move, path will be
+   * left empty.
+   */
+  TypedValue(Path &&path) noexcept
+      : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
-  TypedValue(Path &&path, utils::MemoryResource *memory) noexcept
+  /**
+   * Construct with the value of path and use the given MemoryResource.
+   * If `*path.GetMemoryResource() != *memory`, this call will perform an
+   * element-wise move and path is not guaranteed to be empty.
+   */
+  TypedValue(Path &&path, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(std::move(path));
+    new (&path_v) Path(std::move(path), memory_);
   }
 
   /**

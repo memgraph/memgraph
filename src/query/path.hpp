@@ -7,6 +7,7 @@
 
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/memory.hpp"
 
 namespace query {
 
@@ -17,16 +18,88 @@ namespace query {
  */
 class Path {
  public:
-  /** Creates the path starting with the given vertex. */
-  explicit Path(const VertexAccessor &vertex) { Expand(vertex); }
+  /** Allocator type so that STL containers are aware that we need one */
+  using allocator_type = utils::Allocator<char>;
 
-  /** Creates the path starting with the given vertex and containing all other
-   * elements. */
+  /**
+   * Create the path starting with the given vertex.
+   * Allocations are done using the given MemoryResource.
+   */
+  explicit Path(const VertexAccessor &vertex,
+                utils::MemoryResource *memory = utils::NewDeleteResource())
+      : vertices_(memory), edges_(memory) {
+    Expand(vertex);
+  }
+
+  /**
+   * Create the path starting with the given vertex and containing all other
+   * elements.
+   * Allocations are done using the default utils::NewDeleteResource().
+   */
   template <typename... TOthers>
-  Path(const VertexAccessor &vertex, const TOthers &... others) {
+  explicit Path(const VertexAccessor &vertex, const TOthers &... others)
+      : vertices_(utils::NewDeleteResource()),
+        edges_(utils::NewDeleteResource()) {
     Expand(vertex);
     Expand(others...);
   }
+
+  /**
+   * Create the path starting with the given vertex and containing all other
+   * elements.
+   * Allocations are done using the given MemoryResource.
+   */
+  template <typename... TOthers>
+  Path(std::allocator_arg_t, utils::MemoryResource *memory,
+       const VertexAccessor &vertex, const TOthers &... others)
+      : vertices_(memory), edges_(memory) {
+    Expand(vertex);
+    Expand(others...);
+  }
+
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.GetMemoryResource()).
+   * Since we use utils::Allocator, which does not propagate, this means that we
+   * will default to utils::NewDeleteResource().
+   */
+  Path(const Path &other)
+      : Path(other, std::allocator_traits<allocator_type>::
+                        select_on_container_copy_construction(
+                            other.GetMemoryResource())
+                            .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  Path(const Path &other, utils::MemoryResource *memory)
+      : vertices_(other.vertices_, memory), edges_(other.edges_, memory) {}
+
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * empty.
+   */
+  Path(Path &&other) noexcept
+      : Path(std::move(other), other.GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other, but use the given utils::MemoryResource.
+   * After the move, other may not be empty if `*memory !=
+   * *other.GetMemoryResource()`, because an element-wise move will be
+   * performed.
+   */
+  Path(Path &&other, utils::MemoryResource *memory)
+      : vertices_(std::move(other.vertices_), memory),
+        edges_(std::move(other.edges_), memory) {}
+
+  /** Copy assign other, utils::MemoryResource of `this` is used */
+  Path &operator=(const Path &) = default;
+
+  /** Move assign other, utils::MemoryResource of `this` is used. */
+  Path &operator=(Path &&) = default;
+
+  ~Path() = default;
 
   /** Expands the path with the given vertex. */
   void Expand(const VertexAccessor &vertex) {
@@ -56,6 +129,10 @@ class Path {
   auto &edges() { return edges_; }
   const auto &vertices() const { return vertices_; }
   const auto &edges() const { return edges_; }
+
+  utils::MemoryResource *GetMemoryResource() const {
+    return vertices_.get_allocator().GetMemoryResource();
+  }
 
   bool operator==(const Path &other) const {
     return vertices_ == other.vertices_ && edges_ == other.edges_;
@@ -90,8 +167,9 @@ class Path {
 
  private:
   // Contains all the vertices in the path.
-  std::vector<VertexAccessor> vertices_;
+  std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> vertices_;
   // Contains all the edges in the path (one less then there are vertices).
-  std::vector<EdgeAccessor> edges_;
+  std::vector<EdgeAccessor, utils::Allocator<EdgeAccessor>> edges_;
 };
+
 }  // namespace query

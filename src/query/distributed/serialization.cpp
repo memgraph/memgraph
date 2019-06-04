@@ -141,19 +141,21 @@ void Load(query::TypedValue *value, slk::Reader *reader,
     case static_cast<uint8_t>(9): {
       size_t v_size;
       slk::Load(&v_size, reader);
-      std::vector<VertexAccessor> vertices;
+      auto *memory = value->GetMemoryResource();
+      std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> vertices(
+          memory);
       vertices.reserve(v_size);
       for (size_t i = 0; i < v_size; ++i) {
         vertices.push_back(slk::LoadVertexAccessor(reader, dba, data_manager));
       }
       size_t e_size;
       slk::Load(&e_size, reader);
-      std::vector<EdgeAccessor> edges;
+      std::vector<EdgeAccessor, utils::Allocator<EdgeAccessor>> edges(memory);
       edges.reserve(e_size);
       for (size_t i = 0; i < e_size; ++i) {
         edges.push_back(slk::LoadEdgeAccessor(reader, dba, data_manager));
       }
-      query::Path path(vertices[0]);
+      query::Path path(vertices[0], memory);
       path.vertices() = std::move(vertices);
       path.edges() = std::move(edges);
       *value = std::move(path);

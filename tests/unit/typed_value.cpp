@@ -511,6 +511,18 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, moved_it->second));
         EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, copied_it->second));
       }
+    } else if (value.type() == TypedValue::Type::Path) {
+      ASSERT_EQ(move_constructed_value.type(), value.type());
+      const auto &original = value.ValuePath();
+      const auto &moved = move_constructed_value.ValuePath();
+      const auto &copied = copy_constructed_value.ValuePath();
+      EXPECT_EQ(original.GetMemoryResource(), utils::NewDeleteResource());
+      EXPECT_EQ(moved.vertices(), original.vertices());
+      EXPECT_EQ(moved.edges(), original.edges());
+      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.vertices(), original.vertices());
+      EXPECT_EQ(copied.edges(), original.edges());
+      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
     }
   }
 }

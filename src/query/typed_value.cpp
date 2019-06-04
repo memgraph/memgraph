@@ -143,7 +143,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
       new (&edge_v) EdgeAccessor(other.edge_v);
       return;
     case Type::Path:
-      new (&path_v) Path(other.path_v);
+      new (&path_v) Path(other.path_v, memory_);
       return;
   }
   LOG(FATAL) << "Unsupported TypedValue::Type";
@@ -182,7 +182,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       new (&edge_v) EdgeAccessor(std::move(other.edge_v));
       break;
     case Type::Path:
-      new (&path_v) Path(std::move(other.path_v));
+      new (&path_v) Path(std::move(other.path_v), memory_);
       break;
   }
   other = TypedValue::Null;
@@ -457,7 +457,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&edge_v) EdgeAccessor(other.edge_v);
         return *this;
       case TypedValue::Type::Path:
-        new (&path_v) Path(other.path_v);
+        new (&path_v) Path(other.path_v, memory_);
         return *this;
     }
     LOG(FATAL) << "Unsupported TypedValue::Type";
@@ -505,7 +505,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&edge_v) EdgeAccessor(std::move(other.edge_v));
         break;
       case TypedValue::Type::Path:
-        new (&path_v) Path(std::move(other.path_v));
+        new (&path_v) Path(std::move(other.path_v), memory_);
         break;
     }
     other = TypedValue::Null;
@@ -927,12 +927,13 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return value.Value<VertexAccessor>().gid();
     case TypedValue::Type::Edge:
       return value.Value<EdgeAccessor>().gid();
-    case TypedValue::Type::Path:
-      return utils::FnvCollection<std::vector<VertexAccessor>,
-                                  VertexAccessor>{}(
-                 value.ValuePath().vertices()) ^
-             utils::FnvCollection<std::vector<EdgeAccessor>, EdgeAccessor>{}(
-                 value.ValuePath().edges());
+    case TypedValue::Type::Path: {
+      const auto &vertices = value.ValuePath().vertices();
+      const auto &edges = value.ValuePath().edges();
+      return utils::FnvCollection<decltype(vertices), VertexAccessor>{}(
+                 vertices) ^
+             utils::FnvCollection<decltype(edges), EdgeAccessor>{}(edges);
+    }
   }
   LOG(FATAL) << "Unhandled TypedValue.type() in hash function";
 }
