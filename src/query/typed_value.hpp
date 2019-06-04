@@ -94,11 +94,6 @@ class TypedValue {
   explicit TypedValue(utils::MemoryResource *memory)
       : memory_(memory), type_(Type::Null) {}
 
-  // single static reference to Null, used whenever Null should be returned
-  // TODO: Remove this as it may be needed to construct TypedValue with a
-  // different MemoryResource.
-  static const TypedValue Null;
-
   /**
    * Construct a copy of other.
    * utils::MemoryResource is obtained by calling

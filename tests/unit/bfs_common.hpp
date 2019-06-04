@@ -226,13 +226,13 @@ class Database {
 };
 
 // Returns an operator that yields vertices given by their address. We will also
-// include query::TypedValue::Null to account for the optional match case.
+// include query::TypedValue() to account for the optional match case.
 std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
     database::GraphDbAccessor *dba, std::vector<VertexAddress> vertices,
     query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
-  frames.push_back(std::vector<query::TypedValue>{query::TypedValue::Null});
+  frames.push_back(std::vector<query::TypedValue>{query::TypedValue()});
   for (const auto &vertex : vertices) {
     frames.push_back(
         std::vector<query::TypedValue>{VertexAccessor(vertex, *dba)});
@@ -349,7 +349,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       input_op = std::make_shared<Yield>(
           nullptr, std::vector<query::Symbol>{blocked_sym},
           std::vector<std::vector<query::TypedValue>>{
-              {query::TypedValue::Null}});
+              {query::TypedValue()}});
       filter_expr = nullptr;
       break;
     case FilterLambdaType::USE_FRAME:

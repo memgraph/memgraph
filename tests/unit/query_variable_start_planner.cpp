@@ -156,7 +156,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
     // We expect to produce 2 rows:
     //   * (v1), (v3)
     //   * (v2), null
-    AssertRows(results, {{v1, v3}, {v2, TypedValue::Null}});
+    AssertRows(results, {{v1, v3}, {v2, TypedValue()}});
   });
 }
 
@@ -183,7 +183,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   // start, we generate 2 * 2 * 2 plans.
   CheckPlansProduce(8, query, storage, &dba, [&](const auto &results) {
     // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
-    AssertRows(results, {{v1, v2, TypedValue::Null, v1, v2}});
+    AssertRows(results, {{v1, v2, TypedValue(), v1, v2}});
   });
 }
 

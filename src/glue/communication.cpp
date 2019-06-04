@@ -13,7 +13,7 @@ namespace glue {
 query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return query::TypedValue::Null;
+      return query::TypedValue();
     case Value::Type::Bool:
       return query::TypedValue(value.ValueBool());
     case Value::Type::Int:

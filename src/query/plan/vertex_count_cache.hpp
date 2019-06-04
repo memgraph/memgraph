@@ -3,6 +3,7 @@
 
 #include <optional>
 
+#include "query/typed_value.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
 #include "utils/bound.hpp"
@@ -85,8 +86,8 @@ class VertexCountCache {
     size_t operator()(const BoundsKey &key) const {
       const auto &maybe_lower = key.first;
       const auto &maybe_upper = key.second;
-      query::TypedValue lower(query::TypedValue::Null);
-      query::TypedValue upper(query::TypedValue::Null);
+      query::TypedValue lower;
+      query::TypedValue upper;
       if (maybe_lower) lower = maybe_lower->value();
       if (maybe_upper) upper = maybe_upper->value();
       query::TypedValue::Hash hash;
@@ -101,8 +102,8 @@ class VertexCountCache {
         if (maybe_bound_a && maybe_bound_b &&
             maybe_bound_a->type() != maybe_bound_b->type())
           return false;
-        query::TypedValue bound_a(query::TypedValue::Null);
-        query::TypedValue bound_b(query::TypedValue::Null);
+        query::TypedValue bound_a;
+        query::TypedValue bound_b;
         if (maybe_bound_a) bound_a = maybe_bound_a->value();
         if (maybe_bound_b) bound_b = maybe_bound_b->value();
         return query::TypedValue::BoolEqual{}(bound_a, bound_b);

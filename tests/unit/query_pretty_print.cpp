@@ -33,7 +33,7 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL("hello")), "\"hello\"");
 
   // null
-  EXPECT_EQ(ToString(LITERAL(TypedValue::Null)), "null");
+  EXPECT_EQ(ToString(LITERAL(TypedValue())), "null");
 
   // true
   EXPECT_EQ(ToString(LITERAL(true)), "true");
@@ -88,12 +88,12 @@ TEST_F(ExpressionPrettyPrinterTest, UnaryOperators) {
   EXPECT_EQ(ToString(UMINUS(LITERAL(1))), "(- 1)");
 
   // null IS NULL
-  EXPECT_EQ(ToString(IS_NULL(LITERAL(TypedValue::Null))), "(IsNull null)");
+  EXPECT_EQ(ToString(IS_NULL(LITERAL(TypedValue()))), "(IsNull null)");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, BinaryOperators) {
   // and(null, 5)
-  EXPECT_EQ(ToString(AND(LITERAL(TypedValue::Null), LITERAL(5))),
+  EXPECT_EQ(ToString(AND(LITERAL(TypedValue()), LITERAL(5))),
             "(And null 5)");
 
   // or(5, {hello: "there"}["hello"])
@@ -105,7 +105,7 @@ TEST_F(ExpressionPrettyPrinterTest, BinaryOperators) {
             "(Or 5 (PropertyLookup {\"hello\": \"there\"} \"hello\"))");
 
   // and(coalesce(null, 1), {hello: "there"})
-  EXPECT_EQ(ToString(AND(COALESCE(LITERAL(TypedValue::Null), LITERAL(1)),
+  EXPECT_EQ(ToString(AND(COALESCE(LITERAL(TypedValue()), LITERAL(1)),
                          MAP(std::make_pair(storage.GetPropertyIx("hello"),
                                             LITERAL("there"))))),
             "(And (Coalesce [null, 1]) {\"hello\": \"there\"})");
@@ -117,27 +117,27 @@ TEST_F(ExpressionPrettyPrinterTest, Coalesce) {
 
   // coalesce(null, null)
   EXPECT_EQ(
-      ToString(COALESCE(LITERAL(TypedValue::Null), LITERAL(TypedValue::Null))),
+      ToString(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))),
       "(Coalesce [null, null])");
 
   // coalesce(null, 2, 3)
   EXPECT_EQ(
-      ToString(COALESCE(LITERAL(TypedValue::Null), LITERAL(2), LITERAL(3))),
+      ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))),
       "(Coalesce [null, 2, 3])");
 
   // coalesce(null, 2, assert(false), 3)
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue::Null), LITERAL(2),
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2),
                               FN("ASSERT", LITERAL(false)), LITERAL(3))),
             "(Coalesce [null, 2, (Function \"ASSERT\" [false]), 3])");
 
   // coalesce(null, assert(false))
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue::Null),
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()),
                               FN("ASSERT", LITERAL(false)))),
             "(Coalesce [null, (Function \"ASSERT\" [false])])");
 
   // coalesce([null, null])
   EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue(
-                std::vector<TypedValue>{TypedValue::Null, TypedValue::Null})))),
+                std::vector<TypedValue>{TypedValue(), TypedValue()})))),
             "(Coalesce [[null, null]])");
 }
 

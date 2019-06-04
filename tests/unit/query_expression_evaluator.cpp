@@ -648,7 +648,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
-    frame[node_symbol] = TypedValue::Null;
+    frame[node_symbol] = TypedValue();
     auto *op = storage.Create<LabelsTest>(
         identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
                                          storage.GetLabelIx("BAD_DOG"),
@@ -822,33 +822,33 @@ TEST_F(ExpressionEvaluatorTest, Coalesce) {
 
   // coalesce(null, null)
   EXPECT_TRUE(
-      Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(TypedValue::Null)))
+      Eval(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue())))
           .IsNull());
 
   // coalesce(null, 2, 3)
-  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(2), LITERAL(3)))
+  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3)))
                 .ValueInt(),
             2);
 
   // coalesce(null, 2, assert(false), 3)
-  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(2),
+  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2),
                           FN("ASSERT", LITERAL(false)), LITERAL(3)))
                 .ValueInt(),
             2);
 
   // (null, assert(false))
   EXPECT_THROW(
-      Eval(COALESCE(LITERAL(TypedValue::Null), FN("ASSERT", LITERAL(false)))),
+      Eval(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))),
       QueryRuntimeException);
 
   // coalesce([null, null])
   EXPECT_FALSE(Eval(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{
-                        TypedValue::Null, TypedValue::Null}))))
+                        TypedValue(), TypedValue()}))))
                    .IsNull());
 }
 
 TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
-  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(TypedValue::Null),
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(TypedValue()),
                                               LITERAL("regex")))
                   .IsNull());
   EXPECT_TRUE(
@@ -857,7 +857,7 @@ TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
                                               LITERAL("regex")))
                   .IsNull());
   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("string"),
-                                              LITERAL(TypedValue::Null)))
+                                              LITERAL(TypedValue())))
                   .IsNull());
   EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(42))),
                QueryRuntimeException);
@@ -927,7 +927,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
-  frame[symbol] = TypedValue::Null;
+  frame[symbol] = TypedValue();
   EXPECT_TRUE(Value(prop_age).IsNull());
 }
 
@@ -972,7 +972,7 @@ class FunctionTest : public ExpressionEvaluatorTest {
 
 TEST_F(FunctionTest, EndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("ENDNODE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("ENDNODE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -986,7 +986,7 @@ TEST_F(FunctionTest, EndNode) {
 
 TEST_F(FunctionTest, Head) {
   ASSERT_THROW(EvaluateFunction("HEAD", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("HEAD", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("HEAD", {TypedValue()}).IsNull());
   std::vector<TypedValue> arguments;
   arguments.push_back(std::vector<TypedValue>{3, 4, 5});
   ASSERT_EQ(EvaluateFunction("HEAD", arguments).ValueInt(), 3);
@@ -997,7 +997,7 @@ TEST_F(FunctionTest, Head) {
 
 TEST_F(FunctionTest, Properties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("PROPERTIES", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("PROPERTIES", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -1025,7 +1025,7 @@ TEST_F(FunctionTest, Properties) {
 
 TEST_F(FunctionTest, Last) {
   ASSERT_THROW(EvaluateFunction("LAST", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("LAST", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("LAST", {TypedValue()}).IsNull());
   std::vector<TypedValue> arguments;
   arguments.push_back(std::vector<TypedValue>{3, 4, 5});
   ASSERT_EQ(EvaluateFunction("LAST", arguments).ValueInt(), 5);
@@ -1036,7 +1036,7 @@ TEST_F(FunctionTest, Last) {
 
 TEST_F(FunctionTest, Size) {
   ASSERT_THROW(EvaluateFunction("SIZE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("SIZE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("SIZE", {TypedValue()}).IsNull());
   std::vector<TypedValue> arguments;
   arguments.push_back(std::vector<TypedValue>{3, 4, 5});
   ASSERT_EQ(EvaluateFunction("SIZE", arguments).ValueInt(), 3);
@@ -1058,7 +1058,7 @@ TEST_F(FunctionTest, Size) {
 
 TEST_F(FunctionTest, StartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("STARTNODE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("STARTNODE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -1072,7 +1072,7 @@ TEST_F(FunctionTest, StartNode) {
 
 TEST_F(FunctionTest, Degree) {
   ASSERT_THROW(EvaluateFunction("DEGREE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("DEGREE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("DEGREE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -1087,7 +1087,7 @@ TEST_F(FunctionTest, Degree) {
 
 TEST_F(FunctionTest, InDegree) {
   ASSERT_THROW(EvaluateFunction("INDEGREE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("INDEGREE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("INDEGREE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -1102,7 +1102,7 @@ TEST_F(FunctionTest, InDegree) {
 
 TEST_F(FunctionTest, OutDegree) {
   ASSERT_THROW(EvaluateFunction("OUTDEGREE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("OUTDEGREE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("OUTDEGREE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -1117,7 +1117,7 @@ TEST_F(FunctionTest, OutDegree) {
 
 TEST_F(FunctionTest, ToBoolean) {
   ASSERT_THROW(EvaluateFunction("TOBOOLEAN", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("TOBOOLEAN", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("TOBOOLEAN", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {123}).ValueBool(), true);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {-213}).ValueBool(), true);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {0}).ValueBool(), false);
@@ -1130,7 +1130,7 @@ TEST_F(FunctionTest, ToBoolean) {
 
 TEST_F(FunctionTest, ToFloat) {
   ASSERT_THROW(EvaluateFunction("TOFLOAT", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("TOFLOAT", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("TOFLOAT", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("TOFLOAT", {" -3.5 \n\t"}).ValueDouble(), -3.5);
   ASSERT_EQ(EvaluateFunction("TOFLOAT", {"\n\t0.5e-1"}).ValueDouble(), 0.05);
   ASSERT_TRUE(EvaluateFunction("TOFLOAT", {"\n\t3.4e-3X "}).IsNull());
@@ -1141,7 +1141,7 @@ TEST_F(FunctionTest, ToFloat) {
 
 TEST_F(FunctionTest, ToInteger) {
   ASSERT_THROW(EvaluateFunction("TOINTEGER", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("TOINTEGER", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("TOINTEGER", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {false}).ValueInt(), 0);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {true}).ValueInt(), 1);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {"\n\t3"}).ValueInt(), 3);
@@ -1153,7 +1153,7 @@ TEST_F(FunctionTest, ToInteger) {
 
 TEST_F(FunctionTest, Type) {
   ASSERT_THROW(EvaluateFunction("TYPE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("TYPE", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("TYPE", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -1165,7 +1165,7 @@ TEST_F(FunctionTest, Type) {
 
 TEST_F(FunctionTest, Labels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("LABELS", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("LABELS", {TypedValue()}).IsNull());
   auto v = dba.InsertVertex();
   v.add_label(dba.Label("label1"));
   v.add_label(dba.Label("label2"));
@@ -1182,8 +1182,8 @@ TEST_F(FunctionTest, Labels) {
 TEST_F(FunctionTest, NodesRelationships) {
   EXPECT_THROW(EvaluateFunction("NODES", {}), QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("RELATIONSHIPS", {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction("NODES", {TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("NODES", {TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue()}).IsNull());
 
   {
     auto v1 = dba.InsertVertex();
@@ -1214,8 +1214,8 @@ TEST_F(FunctionTest, NodesRelationships) {
 
 TEST_F(FunctionTest, Range) {
   EXPECT_THROW(EvaluateFunction("RANGE", {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction("RANGE", {1, 2, TypedValue::Null}).IsNull());
-  EXPECT_THROW(EvaluateFunction("RANGE", {1, TypedValue::Null, 1.3}),
+  EXPECT_TRUE(EvaluateFunction("RANGE", {1, 2, TypedValue()}).IsNull());
+  EXPECT_THROW(EvaluateFunction("RANGE", {1, TypedValue(), 1.3}),
                QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("RANGE", {1, 2, 0}), QueryRuntimeException);
   EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {1, 3})),
@@ -1240,7 +1240,7 @@ TEST_F(FunctionTest, Range) {
 
 TEST_F(FunctionTest, Keys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("KEYS", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("KEYS", {TypedValue()}).IsNull());
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -1265,7 +1265,7 @@ TEST_F(FunctionTest, Keys) {
 
 TEST_F(FunctionTest, Tail) {
   ASSERT_THROW(EvaluateFunction("TAIL", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("TAIL", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("TAIL", {TypedValue()}).IsNull());
   std::vector<TypedValue> arguments;
   arguments.push_back(std::vector<TypedValue>{});
   ASSERT_EQ(EvaluateFunction("TAIL", arguments).ValueList().size(), 0U);
@@ -1281,12 +1281,12 @@ TEST_F(FunctionTest, Tail) {
 TEST_F(FunctionTest, UniformSample) {
   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE", {}), QueryRuntimeException);
   ASSERT_TRUE(
-      EvaluateFunction("UNIFORMSAMPLE", {TypedValue::Null, TypedValue::Null})
+      EvaluateFunction("UNIFORMSAMPLE", {TypedValue(), TypedValue()})
           .IsNull());
   ASSERT_TRUE(
-      EvaluateFunction("UNIFORMSAMPLE", {TypedValue::Null, 1}).IsNull());
+      EvaluateFunction("UNIFORMSAMPLE", {TypedValue(), 1}).IsNull());
   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE",
-                                {std::vector<TypedValue>{}, TypedValue::Null}),
+                                {std::vector<TypedValue>{}, TypedValue()}),
                QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{}, 1})
                   .IsNull());
@@ -1317,7 +1317,7 @@ TEST_F(FunctionTest, UniformSample) {
 
 TEST_F(FunctionTest, Abs) {
   ASSERT_THROW(EvaluateFunction("ABS", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("ABS", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("ABS", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("ABS", {-2}).ValueInt(), 2);
   ASSERT_EQ(EvaluateFunction("ABS", {-2.5}).ValueDouble(), 2.5);
   ASSERT_THROW(EvaluateFunction("ABS", {true}), QueryRuntimeException);
@@ -1328,7 +1328,7 @@ TEST_F(FunctionTest, Abs) {
 // correctnes..
 TEST_F(FunctionTest, Log) {
   ASSERT_THROW(EvaluateFunction("LOG", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("LOG", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("LOG", {TypedValue()}).IsNull());
   ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", {2}).ValueDouble(), log(2));
   ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", {1.5}).ValueDouble(), log(1.5));
   // Not portable, but should work on most platforms.
@@ -1341,7 +1341,7 @@ TEST_F(FunctionTest, Log) {
 // neo4j's round.
 TEST_F(FunctionTest, Round) {
   ASSERT_THROW(EvaluateFunction("ROUND", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("ROUND", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("ROUND", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("ROUND", {-2}).ValueDouble(), -2);
   ASSERT_EQ(EvaluateFunction("ROUND", {-2.4}).ValueDouble(), -2);
   ASSERT_EQ(EvaluateFunction("ROUND", {-2.5}).ValueDouble(), -3);
@@ -1365,8 +1365,8 @@ TEST_F(FunctionTest, WrappedMathFunctions) {
 
 TEST_F(FunctionTest, Atan2) {
   ASSERT_THROW(EvaluateFunction("ATAN2", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("ATAN2", {TypedValue::Null, 1}).IsNull());
-  ASSERT_TRUE(EvaluateFunction("ATAN2", {1, TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("ATAN2", {TypedValue(), 1}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("ATAN2", {1, TypedValue()}).IsNull());
   ASSERT_DOUBLE_EQ(EvaluateFunction("ATAN2", {2, -1.0}).ValueDouble(),
                    atan2(2, -1));
   ASSERT_THROW(EvaluateFunction("ATAN2", {3.0, true}), QueryRuntimeException);
@@ -1374,7 +1374,7 @@ TEST_F(FunctionTest, Atan2) {
 
 TEST_F(FunctionTest, Sign) {
   ASSERT_THROW(EvaluateFunction("SIGN", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("SIGN", {TypedValue::Null}).IsNull());
+  ASSERT_TRUE(EvaluateFunction("SIGN", {TypedValue()}).IsNull());
   ASSERT_EQ(EvaluateFunction("SIGN", {-2}).ValueInt(), -1);
   ASSERT_EQ(EvaluateFunction("SIGN", {-0.2}).ValueInt(), -1);
   ASSERT_EQ(EvaluateFunction("SIGN", {0.0}).ValueInt(), 0);
@@ -1400,8 +1400,8 @@ TEST_F(FunctionTest, Rand) {
 
 TEST_F(FunctionTest, StartsWith) {
   EXPECT_THROW(EvaluateFunction(kStartsWith, {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction(kStartsWith, {"a", TypedValue::Null}).IsNull());
-  EXPECT_THROW(EvaluateFunction(kStartsWith, {TypedValue::Null, 1.3}),
+  EXPECT_TRUE(EvaluateFunction(kStartsWith, {"a", TypedValue()}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kStartsWith, {TypedValue(), 1.3}),
                QueryRuntimeException);
   EXPECT_TRUE(EvaluateFunction(kStartsWith, {"abc", "abc"}).ValueBool());
   EXPECT_TRUE(EvaluateFunction(kStartsWith, {"abcdef", "abc"}).ValueBool());
@@ -1411,8 +1411,8 @@ TEST_F(FunctionTest, StartsWith) {
 
 TEST_F(FunctionTest, EndsWith) {
   EXPECT_THROW(EvaluateFunction(kEndsWith, {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction(kEndsWith, {"a", TypedValue::Null}).IsNull());
-  EXPECT_THROW(EvaluateFunction(kEndsWith, {TypedValue::Null, 1.3}),
+  EXPECT_TRUE(EvaluateFunction(kEndsWith, {"a", TypedValue()}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kEndsWith, {TypedValue(), 1.3}),
                QueryRuntimeException);
   EXPECT_TRUE(EvaluateFunction(kEndsWith, {"abc", "abc"}).ValueBool());
   EXPECT_TRUE(EvaluateFunction(kEndsWith, {"abcdef", "def"}).ValueBool());
@@ -1422,8 +1422,8 @@ TEST_F(FunctionTest, EndsWith) {
 
 TEST_F(FunctionTest, Contains) {
   EXPECT_THROW(EvaluateFunction(kContains, {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction(kContains, {"a", TypedValue::Null}).IsNull());
-  EXPECT_THROW(EvaluateFunction(kContains, {TypedValue::Null, 1.3}),
+  EXPECT_TRUE(EvaluateFunction(kContains, {"a", TypedValue()}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kContains, {TypedValue(), 1.3}),
                QueryRuntimeException);
   EXPECT_TRUE(EvaluateFunction(kContains, {"abc", "abc"}).ValueBool());
   EXPECT_TRUE(EvaluateFunction(kContains, {"abcde", "bcd"}).ValueBool());
@@ -1509,7 +1509,7 @@ TEST_F(FunctionTest, WorkerIdSingleNode) {
 */
 
 TEST_F(FunctionTest, ToStringNull) {
-  EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue()}).IsNull());
 }
 
 TEST_F(FunctionTest, ToStringString) {
@@ -1558,9 +1558,9 @@ TEST_F(FunctionTest, Left) {
   EXPECT_THROW(EvaluateFunction("LEFT", {}), QueryRuntimeException);
 
   EXPECT_TRUE(
-      EvaluateFunction("LEFT", {TypedValue::Null, TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("LEFT", {TypedValue::Null, 10}).IsNull());
-  EXPECT_THROW(EvaluateFunction("LEFT", {TypedValue::Null, -10}),
+      EvaluateFunction("LEFT", {TypedValue(), TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("LEFT", {TypedValue(), 10}).IsNull());
+  EXPECT_THROW(EvaluateFunction("LEFT", {TypedValue(), -10}),
                QueryRuntimeException);
 
   EXPECT_EQ(EvaluateFunction("LEFT", {"memgraph", 0}).ValueString(), "");
@@ -1579,9 +1579,9 @@ TEST_F(FunctionTest, Right) {
   EXPECT_THROW(EvaluateFunction("RIGHT", {}), QueryRuntimeException);
 
   EXPECT_TRUE(
-      EvaluateFunction("RIGHT", {TypedValue::Null, TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("RIGHT", {TypedValue::Null, 10}).IsNull());
-  EXPECT_THROW(EvaluateFunction("RIGHT", {TypedValue::Null, -10}),
+      EvaluateFunction("RIGHT", {TypedValue(), TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RIGHT", {TypedValue(), 10}).IsNull());
+  EXPECT_THROW(EvaluateFunction("RIGHT", {TypedValue(), -10}),
                QueryRuntimeException);
 
   EXPECT_EQ(EvaluateFunction("RIGHT", {"memgraph", 0}).ValueString(), "");
@@ -1597,9 +1597,9 @@ TEST_F(FunctionTest, Right) {
 }
 
 TEST_F(FunctionTest, Trimming) {
-  EXPECT_TRUE(EvaluateFunction("LTRIM", {TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("RTRIM", {TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("TRIM", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("LTRIM", {TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RTRIM", {TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TRIM", {TypedValue()}).IsNull());
 
   EXPECT_EQ(EvaluateFunction("LTRIM", {"  abc    "}).ValueString(), "abc    ");
   EXPECT_EQ(EvaluateFunction("RTRIM", {" abc "}).ValueString(), " abc");
@@ -1611,7 +1611,7 @@ TEST_F(FunctionTest, Trimming) {
 }
 
 TEST_F(FunctionTest, Reverse) {
-  EXPECT_TRUE(EvaluateFunction("REVERSE", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("REVERSE", {TypedValue()}).IsNull());
   EXPECT_EQ(EvaluateFunction("REVERSE", {"abc"}).ValueString(), "cba");
   EXPECT_THROW(EvaluateFunction("REVERSE", {"x", "y"}), QueryRuntimeException);
 }
@@ -1619,11 +1619,11 @@ TEST_F(FunctionTest, Reverse) {
 TEST_F(FunctionTest, Replace) {
   EXPECT_THROW(EvaluateFunction("REPLACE", {}), QueryRuntimeException);
   EXPECT_TRUE(
-      EvaluateFunction("REPLACE", {TypedValue::Null, "l", "w"}).IsNull());
+      EvaluateFunction("REPLACE", {TypedValue(), "l", "w"}).IsNull());
   EXPECT_TRUE(
-      EvaluateFunction("REPLACE", {"hello", TypedValue::Null, "w"}).IsNull());
+      EvaluateFunction("REPLACE", {"hello", TypedValue(), "w"}).IsNull());
   EXPECT_TRUE(
-      EvaluateFunction("REPLACE", {"hello", "l", TypedValue::Null}).IsNull());
+      EvaluateFunction("REPLACE", {"hello", "l", TypedValue()}).IsNull());
   EXPECT_EQ(EvaluateFunction("REPLACE", {"hello", "l", "w"}).ValueString(),
             "hewwo");
 
@@ -1643,10 +1643,10 @@ TEST_F(FunctionTest, Split) {
                QueryRuntimeException);
 
   EXPECT_TRUE(
-      EvaluateFunction("SPLIT", {TypedValue::Null, TypedValue::Null}).IsNull());
+      EvaluateFunction("SPLIT", {TypedValue(), TypedValue()}).IsNull());
   EXPECT_TRUE(
-      EvaluateFunction("SPLIT", {"one,two", TypedValue::Null}).IsNull());
-  EXPECT_TRUE(EvaluateFunction("SPLIT", {TypedValue::Null, ","}).IsNull());
+      EvaluateFunction("SPLIT", {"one,two", TypedValue()}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("SPLIT", {TypedValue(), ","}).IsNull());
 
   auto result = EvaluateFunction("SPLIT", {"one,two", ","});
   EXPECT_TRUE(result.IsList());
@@ -1658,16 +1658,16 @@ TEST_F(FunctionTest, Substring) {
   EXPECT_THROW(EvaluateFunction("SUBSTRING", {}), QueryRuntimeException);
 
   EXPECT_TRUE(
-      EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, 10}).IsNull());
+      EvaluateFunction("SUBSTRING", {TypedValue(), 0, 10}).IsNull());
   EXPECT_THROW(
-      EvaluateFunction("SUBSTRING", {TypedValue::Null, TypedValue::Null}),
+      EvaluateFunction("SUBSTRING", {TypedValue(), TypedValue()}),
       QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue::Null, -10}),
+  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue(), -10}),
                QueryRuntimeException);
   EXPECT_THROW(
-      EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, TypedValue::Null}),
+      EvaluateFunction("SUBSTRING", {TypedValue(), 0, TypedValue()}),
       QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, -10}),
+  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue(), 0, -10}),
                QueryRuntimeException);
 
   EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 2}).ValueString(), "llo");
@@ -1683,13 +1683,13 @@ TEST_F(FunctionTest, Substring) {
 
 TEST_F(FunctionTest, ToLower) {
   EXPECT_THROW(EvaluateFunction("TOLOWER", {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction("TOLOWER", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TOLOWER", {TypedValue()}).IsNull());
   EXPECT_EQ(EvaluateFunction("TOLOWER", {"Ab__C"}).ValueString(), "ab__c");
 }
 
 TEST_F(FunctionTest, ToUpper) {
   EXPECT_THROW(EvaluateFunction("TOUPPER", {}), QueryRuntimeException);
-  EXPECT_TRUE(EvaluateFunction("TOUPPER", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TOUPPER", {TypedValue()}).IsNull());
   EXPECT_EQ(EvaluateFunction("TOUPPER", {"Ab__C"}).ValueString(), "AB__C");
 }
 

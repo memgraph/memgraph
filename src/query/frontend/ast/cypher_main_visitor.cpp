@@ -1474,7 +1474,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     int token_position = ctx->getStart()->getTokenIndex();
     if (ctx->CYPHERNULL()) {
       return static_cast<Expression *>(
-          storage_->Create<PrimitiveLiteral>(TypedValue::Null, token_position));
+          storage_->Create<PrimitiveLiteral>(TypedValue(), token_position));
     } else if (context_.is_query_cached) {
       // Instead of generating PrimitiveLiteral, we generate a
       // ParameterLookup, so that the AST can be cached. This allows for
@@ -1714,7 +1714,7 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(
   Expression *else_expression =
       ctx->else_expression
           ? ctx->else_expression->accept(this).as<Expression *>()
-          : storage_->Create<PrimitiveLiteral>(TypedValue::Null);
+          : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {
     Expression *condition =
         test_expression

@@ -124,7 +124,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto literal = in_list.expression1_->Accept(*this);
     auto _list = in_list.expression2_->Accept(*this);
     if (_list.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
@@ -138,7 +138,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // is one special case that we must test explicitly: if list is empty then
     // result is false since no comparison will be performed.
     if (list.size() == 0U) return false;
-    if (literal.IsNull()) return TypedValue::Null;
+    if (literal.IsNull()) return TypedValue();
 
     auto has_null = false;
     for (const auto &element : list) {
@@ -150,7 +150,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
     }
     if (has_null) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     return false;
   }
@@ -164,7 +164,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
           lhs.type());
-    if (lhs.IsNull() || index.IsNull()) return TypedValue::Null;
+    if (lhs.IsNull() || index.IsNull()) return TypedValue();
     if (lhs.IsList()) {
       if (!index.IsInt())
         throw QueryRuntimeException(
@@ -175,7 +175,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         index_int += static_cast<int64_t>(list.size());
       }
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0)
-        return TypedValue::Null;
+        return TypedValue();
       return list[index_int];
     }
 
@@ -185,7 +185,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                     index.type());
       const auto &map = lhs.ValueMap();
       auto found = map.find(index.ValueString());
-      if (found == map.end()) return TypedValue::Null;
+      if (found == map.end()) return TypedValue();
       return found->second;
     }
 
@@ -206,7 +206,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     // lhs is Null
-    return TypedValue::Null;
+    return TypedValue();
   }
 
   TypedValue Visit(ListSlicingOperator &op) override {
@@ -240,7 +240,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     if (is_null) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     const auto &list = _list.ValueList();
     auto normalise_bound = [&](int64_t bound) {
@@ -268,7 +268,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto expression_result = property_lookup.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        return TypedValue::Null;
+        return TypedValue();
       case TypedValue::Type::Vertex:
         return expression_result.Value<VertexAccessor>().PropsAt(
             GetProperty(property_lookup.property_));
@@ -278,7 +278,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Map: {
         const auto &map = expression_result.ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
-        if (found == map.end()) return TypedValue::Null;
+        if (found == map.end()) return TypedValue();
         return found->second;
       }
       default:
@@ -291,7 +291,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        return TypedValue::Null;
+        return TypedValue();
       case TypedValue::Type::Vertex: {
         auto vertex = expression_result.Value<VertexAccessor>();
         for (const auto label : labels_test.labels_) {
@@ -349,7 +349,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
     }
 
-    return TypedValue::Null;
+    return TypedValue();
   }
 
   TypedValue Visit(Function &function) override {
@@ -375,7 +375,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Reduce &reduce) override {
     auto list_value = reduce.list_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.",
@@ -396,7 +396,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Extract &extract) override {
     auto list_value = extract.list_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.",
@@ -408,7 +408,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     result.reserve(list.size());
     for (const auto &element : list) {
       if (element.IsNull()) {
-        result.push_back(TypedValue::Null);
+        result.emplace_back(TypedValue());
       } else {
         frame_->at(element_symbol) = element;
         result.emplace_back(extract.expression_->Accept(*this));
@@ -420,7 +420,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ALL expected a list, got {}.",
@@ -446,7 +446,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Single &single) override {
     auto list_value = single.list_expression_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.",
@@ -484,7 +484,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto target_string_value = regex_match.string_expr_->Accept(*this);
     auto regex_value = regex_match.regex_->Accept(*this);
     if (target_string_value.IsNull() || regex_value.IsNull()) {
-      return TypedValue::Null;
+      return TypedValue();
     }
     if (regex_value.type() != TypedValue::Type::String) {
       throw QueryRuntimeException(
@@ -495,7 +495,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // Instead of error, we return Null which makes it compatible in case we
       // use indexed lookup which filters out any non-string properties.
       // Assuming a property lookup is the target_string_value.
-      return TypedValue::Null;
+      return TypedValue();
     }
     const auto &target_string = target_string_value.ValueString();
     try {

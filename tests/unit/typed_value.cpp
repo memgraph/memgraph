@@ -22,19 +22,19 @@ class AllTypesFixture : public testing::Test {
   database::GraphDbAccessor dba_{db_.Access()};
 
   void SetUp() override {
-    values_.emplace_back(TypedValue::Null);
+    values_.emplace_back(TypedValue());
     values_.emplace_back(true);
     values_.emplace_back(42);
     values_.emplace_back(3.14);
     values_.emplace_back("something");
     values_.emplace_back(
-        std::vector<TypedValue>{true, "something", 42, 0.5, TypedValue::Null});
+        std::vector<TypedValue>{true, "something", 42, 0.5, TypedValue()});
     values_.emplace_back(
         std::map<std::string, TypedValue>{{"a", true},
                                           {"b", "something"},
                                           {"c", 42},
                                           {"d", 0.5},
-                                          {"e", TypedValue::Null}});
+                                          {"e", TypedValue()}});
     auto vertex = dba_.InsertVertex();
     values_.emplace_back(vertex);
     values_.emplace_back(
@@ -62,7 +62,7 @@ void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) {
 }
 
 TEST(TypedValue, CreationTypes) {
-  EXPECT_TRUE(TypedValue::Null.type() == TypedValue::Type::Null);
+  EXPECT_TRUE(TypedValue().type() == TypedValue::Type::Null);
 
   EXPECT_TRUE(TypedValue(true).type() == TypedValue::Type::Bool);
   EXPECT_TRUE(TypedValue(false).type() == TypedValue::Type::Bool);
@@ -136,8 +136,8 @@ TEST(TypedValue, BoolEquals) {
   EXPECT_TRUE(eq(TypedValue(1), TypedValue(1)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue(2)));
   EXPECT_FALSE(eq(TypedValue(1), TypedValue("asd")));
-  EXPECT_FALSE(eq(TypedValue(1), TypedValue::Null));
-  EXPECT_TRUE(eq(TypedValue::Null, TypedValue::Null));
+  EXPECT_FALSE(eq(TypedValue(1), TypedValue()));
+  EXPECT_TRUE(eq(TypedValue(), TypedValue()));
 }
 
 TEST(TypedValue, Hash) {
@@ -146,7 +146,7 @@ TEST(TypedValue, Hash) {
   EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1)));
   EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1.0)));
   EXPECT_EQ(hash(TypedValue(1.5)), hash(TypedValue(1.5)));
-  EXPECT_EQ(hash(TypedValue::Null), hash(TypedValue::Null));
+  EXPECT_EQ(hash(TypedValue()), hash(TypedValue()));
   EXPECT_EQ(hash(TypedValue("bla")), hash(TypedValue("bla")));
   EXPECT_EQ(hash(TypedValue(std::vector<TypedValue>{1, 2})),
             hash(TypedValue(std::vector<TypedValue>{1, 2})));
@@ -186,8 +186,8 @@ TEST_F(AllTypesFixture, Less) {
   for (TypedValue &value : values_) {
     if (!(value.IsNumeric() || value.type() == TypedValue::Type::String))
       continue;
-    EXPECT_PROP_ISNULL(value < TypedValue::Null);
-    EXPECT_PROP_ISNULL(TypedValue::Null < value);
+    EXPECT_PROP_ISNULL(value < TypedValue());
+    EXPECT_PROP_ISNULL(TypedValue() < value);
   }
 
   // int tests
@@ -214,14 +214,14 @@ TEST_F(AllTypesFixture, Less) {
 
 TEST(TypedValue, LogicalNot) {
   EXPECT_PROP_EQ(!TypedValue(true), TypedValue(false));
-  EXPECT_PROP_ISNULL(!TypedValue::Null);
+  EXPECT_PROP_ISNULL(!TypedValue());
   EXPECT_THROW(!TypedValue(0), TypedValueException);
   EXPECT_THROW(!TypedValue(0.2), TypedValueException);
   EXPECT_THROW(!TypedValue("something"), TypedValueException);
 }
 
 TEST(TypedValue, UnaryMinus) {
-  EXPECT_TRUE((-TypedValue::Null).type() == TypedValue::Type::Null);
+  EXPECT_TRUE((-TypedValue()).type() == TypedValue::Type::Null);
 
   EXPECT_PROP_EQ((-TypedValue(2).Value<int64_t>()), -2);
   EXPECT_FLOAT_EQ((-TypedValue(2.0).Value<double>()), -2.0);
@@ -231,7 +231,7 @@ TEST(TypedValue, UnaryMinus) {
 }
 
 TEST(TypedValue, UnaryPlus) {
-  EXPECT_TRUE((+TypedValue::Null).type() == TypedValue::Type::Null);
+  EXPECT_TRUE((+TypedValue()).type() == TypedValue::Type::Null);
 
   EXPECT_PROP_EQ((+TypedValue(2).Value<int64_t>()), 2);
   EXPECT_FLOAT_EQ((+TypedValue(2.0).Value<double>()), 2.0);
@@ -285,8 +285,8 @@ class TypedValueArithmeticTest : public AllTypesFixture {
 
     // null resulting ops
     for (const TypedValue &value : values_) {
-      EXPECT_PROP_ISNULL(op(value, TypedValue::Null));
-      EXPECT_PROP_ISNULL(op(TypedValue::Null, value));
+      EXPECT_PROP_ISNULL(op(value, TypedValue()));
+      EXPECT_PROP_ISNULL(op(TypedValue(), value));
     }
   }
 };
@@ -403,8 +403,8 @@ TEST_F(TypedValueLogicTest, LogicalAnd) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
 
-  EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
-  EXPECT_PROP_EQ(TypedValue::Null && TypedValue(false), TypedValue(false));
+  EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
+  EXPECT_PROP_EQ(TypedValue() && TypedValue(false), TypedValue(false));
   EXPECT_PROP_EQ(TypedValue(true) && TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));
 }
@@ -413,8 +413,8 @@ TEST_F(TypedValueLogicTest, LogicalOr) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
 
-  EXPECT_PROP_ISNULL(TypedValue::Null || TypedValue(false));
-  EXPECT_PROP_EQ(TypedValue::Null || TypedValue(true), TypedValue(true));
+  EXPECT_PROP_ISNULL(TypedValue() || TypedValue(false));
+  EXPECT_PROP_EQ(TypedValue() || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));
 }
@@ -423,7 +423,7 @@ TEST_F(TypedValueLogicTest, LogicalXor) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
 
-  EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
+  EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(true), TypedValue(false));
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(false), TypedValue(true));

@@ -115,7 +115,7 @@ struct Callback {
 
 TypedValue EvaluateOptionalExpression(Expression *expression,
                                       ExpressionEvaluator *eval) {
-  return expression ? expression->Accept(*eval) : TypedValue::Null;
+  return expression ? expression->Accept(*eval) : TypedValue();
 }
 
 Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,

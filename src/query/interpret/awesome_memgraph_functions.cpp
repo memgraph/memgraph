@@ -41,7 +41,7 @@ TypedValue EndNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Edge:
       return args[0].Value<EdgeAccessor>().to();
     default:
@@ -56,10 +56,10 @@ TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::List: {
       const auto &list = args[0].ValueList();
-      if (list.empty()) return TypedValue::Null;
+      if (list.empty()) return TypedValue();
       return list[0];
     }
     default:
@@ -74,10 +74,10 @@ TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::List: {
       const auto &list = args[0].ValueList();
-      if (list.empty()) return TypedValue::Null;
+      if (list.empty()) return TypedValue();
       return list.back();
     }
     default:
@@ -100,7 +100,7 @@ TypedValue Properties(TypedValue *args, int64_t nargs,
   };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex:
       return get_properties(args[0].Value<VertexAccessor>());
     case TypedValue::Type::Edge:
@@ -118,7 +118,7 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::List:
       return static_cast<int64_t>(
           args[0].ValueList().size());
@@ -144,7 +144,7 @@ TypedValue StartNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Edge:
       return args[0].Value<EdgeAccessor>().from();
     default:
@@ -159,7 +159,7 @@ TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
       return static_cast<int64_t>(vertex.out_degree() + vertex.in_degree());
@@ -177,7 +177,7 @@ TypedValue InDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
 
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
       return static_cast<int64_t>(vertex.in_degree());
@@ -195,7 +195,7 @@ TypedValue OutDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
 
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
       return static_cast<int64_t>(vertex.out_degree());
@@ -212,7 +212,7 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Bool:
       return args[0].Value<bool>();
     case TypedValue::Type::Int:
@@ -223,7 +223,7 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
       if (s == "FALSE") return false;
       // I think this is just stupid and that exception should be thrown, but
       // neo4j does it this way...
-      return TypedValue::Null;
+      return TypedValue();
     }
     default:
       throw QueryRuntimeException(
@@ -238,7 +238,7 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Int:
       return static_cast<double>(args[0].Value<int64_t>());
     case TypedValue::Type::Double:
@@ -247,7 +247,7 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs, const EvaluationContext &,
       try {
         return utils::ParseDouble(utils::Trim(args[0].ValueString()));
       } catch (const utils::BasicException &) {
-        return TypedValue::Null;
+        return TypedValue();
       }
     default:
       throw QueryRuntimeException(
@@ -262,7 +262,7 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Bool:
       return args[0].ValueBool() ? 1L : 0L;
     case TypedValue::Type::Int:
@@ -276,7 +276,7 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs, const EvaluationContext &,
         return static_cast<int64_t>(
             utils::ParseDouble(utils::Trim(args[0].ValueString())));
       } catch (const utils::BasicException &) {
-        return TypedValue::Null;
+        return TypedValue();
       }
     default:
       throw QueryRuntimeException(
@@ -291,7 +291,7 @@ TypedValue Type(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Edge:
       return dba->EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType());
     default:
@@ -313,7 +313,7 @@ TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &,
   };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex:
       return get_keys(args[0].Value<VertexAccessor>());
     case TypedValue::Type::Edge:
@@ -330,7 +330,7 @@ TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Vertex: {
       std::vector<TypedValue> labels;
       for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
@@ -348,7 +348,7 @@ TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &,
   if (nargs != 1) {
     throw QueryRuntimeException("'nodes' requires exactly one argument.");
   }
-  if (args[0].IsNull()) return TypedValue::Null;
+  if (args[0].IsNull()) return TypedValue();
   if (!args[0].IsPath()) {
     throw QueryRuntimeException("'nodes' argument should be a path.");
   }
@@ -363,7 +363,7 @@ TypedValue Relationships(TypedValue *args, int64_t nargs,
     throw QueryRuntimeException(
         "'relationships' requires exactly one argument.");
   }
-  if (args[0].IsNull()) return TypedValue::Null;
+  if (args[0].IsNull()) return TypedValue();
   if (!args[0].IsPath()) {
     throw QueryRuntimeException("'relationships' argument must be a path.");
   }
@@ -385,7 +385,7 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &,
     }
   };
   for (int64_t i = 0; i < nargs; ++i) check_type(args[i]);
-  if (has_null) return TypedValue::Null;
+  if (has_null) return TypedValue();
   auto lbound = args[0].Value<int64_t>();
   auto rbound = args[1].Value<int64_t>();
   int64_t step = nargs == 3 ? args[2].Value<int64_t>() : 1;
@@ -412,7 +412,7 @@ TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::List: {
       auto list = args[0].ValueList();
       if (list.empty()) return list;
@@ -435,7 +435,7 @@ TypedValue UniformSample(TypedValue *args, int64_t nargs,
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue::Null;
+        return TypedValue();
       }
       throw QueryRuntimeException(
           "Second argument of 'uniformSample' must be a non-negative integer.");
@@ -443,7 +443,7 @@ TypedValue UniformSample(TypedValue *args, int64_t nargs,
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
         auto &population = args[0].ValueList();
         auto population_size = population.size();
-        if (population_size == 0) return TypedValue::Null;
+        if (population_size == 0) return TypedValue();
         auto desired_length = args[1].ValueInt();
         std::uniform_int_distribution<uint64_t> rand_dist{0,
                                                           population_size - 1};
@@ -469,7 +469,7 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Int:
       return static_cast<int64_t>(
           std::abs(static_cast<long long>(args[0].Value<int64_t>())));
@@ -489,7 +489,7 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &,
     }                                                                         \
     switch (args[0].type()) {                                                 \
       case TypedValue::Type::Null:                                            \
-        return TypedValue::Null;                                              \
+        return TypedValue();                                                  \
       case TypedValue::Type::Int:                                             \
         return lowercased_name(args[0].Value<int64_t>());                     \
       case TypedValue::Type::Double:                                          \
@@ -523,8 +523,8 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &,
   if (nargs != 2) {
     throw QueryRuntimeException("'atan2' requires two arguments.");
   }
-  if (args[0].type() == TypedValue::Type::Null) return TypedValue::Null;
-  if (args[1].type() == TypedValue::Type::Null) return TypedValue::Null;
+  if (args[0].type() == TypedValue::Type::Null) return TypedValue();
+  if (args[1].type() == TypedValue::Type::Null) return TypedValue();
   auto to_double = [](const TypedValue &t) -> double {
     switch (t.type()) {
       case TypedValue::Type::Int:
@@ -548,7 +548,7 @@ TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &,
   auto sign = [](auto x) { return (0 < x) - (x < 0); };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::Int:
       return sign(args[0].Value<int64_t>());
     case TypedValue::Type::Double:
@@ -604,7 +604,7 @@ TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
   };
   check_arg(args[0]);
   check_arg(args[1]);
-  if (has_null) return TypedValue::Null;
+  if (has_null) return TypedValue();
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
   return Predicate(s1, s2);
@@ -731,7 +731,7 @@ TypedValue ToString(TypedValue *args, int64_t nargs, const EvaluationContext &,
   auto &arg = args[0];
   switch (arg.type()) {
     case TypedValue::Type::Null:
-      return TypedValue::Null;
+      return TypedValue();
     case TypedValue::Type::String:
       return arg;
     case TypedValue::Type::Int:
@@ -762,7 +762,7 @@ TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &,
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue::Null;
+        return TypedValue();
       }
       throw QueryRuntimeException(
           "Second argument of 'left' must be a non-negative integer.");
@@ -788,7 +788,7 @@ TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &,
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue::Null;
+        return TypedValue();
       }
       throw QueryRuntimeException(
           "Second argument of 'right' must be a non-negative integer.");
@@ -893,7 +893,7 @@ TypedValue Replace(TypedValue *args, int64_t nargs, const EvaluationContext &,
         "Third argument of 'replace' should be a string.");
   }
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
-    return TypedValue::Null;
+    return TypedValue();
   }
   return utils::Replace(args[0].ValueString(), args[1].ValueString(),
                         args[2].ValueString());
@@ -913,7 +913,7 @@ TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &,
         "Second argument of 'split' should be a string.");
   }
   if (args[0].IsNull() || args[1].IsNull()) {
-    return TypedValue::Null;
+    return TypedValue();
   }
   std::vector<TypedValue> result;
   for (const auto &str :
@@ -941,7 +941,7 @@ TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,
         "Third argument of 'substring' should be a non-negative integer.");
   }
   if (args[0].IsNull()) {
-    return TypedValue::Null;
+    return TypedValue();
   }
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();

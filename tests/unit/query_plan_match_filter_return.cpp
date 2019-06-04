@@ -1545,8 +1545,8 @@ TEST(QueryPlan, Distinct) {
   check_distinct({1, 1, 2, 3, 3, 3}, {1, 2, 3}, true);
   check_distinct({3, 2, 3, 5, 3, 5, 2, 1, 2}, {3, 2, 5, 1}, true);
   check_distinct(
-      {3, "two", TypedValue::Null, 3, true, false, "TWO", TypedValue::Null},
-      {3, "two", TypedValue::Null, true, false, "TWO"}, false);
+      {3, "two", TypedValue(), 3, true, false, "TWO", TypedValue()},
+      {3, "two", TypedValue(), true, false, "TWO"}, false);
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
@@ -1786,7 +1786,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   SymbolTable symbol_table;
   auto scan_all =
       MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop,
-                                      "prop", LITERAL(TypedValue::Null));
+                                      "prop", LITERAL(TypedValue()));
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));
@@ -1820,8 +1820,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyRange(
       storage, symbol_table, "n", label, prop, "prop",
-      Bound{LITERAL(TypedValue::Null), Bound::Type::INCLUSIVE},
-      Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE});
+      Bound{LITERAL(TypedValue()), Bound::Type::INCLUSIVE},
+      Bound{LITERAL(TypedValue()), Bound::Type::EXCLUSIVE});
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));

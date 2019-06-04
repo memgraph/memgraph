@@ -1637,7 +1637,7 @@ class ConstructNamedPathCursor : public Cursor {
 
     // In an OPTIONAL MATCH everything could be Null.
     if (start_vertex.IsNull()) {
-      frame[self_.path_symbol_] = TypedValue::Null;
+      frame[self_.path_symbol_] = TypedValue();
       return true;
     }
 
@@ -1657,7 +1657,7 @@ class ConstructNamedPathCursor : public Cursor {
       //  list (variable expand or BFS).
       switch (expansion.type()) {
         case TypedValue::Type::Null:
-          frame[self_.path_symbol_] = TypedValue::Null;
+          frame[self_.path_symbol_] = TypedValue();
           return true;
         case TypedValue::Type::Vertex:
           if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
@@ -2390,7 +2390,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element) {
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
-      return TypedValue::Null;
+      return TypedValue();
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(std::vector<TypedValue>());
     case Aggregation::Op::COLLECT_MAP:
@@ -2423,7 +2423,7 @@ class AggregateCursor : public Cursor {
           frame[elem.output_sym] = DefaultAggregationOpValue(elem);
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_)
-          frame[remember_sym] = TypedValue::Null;
+          frame[remember_sym] = TypedValue();
         return true;
       }
     }
@@ -3090,7 +3090,7 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
         // optional symbols to Null, ensure next time the
         // input gets pulled and return true
         for (const Symbol &sym : self_.optional_symbols_)
-          frame[sym] = TypedValue::Null;
+          frame[sym] = TypedValue();
         pull_input_ = true;
         return true;
       }

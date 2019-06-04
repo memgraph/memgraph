@@ -381,7 +381,7 @@ TEST_P(CypherMainVisitorTest, NullLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(
-      return_clause->body_.named_expressions[0]->expression_, TypedValue::Null,
+      return_clause->body_.named_expressions[0]->expression_, TypedValue(),
       1);
 }
 
@@ -638,7 +638,7 @@ TEST_P(CypherMainVisitorTest, CaseGenericForm) {
   auto *condition2 = dynamic_cast<GreaterOperator *>(if_operator2->condition_);
   ASSERT_TRUE(condition2);
   ast_generator.CheckLiteral(if_operator2->then_expression_, 2);
-  ast_generator.CheckLiteral(if_operator2->else_expression_, TypedValue::Null);
+  ast_generator.CheckLiteral(if_operator2->else_expression_, TypedValue());
 }
 
 TEST_P(CypherMainVisitorTest, CaseGenericFormElse) {
@@ -672,7 +672,7 @@ TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
   ast_generator.CheckLiteral(condition->expression1_, 5);
   ast_generator.CheckLiteral(condition->expression2_, 10);
   ast_generator.CheckLiteral(if_operator->then_expression_, 1);
-  ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue::Null);
+  ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue());
 }
 
 TEST_P(CypherMainVisitorTest, IsNull) {
@@ -2082,7 +2082,7 @@ TEST_P(CypherMainVisitorTest, CreateUser) {
                    AuthQuery::Action::CREATE_USER, "user", "", "", "", {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null",
                    AuthQuery::Action::CREATE_USER, "user", "", "",
-                   TypedValue::Null, {});
+                   TypedValue(), {});
   ASSERT_THROW(
       ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"),
       SyntaxException);
@@ -2099,7 +2099,7 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
                SyntaxException);
   check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null",
                    AuthQuery::Action::SET_PASSWORD, "user", "", "",
-                   TypedValue::Null, {});
+                   TypedValue(), {});
   check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'",
                    AuthQuery::Action::SET_PASSWORD, "user", "", "", "password",
                    {});

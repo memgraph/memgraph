@@ -411,7 +411,7 @@ TEST(QueryPlan, DeleteNull) {
 
   auto once = std::make_shared<Once>();
   auto delete_op = std::make_shared<plan::Delete>(
-      once, std::vector<Expression *>{LITERAL(TypedValue::Null)}, false);
+      once, std::vector<Expression *>{LITERAL(TypedValue())}, false);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
@@ -861,7 +861,7 @@ TEST(QueryPlan, SetPropertyOnNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
-  auto null = LITERAL(TypedValue::Null);
+  auto null = LITERAL(TypedValue());
   auto literal = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP(null, prop);
   auto once = std::make_shared<Once>();
@@ -912,7 +912,7 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
-  auto null = LITERAL(TypedValue::Null);
+  auto null = LITERAL(TypedValue());
   auto n_prop = PROPERTY_LOOKUP(null, prop);
   auto once = std::make_shared<Once>();
   auto remove_op =

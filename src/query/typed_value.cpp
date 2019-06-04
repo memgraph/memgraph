@@ -185,7 +185,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
       new (&path_v) Path(std::move(other.path_v), memory_);
       break;
   }
-  other = TypedValue::Null;
+  other.DestroyValue();
 }
 
 TypedValue::operator PropertyValue() const {
@@ -508,12 +508,10 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&path_v) Path(std::move(other.path_v), memory_);
         break;
     }
-    other = TypedValue::Null;
+    other.DestroyValue();
   }
   return *this;
 }
-
-const TypedValue TypedValue::Null = TypedValue();
 
 void TypedValue::DestroyValue() {
   switch (type_) {
