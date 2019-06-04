@@ -28,6 +28,9 @@ add_subdirectory(ha/index)
 # distributed ha/large_log_entries binaries
 add_subdirectory(ha/large_log_entries)
 
+# distributed ha/leader_election binaries
+add_subdirectory(ha/leader_election)
+
 # distributed ha/term_updates binaries
 add_subdirectory(ha/term_updates)
 

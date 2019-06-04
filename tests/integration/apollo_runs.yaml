@@ -112,6 +112,16 @@
     - ../../../../build_debug/memgraph_ha # memgraph ha binary
     - ../../../../build_debug/tests/integration/ha/large_log_entries/tester # tester binary
 
+- name: integration__ha_leader_election
+  cd: ha/leader_election
+  commands: TIMEOUT=300 ./runner.py
+  infiles:
+    - runner.py # runner script
+    - raft.json # raft configuration
+    - ../ha_test.py # raft test base module
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
+    - ../../../../build_debug/tests/integration/ha/leader_election/tester # tester binary
+
 - name: integration__ha_log_compaction
   cd: ha/log_compaction
   commands: ./runner.py
