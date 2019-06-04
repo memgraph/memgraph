@@ -13,13 +13,16 @@
 
 #include "database/single_node/exceptions.hpp"
 #include "database/single_node/graph_db.hpp"
-#include "storage/common/constraints/exceptions.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
 #include "utils/bound.hpp"
+
+namespace storage::constraints {
+struct ConstraintEntry;
+}  // namespace storage::constraints
 
 namespace database {
 /**

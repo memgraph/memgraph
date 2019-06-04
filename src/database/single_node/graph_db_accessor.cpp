@@ -6,6 +6,7 @@
 #include <glog/logging.h>
 
 #include "durability/single_node/state_delta.hpp"
+#include "storage/common/constraints/exceptions.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex.hpp"
