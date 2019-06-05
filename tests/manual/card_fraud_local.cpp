@@ -27,10 +27,10 @@ int main(int argc, char *argv[]) {
   cluster.Execute("UNWIND range(0, $pos_count) AS id CREATE (:Pos {id:id})",
                   {{"pos_count", kPosCount - 1}});
 
-  CheckResults(cluster.Execute("MATCH (:Pos) RETURN count(1)"), {{kPosCount}},
-               "Failed to create POS");
-  CheckResults(cluster.Execute("MATCH (:Card) RETURN count(1)"), {{kCardCount}},
-               "Failed to create Cards");
+  CheckResults(cluster.Execute("MATCH (:Pos) RETURN count(1)"),
+               {{query::TypedValue(kPosCount)}}, "Failed to create POS");
+  CheckResults(cluster.Execute("MATCH (:Card) RETURN count(1)"),
+               {{query::TypedValue(kCardCount)}}, "Failed to create Cards");
 
   std::atomic<int> tx_counter{0};
   auto create_tx = [&cluster, kCardCount, kPosCount, &tx_counter](int count) {
@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
             {{"pos", rint(kPosCount)},
              {"card", rint(kCardCount)},
              {"tx", tx_counter++}});
-        CheckResults(res, {{1}}, "Transaction creation");
+        CheckResults(res, {{query::TypedValue(1)}}, "Transaction creation");
       } catch (utils::LockTimeoutException &) {
         --i;
       } catch (mvcc::SerializationError &) {
@@ -68,9 +68,10 @@ int main(int argc, char *argv[]) {
     tx_creators.emplace_back(create_tx, FLAGS_tx_per_thread);
   for (auto &t : tx_creators) t.join();
 
-  CheckResults(cluster.Execute("MATCH (:Transaction) RETURN count(1)"),
-               {{FLAGS_num_tx_creators * FLAGS_tx_per_thread}},
-               "Failed to create Transactions");
+  CheckResults(
+      cluster.Execute("MATCH (:Transaction) RETURN count(1)"),
+      {{query::TypedValue(FLAGS_num_tx_creators * FLAGS_tx_per_thread)}},
+      "Failed to create Transactions");
 
   LOG(INFO) << "Test terminated successfully";
   return 0;

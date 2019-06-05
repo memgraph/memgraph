@@ -120,17 +120,16 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::List:
-      return static_cast<int64_t>(
-          args[0].ValueList().size());
+      return TypedValue(static_cast<int64_t>(args[0].ValueList().size()));
     case TypedValue::Type::String:
-      return static_cast<int64_t>(args[0].ValueString().size());
+      return TypedValue(static_cast<int64_t>(args[0].ValueString().size()));
     case TypedValue::Type::Map:
       // neo4j doesn't implement size for map, but I don't see a good reason not
       // to do it.
-      return static_cast<int64_t>(
-          args[0].ValueMap().size());
+      return TypedValue(static_cast<int64_t>(args[0].ValueMap().size()));
     case TypedValue::Type::Path:
-      return static_cast<int64_t>(args[0].ValuePath().edges().size());
+      return TypedValue(
+          static_cast<int64_t>(args[0].ValuePath().edges().size()));
     default:
       throw QueryRuntimeException(
           "'size' argument must be a string, a collection or a path.");
@@ -162,7 +161,8 @@ TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
-      return static_cast<int64_t>(vertex.out_degree() + vertex.in_degree());
+      return TypedValue(
+          static_cast<int64_t>(vertex.out_degree() + vertex.in_degree()));
     }
     default:
       throw QueryRuntimeException("'degree' argument must be a node.");
@@ -180,7 +180,7 @@ TypedValue InDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
-      return static_cast<int64_t>(vertex.in_degree());
+      return TypedValue(static_cast<int64_t>(vertex.in_degree()));
     }
     default:
       throw QueryRuntimeException("'inDegree' argument must be a node.");
@@ -198,7 +198,7 @@ TypedValue OutDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return TypedValue();
     case TypedValue::Type::Vertex: {
       auto &vertex = args[0].Value<VertexAccessor>();
-      return static_cast<int64_t>(vertex.out_degree());
+      return TypedValue(static_cast<int64_t>(vertex.out_degree()));
     }
     default:
       throw QueryRuntimeException("'outDegree' argument must be a node.");
@@ -214,13 +214,13 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Bool:
-      return args[0].Value<bool>();
+      return TypedValue(args[0].Value<bool>());
     case TypedValue::Type::Int:
-      return args[0].ValueInt() != 0L;
+      return TypedValue(args[0].ValueInt() != 0L);
     case TypedValue::Type::String: {
       auto s = utils::ToUpperCase(utils::Trim(args[0].ValueString()));
-      if (s == "TRUE") return true;
-      if (s == "FALSE") return false;
+      if (s == "TRUE") return TypedValue(true);
+      if (s == "FALSE") return TypedValue(false);
       // I think this is just stupid and that exception should be thrown, but
       // neo4j does it this way...
       return TypedValue();
@@ -240,12 +240,13 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Int:
-      return static_cast<double>(args[0].Value<int64_t>());
+      return TypedValue(static_cast<double>(args[0].Value<int64_t>()));
     case TypedValue::Type::Double:
       return args[0];
     case TypedValue::Type::String:
       try {
-        return utils::ParseDouble(utils::Trim(args[0].ValueString()));
+        return TypedValue(
+            utils::ParseDouble(utils::Trim(args[0].ValueString())));
       } catch (const utils::BasicException &) {
         return TypedValue();
       }
@@ -264,17 +265,17 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Bool:
-      return args[0].ValueBool() ? 1L : 0L;
+      return TypedValue(args[0].ValueBool() ? 1L : 0L);
     case TypedValue::Type::Int:
       return args[0];
     case TypedValue::Type::Double:
-      return static_cast<int64_t>(args[0].Value<double>());
+      return TypedValue(static_cast<int64_t>(args[0].Value<double>()));
     case TypedValue::Type::String:
       try {
         // Yup, this is correct. String is valid if it has floating point
         // number, then it is parsed and converted to int.
-        return static_cast<int64_t>(
-            utils::ParseDouble(utils::Trim(args[0].ValueString())));
+        return TypedValue(static_cast<int64_t>(
+            utils::ParseDouble(utils::Trim(args[0].ValueString()))));
       } catch (const utils::BasicException &) {
         return TypedValue();
       }
@@ -395,11 +396,11 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &,
   std::vector<TypedValue> list;
   if (lbound <= rbound && step > 0) {
     for (auto i = lbound; i <= rbound; i += step) {
-      list.push_back(i);
+      list.emplace_back(i);
     }
   } else if (lbound >= rbound && step < 0) {
     for (auto i = lbound; i >= rbound; i += step) {
-      list.push_back(i);
+      list.emplace_back(i);
     }
   }
   return list;
@@ -471,10 +472,9 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Int:
-      return static_cast<int64_t>(
-          std::abs(static_cast<long long>(args[0].Value<int64_t>())));
+      return TypedValue(std::abs(args[0].Value<int64_t>()));
     case TypedValue::Type::Double:
-      return std::abs(args[0].Value<double>());
+      return TypedValue(std::abs(args[0].Value<double>()));
     default:
       throw QueryRuntimeException("'abs' argument should be a number.");
   }
@@ -491,9 +491,9 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &,
       case TypedValue::Type::Null:                                            \
         return TypedValue();                                                  \
       case TypedValue::Type::Int:                                             \
-        return lowercased_name(args[0].Value<int64_t>());                     \
+        return TypedValue(lowercased_name(args[0].Value<int64_t>()));         \
       case TypedValue::Type::Double:                                          \
-        return lowercased_name(args[0].Value<double>());                      \
+        return TypedValue(lowercased_name(args[0].Value<double>()));          \
       default:                                                                \
         throw QueryRuntimeException(#lowercased_name                          \
                                     " argument must be a number.");           \
@@ -537,7 +537,7 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &,
   };
   double y = to_double(args[0]);
   double x = to_double(args[1]);
-  return atan2(y, x);
+  return TypedValue(atan2(y, x));
 }
 
 TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &,
@@ -545,7 +545,7 @@ TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &,
   if (nargs != 1) {
     throw QueryRuntimeException("'sign' requires exactly one argument.");
   }
-  auto sign = [](auto x) { return (0 < x) - (x < 0); };
+  auto sign = [](auto x) { return TypedValue((0 < x) - (x < 0)); };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue();
@@ -563,7 +563,7 @@ TypedValue E(TypedValue *, int64_t nargs, const EvaluationContext &,
   if (nargs != 0) {
     throw QueryRuntimeException("'e' requires no arguments.");
   }
-  return M_E;
+  return TypedValue(M_E);
 }
 
 TypedValue Pi(TypedValue *, int64_t nargs, const EvaluationContext &,
@@ -571,7 +571,7 @@ TypedValue Pi(TypedValue *, int64_t nargs, const EvaluationContext &,
   if (nargs != 0) {
     throw QueryRuntimeException("'pi' requires no arguments.");
   }
-  return M_PI;
+  return TypedValue(M_PI);
 }
 
 TypedValue Rand(TypedValue *, int64_t nargs, const EvaluationContext &,
@@ -581,7 +581,7 @@ TypedValue Rand(TypedValue *, int64_t nargs, const EvaluationContext &,
   if (nargs != 0) {
     throw QueryRuntimeException("'rand' requires no arguments.");
   }
-  return rand_dist_(pseudo_rand_gen_);
+  return TypedValue(rand_dist_(pseudo_rand_gen_));
 }
 
 template <bool (*Predicate)(const TypedValue::TString &s1,
@@ -607,7 +607,7 @@ TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
   if (has_null) return TypedValue();
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
-  return Predicate(s1, s2);
+  return TypedValue(Predicate(s1, s2));
 }
 
 // Check if s1 starts with s2.
@@ -682,7 +682,7 @@ TypedValue Counter(TypedValue *args, int64_t nargs,
   auto value = it->second;
   it->second += step;
 
-  return value;
+  return TypedValue(value);
 }
 #endif
 
@@ -695,9 +695,9 @@ TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
   auto &arg = args[0];
   switch (arg.type()) {
     case TypedValue::Type::Vertex:
-      return arg.ValueVertex().GlobalAddress().worker_id();
+      return TypedValue(arg.ValueVertex().GlobalAddress().worker_id());
     case TypedValue::Type::Edge:
-      return arg.ValueEdge().GlobalAddress().worker_id();
+      return TypedValue(arg.ValueEdge().GlobalAddress().worker_id());
     default:
       throw QueryRuntimeException(
           "'workerId' argument must be a node or an edge.");
@@ -739,7 +739,7 @@ TypedValue ToString(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Double:
       return std::to_string(arg.ValueDouble());
     case TypedValue::Type::Bool:
-      return arg.ValueBool() ? "true" : "false";
+      return TypedValue(arg.ValueBool() ? "true" : "false");
     default:
       throw QueryRuntimeException(
           "'toString' argument must be a number, a string or a boolean.");
@@ -751,7 +751,7 @@ TypedValue Timestamp(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
   if (nargs != 0) {
     throw QueryRuntimeException("'timestamp' requires no arguments.");
   }
-  return ctx.timestamp;
+  return TypedValue(ctx.timestamp);
 }
 
 TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &,

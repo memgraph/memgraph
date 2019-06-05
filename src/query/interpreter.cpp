@@ -674,7 +674,7 @@ Callback HandleInfoQuery(InfoQuery *info_query,
                            return db_accessor->PropertyName(p);
                          });
 
-          std::vector<TypedValue> constraint{"unique",
+          std::vector<TypedValue> constraint{TypedValue("unique"),
                                              db_accessor->LabelName(e.label),
                                              utils::Join(property_names, ",")};
 
@@ -691,8 +691,10 @@ Callback HandleInfoQuery(InfoQuery *info_query,
       callback.header = {"info", "value"};
       callback.fn = [db_accessor] {
         std::vector<std::vector<TypedValue>> results(
-            {{"is_leader", db_accessor->raft()->IsLeader()},
-             {"term_id", static_cast<int64_t>(db_accessor->raft()->TermId())}});
+            {{TypedValue("is_leader"),
+              TypedValue(db_accessor->raft()->IsLeader())},
+             {TypedValue("term_id"), TypedValue(static_cast<int64_t>(
+                                         db_accessor->raft()->TermId()))}});
         return results;
       };
       // It is critical to abort this query because it can be executed on

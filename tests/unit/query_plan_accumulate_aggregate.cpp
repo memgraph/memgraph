@@ -591,13 +591,13 @@ TEST(QueryPlan, Unwind) {
   ASSERT_EQ(4, results.size());
   const std::vector<int> expected_x_card{3, 3, 3, 1};
   auto expected_x_card_it = expected_x_card.begin();
-  const std::vector<TypedValue> expected_y{1, true, "x", "bla"};
+  const std::vector<TypedValue> expected_y{TypedValue(1), TypedValue(true),
+                                           TypedValue("x"), TypedValue("bla")};
   auto expected_y_it = expected_y.begin();
   for (const auto &row : results) {
     ASSERT_EQ(2, row.size());
     ASSERT_EQ(row[0].type(), TypedValue::Type::List);
-    EXPECT_EQ(row[0].ValueList().size(),
-              *expected_x_card_it);
+    EXPECT_EQ(row[0].ValueList().size(), *expected_x_card_it);
     EXPECT_EQ(row[1].type(), expected_y_it->type());
     expected_x_card_it++;
     expected_y_it++;

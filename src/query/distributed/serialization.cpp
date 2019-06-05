@@ -88,19 +88,19 @@ void Load(query::TypedValue *value, slk::Reader *reader,
     case static_cast<uint8_t>(1): {
       bool v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = query::TypedValue(v);
       return;
     }
     case static_cast<uint8_t>(2): {
       int64_t v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = query::TypedValue(v);
       return;
     }
     case static_cast<uint8_t>(3): {
       double v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = query::TypedValue(v);
       return;
     }
     case static_cast<uint8_t>(4): {

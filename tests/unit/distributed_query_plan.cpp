@@ -343,7 +343,7 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
 
   ASSERT_EQ(results.size(), 300);
   for (int j = 0; j < 300; ++j) {
-    EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], j));
+    EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], TypedValue(j)));
   }
 }
 

@@ -50,10 +50,13 @@ class Base {
     }
   }
 
-  void CheckLiteral(Expression *expression, const TypedValue &expected,
+  template <class TValue>
+  void CheckLiteral(Expression *expression, const TValue &expected,
                     const std::optional<int> &token_position = std::nullopt) {
     TypedValue value;
-    if (!expected.IsNull() && context_.is_query_cached) {
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    TypedValue expected_tv(expected);
+    if (!expected_tv.IsNull() && context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
       ASSERT_TRUE(param_lookup);
       if (token_position)
@@ -65,7 +68,7 @@ class Base {
       if (token_position) ASSERT_EQ(literal->token_position_, *token_position);
       value = literal->value_;
     }
-    EXPECT_TRUE(TypedValue::BoolEqual{}(value, expected));
+    EXPECT_TRUE(TypedValue::BoolEqual{}(value, expected_tv));
   }
 };
 
@@ -2180,13 +2183,14 @@ TEST_P(CypherMainVisitorTest, CreateUser) {
   check_auth_query(&ast_generator, "CREATE USER user",
                    AuthQuery::Action::CREATE_USER, "user", "", "", {}, {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY 'password'",
-                   AuthQuery::Action::CREATE_USER, "user", "", "", "password",
-                   {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''",
-                   AuthQuery::Action::CREATE_USER, "user", "", "", "", {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null",
                    AuthQuery::Action::CREATE_USER, "user", "", "",
-                   TypedValue(), {});
+                   TypedValue("password"), {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''",
+                   AuthQuery::Action::CREATE_USER, "user", "", "",
+                   TypedValue(""), {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null",
+                   AuthQuery::Action::CREATE_USER, "user", "", "", TypedValue(),
+                   {});
   ASSERT_THROW(
       ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"),
       SyntaxException);
@@ -2205,8 +2209,8 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
                    AuthQuery::Action::SET_PASSWORD, "user", "", "",
                    TypedValue(), {});
   check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'",
-                   AuthQuery::Action::SET_PASSWORD, "user", "", "", "password",
-                   {});
+                   AuthQuery::Action::SET_PASSWORD, "user", "", "",
+                   TypedValue("password"), {});
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"),
                SyntaxException);
 }

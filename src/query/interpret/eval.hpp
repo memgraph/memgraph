@@ -137,7 +137,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // element in the list since result of every comparison will be NULL. There
     // is one special case that we must test explicitly: if list is empty then
     // result is false since no comparison will be performed.
-    if (list.size() == 0U) return false;
+    if (list.empty()) return TypedValue(false);
     if (literal.IsNull()) return TypedValue();
 
     auto has_null = false;
@@ -146,13 +146,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (result.IsNull()) {
         has_null = true;
       } else if (result.Value<bool>()) {
-        return true;
+        return TypedValue(true);
       }
     }
     if (has_null) {
       return TypedValue();
     }
-    return false;
+    return TypedValue(false);
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
@@ -261,7 +261,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(IsNullOperator &is_null) override {
     auto value = is_null.expression_->Accept(*this);
-    return value.IsNull();
+    return TypedValue(value.IsNull());
   }
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
@@ -296,10 +296,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         auto vertex = expression_result.Value<VertexAccessor>();
         for (const auto label : labels_test.labels_) {
           if (!vertex.has_label(GetLabel(label))) {
-            return false;
+            return TypedValue(false);
           }
         }
-        return true;
+        return TypedValue(true);
       }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
@@ -440,7 +440,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return result;
       }
     }
-    return true;
+    return TypedValue(true);
   }
 
   TypedValue Visit(Single &single) override {
@@ -468,12 +468,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       // Return false if more than one element satisfies the predicate.
       if (predicate_satisfied) {
-        return false;
+        return TypedValue(false);
       } else {
         predicate_satisfied = true;
       }
     }
-    return predicate_satisfied;
+    return TypedValue(predicate_satisfied);
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
@@ -500,7 +500,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &target_string = target_string_value.ValueString();
     try {
       std::regex regex(regex_value.ValueString());
-      return std::regex_match(target_string, regex);
+      return TypedValue(std::regex_match(target_string, regex));
     } catch (const std::regex_error &e) {
       throw QueryRuntimeException("Regex error in '{}': {}",
                                   regex_value.ValueString(), e.what());

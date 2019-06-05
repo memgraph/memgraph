@@ -52,8 +52,9 @@ class ProfilingStatsToTableHelper {
     auto cycles = IndividualCycles(cumulative_stats);
 
     rows_.emplace_back(std::vector<TypedValue>{
-        FormatOperator(cumulative_stats.name), cumulative_stats.actual_hits,
-        FormatRelativeTime(cycles), FormatAbsoluteTime(cycles)});
+        FormatOperator(cumulative_stats.name),
+        TypedValue(cumulative_stats.actual_hits), FormatRelativeTime(cycles),
+        FormatAbsoluteTime(cycles)});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
       Branch(cumulative_stats.children[i]);
@@ -68,7 +69,8 @@ class ProfilingStatsToTableHelper {
 
  private:
   void Branch(const ProfilingStats &cumulative_stats) {
-    rows_.emplace_back(std::vector<TypedValue>{"|\\", "", "", ""});
+    rows_.emplace_back(std::vector<TypedValue>{
+        TypedValue("|\\"), TypedValue(""), TypedValue(""), TypedValue("")});
 
     ++depth_;
     Output(cumulative_stats);

@@ -326,7 +326,7 @@ static void Aggregate(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     auto cursor = aggregate.MakeCursor(&dba, memory.get());
-    frame[symbols.front()] = 0;  // initial group_by value
+    frame[symbols.front()] = query::TypedValue(0);  // initial group_by value
     while (cursor->Pull(frame, execution_context))
       frame[symbols.front()].ValueInt()++;  // new group_by value
   }

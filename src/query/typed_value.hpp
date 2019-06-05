@@ -121,27 +121,26 @@ class TypedValue {
    */
   TypedValue(TypedValue &&other, utils::MemoryResource *memory);
 
-  // constructors for primitive types
-  TypedValue(bool value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      bool value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Bool) {
     bool_v = value;
   }
 
-  TypedValue(int value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      int value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Int) {
     int_v = value;
   }
 
-  TypedValue(int64_t value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      int64_t value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Int) {
     int_v = value;
   }
 
-  TypedValue(double value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;
   }
@@ -156,8 +155,8 @@ class TypedValue {
     new (&string_v) TString(value, memory_);
   }
 
-  TypedValue(const char *value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const char *value, utils::MemoryResource *memory =
+                                             utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }

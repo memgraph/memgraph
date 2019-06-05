@@ -1542,11 +1542,20 @@ TEST(QueryPlan, Distinct) {
     }
   };
 
-  check_distinct({1, 1, 2, 3, 3, 3}, {1, 2, 3}, true);
-  check_distinct({3, 2, 3, 5, 3, 5, 2, 1, 2}, {3, 2, 5, 1}, true);
+  check_distinct({TypedValue(1), TypedValue(1), TypedValue(2), TypedValue(3),
+                  TypedValue(3), TypedValue(3)},
+                 {TypedValue(1), TypedValue(2), TypedValue(3)}, true);
+  check_distinct({TypedValue(3), TypedValue(2), TypedValue(3), TypedValue(5),
+                  TypedValue(3), TypedValue(5), TypedValue(2), TypedValue(1),
+                  TypedValue(2)},
+                 {TypedValue(3), TypedValue(2), TypedValue(5), TypedValue(1)},
+                 true);
   check_distinct(
-      {3, "two", TypedValue(), 3, true, false, "TWO", TypedValue()},
-      {3, "two", TypedValue(), true, false, "TWO"}, false);
+      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(3),
+       TypedValue(true), TypedValue(false), TypedValue("TWO"), TypedValue()},
+      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(true),
+       TypedValue(false), TypedValue("TWO")},
+      false);
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
@@ -1625,14 +1634,20 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   };
 
   // normal ranges that return something
-  check(false, Bound::Type::INCLUSIVE, true, Bound::Type::EXCLUSIVE, {false});
-  check(false, Bound::Type::EXCLUSIVE, true, Bound::Type::INCLUSIVE, {true});
-  check("a", Bound::Type::EXCLUSIVE, "c", Bound::Type::EXCLUSIVE, {"b"});
-  check(0, Bound::Type::EXCLUSIVE, 2, Bound::Type::INCLUSIVE, {0.5, 1, 1.5, 2});
-  check(1.5, Bound::Type::EXCLUSIVE, 2.5, Bound::Type::INCLUSIVE, {2, 2.5});
-  check(std::vector<TypedValue>{0.5}, Bound::Type::EXCLUSIVE,
-        std::vector<TypedValue>{1.5}, Bound::Type::INCLUSIVE,
-        {TypedValue(std::vector<TypedValue>{1})});
+  check(TypedValue(false), Bound::Type::INCLUSIVE, TypedValue(true),
+        Bound::Type::EXCLUSIVE, {TypedValue(false)});
+  check(TypedValue(false), Bound::Type::EXCLUSIVE, TypedValue(true),
+        Bound::Type::INCLUSIVE, {TypedValue(true)});
+  check(TypedValue("a"), Bound::Type::EXCLUSIVE, TypedValue("c"),
+        Bound::Type::EXCLUSIVE, {TypedValue("b")});
+  check(TypedValue(0), Bound::Type::EXCLUSIVE, TypedValue(2),
+        Bound::Type::INCLUSIVE,
+        {TypedValue(0.5), TypedValue(1), TypedValue(1.5), TypedValue(2)});
+  check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5),
+        Bound::Type::INCLUSIVE, {TypedValue(2), TypedValue(2.5)});
+  check(std::vector<TypedValue>{TypedValue(0.5)}, Bound::Type::EXCLUSIVE,
+        std::vector<TypedValue>{TypedValue(1.5)}, Bound::Type::INCLUSIVE,
+        {TypedValue(std::vector<TypedValue>{TypedValue(1)})});
 
   // when a range contains different types, nothing should get returned
   for (const auto &value_a : values)
@@ -1682,7 +1697,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   auto vertex = row[0].Value<VertexAccessor>();
   auto value = vertex.PropsAt(prop);
   TypedValue::BoolEqual eq;
-  EXPECT_TRUE(eq(value, 42));
+  EXPECT_TRUE(eq(value, TypedValue(42)));
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyValueError) {

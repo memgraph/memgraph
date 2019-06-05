@@ -1398,12 +1398,12 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         throw QueryRuntimeException(
             "Calculated weight must be numeric, got {}.", typed_weight.type());
       }
-      if ((typed_weight < 0).Value<bool>()) {
+      if ((typed_weight < TypedValue(0)).Value<bool>()) {
         throw QueryRuntimeException("Calculated weight must be non-negative!");
       }
 
       auto next_state = create_state(vertex, depth);
-      auto next_weight = weight + typed_weight;
+      auto next_weight = TypedValue(weight) + typed_weight;
       auto found_it = total_cost_.find(next_state);
       if (found_it != total_cost_.end() &&
           found_it->second.Value<double>() <= next_weight.Value<double>())
@@ -2520,7 +2520,8 @@ class AggregateCursor : public Cursor {
         AggregationValue &agg_value = kv.second;
         int count = agg_value.counts_[pos];
         if (count > 0)
-          agg_value.values_[pos] = agg_value.values_[pos] / (double)count;
+          agg_value.values_[pos] =
+              agg_value.values_[pos] / TypedValue(static_cast<double>(count));
       }
     }
   }
