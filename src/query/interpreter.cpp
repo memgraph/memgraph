@@ -5,6 +5,9 @@
 #include <glog/logging.h>
 
 #include "auth/auth.hpp"
+#ifdef MG_SINGLE_NODE
+#include "database/single_node/dump.hpp"
+#endif
 #include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #include "integrations/kafka/exceptions.hpp"
@@ -33,6 +36,40 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace query {
+
+#ifdef MG_SINGLE_NODE
+namespace {
+
+class DumpClosure final {
+ public:
+  explicit DumpClosure(database::GraphDbAccessor *dba) : dump_generator_(dba) {}
+
+  // Please note that this copy constructor actually moves the other object. We
+  // want this because lambdas are not movable, i.e. its move constructor
+  // actually copies the lambda.
+  DumpClosure(const DumpClosure &other)
+      : dump_generator_(std::move(other.dump_generator_)) {}
+
+  DumpClosure(DumpClosure &&other) = default;
+  DumpClosure &operator=(const DumpClosure &other) = delete;
+  DumpClosure &operator=(DumpClosure &&other) = delete;
+  ~DumpClosure() {}
+
+  std::optional<std::vector<TypedValue>> operator()(Frame *frame,
+                                                    ExecutionContext *context) {
+    std::ostringstream oss;
+    if (dump_generator_.NextQuery(&oss)) {
+      return std::make_optional(std::vector<TypedValue>{oss.str()});
+    }
+    return std::nullopt;
+  }
+
+ private:
+  mutable database::CypherDumpGenerator dump_generator_;
+};
+
+}  // namespace
+#endif
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
@@ -728,10 +765,6 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
 #endif
 }
 
-Callback HandleDumpQuery(database::GraphDbAccessor *db_accessor) {
-  throw utils::NotYetImplemented("Dump database");
-}
-
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
 
 Interpreter::Results Interpreter::operator()(
@@ -950,6 +983,32 @@ Interpreter::Results Interpreter::operator()(
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
+  if (auto *dump_query = utils::Downcast<DumpQuery>(parsed_query.query)) {
+#ifdef MG_SINGLE_NODE
+    database::CypherDumpGenerator dump(&db_accessor);
+
+    SymbolTable symbol_table;
+    auto query_symbol = symbol_table.CreateSymbol("QUERY", false);
+
+    std::vector<Symbol> output_symbols = {query_symbol};
+    std::vector<std::string> header = {query_symbol.name()};
+
+    auto output_plan = std::make_unique<plan::OutputTableStream>(
+        output_symbols, DumpClosure(&db_accessor));
+    plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
+        std::move(output_plan), 0.0, AstStorage{}, symbol_table));
+
+    summary["planning_time"] = planning_timer.Elapsed().count();
+
+    return Results(&db_accessor, parameters, plan, output_symbols, header,
+                   summary, parsed_query.required_privileges,
+                   /* is_profile_query */ false,
+                   /* should_abort_query */ false);
+#else
+    throw utils::NotYetImplemented("Dump database");
+#endif
+  }
+
   Callback callback;
   if (auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query)) {
     if (in_explicit_transaction) {
@@ -994,9 +1053,6 @@ Interpreter::Results Interpreter::operator()(
   } else if (auto *constraint_query =
                  utils::Downcast<ConstraintQuery>(parsed_query.query)) {
     callback = HandleConstraintQuery(constraint_query, &db_accessor);
-  } else if (auto *dump_query =
-                 utils::Downcast<DumpQuery>(parsed_query.query)) {
-    callback = HandleDumpQuery(&db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }

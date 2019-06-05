@@ -105,13 +105,6 @@ std::string DumpNext(CypherDumpGenerator *dump) {
 
 class DatabaseEnvironment {
  public:
-  std::string DumpStr() {
-    auto dba = db_.Access();
-    std::ostringstream oss;
-    database::DumpToCypher(&oss, &dba);
-    return oss.str();
-  }
-
   GraphDbAccessor Access() { return db_.Access(); }
 
   DatabaseState GetState() {
@@ -493,4 +486,29 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   EXPECT_EQ(db.GetState(), db_dump.GetState());
   // Make sure that dump function doesn't make changes on the database.
   EXPECT_EQ(db.GetState(), db_initial_state);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(DumpTest, ExecuteDumpDatabase) {
+  DatabaseEnvironment db;
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {}, {}, false);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db.Access();
+    const std::string query = "DUMP DATABASE";
+    ResultStreamFaker<query::TypedValue> stream;
+    auto results = query::Interpreter()(query, dba, {}, false);
+
+    stream.Header(results.header());
+    results.PullAll(stream);
+    stream.Summary(results.summary());
+
+    EXPECT_EQ(stream.GetResults().size(), 4U);
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "QUERY");
+  }
 }

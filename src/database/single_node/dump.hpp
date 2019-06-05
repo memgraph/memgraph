@@ -17,6 +17,13 @@ class CypherDumpGenerator {
  public:
   explicit CypherDumpGenerator(GraphDbAccessor *dba);
 
+  CypherDumpGenerator(const CypherDumpGenerator &other) = delete;
+  // NOLINTNEXTLINE(performance-noexcept-move-constructor)
+  CypherDumpGenerator(CypherDumpGenerator &&other) = default;
+  CypherDumpGenerator &operator=(const CypherDumpGenerator &other) = delete;
+  CypherDumpGenerator &operator=(CypherDumpGenerator &&other) = delete;
+  ~CypherDumpGenerator() = default;
+
   bool NextQuery(std::ostream *os);
 
  private:
@@ -29,6 +36,13 @@ class CypherDumpGenerator {
           current_(container_.begin()),
           end_(container_.end()),
           empty_(current_ == end_) {}
+
+    ContainerState(const ContainerState &other) = delete;
+    // NOLINTNEXTLINE(hicpp-noexcept-move,performance-noexcept-move-constructor)
+    ContainerState(ContainerState &&other) = default;
+    ContainerState &operator=(const ContainerState &other) = delete;
+    ContainerState &operator=(ContainerState &&other) = delete;
+    ~ContainerState() = default;
 
     auto GetCurrentAndAdvance() {
       auto to_be_returned = current_;
@@ -63,11 +77,5 @@ class CypherDumpGenerator {
       vertices_state_;
   std::optional<ContainerState<decltype(dba_->Edges(false))>> edges_state_;
 };
-
-/// Dumps database state to output stream as openCypher queries.
-///
-/// Currently, it only dumps vertices and edges of the graph. In the future,
-/// it should also dump indexes, constraints, roles, etc.
-void DumpToCypher(std::ostream *os, GraphDbAccessor *dba);
 
 }  // namespace database

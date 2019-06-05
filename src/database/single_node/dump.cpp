@@ -162,11 +162,4 @@ bool CypherDumpGenerator::NextQuery(std::ostream *os) {
   return false;
 }
 
-void DumpToCypher(std::ostream *os, GraphDbAccessor *dba) {
-  CHECK(os && dba);
-
-  CypherDumpGenerator dump(dba);
-  while (dump.NextQuery(os)) continue;
-}
-
 }  // namespace database

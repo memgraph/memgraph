@@ -3502,4 +3502,50 @@ UniqueCursorPtr OutputTable::MakeCursor(database::GraphDbAccessor *,
   return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this);
 }
 
+OutputTableStream::OutputTableStream(
+    std::vector<Symbol> output_symbols,
+    std::function<std::optional<std::vector<TypedValue>>(Frame *,
+                                                         ExecutionContext *)>
+        callback)
+    : output_symbols_(std::move(output_symbols)),
+      callback_(std::move(callback)) {}
+
+WITHOUT_SINGLE_INPUT(OutputTableStream);
+
+class OutputTableStreamCursor : public Cursor {
+ public:
+  explicit OutputTableStreamCursor(const OutputTableStream *self)
+      : self_(self) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const auto row = self_->callback_(&frame, &context);
+    if (row) {
+      CHECK(row->size() == self_->output_symbols_.size())
+          << "Wrong number of columns in row!";
+      for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
+        frame[self_->output_symbols_[i]] = row->at(i);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // TODO(tsabolcec): Come up with better approach for handling `Reset()`.
+  // One possibility is to implement a custom closure utility class with
+  // `Reset()` method.
+  void Reset() override {
+    throw utils::NotYetImplemented("OutputTableStreamCursor::Reset");
+  }
+
+  void Shutdown() override {}
+
+ private:
+  const OutputTableStream *self_;
+};
+
+UniqueCursorPtr OutputTableStream::MakeCursor(
+    database::GraphDbAccessor *, utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this);
+}
+
 }  // namespace query::plan
