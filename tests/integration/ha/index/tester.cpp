@@ -6,7 +6,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/bolt/client.hpp"
+#include "communication/bolt/ha_client.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 #include "utils/timer.hpp"
@@ -29,60 +29,47 @@ int main(int argc, char **argv) {
   const std::string index = ":Node(id)";
 
   communication::Init();
+  try {
+    std::vector<io::network::Endpoint> endpoints(FLAGS_cluster_size);
+    for (int i = 0; i < FLAGS_cluster_size; ++i)
+      endpoints[i] = io::network::Endpoint(FLAGS_address, FLAGS_port + i);
 
-  bool successful = false;
-  for (int retry = 0; !successful && retry < 10; ++retry) {
-    for (int i = 0; !successful && i < FLAGS_cluster_size; ++i) {
-      try {
-        communication::ClientContext context(FLAGS_use_ssl);
-        communication::bolt::Client client(&context);
+    std::chrono::milliseconds retry_delay(1000);
+    communication::ClientContext context(FLAGS_use_ssl);
+    communication::bolt::HAClient client(endpoints, &context, FLAGS_username,
+                                         FLAGS_password, 25, retry_delay);
 
-        uint16_t port = FLAGS_port + i;
-        io::network::Endpoint endpoint{FLAGS_address, port};
-        client.Connect(endpoint, FLAGS_username, FLAGS_password);
+    if (FLAGS_step == "create") {
+      client.Execute(fmt::format("CREATE INDEX ON {}", index), {});
+      return 0;
+    } else if (FLAGS_step == "check") {
+      auto result = client.Execute("SHOW INDEX INFO", {});
+      auto checker = [&index](const std::vector<Value> &record) {
+        if (record.size() != 1) return false;
+        return record[0].ValueString() == index;
+      };
 
-        if (FLAGS_step == "create") {
-          client.Execute(fmt::format("create index on {}", index), {});
-          successful = true;
-
-        } else if (FLAGS_step == "check") {
-          auto result = client.Execute("show index info", {});
-
-          auto checker = [&index](const std::vector<Value> &record) {
-            if (record.size() != 1) return false;
-            return record[0].ValueString() == index;
-          };
-
-          // Check that index ":Node(id)" exists
-          if (!std::any_of(result.records.begin(), result.records.end(),
-                           checker)) {
-            LOG(WARNING) << "Missing index!";
-            return 2;
-          }
-
-          successful = true;
-
-        } else {
-          LOG(FATAL) << "Unexpected client step!";
-        }
-      } catch (const communication::bolt::ClientQueryException &) {
-        // This one is not the leader, continue.
-        continue;
-      } catch (const communication::bolt::ClientFatalException &) {
-        // This one seems to be down, continue.
-        continue;
+      // Check that index ":Node(id)" exists
+      if (!std::any_of(result.records.begin(), result.records.end(), checker)) {
+        LOG(WARNING) << "Missing index!";
+        return 2;
       }
-      LOG(INFO) << "Current Raft cluster leader is " << i;
+
+      return 0;
+    } else {
+      LOG(FATAL) << "Unexpected client step!";
     }
-    if (!successful) {
-      LOG(INFO) << "Couldn't find Raft cluster leader, retrying.";
-      std::this_thread::sleep_for(1s);
-    }
+
+  } catch (const communication::bolt::ClientQueryException &e) {
+    LOG(WARNING)
+        << "Transient error while executing query. (eg. mistyped query, etc.)\n"
+        << e.what();
+  } catch (const communication::bolt::ClientFatalException &e) {
+    LOG(WARNING) << "Couldn't connect to server\n" << e.what();
+  } catch (const utils::BasicException &e) {
+    LOG(WARNING) << "Error while executing query\n" << e.what();
   }
 
-  if (!successful) {
-    LOG(WARNING) << "Couldn't find Raft cluster leader.";
-    return 1;
-  }
-  return 0;
+  // The test wasn't successfull
+  return 1;
 }

@@ -49,19 +49,15 @@ class HaIndexTest(HaTestBase):
 
         for i in range(self.cluster_size):
             # Kill worker.
-            print("Killing worker {}".format(i))
+            print("Killing worker {}".format(i + 1))
             self.kill_worker(i)
-
-            time.sleep(5) # allow some time for possible leader re-election
 
             assert self.execute_step("check") == 0, \
                     "Error while executing check query"
 
             # Bring worker back to life.
-            print("Starting worker {}".format(i))
+            print("Starting worker {}".format(i + 1))
             self.start_worker(i)
-
-            time.sleep(5) # allow some time for possible leader re-election
 
 
 def find_correct_path(path):
