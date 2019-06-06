@@ -775,8 +775,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto results = GetResults<query::Path>(create_path, path_symbol);
   ASSERT_EQ(results.size(), 8);
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(),
-                                  expected_paths.begin(),
-                                  TypedValue::BoolEqual{}));
+                                  expected_paths.begin()));
 }
 
 namespace std {
@@ -1627,7 +1626,8 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
-          results[i][0].Value<VertexAccessor>().PropsAt(prop) == expected[i];
+          TypedValue(results[i][0].Value<VertexAccessor>().PropsAt(prop)) ==
+          expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
       EXPECT_TRUE(equal.Value<bool>());
     }
@@ -1645,8 +1645,10 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
         {TypedValue(0.5), TypedValue(1), TypedValue(1.5), TypedValue(2)});
   check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5),
         Bound::Type::INCLUSIVE, {TypedValue(2), TypedValue(2.5)});
-  check(std::vector<TypedValue>{TypedValue(0.5)}, Bound::Type::EXCLUSIVE,
-        std::vector<TypedValue>{TypedValue(1.5)}, Bound::Type::INCLUSIVE,
+  check(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}),
+        Bound::Type::EXCLUSIVE,
+        TypedValue(std::vector<TypedValue>{TypedValue(1.5)}),
+        Bound::Type::INCLUSIVE,
         {TypedValue(std::vector<TypedValue>{TypedValue(1)})});
 
   // when a range contains different types, nothing should get returned
@@ -1656,8 +1658,8 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
               static_cast<PropertyValue>(value_a).type(),
               static_cast<PropertyValue>(value_b).type()))
         continue;
-      check(value_a, Bound::Type::INCLUSIVE, value_b, Bound::Type::INCLUSIVE,
-            {});
+      check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
+            Bound::Type::INCLUSIVE, {});
     }
 }
 
@@ -1695,7 +1697,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
   auto vertex = row[0].Value<VertexAccessor>();
-  auto value = vertex.PropsAt(prop);
+  TypedValue value(vertex.PropsAt(prop));
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }

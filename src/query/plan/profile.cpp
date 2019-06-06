@@ -52,9 +52,10 @@ class ProfilingStatsToTableHelper {
     auto cycles = IndividualCycles(cumulative_stats);
 
     rows_.emplace_back(std::vector<TypedValue>{
-        FormatOperator(cumulative_stats.name),
-        TypedValue(cumulative_stats.actual_hits), FormatRelativeTime(cycles),
-        FormatAbsoluteTime(cycles)});
+        TypedValue(FormatOperator(cumulative_stats.name)),
+        TypedValue(cumulative_stats.actual_hits),
+        TypedValue(FormatRelativeTime(cycles)),
+        TypedValue(FormatAbsoluteTime(cycles))});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
       Branch(cumulative_stats.children[i]);

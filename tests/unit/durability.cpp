@@ -208,8 +208,8 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
     std::vector<std::pair<std::string, query::TypedValue>> p1;
     std::vector<std::pair<std::string, query::TypedValue>> p2;
 
-    for (auto x : p1_id) p1.push_back({dba_a.PropertyName(x.first), x.second});
-    for (auto x : p2_id) p2.push_back({dba_b.PropertyName(x.first), x.second});
+    for (auto x : p1_id) p1.emplace_back(dba_a.PropertyName(x.first), x.second);
+    for (auto x : p2_id) p2.emplace_back(dba_b.PropertyName(x.first), x.second);
 
     // Don't use a binary predicate which depends on different value getters
     // semantics for two containers because is_permutation might call the

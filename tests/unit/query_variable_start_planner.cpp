@@ -94,7 +94,7 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     // We expect to produce only a single (v1) node.
-    AssertRows(results, {{v1}});
+    AssertRows(results, {{TypedValue(v1)}});
   });
 }
 
@@ -118,7 +118,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
     CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
       // We expect to produce only a single (v1) node.
-      AssertRows(results, {{v1}});
+      AssertRows(results, {{TypedValue(v1)}});
     });
   }
   {
@@ -129,7 +129,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
               PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
     CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
-      AssertRows(results, {{v1}});
+      AssertRows(results, {{TypedValue(v1)}});
     });
   }
 }
@@ -156,7 +156,8 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
     // We expect to produce 2 rows:
     //   * (v1), (v3)
     //   * (v2), null
-    AssertRows(results, {{v1, v3}, {v2, TypedValue()}});
+    AssertRows(results, {{TypedValue(v1), TypedValue(v3)},
+                         {TypedValue(v2), TypedValue()}});
   });
 }
 
@@ -183,7 +184,8 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   // start, we generate 2 * 2 * 2 plans.
   CheckPlansProduce(8, query, storage, &dba, [&](const auto &results) {
     // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
-    AssertRows(results, {{v1, v2, TypedValue(), v1, v2}});
+    AssertRows(results, {{TypedValue(v1), TypedValue(v2), TypedValue(),
+                          TypedValue(v1), TypedValue(v2)}});
   });
 }
 
@@ -206,7 +208,7 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   // we expect to get 2 plans for each, which totals 2 * 2.
   CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
     // We expect to produce a single row: (v1), (v1), (v2)
-    AssertRows(results, {{v1, v1, v2}});
+    AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}});
   });
 }
 
@@ -226,9 +228,11 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
-  TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
-  TypedValue r2_list(std::vector<TypedValue>{r2});         // [r2]
-  TypedValue r1_r2_list(std::vector<TypedValue>{r1, r2});  // [r1, r2]
+  TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
+  TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});  // [r2]
+  // [r1, r2]
+  TypedValue r1_r2_list(
+      std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}});
   });
@@ -255,8 +259,10 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
-  TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1] (v1 -[*..1]-> v2)
-  TypedValue r2_list(std::vector<TypedValue>{r2});  // [r2] (v2 -[*..2]-> v3)
+  // [r1] (v1 -[*..1]-> v2)
+  TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});
+  // [r2] (v2 -[*..2]-> v3)
+  TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     AssertRows(results, {{r1_list}, {r2_list}});
   });
@@ -282,8 +288,10 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
-  TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
-  TypedValue r1_r2_list(std::vector<TypedValue>{r1, r2});  // [r1, r2]
+  TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
+  // [r1, r2]
+  TypedValue r1_r2_list(
+      std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     AssertRows(results, {{r1_list}, {r1_r2_list}});
   });
@@ -315,7 +323,7 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
-  TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1]
+  TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     AssertRows(results, {{r1_list}});
   });

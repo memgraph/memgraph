@@ -417,8 +417,8 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   v1.PropsSet(prop, 42);
   e11.PropsSet(prop, 43);
 
-  auto *vertex_id = CreateIdentifierWithValue("v1", v1);
-  auto *edge_id = CreateIdentifierWithValue("e11", e11);
+  auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(v1));
+  auto *edge_id = CreateIdentifierWithValue("e11", TypedValue(e11));
   {
     // Legal indexing.
     auto *op1 = storage.Create<SubscriptOperator>(
@@ -631,7 +631,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  frame[node_symbol] = v1;
+  frame[node_symbol] = TypedValue(v1);
   {
     auto *op = storage.Create<LabelsTest>(
         identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
@@ -911,7 +911,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = dba.InsertVertex();
   v1.PropsSet(prop_age.second, 10);
-  frame[symbol] = v1;
+  frame[symbol] = TypedValue(v1);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
@@ -921,7 +921,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v2 = dba.InsertVertex();
   auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("edge_type"));
   e12.PropsSet(prop_age.second, 10);
-  frame[symbol] = e12;
+  frame[symbol] = TypedValue(e12);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
@@ -932,8 +932,8 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
-  frame[symbol] =
-      std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}};
+  frame[symbol] = TypedValue(
+      std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
 }

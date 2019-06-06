@@ -43,10 +43,11 @@ class Base {
   TypedValue LiteralValue(Expression *expression) {
     if (context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
-      return parameters_.AtTokenPosition(param_lookup->token_position_);
+      return TypedValue(
+          parameters_.AtTokenPosition(param_lookup->token_position_));
     } else {
       auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
-      return literal->value_;
+      return TypedValue(literal->value_);
     }
   }
 
@@ -61,12 +62,13 @@ class Base {
       ASSERT_TRUE(param_lookup);
       if (token_position)
         EXPECT_EQ(param_lookup->token_position_, *token_position);
-      value = parameters_.AtTokenPosition(param_lookup->token_position_);
+      value = TypedValue(
+          parameters_.AtTokenPosition(param_lookup->token_position_));
     } else {
       auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
       ASSERT_TRUE(literal);
       if (token_position) ASSERT_EQ(literal->token_position_, *token_position);
-      value = literal->value_;
+      value = TypedValue(literal->value_);
     }
     EXPECT_TRUE(TypedValue::BoolEqual{}(value, expected_tv));
   }

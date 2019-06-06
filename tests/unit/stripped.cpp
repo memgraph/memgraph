@@ -24,6 +24,10 @@ void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
   EXPECT_PROP_TRUE(a == b);
 }
 
+void EXPECT_PROP_EQ(const PropertyValue &a, const TypedValue &b) {
+  EXPECT_PROP_EQ(TypedValue(a), b);
+}
+
 TEST(QueryStripper, NoLiterals) {
   StrippedQuery stripped("CREATE (n)");
   EXPECT_EQ(stripped.literals().size(), 0);

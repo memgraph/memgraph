@@ -836,7 +836,7 @@ class ExpandVariableCursor : public Cursor {
       if (diff > 0U)
         edges_on_frame->erase(edges_on_frame->begin(),
                               edges_on_frame->begin() + diff);
-      edges_on_frame->insert(edges_on_frame->begin(), new_edge);
+      edges_on_frame->emplace(edges_on_frame->begin(), new_edge);
     } else {
       edges_on_frame->resize(
           std::min(edges_on_frame->size(), edges_.size() - 1U));
@@ -1291,7 +1291,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       to_visit_current_.pop_back();
 
       // create the frame value for the edges
-      std::vector<TypedValue> edge_list{expansion.first};
+      std::vector<TypedValue> edge_list{TypedValue(expansion.first)};
       auto last_vertex = expansion.second;
       while (true) {
         const EdgeAccessor &last_edge = edge_list.back().Value<EdgeAccessor>();
@@ -1301,7 +1301,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         const auto &previous_edge = processed_.find(last_vertex)->second;
         if (!previous_edge) break;
 
-        edge_list.push_back(previous_edge.value());
+        edge_list.emplace_back(previous_edge.value());
       }
 
       // expand only if what we've just expanded is less then max depth
@@ -1509,13 +1509,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                             ? previous_edge->to()
                             : previous_edge->from();
           last_depth--;
-          edge_list.push_back(previous_edge.value());
+          edge_list.emplace_back(previous_edge.value());
         }
 
         // Place destination node on the frame, handle existence flag.
         if (self_.common_.existing_node) {
           TypedValue &node = frame[self_.common_.node_symbol];
-          if ((node != current_vertex).Value<bool>())
+          if ((node != TypedValue(current_vertex)).Value<bool>())
             continue;
           else
             // Prevent expanding other paths, because we found the

@@ -417,8 +417,9 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
       EXPECT_EQ(edge.Properties().size(), props.size());
       for (auto &kv : props) {
-        auto equality = edge.PropsAt(dba->Property(kv.first)) ==
-                        query::TypedValue(kv.second);
+        auto equality =
+            query::TypedValue(edge.PropsAt(dba->Property(kv.first))) ==
+            query::TypedValue(kv.second);
         EXPECT_TRUE(equality.IsBool() && equality.ValueBool());
       }
     }

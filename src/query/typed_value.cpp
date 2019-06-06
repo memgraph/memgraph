@@ -47,7 +47,7 @@ TypedValue::TypedValue(const PropertyValue &value,
       const auto &vec = value.Value<std::vector<PropertyValue>>();
       new (&list_v) TVector(memory_);
       list_v.reserve(vec.size());
-      list_v.assign(vec.begin(), vec.end());
+      for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
     case PropertyValue::Type::Map: {
@@ -92,8 +92,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
       auto &vec = other.Value<std::vector<PropertyValue>>();
       new (&list_v) TVector(memory_);
       list_v.reserve(vec.size());
-      list_v.assign(std::make_move_iterator(vec.begin()),
-                    std::make_move_iterator(vec.end()));
+      for (auto &v : vec) list_v.emplace_back(std::move(v));
       break;
     }
     case PropertyValue::Type::Map: {
@@ -349,9 +348,6 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TString &, String,
-                                   string_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string &, String, string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string_view &, String, string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TVector &, List, list_v)
 
@@ -369,7 +365,12 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
 
 TypedValue &TypedValue::operator=(
     const std::map<std::string, TypedValue> &other) {
-  *this = TypedValue(other, memory_);
+  if (type_ == Type::Map) {
+    map_v.clear();
+    for (const auto &kv : other) map_v.emplace(kv.first, kv.second);
+  } else {
+    *this = TypedValue(other, memory_);
+  }
   return *this;
 }
 
@@ -387,7 +388,6 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
     } else {                                                             \
       *this = TypedValue(std::move(other), memory_);                     \
     }                                                                    \
-                                                                         \
     return *this;                                                        \
   }
 
@@ -396,6 +396,7 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
 
 TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   if (type_ == Type::List) {
+    list_v.reserve(other.size());
     list_v.assign(std::make_move_iterator(other.begin()),
                   std::make_move_iterator(other.end()));
   } else {
@@ -404,15 +405,18 @@ TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   return *this;
 }
 
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TMap, Map, map_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 
 TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
-  *this = TypedValue(std::move(other), memory_);
+  if (type_ == Type::Map) {
+    map_v.clear();
+    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
+  } else {
+    *this = TypedValue(std::move(other), memory_);
+  }
   return *this;
 }
 
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
 DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
 
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT

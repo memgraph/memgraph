@@ -149,8 +149,8 @@ class TypedValue {
   explicit operator PropertyValue() const;
 
   // copy constructors for non-primitive types
-  TypedValue(const std::string &value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const std::string &value, utils::MemoryResource *memory =
+                                                    utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }
@@ -176,7 +176,7 @@ class TypedValue {
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
-  TypedValue(const TString &other)
+  explicit TypedValue(const TString &other)
       : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
                               select_on_container_copy_construction(
                                   other.get_allocator())
@@ -189,8 +189,9 @@ class TypedValue {
   }
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const std::vector<TypedValue> &value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      const std::vector<TypedValue> &value,
+      utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(memory_);
     list_v.reserve(value.size());
@@ -205,7 +206,7 @@ class TypedValue {
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
-  TypedValue(const TVector &other)
+  explicit TypedValue(const TVector &other)
       : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
                               select_on_container_copy_construction(
                                   other.get_allocator())
@@ -218,8 +219,9 @@ class TypedValue {
   }
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const std::map<std::string, TypedValue> &value,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      const std::map<std::string, TypedValue> &value,
+      utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
     new (&map_v) TMap(memory_);
     for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
@@ -233,7 +235,7 @@ class TypedValue {
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
-  TypedValue(const TMap &other)
+  explicit TypedValue(const TMap &other)
       : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
                               select_on_container_copy_construction(
                                   other.get_allocator())
@@ -245,26 +247,27 @@ class TypedValue {
     new (&map_v) TMap(value, memory_);
   }
 
-  TypedValue(const VertexAccessor &vertex,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(
+      const VertexAccessor &vertex,
+      utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(vertex);
   }
 
-  TypedValue(const EdgeAccessor &edge,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory =
+                                                    utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(edge);
   }
 
-  TypedValue(const Path &path,
-             utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const Path &path, utils::MemoryResource *memory =
+                                            utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
     new (&path_v) Path(path, memory_);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  TypedValue(const PropertyValue &value);
+  explicit TypedValue(const PropertyValue &value);
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const PropertyValue &value, utils::MemoryResource *memory);
@@ -276,7 +279,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from other. After the move, other will be
    * left in unspecified state.
    */
-  TypedValue(TString &&other) noexcept
+  explicit TypedValue(TString &&other) noexcept
       : TypedValue(std::move(other),
                    other.get_allocator().GetMemoryResource()) {}
 
@@ -293,7 +296,7 @@ class TypedValue {
    * Perform an element-wise move using default utils::NewDeleteResource().
    * Other will be not be empty, though elements may be Null.
    */
-  TypedValue(std::vector<TypedValue> &&other)
+  explicit TypedValue(std::vector<TypedValue> &&other)
       : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
   /**
@@ -319,7 +322,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from other. After the move, other will be
    * left empty.
    */
-  TypedValue(TVector &&other) noexcept
+  explicit TypedValue(TVector &&other) noexcept
       : TypedValue(std::move(other),
                    other.get_allocator().GetMemoryResource()) {}
 
@@ -338,7 +341,7 @@ class TypedValue {
    * Other will not be left empty, i.e. keys will exist but their values may
    * be Null.
    */
-  TypedValue(std::map<std::string, TypedValue> &&other)
+  explicit TypedValue(std::map<std::string, TypedValue> &&other)
       : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
   /**
@@ -358,7 +361,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from other. After the move, other will be
    * left empty.
    */
-  TypedValue(TMap &&other) noexcept
+  explicit TypedValue(TMap &&other) noexcept
       : TypedValue(std::move(other),
                    other.get_allocator().GetMemoryResource()) {}
 
@@ -373,20 +376,16 @@ class TypedValue {
     new (&map_v) TMap(std::move(other), memory_);
   }
 
-  TypedValue(VertexAccessor &&vertex) noexcept : type_(Type::Vertex) {
-    new (&vertex_v) VertexAccessor(std::move(vertex));
-  }
-
-  TypedValue(VertexAccessor &&vertex, utils::MemoryResource *memory) noexcept
+  explicit TypedValue(
+      VertexAccessor &&vertex,
+      utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
 
-  TypedValue(EdgeAccessor &&edge) noexcept : type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(std::move(edge));
-  }
-
-  TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory) noexcept
+  explicit TypedValue(
+      EdgeAccessor &&edge,
+      utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(std::move(edge));
   }
@@ -396,7 +395,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from path. After the move, path will be
    * left empty.
    */
-  TypedValue(Path &&path) noexcept
+  explicit TypedValue(Path &&path) noexcept
       : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
   /**
@@ -414,8 +413,7 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  // NOLINTNEXTLINE(hicpp-explicit-conversions)
-  TypedValue(PropertyValue &&other);
+  explicit TypedValue(PropertyValue &&other);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
@@ -429,8 +427,6 @@ class TypedValue {
   TypedValue &operator=(bool);
   TypedValue &operator=(int64_t);
   TypedValue &operator=(double);
-  TypedValue &operator=(const TString &);
-  TypedValue &operator=(const std::string &);
   TypedValue &operator=(const std::string_view &);
   TypedValue &operator=(const TVector &);
   TypedValue &operator=(const std::vector<TypedValue> &);
@@ -443,18 +439,16 @@ class TypedValue {
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
 
+  /** Move assign other, utils::MemoryResource of `this` is used. */
+  TypedValue &operator=(TypedValue &&other) noexcept(false);
+
   // move assignment operators
   TypedValue &operator=(TString &&);
   TypedValue &operator=(TVector &&);
   TypedValue &operator=(std::vector<TypedValue> &&);
   TypedValue &operator=(TMap &&);
   TypedValue &operator=(std::map<std::string, TypedValue> &&);
-  TypedValue &operator=(VertexAccessor &&);
-  TypedValue &operator=(EdgeAccessor &&);
   TypedValue &operator=(Path &&);
-
-  /** Move assign other, utils::MemoryResource of `this` is used. */
-  TypedValue &operator=(TypedValue &&other) noexcept(false);
 
   ~TypedValue();
 

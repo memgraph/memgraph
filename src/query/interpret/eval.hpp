@@ -193,16 +193,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return lhs.Value<VertexAccessor>().PropsAt(
-          dba_->Property(std::string(index.ValueString())));
+      return TypedValue(lhs.Value<VertexAccessor>().PropsAt(
+          dba_->Property(std::string(index.ValueString()))));
     }
 
     if (lhs.IsEdge()) {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return lhs.Value<EdgeAccessor>().PropsAt(
-          dba_->Property(std::string(index.ValueString())));
+      return TypedValue(lhs.Value<EdgeAccessor>().PropsAt(
+          dba_->Property(std::string(index.ValueString()))));
     }
 
     // lhs is Null
@@ -253,10 +253,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto lower_bound = normalise_bound(_lower_bound.Value<int64_t>());
     auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
     if (upper_bound <= lower_bound) {
-      return std::vector<TypedValue>();
+      return TypedValue(std::vector<TypedValue>());
     }
-    return std::vector<TypedValue>(list.begin() + lower_bound,
-                                   list.begin() + upper_bound);
+    return TypedValue(std::vector<TypedValue>(list.begin() + lower_bound,
+                                              list.begin() + upper_bound));
   }
 
   TypedValue Visit(IsNullOperator &is_null) override {
@@ -270,11 +270,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue();
       case TypedValue::Type::Vertex:
-        return expression_result.Value<VertexAccessor>().PropsAt(
-            GetProperty(property_lookup.property_));
+        return TypedValue(expression_result.Value<VertexAccessor>().PropsAt(
+            GetProperty(property_lookup.property_)));
       case TypedValue::Type::Edge:
-        return expression_result.Value<EdgeAccessor>().PropsAt(
-            GetProperty(property_lookup.property_));
+        return TypedValue(expression_result.Value<EdgeAccessor>().PropsAt(
+            GetProperty(property_lookup.property_)));
       case TypedValue::Type::Map: {
         const auto &map = expression_result.ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
@@ -309,7 +309,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return literal.value_;
+    return TypedValue(literal.value_);
   }
 
   TypedValue Visit(ListLiteral &literal) override {
@@ -317,14 +317,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_)
       result.emplace_back(expression->Accept(*this));
-    return result;
+    return TypedValue(result);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
     std::map<std::string, TypedValue> result;
     for (const auto &pair : literal.elements_)
       result.emplace(pair.first.name, pair.second->Accept(*this));
-    return result;
+    return TypedValue(result);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
@@ -414,7 +414,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
-    return result;
+    return TypedValue(result);
   }
 
   TypedValue Visit(All &all) override {
@@ -477,7 +477,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return ctx_->parameters.AtTokenPosition(param_lookup.token_position_);
+    return TypedValue(
+        ctx_->parameters.AtTokenPosition(param_lookup.token_position_));
   }
 
   TypedValue Visit(RegexMatch &regex_match) override {

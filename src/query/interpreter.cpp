@@ -59,7 +59,7 @@ class DumpClosure final {
                                                     ExecutionContext *context) {
     std::ostringstream oss;
     if (dump_generator_.NextQuery(&oss)) {
-      return std::make_optional(std::vector<TypedValue>{oss.str()});
+      return std::make_optional(std::vector<TypedValue>{TypedValue(oss.str())});
     }
     return std::nullopt;
   }
@@ -222,7 +222,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
         std::lock_guard<std::mutex> lock(auth->WithLock());
         std::vector<std::vector<TypedValue>> users;
         for (const auto &user : auth->AllUsers()) {
-          users.push_back({user.username()});
+          users.push_back({TypedValue(user.username())});
         }
         return users;
       };
@@ -233,7 +233,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
         std::lock_guard<std::mutex> lock(auth->WithLock());
         std::vector<std::vector<TypedValue>> roles;
         for (const auto &role : auth->AllRoles()) {
-          roles.push_back({role.rolename()});
+          roles.push_back({TypedValue(role.rolename())});
         }
         return roles;
       };
@@ -351,9 +351,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
                   description.push_back("DENIED TO ROLE");
                 }
               }
-              grants.push_back({auth::PermissionToString(permission),
-                                auth::PermissionLevelToString(effective),
-                                utils::Join(description, ", ")});
+              grants.push_back(
+                  {TypedValue(auth::PermissionToString(permission)),
+                   TypedValue(auth::PermissionLevelToString(effective)),
+                   TypedValue(utils::Join(description, ", "))});
             }
           }
         } else {
@@ -368,9 +369,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
               } else if (effective == auth::PermissionLevel::DENY) {
                 description = "DENIED TO ROLE";
               }
-              grants.push_back({auth::PermissionToString(permission),
-                                auth::PermissionLevelToString(effective),
-                                description});
+              grants.push_back(
+                  {TypedValue(auth::PermissionToString(permission)),
+                   TypedValue(auth::PermissionLevelToString(effective)),
+                   TypedValue(description)});
             }
           }
         }
@@ -386,7 +388,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
           throw QueryRuntimeException("User '{}' doesn't exist .", username);
         }
         return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{
-            user->role() ? user->role()->rolename() : "null"}};
+            TypedValue(user->role() ? user->role()->rolename() : "null")}};
       };
       return callback;
     case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
@@ -399,7 +401,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
         }
         std::vector<std::vector<TypedValue>> users;
         for (const auto &user : auth->AllUsersForRole(rolename)) {
-          users.emplace_back(std::vector<TypedValue>{user.username()});
+          users.emplace_back(
+              std::vector<TypedValue>{TypedValue(user.username())});
         }
         return users;
       };
@@ -490,8 +493,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
         std::vector<std::vector<TypedValue>> status;
         for (const auto &stream : streams->Show()) {
           status.push_back(std::vector<TypedValue>{
-              stream.stream_name, stream.stream_uri, stream.stream_topic,
-              stream.transform_uri, stream.stream_status});
+              TypedValue(stream.stream_name), TypedValue(stream.stream_uri),
+              TypedValue(stream.stream_topic), TypedValue(stream.transform_uri),
+              TypedValue(stream.stream_status)});
         }
         return status;
       };
@@ -558,7 +562,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
               params.emplace(param.first, glue::ToTypedValue(param.second));
             }
 
-            rows.emplace_back(std::vector<TypedValue>{result.first, params});
+            rows.emplace_back(std::vector<TypedValue>{TypedValue(result.first),
+                                                      TypedValue(params)});
           }
         } catch (integrations::kafka::KafkaStreamException &e) {
           throw QueryRuntimeException(e.what());
@@ -629,7 +634,7 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.size());
         for (const auto &pair : info) {
-          results.push_back({pair.first, pair.second});
+          results.push_back({TypedValue(pair.first), TypedValue(pair.second)});
         }
         return results;
       };
@@ -641,7 +646,9 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         results.reserve(info.size());
         for (const auto &peer_info : info) {
           for (const auto &pair : peer_info.second) {
-            results.push_back({peer_info.first, pair.first, pair.second});
+            results.push_back({TypedValue(peer_info.first),
+                               TypedValue(pair.first),
+                               TypedValue(pair.second)});
           }
         }
         return results;
@@ -657,7 +664,7 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.size());
         for (const auto &index : info) {
-          results.push_back({index});
+          results.push_back({TypedValue(index)});
         }
         return results;
       };
@@ -674,9 +681,9 @@ Callback HandleInfoQuery(InfoQuery *info_query,
                            return db_accessor->PropertyName(p);
                          });
 
-          std::vector<TypedValue> constraint{TypedValue("unique"),
-                                             db_accessor->LabelName(e.label),
-                                             utils::Join(property_names, ",")};
+          std::vector<TypedValue> constraint{
+              TypedValue("unique"), TypedValue(db_accessor->LabelName(e.label)),
+              TypedValue(utils::Join(property_names, ","))};
 
           results.emplace_back(constraint);
         }
@@ -878,7 +885,7 @@ Interpreter::Results Interpreter::operator()(
     std::vector<std::vector<TypedValue>> printed_plan_rows;
     for (const auto &row :
          utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
-      printed_plan_rows.push_back(std::vector<TypedValue>{row});
+      printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
     }
 
     summary["explain"] = PlanToJson(db_accessor, &cypher_query_plan->plan());

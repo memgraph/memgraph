@@ -43,7 +43,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     EXPECT_EQ(vertex.labels().size(), 1);
     EXPECT_EQ(*vertex.labels().begin(), label);
     EXPECT_EQ(vertex.Properties().size(), 1);
-    auto prop_eq = vertex.PropsAt(property.second) == TypedValue(42);
+    auto prop_eq =
+        TypedValue(vertex.PropsAt(property.second)) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.Value<bool>());
   }
@@ -717,7 +718,7 @@ TEST(QueryPlan, NodeFilterSet) {
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
   v1.Reconstruct();
-  auto prop_eq = v1.PropsAt(prop.second) == TypedValue(42 + 2);
+  auto prop_eq = TypedValue(v1.PropsAt(prop.second)) == TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(prop_eq.Value<bool>());
 }

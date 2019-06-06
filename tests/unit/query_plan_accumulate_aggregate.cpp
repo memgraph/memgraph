@@ -334,8 +334,11 @@ TEST(QueryPlan, AggregateGroupByValues) {
     result_group_bys.insert(row[1]);
   }
   ASSERT_EQ(result_group_bys.size(), group_by_vals.size() - 2);
+  std::vector<TypedValue> group_by_tvals;
+  group_by_tvals.reserve(group_by_vals.size());
+  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v);
   EXPECT_TRUE(
-      std::is_permutation(group_by_vals.begin(), group_by_vals.end() - 2,
+      std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2,
                           result_group_bys.begin(), TypedValue::BoolEqual{}));
 }
 

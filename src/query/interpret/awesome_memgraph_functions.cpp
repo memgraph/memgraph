@@ -43,7 +43,7 @@ TypedValue EndNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Edge:
-      return args[0].Value<EdgeAccessor>().to();
+      return TypedValue(args[0].Value<EdgeAccessor>().to());
     default:
       throw QueryRuntimeException("'endNode' argument must be an edge.");
   }
@@ -94,9 +94,10 @@ TypedValue Properties(TypedValue *args, int64_t nargs,
   auto get_properties = [&](const auto &record_accessor) {
     std::map<std::string, TypedValue> properties;
     for (const auto &property : record_accessor.Properties()) {
-      properties[dba->PropertyName(property.first)] = property.second;
+      properties[dba->PropertyName(property.first)] =
+          TypedValue(property.second);
     }
-    return properties;
+    return TypedValue(properties);
   };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -145,7 +146,7 @@ TypedValue StartNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Edge:
-      return args[0].Value<EdgeAccessor>().from();
+      return TypedValue(args[0].Value<EdgeAccessor>().from());
     default:
       throw QueryRuntimeException("'startNode' argument must be an edge.");
   }
@@ -294,7 +295,8 @@ TypedValue Type(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Null:
       return TypedValue();
     case TypedValue::Type::Edge:
-      return dba->EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType());
+      return TypedValue(
+          dba->EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType()));
     default:
       throw QueryRuntimeException("'type' argument must be an edge.");
   }
@@ -308,9 +310,9 @@ TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &,
   auto get_keys = [&](const auto &record_accessor) {
     std::vector<TypedValue> keys;
     for (const auto &property : record_accessor.Properties()) {
-      keys.push_back(dba->PropertyName(property.first));
+      keys.emplace_back(dba->PropertyName(property.first));
     }
-    return keys;
+    return TypedValue(keys);
   };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -335,9 +337,9 @@ TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::Vertex: {
       std::vector<TypedValue> labels;
       for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
-        labels.push_back(dba->LabelName(label));
+        labels.emplace_back(dba->LabelName(label));
       }
-      return labels;
+      return TypedValue(labels);
     }
     default:
       throw QueryRuntimeException("'labels' argument must be a node.");
@@ -354,7 +356,7 @@ TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &,
     throw QueryRuntimeException("'nodes' argument should be a path.");
   }
   auto &vertices = args[0].ValuePath().vertices();
-  return std::vector<TypedValue>(vertices.begin(), vertices.end());
+  return TypedValue(std::vector<TypedValue>(vertices.begin(), vertices.end()));
 }
 
 TypedValue Relationships(TypedValue *args, int64_t nargs,
@@ -369,7 +371,7 @@ TypedValue Relationships(TypedValue *args, int64_t nargs,
     throw QueryRuntimeException("'relationships' argument must be a path.");
   }
   auto &edges = args[0].ValuePath().edges();
-  return std::vector<TypedValue>(edges.begin(), edges.end());
+  return TypedValue(std::vector<TypedValue>(edges.begin(), edges.end()));
 }
 
 TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &,
@@ -403,7 +405,7 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &,
       list.emplace_back(i);
     }
   }
-  return list;
+  return TypedValue(list);
 }
 
 TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &,
@@ -416,9 +418,9 @@ TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &,
       return TypedValue();
     case TypedValue::Type::List: {
       auto list = args[0].ValueList();
-      if (list.empty()) return list;
+      if (list.empty()) return TypedValue(list);
       list.erase(list.begin());
-      return list;
+      return TypedValue(list);
     }
     default:
       throw QueryRuntimeException("'tail' argument must be a list.");
@@ -453,7 +455,7 @@ TypedValue UniformSample(TypedValue *args, int64_t nargs,
         for (int i = 0; i < desired_length; ++i) {
           sampled.push_back(population[rand_dist(pseudo_rand_gen_)]);
         }
-        return sampled;
+        return TypedValue(sampled);
       }
       throw QueryRuntimeException(
           "Second argument of 'uniformSample' must be a non-negative integer.");
@@ -735,9 +737,9 @@ TypedValue ToString(TypedValue *args, int64_t nargs, const EvaluationContext &,
     case TypedValue::Type::String:
       return arg;
     case TypedValue::Type::Int:
-      return std::to_string(arg.ValueInt());
+      return TypedValue(std::to_string(arg.ValueInt()));
     case TypedValue::Type::Double:
-      return std::to_string(arg.ValueDouble());
+      return TypedValue(std::to_string(arg.ValueDouble()));
     case TypedValue::Type::Bool:
       return TypedValue(arg.ValueBool() ? "true" : "false");
     default:
@@ -822,7 +824,7 @@ TypedValue CallStringFunction(
     case TypedValue::Type::Null:
       return TypedValue(args[0].GetMemoryResource());
     case TypedValue::Type::String:
-      return fun(args[0].ValueString());
+      return TypedValue(fun(args[0].ValueString()));
     default:
       throw QueryRuntimeException("'" + name +
                                   "' argument should be a string.");
@@ -895,8 +897,8 @@ TypedValue Replace(TypedValue *args, int64_t nargs, const EvaluationContext &,
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
     return TypedValue();
   }
-  return utils::Replace(args[0].ValueString(), args[1].ValueString(),
-                        args[2].ValueString());
+  return TypedValue(utils::Replace(args[0].ValueString(), args[1].ValueString(),
+                                   args[2].ValueString()));
 }
 
 TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &,
@@ -920,7 +922,7 @@ TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &,
        utils::Split(args[0].ValueString(), args[1].ValueString())) {
     result.emplace_back(str);
   }
-  return result;
+  return TypedValue(result);
 }
 
 TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,

@@ -1149,7 +1149,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                                  subcursor_ids_, *current_edge_addr, &db_)
                            : bfs_subcursor_clients_->ReconstructPath(
                                  subcursor_ids_, *current_vertex_addr, &db_);
-            edges.insert(edges.end(), ret.edges.begin(), ret.edges.end());
+            for (const auto &edge : ret.edges) edges.emplace_back(edge);
             current_vertex_addr = ret.next_vertex;
             current_edge_addr = ret.next_edge;
             if (!current_vertex_addr && !current_edge_addr) break;

@@ -115,12 +115,12 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Non-primitive literal.
-    auto stream = Interpret("RETURN $2",
-                            {{"2", std::vector<PropertyValue>{5, 2, 3}}});
+    auto stream =
+        Interpret("RETURN $2", {{"2", std::vector<PropertyValue>{5, 2, 3}}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = query::test_common::ToList<int64_t>(
-        stream.GetResults()[0][0].ValueList());
+    auto result =
+        query::test_common::ToList<int64_t>(stream.GetResults()[0][0]);
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
@@ -218,8 +218,7 @@ TEST_F(InterpreterTest, Bfs) {
   std::unordered_set<int64_t> matched_ids;
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges =
-        query::test_common::ToList<EdgeAccessor>(result[0].ValueList());
+    const auto &edges = query::test_common::ToList<EdgeAccessor>(result[0]);
     // Check that path is of expected length. Returned paths should be from
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
@@ -284,8 +283,7 @@ TEST_F(InterpreterTest, ShortestPath) {
       {"r1"}, {"r2"}, {"r1", "r2"}};
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges =
-        query::test_common::ToList<EdgeAccessor>(result[0].ValueList());
+    const auto &edges = query::test_common::ToList<EdgeAccessor>(result[0]);
 
     std::vector<std::string> datum;
     for (const auto &edge : edges) {

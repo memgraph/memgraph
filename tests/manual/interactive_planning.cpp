@@ -169,14 +169,15 @@ class InteractiveDbAccessor {
       return 0;
     }
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    if (value_vertex_count.find(value) == value_vertex_count.end()) {
+    query::TypedValue tv_value(value);
+    if (value_vertex_count.find(tv_value) == value_vertex_count.end()) {
       std::stringstream ss;
-      ss << value;
+      ss << tv_value;
       int64_t count = ReadVertexCount("label '" + label + "' and property '" +
                                       property + "' value '" + ss.str() + "'");
-      value_vertex_count[value] = count;
+      value_vertex_count[tv_value] = count;
     }
-    return value_vertex_count.at(value);
+    return value_vertex_count.at(tv_value);
   }
 
   int64_t VerticesCount(

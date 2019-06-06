@@ -125,7 +125,9 @@ TEST(QueryPlan, OrderBy) {
       {Ordering::DESC, {Null, "zorro", "borro"}}};
 
   for (const auto &order_value_pair : orderable) {
-    const auto &values = order_value_pair.second;
+    std::vector<TypedValue> values;
+    values.reserve(order_value_pair.second.size());
+    for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
     for (auto &vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
     dba.AdvanceCommand();
@@ -134,7 +136,7 @@ TEST(QueryPlan, OrderBy) {
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
     // and need to take care it does not happen by accident
-    std::vector<PropertyValue> shuffled(values.begin(), values.end());
+    auto shuffled = values;
     auto order_equal = [&values, &shuffled]() {
       return std::equal(values.begin(), values.end(), shuffled.begin(),
                         TypedValue::BoolEqual{});
@@ -145,7 +147,8 @@ TEST(QueryPlan, OrderBy) {
     ASSERT_FALSE(order_equal());
 
     // create the vertices
-    for (const auto &value : shuffled) dba.InsertVertex().PropsSet(prop, value);
+    for (const auto &value : shuffled)
+      dba.InsertVertex().PropsSet(prop, PropertyValue(value));
     dba.AdvanceCommand();
 
     // order by and collect results

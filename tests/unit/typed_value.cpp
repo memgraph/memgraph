@@ -329,9 +329,9 @@ TEST_F(TypedValueArithmeticTest, Sum) {
   std::vector<TypedValue> out3{
       TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
       TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
-  EXPECT_PROP_EQ((TypedValue(2) + TypedValue(in)).ValueList(), out1);
-  EXPECT_PROP_EQ((TypedValue(in) + TypedValue(2)).ValueList(), out2);
-  EXPECT_PROP_EQ((TypedValue(in) + TypedValue(in)).ValueList(), out3);
+  EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
+  EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
+  EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
 }
 
 TEST_F(TypedValueArithmeticTest, Difference) {

@@ -45,9 +45,11 @@ class VertexCountCache {
                         const PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    if (value_vertex_count.find(value) == value_vertex_count.end())
-      value_vertex_count[value] = db_->VerticesCount(label, property, value);
-    return value_vertex_count.at(value);
+    // TODO: Why do we even need TypedValue in this whole file?
+    TypedValue tv_value(value);
+    if (value_vertex_count.find(tv_value) == value_vertex_count.end())
+      value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
+    return value_vertex_count.at(tv_value);
   }
 
   int64_t VerticesCount(
@@ -88,8 +90,8 @@ class VertexCountCache {
       const auto &maybe_upper = key.second;
       query::TypedValue lower;
       query::TypedValue upper;
-      if (maybe_lower) lower = maybe_lower->value();
-      if (maybe_upper) upper = maybe_upper->value();
+      if (maybe_lower) lower = TypedValue(maybe_lower->value());
+      if (maybe_upper) upper = TypedValue(maybe_upper->value());
       query::TypedValue::Hash hash;
       return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
@@ -104,8 +106,8 @@ class VertexCountCache {
           return false;
         query::TypedValue bound_a;
         query::TypedValue bound_b;
-        if (maybe_bound_a) bound_a = maybe_bound_a->value();
-        if (maybe_bound_b) bound_b = maybe_bound_b->value();
+        if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
+        if (maybe_bound_b) bound_b = TypedValue(maybe_bound_b->value());
         return query::TypedValue::BoolEqual{}(bound_a, bound_b);
       };
       return bound_equal(a.first, b.first) && bound_equal(a.second, b.second);

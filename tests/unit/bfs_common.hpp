@@ -234,8 +234,8 @@ std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
   std::vector<std::vector<query::TypedValue>> frames;
   frames.push_back(std::vector<query::TypedValue>{query::TypedValue()});
   for (const auto &vertex : vertices) {
-    frames.push_back(
-        std::vector<query::TypedValue>{VertexAccessor(vertex, *dba)});
+    frames.emplace_back(std::vector<query::TypedValue>{
+        query::TypedValue(VertexAccessor(vertex, *dba))});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
@@ -248,11 +248,12 @@ std::unique_ptr<query::plan::LogicalOperator> YieldEntities(
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   for (const auto &vertex : vertices) {
-    frames.push_back(
-        std::vector<query::TypedValue>{VertexAccessor(vertex, *dba)});
+    frames.emplace_back(std::vector<query::TypedValue>{
+        query::TypedValue(VertexAccessor(vertex, *dba))});
   }
   for (const auto &edge : edges) {
-    frames.push_back(std::vector<query::TypedValue>{EdgeAccessor(edge, *dba)});
+    frames.emplace_back(std::vector<query::TypedValue>{
+        query::TypedValue(EdgeAccessor(edge, *dba))});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
@@ -370,7 +371,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       input_op = std::make_shared<Yield>(
           nullptr, std::vector<query::Symbol>{blocked_sym},
           std::vector<std::vector<query::TypedValue>>{
-              {VertexAccessor(vertices[5], *dba_ptr)}});
+              {query::TypedValue(VertexAccessor(vertices[5], *dba_ptr))}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
       context.evaluation_context.parameters.Add(0, 5);

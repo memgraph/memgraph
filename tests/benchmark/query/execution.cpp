@@ -158,7 +158,7 @@ static void ExpandVariable(benchmark::State &state) {
     TMemory memory;
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = v;
+      frame[expand_variable.input_symbol_] = query::TypedValue(v);
       while (cursor->Pull(frame, execution_context))
         ;
     }
@@ -194,7 +194,7 @@ static void ExpandBfs(benchmark::State &state) {
     TMemory memory;
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = v;
+      frame[expand_variable.input_symbol_] = query::TypedValue(v);
       while (cursor->Pull(frame, execution_context))
         ;
     }
@@ -232,9 +232,9 @@ static void ExpandShortest(benchmark::State &state) {
     TMemory memory;
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = v;
+      frame[expand_variable.input_symbol_] = query::TypedValue(v);
       for (const auto &dest : dba.Vertices(false)) {
-        frame[dest_symbol] = dest;
+        frame[dest_symbol] = query::TypedValue(dest);
         while (cursor->Pull(frame, execution_context))
           ;
       }
@@ -403,7 +403,8 @@ static void Unwind(benchmark::State &state) {
   query::plan::Unwind unwind(scan_all, list_expr, out_sym);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  frame[list_sym] = std::vector<query::TypedValue>(state.range(1));
+  frame[list_sym] =
+      query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
   // Nothing should be used from the EvaluationContext, so leave it empty.
   query::EvaluationContext evaluation_context;
   while (state.KeepRunning()) {
