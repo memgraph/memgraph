@@ -381,22 +381,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      // TODO: Update awesome_memgraph_functions to use the allocator from ctx_
-      return TypedValue(function.function_(
-                            arguments, function.arguments_.size(), *ctx_, dba_),
-                        ctx_->memory);
+      auto res = function.function_(arguments, function.arguments_.size(),
+                                    *ctx_, dba_);
+      CHECK(res.GetMemoryResource() == ctx_->memory);
+      return res;
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      // TODO: Update awesome_memgraph_functions to use the allocator from ctx_
-      return TypedValue(
-          function.function_(arguments.data(), arguments.size(), *ctx_, dba_),
-          ctx_->memory);
+      auto res =
+          function.function_(arguments.data(), arguments.size(), *ctx_, dba_);
+      CHECK(res.GetMemoryResource() == ctx_->memory);
+      return res;
     }
   }
+
   TypedValue Visit(Reduce &reduce) override {
     auto list_value = reduce.list_->Accept(*this);
     if (list_value.IsNull()) {

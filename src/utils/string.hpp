@@ -175,7 +175,7 @@ template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
     std::basic_string<char, std::char_traits<char>, TAllocator> *out,
     const std::string_view &src, const std::string_view &match,
-    const std::string_view &replacement, const TAllocator &alloc) {
+    const std::string_view &replacement) {
   // TODO: This could be implemented much more efficiently.
   *out = src;
   for (size_t pos = out->find(match); pos != std::string::npos;
@@ -190,7 +190,7 @@ inline std::string Replace(const std::string_view &src,
                            const std::string_view &match,
                            const std::string_view &replacement) {
   std::string res;
-  Replace(&res, src, match, replacement, std::allocator<char>());
+  Replace(&res, src, match, replacement);
   return res;
 }
 
