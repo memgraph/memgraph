@@ -127,6 +127,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
   evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch())
@@ -421,6 +423,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
   evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch())

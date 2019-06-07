@@ -10,6 +10,12 @@ namespace query {
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
 struct EvaluationContext {
+  /// Memory for allocations during evaluation of a *single* Pull call.
+  ///
+  /// Although the assigned memory may live longer than the duration of a Pull
+  /// (e.g. memory is the same as the whole execution memory), you have to treat
+  /// it as if the lifetime is only valid during the Pull.
+  utils::MemoryResource *memory{utils::NewDeleteResource()};
   int64_t timestamp{-1};
   Parameters parameters;
   /// All properties indexable via PropertyIx

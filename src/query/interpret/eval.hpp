@@ -32,6 +32,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   using ExpressionVisitor<TypedValue>::Visit;
 
+  utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
@@ -40,7 +42,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Identifier &ident) override {
-    auto value = frame_->at(symbol_table_->at(ident));
+    TypedValue value(frame_->at(symbol_table_->at(ident)), ctx_->memory);
     SwitchAccessors(value);
     return value;
   }
@@ -124,21 +126,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto literal = in_list.expression1_->Accept(*this);
     auto _list = in_list.expression2_->Accept(*this);
     if (_list.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
     if (_list.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
     }
-    auto list = _list.ValueList();
+    const auto &list = _list.ValueList();
 
     // If literal is NULL there is no need to try to compare it with every
     // element in the list since result of every comparison will be NULL. There
     // is one special case that we must test explicitly: if list is empty then
     // result is false since no comparison will be performed.
-    if (list.empty()) return TypedValue(false);
-    if (literal.IsNull()) return TypedValue();
+    if (list.empty()) return TypedValue(false, ctx_->memory);
+    if (literal.IsNull()) return TypedValue(ctx_->memory);
 
     auto has_null = false;
     for (const auto &element : list) {
@@ -146,13 +148,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (result.IsNull()) {
         has_null = true;
       } else if (result.Value<bool>()) {
-        return TypedValue(true);
+        return TypedValue(true, ctx_->memory);
       }
     }
     if (has_null) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
-    return TypedValue(false);
+    return TypedValue(false, ctx_->memory);
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
@@ -164,29 +166,37 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
           lhs.type());
-    if (lhs.IsNull() || index.IsNull()) return TypedValue();
+    if (lhs.IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
     if (lhs.IsList()) {
       if (!index.IsInt())
         throw QueryRuntimeException(
             "Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.Value<int64_t>();
-      const auto &list = lhs.ValueList();
+      // NOTE: Take non-const reference to list, so that we can move out the
+      // indexed element as the result.
+      auto &list = lhs.ValueList();
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0)
-        return TypedValue();
-      return list[index_int];
+        return TypedValue(ctx_->memory);
+      // NOTE: Explicit move is needed, so that we return the move constructed
+      // value and preserve the correct MemoryResource.
+      return std::move(list[index_int]);
     }
 
     if (lhs.IsMap()) {
       if (!index.IsString())
         throw QueryRuntimeException("Expected a string as a map index, got {}.",
                                     index.type());
-      const auto &map = lhs.ValueMap();
+      // NOTE: Take non-const reference to map, so that we can move out the
+      // looked-up element as the result.
+      auto &map = lhs.ValueMap();
       auto found = map.find(index.ValueString());
-      if (found == map.end()) return TypedValue();
-      return found->second;
+      if (found == map.end()) return TypedValue(ctx_->memory);
+      // NOTE: Explicit move is needed, so that we return the move constructed
+      // value and preserve the correct MemoryResource.
+      return std::move(found->second);
     }
 
     if (lhs.IsVertex()) {
@@ -194,7 +204,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return TypedValue(lhs.Value<VertexAccessor>().PropsAt(
-          dba_->Property(std::string(index.ValueString()))));
+                            dba_->Property(std::string(index.ValueString()))),
+                        ctx_->memory);
     }
 
     if (lhs.IsEdge()) {
@@ -202,11 +213,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return TypedValue(lhs.Value<EdgeAccessor>().PropsAt(
-          dba_->Property(std::string(index.ValueString()))));
+                            dba_->Property(std::string(index.ValueString()))),
+                        ctx_->memory);
     }
 
     // lhs is Null
-    return TypedValue();
+    return TypedValue(ctx_->memory);
   }
 
   TypedValue Visit(ListSlicingOperator &op) override {
@@ -225,7 +237,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         return bound;
       }
-      return TypedValue(default_value);
+      return TypedValue(default_value, ctx_->memory);
     };
     auto _upper_bound =
         get_bound(op.upper_bound_, std::numeric_limits<int64_t>::max());
@@ -240,7 +252,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     if (is_null) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     const auto &list = _list.ValueList();
     auto normalise_bound = [&](int64_t bound) {
@@ -253,33 +265,39 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto lower_bound = normalise_bound(_lower_bound.Value<int64_t>());
     auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
     if (upper_bound <= lower_bound) {
-      return TypedValue(std::vector<TypedValue>());
+      return TypedValue(TypedValue::TVector(ctx_->memory), ctx_->memory);
     }
-    return TypedValue(std::vector<TypedValue>(list.begin() + lower_bound,
-                                              list.begin() + upper_bound));
+    return TypedValue(TypedValue::TVector(
+        list.begin() + lower_bound, list.begin() + upper_bound, ctx_->memory));
   }
 
   TypedValue Visit(IsNullOperator &is_null) override {
     auto value = is_null.expression_->Accept(*this);
-    return TypedValue(value.IsNull());
+    return TypedValue(value.IsNull(), ctx_->memory);
   }
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
     auto expression_result = property_lookup.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        return TypedValue();
+        return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
         return TypedValue(expression_result.Value<VertexAccessor>().PropsAt(
-            GetProperty(property_lookup.property_)));
+                              GetProperty(property_lookup.property_)),
+                          ctx_->memory);
       case TypedValue::Type::Edge:
         return TypedValue(expression_result.Value<EdgeAccessor>().PropsAt(
-            GetProperty(property_lookup.property_)));
+                              GetProperty(property_lookup.property_)),
+                          ctx_->memory);
       case TypedValue::Type::Map: {
-        const auto &map = expression_result.ValueMap();
+        // NOTE: Take non-const reference to map, so that we can move out the
+        // looked-up element as the result.
+        auto &map = expression_result.ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
-        if (found == map.end()) return TypedValue();
-        return found->second;
+        if (found == map.end()) return TypedValue(ctx_->memory);
+        // NOTE: Explicit move is needed, so that we return the move constructed
+        // value and preserve the correct MemoryResource.
+        return std::move(found->second);
       }
       default:
         throw QueryRuntimeException(
@@ -291,15 +309,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        return TypedValue();
+        return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
-        auto vertex = expression_result.Value<VertexAccessor>();
-        for (const auto label : labels_test.labels_) {
+        const auto &vertex = expression_result.Value<VertexAccessor>();
+        for (const auto &label : labels_test.labels_) {
           if (!vertex.has_label(GetLabel(label))) {
-            return TypedValue(false);
+            return TypedValue(false, ctx_->memory);
           }
         }
-        return TypedValue(true);
+        return TypedValue(true, ctx_->memory);
       }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
@@ -309,26 +327,26 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_);
+    return TypedValue(literal.value_, ctx_->memory);
   }
 
   TypedValue Visit(ListLiteral &literal) override {
-    std::vector<TypedValue> result;
+    TypedValue::TVector result(ctx_->memory);
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_)
       result.emplace_back(expression->Accept(*this));
-    return TypedValue(result);
+    return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
-    std::map<std::string, TypedValue> result;
+    TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_)
       result.emplace(pair.first.name, pair.second->Accept(*this));
-    return TypedValue(result);
+    return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
-    auto value = frame_->at(symbol_table_->at(aggregation));
+    TypedValue value(frame_->at(symbol_table_->at(aggregation)), ctx_->memory);
     // Aggregation is probably always simple type, but let's switch accessor
     // just to be sure.
     SwitchAccessors(value);
@@ -343,39 +361,46 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     for (int64_t i = 0; i < exprs.size(); ++i) {
-      TypedValue val = exprs[i]->Accept(*this);
+      TypedValue val(exprs[i]->Accept(*this), ctx_->memory);
       if (!val.IsNull()) {
         return val;
       }
     }
 
-    return TypedValue();
+    return TypedValue(ctx_->memory);
   }
 
   TypedValue Visit(Function &function) override {
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
-      TypedValue arguments[8];
+      TypedValue arguments[8] = {
+          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
+          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
+          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
+          TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      return function.function_(arguments, function.arguments_.size(), *ctx_,
-                                dba_);
+      // TODO: Update awesome_memgraph_functions to use the allocator from ctx_
+      return TypedValue(function.function_(
+                            arguments, function.arguments_.size(), *ctx_, dba_),
+                        ctx_->memory);
     } else {
-      std::vector<TypedValue> arguments;
+      TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      return function.function_(arguments.data(), arguments.size(), *ctx_,
-                                dba_);
+      // TODO: Update awesome_memgraph_functions to use the allocator from ctx_
+      return TypedValue(
+          function.function_(arguments.data(), arguments.size(), *ctx_, dba_),
+          ctx_->memory);
     }
   }
-
   TypedValue Visit(Reduce &reduce) override {
     auto list_value = reduce.list_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.",
@@ -396,7 +421,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Extract &extract) override {
     auto list_value = extract.list_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.",
@@ -404,23 +429,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     const auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
-    std::vector<TypedValue> result;
+    TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
     for (const auto &element : list) {
       if (element.IsNull()) {
-        result.emplace_back(TypedValue());
+        result.emplace_back();
       } else {
         frame_->at(element_symbol) = element;
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
-    return TypedValue(result);
+    return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ALL expected a list, got {}.",
@@ -440,13 +465,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return result;
       }
     }
-    return TypedValue(true);
+    return TypedValue(true, ctx_->memory);
   }
 
   TypedValue Visit(Single &single) override {
     auto list_value = single.list_expression_->Accept(*this);
     if (list_value.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.",
@@ -468,24 +493,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       // Return false if more than one element satisfies the predicate.
       if (predicate_satisfied) {
-        return TypedValue(false);
+        return TypedValue(false, ctx_->memory);
       } else {
         predicate_satisfied = true;
       }
     }
-    return TypedValue(predicate_satisfied);
+    return TypedValue(predicate_satisfied, ctx_->memory);
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(
-        ctx_->parameters.AtTokenPosition(param_lookup.token_position_));
+        ctx_->parameters.AtTokenPosition(param_lookup.token_position_),
+        ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override {
     auto target_string_value = regex_match.string_expr_->Accept(*this);
     auto regex_value = regex_match.regex_->Accept(*this);
     if (target_string_value.IsNull() || regex_value.IsNull()) {
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     if (regex_value.type() != TypedValue::Type::String) {
       throw QueryRuntimeException(
@@ -496,12 +522,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // Instead of error, we return Null which makes it compatible in case we
       // use indexed lookup which filters out any non-string properties.
       // Assuming a property lookup is the target_string_value.
-      return TypedValue();
+      return TypedValue(ctx_->memory);
     }
     const auto &target_string = target_string_value.ValueString();
     try {
       std::regex regex(regex_value.ValueString());
-      return TypedValue(std::regex_match(target_string, regex));
+      return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
     } catch (const std::regex_error &e) {
       throw QueryRuntimeException("Regex error in '{}': {}",
                                   regex_value.ValueString(), e.what());

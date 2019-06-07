@@ -33,12 +33,12 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   database::GraphDbAccessor dba{db.Access()};
 
   AstStorage storage;
-  EvaluationContext ctx;
+  utils::MonotonicBufferResource mem{1024};
+  EvaluationContext ctx{&mem};
   SymbolTable symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba,
-                           GraphView::OLD};
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, GraphView::OLD};
 
   Identifier *CreateIdentifierWithValue(std::string name,
                                         const TypedValue &value) {
@@ -53,7 +53,11 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   auto Eval(TExpression *expr) {
     ctx.properties = NamesToProperties(storage.properties_, &dba);
     ctx.labels = NamesToLabels(storage.labels_, &dba);
-    return expr->Accept(eval);
+    auto value = expr->Accept(eval);
+    EXPECT_EQ(value.GetMemoryResource(), &mem)
+        << "ExpressionEvaluator must use the MemoryResource from "
+           "EvaluationContext for allocations!";
+    return value;
   }
 };
 

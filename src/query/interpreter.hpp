@@ -105,6 +105,8 @@ class Interpreter {
           should_abort_query_(should_abort_query) {
       ctx_.is_profile_query = is_profile_query;
       ctx_.symbol_table = plan_->symbol_table();
+      // TODO: Maybe we want a seperate MemoryResource per pull evaluation
+      ctx_.evaluation_context.memory = execution_memory_.get();
       ctx_.evaluation_context.timestamp =
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::system_clock::now().time_since_epoch())

@@ -22,6 +22,8 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
           query::kExecutionMemoryBlockSize)),
       cursor_(plan_pack.plan->MakeCursor(dba_.get(), execution_memory_.get())) {
   context_.symbol_table = plan_pack.symbol_table;
+  // TODO: Maybe we want a seperate MemoryResource per pull evaluation
+  context_.evaluation_context.memory = execution_memory_.get();
   context_.evaluation_context.timestamp = timestamp;
   context_.evaluation_context.parameters = parameters;
   context_.evaluation_context.properties =
