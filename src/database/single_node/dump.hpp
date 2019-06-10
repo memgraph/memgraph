@@ -3,6 +3,7 @@
 #include <ostream>
 
 #include "database/graph_db_accessor.hpp"
+#include "storage/common/constraints/unique_constraints.hpp"
 
 namespace database {
 
@@ -73,6 +74,9 @@ class CypherDumpGenerator {
 
   std::optional<ContainerState<std::vector<LabelPropertyIndex::Key>>>
       indices_state_;
+  std::optional<
+      ContainerState<std::vector<storage::constraints::ConstraintEntry>>>
+      unique_constraints_state_;
   std::optional<ContainerState<decltype(dba_->Vertices(false))>>
       vertices_state_;
   std::optional<ContainerState<decltype(dba_->Edges(false))>> edges_state_;

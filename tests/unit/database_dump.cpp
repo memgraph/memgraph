@@ -46,9 +46,15 @@ struct DatabaseState {
     std::string property;
   };
 
+  struct UniqueConstraint {
+    std::string label;
+    std::set<std::string> props;
+  };
+
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<IndexKey> indices;
+  std::set<UniqueConstraint> constraints;
 };
 
 bool operator<(const DatabaseState::Vertex &first,
@@ -73,6 +79,12 @@ bool operator<(const DatabaseState::IndexKey &first,
   return first.property < second.property;
 }
 
+bool operator<(const DatabaseState::UniqueConstraint &first,
+               const DatabaseState::UniqueConstraint &second) {
+  if (first.label != second.label) return first.label < second.label;
+  return first.props < second.props;
+}
+
 bool operator==(const DatabaseState::Vertex &first,
                 const DatabaseState::Vertex &second) {
   return first.id == second.id && first.labels == second.labels &&
@@ -88,6 +100,11 @@ bool operator==(const DatabaseState::Edge &first,
 bool operator==(const DatabaseState::IndexKey &first,
                 const DatabaseState::IndexKey &second) {
   return first.label == second.label && first.property == second.property;
+}
+
+bool operator==(const DatabaseState::UniqueConstraint &first,
+                const DatabaseState::UniqueConstraint &second) {
+  return first.label == second.label && first.props == second.props;
 }
 
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
@@ -147,7 +164,17 @@ class DatabaseEnvironment {
           {dba.LabelName(key.label_), dba.PropertyName(key.property_)});
     }
 
-    return {vertices, edges, indices};
+    // Capture all unique constraints
+    std::set<DatabaseState::UniqueConstraint> constraints;
+    for (const auto &constraint : dba.ListUniqueConstraints()) {
+      std::set<std::string> props;
+      for (const auto &prop : constraint.properties) {
+        props.insert(dba.PropertyName(prop));
+      }
+      constraints.insert({dba.LabelName(constraint.label), props});
+    }
+
+    return {vertices, edges, indices, constraints};
   }
 
  private:
@@ -424,6 +451,37 @@ TEST(DumpTest, IndicesKeys) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(DumpTest, UniqueConstraints) {
+  DatabaseEnvironment db;
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {"Label"}, {{"prop", 1}}, false);
+    Execute(&dba, "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;");
+    // Create one with multiple properties.
+    Execute(
+        &dba,
+        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop1, u.prop2 IS UNIQUE;");
+    dba.Commit();
+  }
+
+  {
+    auto dba = db.Access();
+    CypherDumpGenerator dump(&dba);
+    EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;");
+    EXPECT_EQ(
+        DumpNext(&dump),
+        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop1, u.prop2 IS UNIQUE;");
+    EXPECT_EQ(DumpNext(&dump),
+              "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1});");
+    EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
+    EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
+    EXPECT_EQ(DumpNext(&dump), "");
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   DatabaseEnvironment db;
   {
@@ -456,8 +514,8 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {"Person"}, {{"name", "Ivan"}});
     auto v = CreateVertex(&dba, {"Person"}, {{"name", "Josko"}});
-    auto w = CreateVertex(&dba, {"Person"}, {{"name", "Bosko"}});
-    auto z = CreateVertex(&dba, {"Person"}, {{"name", "Buha"}});
+    auto w = CreateVertex(&dba, {"Person"}, {{"name", "Bosko"}, {"id", 0}});
+    auto z = CreateVertex(&dba, {"Person"}, {{"name", "Buha"}, {"id", 1}});
     CreateEdge(&dba, u, v, "Knows", {});
     CreateEdge(&dba, v, w, "Knows", {{"how_long", 5}});
     CreateEdge(&dba, w, u, "Knows", {{"how", "distant past"}});
@@ -467,7 +525,8 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(&dba, w, z, "Knows", {{"how", "school"}});
     CreateEdge(&dba, w, z, "Likes", {{"how", "very much"}});
     // Create few indices
-    Execute(&dba, "CREATE INDEX ON :Person(name);");
+    Execute(&dba, "CREATE CONSTRAINT ON (u:Person) ASSERT u.name IS UNIQUE;");
+    Execute(&dba, "CREATE INDEX ON :Person(id);");
     Execute(&dba, "CREATE INDEX ON :Person(unexisting_property);");
   }
 

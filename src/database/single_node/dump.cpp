@@ -119,6 +119,18 @@ void DumpIndexKey(std::ostream *os, GraphDbAccessor *dba,
       << dba->PropertyName(key.property_) << ");";
 }
 
+void DumpUniqueConstraint(
+    std::ostream *os, GraphDbAccessor *dba,
+    const storage::constraints::ConstraintEntry &constraint) {
+  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelName(constraint.label)
+      << ") ASSERT ";
+  utils::PrintIterable(*os, constraint.properties, ", ",
+                       [&dba](auto &os, const auto &property) {
+                         os << "u." << dba->PropertyName(property);
+                       });
+  *os << " IS UNIQUE;";
+}
+
 }  // namespace
 
 CypherDumpGenerator::CypherDumpGenerator(GraphDbAccessor *dba)
@@ -128,6 +140,7 @@ CypherDumpGenerator::CypherDumpGenerator(GraphDbAccessor *dba)
       cleaned_internal_label_property_(false) {
   CHECK(dba);
   indices_state_.emplace(dba->GetIndicesKeys());
+  unique_constraints_state_.emplace(dba->ListUniqueConstraints());
   vertices_state_.emplace(dba->Vertices(false));
   edges_state_.emplace(dba->Edges(false));
 }
@@ -140,6 +153,10 @@ bool CypherDumpGenerator::NextQuery(std::ostream *os) {
     *os << "CREATE INDEX ON :" << kInternalVertexLabel << "("
         << kInternalPropertyId << ");";
     created_internal_index_ = true;
+    return true;
+  } else if (!unique_constraints_state_->ReachedEnd()) {
+    DumpUniqueConstraint(os, dba_,
+                         *unique_constraints_state_->GetCurrentAndAdvance());
     return true;
   } else if (!vertices_state_->ReachedEnd()) {
     DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
