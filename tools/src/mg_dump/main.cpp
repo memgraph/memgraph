@@ -23,7 +23,6 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, true, "Use SSL when connecting to the server");
-DEFINE_string(output, "", "Output target file path");
 
 DECLARE_int32(min_log_level);
 
@@ -46,13 +45,6 @@ int main(int argc, char **argv) {
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
 
-  if (FLAGS_output.empty()) {
-    std::cerr << "Output file not specified. Please run mg_dump --help for "
-                 "more instructions."
-              << std::endl;
-    return 1;
-  }
-
   try {
     const std::string bolt_client_version =
         fmt::format("mg_dump/{}", gflags::VersionString());
@@ -63,37 +55,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // TODO(tsabolcec): Consider using the standard output instead of a file.
-  // That way we could use pipe for importing data at the same time, eg.
-  // `mg_dump --server=S1 | mg_client --server=S2`.
-  std::ofstream out(FLAGS_output, std::fstream::out);
-  if (!out.is_open()) {
-    std::cerr << "Error: couldn't open file \"" << FLAGS_output
-              << "\" for writing" << std::endl;
-    return 1;
-  }
-
   try {
-    auto ret = client.Execute("RETURN DUMP()", {});
-    if (ret.records.size() != 1 || ret.records[0].size() != 1) {
+    auto ret = client.Execute("DUMP DATABASE", {});
+    if (ret.fields.size() != 1) {
       std::cerr << "Error: client received response in unexpected format"
                 << std::endl;
-      out.close();
-      CHECK(fs::remove(FLAGS_output)) << "Failed to remove output target file "
-                                      << FLAGS_output;
       return 1;
     }
 
-    const auto &list = ret.records[0][0];
-    for (const auto &query : list.ValueList()) {
-      out << query.ValueString() << std::endl;
+    for (const auto &row : ret.records) {
+      CHECK(row.size() == 1U) << "Unexpected number of columns in a row";
+      std::cout << row[0].ValueString() << std::endl;
     }
-    out.close();
   } catch (const communication::bolt::ClientFatalException &e) {
     std::cerr << "Client received exception: " << e.what() << std::endl;
-    out.close();
-    CHECK(fs::remove(FLAGS_output)) << "Failed to remove output target file "
-                                    << FLAGS_output;
     return 1;
   }
 

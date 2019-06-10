@@ -953,22 +953,6 @@ TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,
   return TypedValue(utils::Substr(str, start, len), memory);
 }
 
-#if MG_SINGLE_NODE
-TypedValue Dump(TypedValue *args, int64_t nargs, const EvaluationContext &,
-                database::GraphDbAccessor *dba) {
-  if (nargs != 0) {
-    throw QueryRuntimeException("'dump' does not expect any arguments.");
-  }
-
-  std::vector<TypedValue> queries;
-  database::CypherDumpGenerator dump(dba);
-  for (std::ostringstream oss; dump.NextQuery(&oss); oss.str("")) {
-    queries.emplace_back(oss.str());
-  }
-  return queries;
-}
-#endif  // MG_SINGLE_NODE
-
 }  // namespace
 
 std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &,
@@ -1046,9 +1030,6 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "ASSERT") return Assert;
 #if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
   if (function_name == "COUNTER") return Counter;
-#endif
-#ifdef MG_SINGLE_NODE
-  if (function_name == "DUMP") return Dump;
 #endif
 #ifdef MG_DISTRIBUTED
   if (function_name == "WORKERID") return WorkerId;
