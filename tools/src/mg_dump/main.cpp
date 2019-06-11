@@ -1,16 +1,11 @@
-#include <exception>
-#include <filesystem>
-#include <fstream>
+#include <iostream>
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <mgclient.h>
 
-#include "communication/bolt/client.hpp"
-#include "io/network/endpoint.hpp"
-#include "io/network/utils.hpp"
 #include "version.hpp"
-
-namespace fs = std::filesystem;
 
 const char *kUsage =
     "Memgraph dump tool.\n"
@@ -26,51 +21,67 @@ DEFINE_bool(use_ssl, true, "Use SSL when connecting to the server");
 
 DECLARE_int32(min_log_level);
 
-// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
   gflags::SetVersionString(version_string);
   gflags::SetUsageMessage(kUsage);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  // TODO(tsabolcec): `FLAGS_min_log_level` is here to silent logs from
-  // `communication::bolt::Client`. Remove this setting once we move to C
-  // mg-bolt library which doesn't use glog.
-  FLAGS_min_log_level = google::ERROR;
-  google::InitGoogleLogging(argv[0]);
+  const std::string bolt_client_version =
+      fmt::format("mg_dump/{}", gflags::VersionString());
 
-  communication::Init();
+  // Setup session params
+  mg_session_params *params = mg_session_params_make();
+  if (!params) {
+    std::cerr << "Failed to allocate session params" << std::endl;
+    return 1;
+  }
+  mg_session_params_set_host(params, FLAGS_host.c_str());
+  mg_session_params_set_port(params, FLAGS_port);
+  if (!FLAGS_username.empty()) {
+    mg_session_params_set_username(params, FLAGS_username.c_str());
+    mg_session_params_set_password(params, FLAGS_password.c_str());
+  }
+  mg_session_params_set_client_name(params, bolt_client_version.c_str());
+  mg_session_params_set_sslmode(
+      params, FLAGS_use_ssl ? MG_SSLMODE_REQUIRE : MG_SSLMODE_DISABLE);
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_host),
-                                 FLAGS_port);
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
-
-  try {
-    const std::string bolt_client_version =
-        fmt::format("mg_dump/{}", gflags::VersionString());
-    client.Connect(endpoint, FLAGS_username, FLAGS_password,
-                   bolt_client_version);
-  } catch (const communication::bolt::ClientFatalException &e) {
-    std::cerr << "Connection failed: " << e.what() << std::endl;
+  // Establish connection
+  mg_session *session = nullptr;
+  int status = mg_connect(params, &session);
+  mg_session_params_destroy(params);
+  if (status < 0) {
+    std::cerr << "Connection failed: " << mg_session_error(session)
+              << std::endl;
+    mg_session_destroy(session);
     return 1;
   }
 
-  try {
-    auto ret = client.Execute("DUMP DATABASE", {});
-    if (ret.fields.size() != 1) {
-      std::cerr << "Error: client received response in unexpected format"
-                << std::endl;
-      return 1;
-    }
-
-    for (const auto &row : ret.records) {
-      CHECK(row.size() == 1U) << "Unexpected number of columns in a row";
-      std::cout << row[0].ValueString() << std::endl;
-    }
-  } catch (const communication::bolt::ClientFatalException &e) {
-    std::cerr << "Client received exception: " << e.what() << std::endl;
+  if (mg_session_run(session, "DUMP DATABASE", nullptr, nullptr) < 0) {
+    std::cerr << "Execution failed: " << mg_session_error(session) << std::endl;
+    mg_session_destroy(session);
     return 1;
   }
+
+  // Fetch results
+  mg_result *result;
+  while ((status = mg_session_pull(session, &result)) == 1) {
+    const mg_list *row = mg_result_row(result);
+    CHECK(mg_list_size(row) == 1)
+        << "Error: dump client received data in unexpected format";
+    const mg_value *value = mg_list_at(row, 0);
+    CHECK(mg_value_get_type(value) == MG_VALUE_TYPE_STRING)
+        << "Error: dump client received data in unexpected format";
+    const mg_string *str_value = mg_value_string(value);
+    std::cout.write(mg_string_data(str_value), mg_string_size(str_value));
+    std::cout << std::endl;  // `std::endl` flushes
+  }
+
+  if (status < 0) {
+    std::cerr << "Execution failed: " << mg_session_error(session) << std::endl;
+    return 1;
+  }
+
+  mg_session_destroy(session);
 
   return 0;
 }
