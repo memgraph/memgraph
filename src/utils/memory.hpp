@@ -9,6 +9,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -217,6 +218,9 @@ template <class T, class U>
 bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
   return !(a == b);
 }
+
+template <class T>
+using AVector = std::vector<T, Allocator<T>>;
 
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {

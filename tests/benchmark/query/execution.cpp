@@ -20,11 +20,15 @@ class MonotonicBufferResource final {
 
  public:
   utils::MemoryResource *get() { return &memory_; }
+
+  void Reset() { memory_.Release(); }
 };
 
 class NewDeleteResource final {
  public:
   utils::MemoryResource *get() { return utils::NewDeleteResource(); }
+
+  void Reset() {}
 };
 
 static void AddVertices(database::GraphDb *db, int vertex_count) {
@@ -100,15 +104,15 @@ static void Distinct(benchmark::State &state) {
       query::plan::MakeLogicalPlan(&context, parameters, false);
   ResultStreamFaker<query::TypedValue> results;
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     auto cursor = plan_and_cost.first->MakeCursor(&dba, memory.get());
-    while (cursor->Pull(frame, execution_context))
-      ;
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -150,8 +154,9 @@ static void ExpandVariable(benchmark::State &state) {
       MakeExpandVariable(query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
@@ -159,8 +164,7 @@ static void ExpandVariable(benchmark::State &state) {
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
-      while (cursor->Pull(frame, execution_context))
-        ;
+      while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
   state.SetItemsProcessed(state.iterations());
@@ -186,8 +190,9 @@ static void ExpandBfs(benchmark::State &state) {
       MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
@@ -195,8 +200,7 @@ static void ExpandBfs(benchmark::State &state) {
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
-      while (cursor->Pull(frame, execution_context))
-        ;
+      while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
   state.SetItemsProcessed(state.iterations());
@@ -224,8 +228,9 @@ static void ExpandShortest(benchmark::State &state) {
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
@@ -235,8 +240,7 @@ static void ExpandShortest(benchmark::State &state) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
       for (const auto &dest : dba.Vertices(false)) {
         frame[dest_symbol] = query::TypedValue(dest);
-        while (cursor->Pull(frame, execution_context))
-          ;
+        while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
   }
@@ -248,6 +252,51 @@ BENCHMARK_TEMPLATE(ExpandShortest, NewDeleteResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(ExpandShortest, MonotonicBufferResource)
+    ->Range(512, 1U << 20U)
+    ->Unit(benchmark::kMicrosecond);
+
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void ExpandWeightedShortest(benchmark::State &state) {
+  query::AstStorage ast;
+  query::Parameters parameters;
+  database::GraphDb db;
+  AddTree(&db, state.range(0));
+  query::SymbolTable symbol_table;
+  auto expand_variable = MakeExpandVariable(
+      query::EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, &symbol_table);
+  expand_variable.common_.existing_node = true;
+  expand_variable.weight_lambda_ =
+      query::plan::ExpansionLambda{symbol_table.CreateSymbol("edge", false),
+                                   symbol_table.CreateSymbol("vertex", false),
+                                   ast.Create<query::PrimitiveLiteral>(1)};
+  auto dest_symbol = expand_variable.common_.node_symbol;
+  auto dba = db.Access();
+  query::Frame frame(symbol_table.max_position());
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
+  while (state.KeepRunning()) {
+    query::ExecutionContext execution_context{&dba, symbol_table,
+                                              evaluation_context};
+    TMemory memory;
+    auto cursor = expand_variable.MakeCursor(&dba, memory.get());
+    for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
+      frame[expand_variable.input_symbol_] = query::TypedValue(v);
+      for (const auto &dest : dba.Vertices(false)) {
+        frame[dest_symbol] = query::TypedValue(dest);
+        while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+      }
+    }
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_TEMPLATE(ExpandWeightedShortest, NewDeleteResource)
+    ->Range(512, 1U << 20U)
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(ExpandWeightedShortest, MonotonicBufferResource)
     ->Range(512, 1U << 20U)
     ->Unit(benchmark::kMicrosecond);
 
@@ -270,15 +319,15 @@ static void Accumulate(benchmark::State &state) {
                                      /* advance_command= */ false);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     auto cursor = accumulate.MakeCursor(&dba, memory.get());
-    while (cursor->Pull(frame, execution_context))
-      ;
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -319,16 +368,19 @@ static void Aggregate(benchmark::State &state) {
   query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     auto cursor = aggregate.MakeCursor(&dba, memory.get());
     frame[symbols.front()] = query::TypedValue(0);  // initial group_by value
-    while (cursor->Pull(frame, execution_context))
+    while (cursor->Pull(frame, execution_context)) {
       frame[symbols.front()].ValueInt()++;  // new group_by value
+      per_pull_memory.Reset();
+    }
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -366,15 +418,15 @@ static void OrderBy(benchmark::State &state) {
   query::plan::OrderBy order_by(scan_all, sort_items, symbols);
   auto dba = db.Access();
   query::Frame frame(symbol_table.max_position());
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     auto cursor = order_by.MakeCursor(&dba, memory.get());
-    while (cursor->Pull(frame, execution_context))
-      ;
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -405,15 +457,15 @@ static void Unwind(benchmark::State &state) {
   query::Frame frame(symbol_table.max_position());
   frame[list_sym] =
       query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
-  // Nothing should be used from the EvaluationContext, so leave it empty.
-  query::EvaluationContext evaluation_context;
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     auto cursor = unwind.MakeCursor(&dba, memory.get());
-    while (cursor->Pull(frame, execution_context))
-      ;
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
 }

@@ -19,6 +19,7 @@ struct ProfilingStats {
   unsigned long long num_cycles{0};
   uint64_t key{0};
   const char *name{nullptr};
+  // TODO: This should use the allocator for query execution
   std::vector<ProfilingStats> children;
 };
 

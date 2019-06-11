@@ -522,18 +522,6 @@ chained in cases when longer paths need creating.
 
      // Get the existing node (if existing_node_ == true), or create a new node
      VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context);
-
-     /**
-      * Helper function for creating an edge and adding it
-      * to the frame.
-      *
-      * @param from  Origin vertex of the edge.
-      * @param to  Destination vertex of the edge.
-      * @param evaluator Expression evaluator for property value eval.
-      */
-     void CreateEdge(VertexAccessor &from, VertexAccessor &to, Frame &frame,
-                     const SymbolTable &symbol_table,
-                     ExpressionEvaluator &evaluator);
    };
    cpp<#)
   (:serialize (:slk))
