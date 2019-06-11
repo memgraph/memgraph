@@ -44,4 +44,5 @@ for i in range(NUM_MACHINES):
         "enable_network": True,
     })
 
-print(json.dumps(runs, indent=4, sort_keys=True))
+#print(json.dumps(runs, indent=4, sort_keys=True))
+print("[]")
