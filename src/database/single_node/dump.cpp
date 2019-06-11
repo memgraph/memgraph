@@ -1,5 +1,7 @@
 #include "database/single_node/dump.hpp"
 
+#include <iomanip>
+#include <limits>
 #include <map>
 #include <optional>
 #include <ostream>
@@ -19,13 +21,20 @@ namespace {
 // Property that is used to make a difference among vertices. It is added to
 // property set of vertices to match edges and removed after the entire graph
 // is built.
-// TODO(tsabolcec): We should create index for that property for faster
-// matching.
 const char *kInternalPropertyId = "__mg_id__";
 
 // Label that is attached to each vertex and is used for easier creation of
 // index on internal property id.
 const char *kInternalVertexLabel = "__mg_vertex__";
+
+void DumpPreciseDouble(std::ostream *os, double value) {
+  // A temporary stream is used to keep precision of the original output
+  // stream unchanged.
+  std::ostringstream temp_oss;
+  temp_oss << std::setprecision(std::numeric_limits<double>::max_digits10)
+           << value;
+  *os << temp_oss.str();
+}
 
 void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
   switch (value.type()) {
@@ -42,9 +51,7 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
       *os << value.Value<int64_t>();
       return;
     case PropertyValue::Type::Double:
-      // TODO(tsabolcec): By default, this will output only 6 significant digits
-      // of the number. We should increase that number to avoid precision loss.
-      *os << value.Value<double>();
+      DumpPreciseDouble(os, value.Value<double>());
       return;
     case PropertyValue::Type::List: {
       *os << "[";

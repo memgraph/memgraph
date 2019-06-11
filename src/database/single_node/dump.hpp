@@ -12,8 +12,6 @@ namespace database {
 ///
 /// Currently only dumps index keys, vertices and edges, one-by-one in multiple
 /// queries.
-// TODO(tsabolcec): We should also dump constraints once that functionality is
-// integrated in MemGraph.
 class CypherDumpGenerator {
  public:
   explicit CypherDumpGenerator(GraphDbAccessor *dba);
