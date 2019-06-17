@@ -22,8 +22,8 @@ template <class TMemory>
 static void MapLiteral(benchmark::State &state) {
   query::AstStorage ast;
   query::SymbolTable symbol_table;
-  query::Frame frame(symbol_table.max_position());
   TMemory memory;
+  query::Frame frame(symbol_table.max_position(), memory.get());
   database::GraphDb db;
   auto dba = db.Access();
   std::unordered_map<query::PropertyIx, query::Expression *> elements;
@@ -56,8 +56,8 @@ template <class TMemory>
 static void AdditionOperator(benchmark::State &state) {
   query::AstStorage ast;
   query::SymbolTable symbol_table;
-  query::Frame frame(symbol_table.max_position());
   TMemory memory;
+  query::Frame frame(symbol_table.max_position(), memory.get());
   database::GraphDb db;
   auto dba = db.Access();
   query::Expression *expr = ast.Create<query::PrimitiveLiteral>(0);

@@ -53,7 +53,8 @@ void ExpandBfsSubcursor::PrepareForExpand(
     bool clear, std::vector<query::TypedValue> frame) {
   if (clear) {
     Reset();
-    frame_.elems() = std::move(frame);
+    frame_.elems().assign(std::make_move_iterator(frame.begin()),
+                          std::make_move_iterator(frame.end()));
   } else {
     std::swap(to_visit_current_, to_visit_next_);
     to_visit_next_.clear();

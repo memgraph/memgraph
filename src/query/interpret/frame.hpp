@@ -2,14 +2,26 @@
 
 #include <vector>
 
+#include <glog/logging.h>
+
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/typed_value.hpp"
+#include "utils/memory.hpp"
 
 namespace query {
 
 class Frame {
  public:
-  explicit Frame(int size) : size_(size), elems_(size_) {}
+  /// Create a Frame of given size backed by a utils::NewDeleteResource()
+  explicit Frame(int64_t size)
+      : size_(size), elems_(size_, utils::NewDeleteResource()) {
+    CHECK(size >= 0);
+  }
+
+  Frame(int64_t size, utils::MemoryResource *memory)
+      : size_(size), elems_(size_, memory) {
+    CHECK(size >= 0);
+  }
 
   TypedValue &operator[](const Symbol &symbol) {
     return elems_[symbol.position()];
@@ -25,9 +37,13 @@ class Frame {
 
   auto &elems() { return elems_; }
 
+  utils::MemoryResource *GetMemoryResource() const {
+    return elems_.get_allocator().GetMemoryResource();
+  }
+
  private:
-  int size_;
-  std::vector<TypedValue> elems_;
+  int64_t size_;
+  utils::AVector<TypedValue> elems_;
 };
 
 }  // namespace query

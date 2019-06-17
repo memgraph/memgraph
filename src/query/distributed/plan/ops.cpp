@@ -592,7 +592,7 @@ class SynchronizeCursor : public Cursor {
     // Accumulate local results
     while (input_cursor_->Pull(frame, context)) {
       // Copy the frame elements, because Pull may still use them.
-      local_frames_.emplace_back(frame.elems());
+      local_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
     }
 
     // Wait for all workers to finish accumulation (first sync point).
@@ -852,7 +852,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
         LOG(FATAL) << "Must indicate exact expansion direction here";
       });
       future_expands_.emplace_back(
-          FutureExpand{utils::make_future(std::move(edge_to)), frame.elems()});
+          FutureExpand{utils::make_future(std::move(edge_to)),
+                       {frame.elems().begin(), frame.elems().end()}});
     };
 
     auto find_ready_future = [this]() {
@@ -863,7 +864,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
 
     auto put_future_edge_on_frame = [this, &frame](auto &future) {
       auto edge_to = future.edge_to.get();
-      frame.elems() = future.frame_elems;
+      frame.elems().assign(future.frame_elems.begin(),
+                           future.frame_elems.end());
       frame[self_->common_.edge_symbol] = edge_to.first;
       frame[self_->common_.node_symbol] = edge_to.second;
     };
@@ -878,7 +880,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
         if (future_it != future_expands_.end()) {
           // Backup the current frame (if we haven't done so already) before
           // putting the future edge.
-          if (last_frame_.empty()) last_frame_ = frame.elems();
+          if (last_frame_.empty())
+            last_frame_.assign(frame.elems().begin(), frame.elems().end());
           put_future_edge_on_frame(*future_it);
           // Erase the future and return true to yield the result.
           future_expands_.erase(future_it);
@@ -888,7 +891,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
       // In case we have replaced the frame with the one for a future edge,
       // restore it.
       if (!last_frame_.empty()) {
-        frame.elems() = last_frame_;
+        frame.elems().assign(last_frame_.begin(), last_frame_.end());
         last_frame_.clear();
       }
       // attempt to get a value from the incoming edges
@@ -1204,8 +1207,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
       VLOG(10) << "Starting BFS from " << vertex << " with limits "
                << lower_bound_ << ".." << upper_bound_;
 
-      bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, true,
-                                               frame.elems());
+      bfs_subcursor_clients_->PrepareForExpand(
+          subcursor_ids_, true, {frame.elems().begin(), frame.elems().end()});
       bfs_subcursor_clients_->SetSource(subcursor_ids_, vertex.GlobalAddress());
       current_depth_ = 1;
     }

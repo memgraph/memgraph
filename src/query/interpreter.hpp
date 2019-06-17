@@ -97,7 +97,7 @@ class Interpreter {
               kExecutionMemoryBlockSize)),
           cursor_(
               plan_->plan().MakeCursor(db_accessor, execution_memory_.get())),
-          frame_(plan_->symbol_table().max_position()),
+          frame_(plan_->symbol_table().max_position(), execution_memory_.get()),
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),

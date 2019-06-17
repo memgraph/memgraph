@@ -103,7 +103,6 @@ static void Distinct(benchmark::State &state) {
   auto plan_and_cost =
       query::plan::MakeLogicalPlan(&context, parameters, false);
   ResultStreamFaker<query::TypedValue> results;
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -111,6 +110,7 @@ static void Distinct(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = plan_and_cost.first->MakeCursor(&dba, memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
@@ -153,7 +153,6 @@ static void ExpandVariable(benchmark::State &state) {
   auto expand_variable =
       MakeExpandVariable(query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -161,6 +160,7 @@ static void ExpandVariable(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
@@ -189,7 +189,6 @@ static void ExpandBfs(benchmark::State &state) {
   auto expand_variable =
       MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -197,6 +196,7 @@ static void ExpandBfs(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
@@ -227,7 +227,6 @@ static void ExpandShortest(benchmark::State &state) {
   expand_variable.common_.existing_node = true;
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -235,6 +234,7 @@ static void ExpandShortest(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
@@ -272,7 +272,6 @@ static void ExpandWeightedShortest(benchmark::State &state) {
                                    ast.Create<query::PrimitiveLiteral>(1)};
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -280,6 +279,7 @@ static void ExpandWeightedShortest(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(&dba, memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
@@ -318,7 +318,6 @@ static void Accumulate(benchmark::State &state) {
   query::plan::Accumulate accumulate(scan_all, symbols,
                                      /* advance_command= */ false);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -326,6 +325,7 @@ static void Accumulate(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = accumulate.MakeCursor(&dba, memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
@@ -367,7 +367,6 @@ static void Aggregate(benchmark::State &state) {
   }
   query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -375,6 +374,7 @@ static void Aggregate(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = aggregate.MakeCursor(&dba, memory.get());
     frame[symbols.front()] = query::TypedValue(0);  // initial group_by value
     while (cursor->Pull(frame, execution_context)) {
@@ -417,7 +417,6 @@ static void OrderBy(benchmark::State &state) {
   }
   query::plan::OrderBy order_by(scan_all, sort_items, symbols);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -425,6 +424,7 @@ static void OrderBy(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = order_by.MakeCursor(&dba, memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
@@ -454,9 +454,6 @@ static void Unwind(benchmark::State &state) {
   auto out_sym = symbol_table.CreateSymbol("out", false);
   query::plan::Unwind unwind(scan_all, list_expr, out_sym);
   auto dba = db.Access();
-  query::Frame frame(symbol_table.max_position());
-  frame[list_sym] =
-      query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
@@ -464,6 +461,9 @@ static void Unwind(benchmark::State &state) {
     query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
+    frame[list_sym] =
+        query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
     auto cursor = unwind.MakeCursor(&dba, memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
