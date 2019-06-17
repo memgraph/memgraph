@@ -148,6 +148,45 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(MonotonicBufferResource, AllocationWithInitialBufferOnStack) {
+  TestMemory test_mem;
+  constexpr size_t stack_data_size = 1024;
+  char stack_data[stack_data_size];
+  memset(stack_data, 0x42, stack_data_size);
+  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size,
+                                     &test_mem);
+  {
+    char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1, 1));
+    EXPECT_EQ(&stack_data[0], ptr);
+    EXPECT_EQ(test_mem.new_count_, 0);
+  }
+  {
+    char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1023, 1));
+    EXPECT_EQ(&stack_data[1], ptr);
+    EXPECT_EQ(test_mem.new_count_, 0);
+  }
+  CheckAllocation(&mem, 1);
+  EXPECT_EQ(test_mem.new_count_, 1);
+  mem.Release();
+  // We will once more allocate from stack so reset it.
+  memset(stack_data, 0x42, stack_data_size);
+  EXPECT_EQ(test_mem.delete_count_, 1);
+  {
+    char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1024, 1));
+    EXPECT_EQ(&stack_data[0], ptr);
+    EXPECT_EQ(test_mem.new_count_, 1);
+  }
+  mem.Release();
+  // Next allocation doesn't fit to stack so no need to reset it.
+  EXPECT_EQ(test_mem.delete_count_, 1);
+  {
+    char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1025, 1));
+    EXPECT_NE(&stack_data[0], ptr);
+    EXPECT_EQ(test_mem.new_count_, 2);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 class ContainerWithAllocatorLast final {
  public:
   using allocator_type = utils::Allocator<int>;

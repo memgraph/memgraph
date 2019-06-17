@@ -41,10 +41,21 @@ MonotonicBufferResource::MonotonicBufferResource(size_t initial_size,
                                                  MemoryResource *memory)
     : memory_(memory), initial_size_(initial_size) {}
 
+MonotonicBufferResource::MonotonicBufferResource(void *buffer,
+                                                 size_t buffer_size,
+                                                 MemoryResource *memory)
+    : memory_(memory),
+      initial_buffer_(buffer),
+      initial_size_(buffer_size),
+      next_buffer_size_(GrowMonotonicBuffer(
+          initial_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer))) {
+}
+
 MonotonicBufferResource::MonotonicBufferResource(
     MonotonicBufferResource &&other) noexcept
     : memory_(other.memory_),
       current_buffer_(other.current_buffer_),
+      initial_buffer_(other.initial_buffer_),
       initial_size_(other.initial_size_),
       allocated_(other.allocated_) {
   other.current_buffer_ = nullptr;
@@ -56,6 +67,7 @@ MonotonicBufferResource &MonotonicBufferResource::operator=(
   Release();
   memory_ = other.memory_;
   current_buffer_ = other.current_buffer_;
+  initial_buffer_ = other.initial_buffer_;
   initial_size_ = other.initial_size_;
   allocated_ = other.allocated_;
   other.current_buffer_ = nullptr;
@@ -96,14 +108,26 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     allocated_ = 0;
   };
 
-  if (!current_buffer_) push_current_buffer(initial_size_);
-  char *buffer_head = current_buffer_->data() + allocated_;
+  char *data = nullptr;
+  size_t data_capacity = 0U;
+  if (current_buffer_) {
+    data = current_buffer_->data();
+    data_capacity = current_buffer_->capacity;
+  } else if (initial_buffer_) {
+    data = reinterpret_cast<char *>(initial_buffer_);
+    data_capacity = initial_size_;
+  } else {  // missing current_buffer_ and initial_buffer_
+    push_current_buffer(initial_size_);
+    data = current_buffer_->data();
+    data_capacity = current_buffer_->capacity;
+  }
+  char *buffer_head = data + allocated_;
   void *aligned_ptr = buffer_head;
-  size_t available = current_buffer_->capacity - allocated_;
+  size_t available = data_capacity - allocated_;
   if (!std::align(alignment, bytes, aligned_ptr, available)) {
     // Not enough memory, so allocate a new block with aligned data.
     push_current_buffer(next_buffer_size_);
-    aligned_ptr = buffer_head = current_buffer_->data();
+    aligned_ptr = buffer_head = data = current_buffer_->data();
     next_buffer_size_ = GrowMonotonicBuffer(
         next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer));
   }
@@ -111,8 +135,7 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     throw BadAlloc("Allocation alignment overflow");
   if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr)
     throw BadAlloc("Allocation size overflow");
-  allocated_ =
-      reinterpret_cast<char *>(aligned_ptr) - current_buffer_->data() + bytes;
+  allocated_ = reinterpret_cast<char *>(aligned_ptr) - data + bytes;
   return aligned_ptr;
 }
 

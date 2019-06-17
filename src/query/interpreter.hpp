@@ -95,8 +95,6 @@ class Interpreter {
           plan_(plan),
           execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
               kExecutionMemoryBlockSize)),
-          per_pull_memory_(std::make_unique<utils::MonotonicBufferResource>(
-              kExecutionMemoryBlockSize)),
           cursor_(
               plan_->plan().MakeCursor(db_accessor, execution_memory_.get())),
           frame_(plan_->symbol_table().max_position(), execution_memory_.get()),
@@ -107,7 +105,6 @@ class Interpreter {
           should_abort_query_(should_abort_query) {
       ctx_.is_profile_query = is_profile_query;
       ctx_.symbol_table = plan_->symbol_table();
-      ctx_.evaluation_context.memory = per_pull_memory_.get();
       ctx_.evaluation_context.timestamp =
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::system_clock::now().time_since_epoch())
@@ -138,9 +135,17 @@ class Interpreter {
     template <typename TStream>
     bool Pull(TStream &stream) {
       utils::Timer timer;
-      per_pull_memory_->Release();
+      // Setup temporary memory for a single Pull. Initial memory should come
+      // from stack, 256 KiB should fit on the stack and should be more than
+      // enough for a single Pull.
+      constexpr size_t stack_size = 256 * 1024;
+      char stack_data[stack_size];
+      utils::MonotonicBufferResource memory(&stack_data[0], stack_size);
+      ctx_.evaluation_context.memory = &memory;
+      // We can now Pull a result.
       bool return_value = cursor_->Pull(frame_, ctx_);
       if (return_value && !output_symbols_.empty()) {
+        // TODO: The streamed values should also probably use the above memory.
         std::vector<TypedValue> values;
         values.reserve(output_symbols_.size());
         for (const auto &symbol : output_symbols_) {
@@ -183,11 +188,9 @@ class Interpreter {
    private:
     ExecutionContext ctx_;
     std::shared_ptr<CachedPlan> plan_;
-    // execution_memory_ and per_pull_memory_ are unique_ptr, because we are
-    // passing the address to cursor_, and we want to preserve the pointer in
-    // case we get moved.
+    // execution_memory_ is unique_ptr, because we are passing the address to
+    // cursor_, and we want to preserve the pointer in case we get moved.
     std::unique_ptr<utils::MonotonicBufferResource> execution_memory_;
-    std::unique_ptr<utils::MonotonicBufferResource> per_pull_memory_;
     query::plan::UniqueCursorPtr cursor_;
     Frame frame_;
     std::vector<Symbol> output_symbols_;

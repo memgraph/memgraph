@@ -274,6 +274,16 @@ class MonotonicBufferResource final : public MemoryResource {
   /// use the `memory` as the upstream resource.
   MonotonicBufferResource(size_t initial_size, MemoryResource *memory);
 
+  /// Construct the resource with the initial buffer set to `buffer` of given
+  /// `buffer_size`.
+  ///
+  /// This memory resource does not take ownership of `buffer` and will
+  /// therefore not be freed in the destructor nor `Release` call. The `Release`
+  /// call will indeed setup the `buffer` for reuse. Additional buffers are
+  /// allocated from the given upstream `memory` resource.
+  MonotonicBufferResource(void *buffer, size_t buffer_size,
+                          MemoryResource *memory = utils::NewDeleteResource());
+
   MonotonicBufferResource(const MonotonicBufferResource &) = delete;
   MonotonicBufferResource &operator=(const MonotonicBufferResource &) = delete;
 
@@ -300,6 +310,7 @@ class MonotonicBufferResource final : public MemoryResource {
 
   MemoryResource *memory_{NewDeleteResource()};
   Buffer *current_buffer_{nullptr};
+  void *initial_buffer_{nullptr};
   size_t initial_size_{0U};
   size_t next_buffer_size_{initial_size_};
   size_t allocated_{0U};
