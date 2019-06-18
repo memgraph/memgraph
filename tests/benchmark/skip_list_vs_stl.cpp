@@ -19,7 +19,7 @@ class SkipListSetInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
     if (state.thread_index == 0) {
-      list = {};
+      list = utils::SkipList<uint64_t>();
     }
   }
 
@@ -178,7 +178,7 @@ class SkipListMapInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
     if (state.thread_index == 0) {
-      list = {};
+      list = utils::SkipList<MapObject>();;
     }
   }
 
