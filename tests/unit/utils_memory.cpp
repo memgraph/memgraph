@@ -16,7 +16,6 @@ class TestMemory final : public utils::MemoryResource {
     new_count_++;
     EXPECT_TRUE(alignment != 0U && (alignment & (alignment - 1U)) == 0U)
         << "Alignment must be power of 2";
-    EXPECT_TRUE(alignment <= alignof(std::max_align_t));
     EXPECT_NE(bytes, 0);
     const size_t pad_size = 32;
     EXPECT_TRUE(bytes + pad_size > bytes) << "TestMemory size overflow";
@@ -42,7 +41,7 @@ class TestMemory final : public utils::MemoryResource {
 
   void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
     delete_count_++;
-    // Dealloate the original ptr, before alignment adjustment.
+    // Deallocate the original ptr, before alignment adjustment.
     return utils::NewDeleteResource()->Deallocate(
         static_cast<char *>(ptr) - alignment, bytes, alignment);
   }
@@ -98,8 +97,7 @@ TEST(MonotonicBufferResource, AllocationOverInitialSize) {
   EXPECT_EQ(test_mem.delete_count_, 1);
   {
     utils::MonotonicBufferResource mem(1024, &test_mem);
-    // Test with large alignment
-    CheckAllocation(&mem, 1024, 1024);
+    CheckAllocation(&mem, 1025);
     EXPECT_EQ(test_mem.new_count_, 2);
   }
   EXPECT_EQ(test_mem.delete_count_, 2);
@@ -111,7 +109,7 @@ TEST(MonotonicBufferResource, AllocationOverCapacity) {
     utils::MonotonicBufferResource mem(1024, &test_mem);
     CheckAllocation(&mem, 24, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
-    CheckAllocation(&mem, 1000, 64);
+    CheckAllocation(&mem, 1001);
     EXPECT_EQ(test_mem.new_count_, 2);
     EXPECT_EQ(test_mem.delete_count_, 0);
     mem.Release();
@@ -137,6 +135,13 @@ TEST(MonotonicBufferResource, AllocationWithAlignmentNotPowerOf2) {
 TEST(MonotonicBufferResource, AllocationWithSize0) {
   utils::MonotonicBufferResource mem(1024);
   EXPECT_THROW(mem.Allocate(0), std::bad_alloc);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(MonotonicBufferResource, AllocationWithAlignmentGreaterThanMaxAlign) {
+  utils::MonotonicBufferResource mem(1024);
+  EXPECT_THROW(mem.Allocate(24, 2U * alignof(std::max_align_t)),
+               std::bad_alloc);
 }
 
 TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
@@ -183,6 +188,118 @@ TEST(MonotonicBufferResource, AllocationWithInitialBufferOnStack) {
     char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1025, 1));
     EXPECT_NE(&stack_data[0], ptr);
     EXPECT_EQ(test_mem.new_count_, 2);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PoolResource, SingleSmallBlockAllocations) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 3U;
+  const size_t max_block_size = 64U;
+  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  // Fill the first chunk.
+  CheckAllocation(&mem, 64U, 1U);
+  // May allocate more than once due to bookkeeping.
+  EXPECT_GE(test_mem.new_count_, 1U);
+  // Reset tracking and continue filling the first chunk.
+  test_mem.new_count_ = 0U;
+  CheckAllocation(&mem, 64U, 64U);
+  CheckAllocation(&mem, 64U);
+  EXPECT_EQ(test_mem.new_count_, 0U);
+  // Reset tracking and fill the second chunk
+  test_mem.new_count_ = 0U;
+  CheckAllocation(&mem, 64U, 32U);
+  auto *ptr1 = CheckAllocation(&mem, 32U, 64U);  // this will become 64b block
+  auto *ptr2 = CheckAllocation(&mem, 64U, 32U);
+  // We expect one allocation for chunk and at most one for bookkeeping.
+  EXPECT_TRUE(test_mem.new_count_ >= 1U && test_mem.new_count_ <= 2U);
+  test_mem.delete_count_ = 0U;
+  mem.Deallocate(ptr1, 32U, 64U);
+  mem.Deallocate(ptr2, 64U, 32U);
+  EXPECT_EQ(test_mem.delete_count_, 0U);
+  mem.Release();
+  EXPECT_GE(test_mem.delete_count_, 2U);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PoolResource, MultipleSmallBlockAllocations) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 1U;
+  const size_t max_block_size = 64U;
+  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  CheckAllocation(&mem, 64U);
+  CheckAllocation(&mem, 18U, 2U);
+  CheckAllocation(&mem, 24U, 8U);
+  // May allocate more than once per chunk due to bookkeeping.
+  EXPECT_GE(test_mem.new_count_, 3U);
+  // Reset tracking and fill the second chunk
+  test_mem.new_count_ = 0U;
+  CheckAllocation(&mem, 64U);
+  CheckAllocation(&mem, 18U, 2U);
+  CheckAllocation(&mem, 24U, 8U);
+  // We expect one allocation for chunk and at most one for bookkeeping.
+  EXPECT_TRUE(test_mem.new_count_ >= 3U && test_mem.new_count_ <= 6U);
+  mem.Release();
+  EXPECT_GE(test_mem.delete_count_, 6U);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PoolResource, BigBlockAllocations) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 3U;
+  const size_t max_block_size = 64U;
+  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  CheckAllocation(&mem, max_block_size + 1, 1U);
+  // May allocate more than once per block due to bookkeeping.
+  EXPECT_GE(test_mem.new_count_, 1U);
+  CheckAllocation(&mem, max_block_size + 1, 1U);
+  EXPECT_GE(test_mem.new_count_, 2U);
+  auto *ptr = CheckAllocation(&mem, max_block_size * 2, 1U);
+  EXPECT_GE(test_mem.new_count_, 3U);
+  mem.Deallocate(ptr, max_block_size * 2, 1U);
+  EXPECT_GE(test_mem.delete_count_, 1U);
+  mem.Release();
+  EXPECT_GE(test_mem.delete_count_, 3U);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PoolResource, BlockSizeIsNotMultipleOfAlignment) {
+  const size_t max_blocks_per_chunk = 3U;
+  const size_t max_block_size = 64U;
+  utils::PoolResource mem(max_blocks_per_chunk, max_block_size);
+  EXPECT_THROW(mem.Allocate(64U, 24U), std::bad_alloc);
+  EXPECT_THROW(mem.Allocate(63U), std::bad_alloc);
+  EXPECT_THROW(mem.Allocate(max_block_size + 1, max_block_size),
+               std::bad_alloc);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PoolResource, AllocationWithOverflow) {
+  {
+    const size_t max_blocks_per_chunk = 2U;
+    utils::PoolResource mem(max_blocks_per_chunk,
+                            std::numeric_limits<size_t>::max());
+    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U),
+                 std::bad_alloc);
+    // Throws because initial chunk block is aligned to
+    // utils::Ceil2(block_size), which wraps in this case.
+    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) /
+                                  max_blocks_per_chunk,
+                              1U),
+                 std::bad_alloc);
+  }
+  {
+    const size_t max_blocks_per_chunk = utils::impl::Pool::MaxBlocksInChunk();
+    utils::PoolResource mem(max_blocks_per_chunk,
+                            std::numeric_limits<size_t>::max());
+    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U),
+                 std::bad_alloc);
+    // Throws because initial chunk block is aligned to
+    // utils::Ceil2(block_size), which wraps in this case.
+    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) /
+                                  max_blocks_per_chunk,
+                              1U),
+                 std::bad_alloc);
   }
 }
 

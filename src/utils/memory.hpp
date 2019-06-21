@@ -6,6 +6,8 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
+#include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -15,7 +17,21 @@
 // version, i.e. gcc 9.x.
 #include <experimental/memory_resource>
 
+#include "utils/math.hpp"
+#include "utils/spin_lock.hpp"
+
 namespace utils {
+
+/// std::bad_alloc has no constructor accepting a message, so we wrap our
+/// exceptions in this class.
+class BadAlloc final : public std::bad_alloc {
+  std::string msg_;
+
+ public:
+  explicit BadAlloc(const std::string &msg) : msg_(msg) {}
+
+  const char *what() const noexcept override { return msg_.c_str(); }
+};
 
 /// Abstract class for writing custom memory management, i.e. allocators.
 class MemoryResource {
@@ -24,17 +40,17 @@ class MemoryResource {
 
   /// Allocate storage with a size of at least `bytes` bytes.
   ///
-  /// The returned storage is aligned to to `alignment` clamped to
-  /// `alignof(std::max_align_t)`. This means that it is valid to request larger
-  /// alignment, but the storage will actually be aligned to
-  /// `alignof(std::max_align_t)`.
-  //
-  /// Additionaly, `alignment` must be a power of 2, if it is not
-  /// `std::bad_alloc` is thrown.
+  /// `bytes` must be greater than 0, while `alignment` must be a power of 2, if
+  /// they are not, `std::bad_alloc` is thrown.
+  ///
+  /// Some concrete implementations may have stricter requirements on `bytes`
+  /// and `alignment` values.
   ///
   /// @throw std::bad_alloc if the requested storage and alignment combination
   ///     cannot be obtained.
   void *Allocate(size_t bytes, size_t alignment = alignof(std::max_align_t)) {
+    if (bytes == 0U || !IsPow2(alignment))
+      throw BadAlloc("Invalid allocation request");
     return DoAllocate(bytes, alignment);
   }
 
@@ -231,6 +247,15 @@ class StdMemoryResource final : public MemoryResource {
 
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override {
+    // In the current implementation of libstdc++-8.3, standard memory_resource
+    // implementations don't check alignment overflows. Below is the copied
+    // implementation of _S_aligned_size, but we throw if it overflows.
+    // Currently, this only concerns new_delete_resource as there are no other
+    // memory_resource implementations available. This issue appears to persist
+    // in newer implementations, additionally pool_resource does no alignment of
+    // allocated pointers whatsoever.
+    size_t aligned_size = ((bytes - 1) | (alignment - 1)) + 1;
+    if (aligned_size < bytes) throw BadAlloc("Allocation alignment overflow");
     return memory_->allocate(bytes, alignment);
   }
 
@@ -257,6 +282,9 @@ inline MemoryResource *NewDeleteResource() noexcept {
 /// destroyed.
 ///
 /// MonotonicBufferResource is not thread-safe!
+///
+/// MonotonicBufferResource cannot handle alignment requests greater than
+/// `alignof(std::max_align_t)`!
 ///
 /// It's meant to be used for very fast allocations in situations where memory
 /// is used to build objects and release them all at once. The class is
@@ -318,6 +346,173 @@ class MonotonicBufferResource final : public MemoryResource {
   void *DoAllocate(size_t bytes, size_t alignment) override;
 
   void DoDeallocate(void *, size_t, size_t) override {}
+
+  bool DoIsEqual(const MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+};
+
+namespace impl {
+
+/// Holds a number of Chunks each serving blocks of particular size. When a
+/// Chunk runs out of available blocks, a new Chunk is allocated. The naming is
+/// taken from `libstdc++` implementation, but the implementation details are
+/// more similar to `FixedAllocator` described in "Small Object Allocation" from
+/// "Modern C++ Design".
+class Pool final {
+  /// Holds a pointer into a chunk of memory which consists of equal sized
+  /// blocks. Each Chunk can handle `std::numeric_limits<unsigned char>::max()`
+  /// number of blocks. Blocks form a "free-list", where each unused block has
+  /// an embedded index to the next unused block.
+  struct Chunk {
+    unsigned char *data;
+    unsigned char first_available_block_ix;
+    unsigned char blocks_available;
+  };
+
+  unsigned char blocks_per_chunk_;
+  size_t block_size_;
+  AVector<Chunk> chunks_;
+  Chunk *last_alloc_chunk_{nullptr};
+  Chunk *last_dealloc_chunk_{nullptr};
+
+ public:
+  static constexpr auto MaxBlocksInChunk() {
+    return std::numeric_limits<decltype(
+        Chunk::first_available_block_ix)>::max();
+  }
+
+  Pool(size_t block_size, unsigned char blocks_per_chunk,
+       MemoryResource *memory);
+
+  Pool(const Pool &) = delete;
+  Pool &operator=(const Pool &) = delete;
+  Pool(Pool &&) noexcept = default;
+  Pool &operator=(Pool &&) = default;
+
+  /// Destructor does not free blocks, you have to call `Release` before.
+  ~Pool();
+
+  MemoryResource *GetUpstreamResource() const {
+    return chunks_.get_allocator().GetMemoryResource();
+  }
+
+  auto GetBlockSize() const { return block_size_; }
+
+  /// Get a pointer to the next available block. Blocks are stored contiguously,
+  /// so each one is aligned to block_size_ address starting from
+  /// utils::Ceil2(block_size_) address.
+  void *Allocate();
+
+  void Deallocate(void *p);
+
+  void Release();
+};
+
+}  // namespace impl
+
+/// MemoryResource which serves allocation requests for different block sizes.
+///
+/// PoolResource is not thread-safe!
+///
+/// This class has the following properties with regards to memory management.
+///
+///   * All allocated memory will be freed upon destruction, even if Deallocate
+///     has not been called for some of the allocated blocks.
+///   * It consists of a collection of impl::Pool instances, each serving
+///     requests for different block sizes. Each impl::Pool manages a collection
+///     of impl::Pool::Chunk instances which are divided into blocks of uniform
+///     size.
+///   * Since this MemoryResource serves blocks of certain size, it cannot serve
+///     arbitrary alignment requests. Each requested block size must be a
+///     multiple of alignment or smaller than the alignment value.
+///   * An allocation request within the limits of the maximum block size will
+///     find a Pool serving the requested size. If there's no Pool serving such
+///     a request, a new one is instantiated.
+///   * When a Pool exhausts its Chunk, a new one is allocated with the size for
+///     the maximum number of blocks.
+///   * Allocation requests which exceed the maximum block size will be
+///     forwarded to upstream MemoryResource.
+///   * Maximum block size and maximum number of blocks per chunk can be tuned
+///     by passing the arguments to the constructor.
+class PoolResource final : public MemoryResource {
+ public:
+  /// Construct with given max_blocks_per_chunk, max_block_size and upstream
+  /// memory.
+  ///
+  /// The implementation will use std::min(max_blocks_per_chunk,
+  /// impl::Pool::MaxBlocksInChunk()) as the real maximum number of blocks per
+  /// chunk. Allocation requests exceeding max_block_size are simply forwarded
+  /// to upstream memory.
+  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
+               MemoryResource *memory = NewDeleteResource());
+
+  PoolResource(const PoolResource &) = delete;
+  PoolResource &operator=(const PoolResource &) = delete;
+
+  PoolResource(PoolResource &&) = default;
+  PoolResource &operator=(PoolResource &&) = default;
+
+  ~PoolResource() override { Release(); }
+
+  MemoryResource *GetUpstreamResource() const {
+    return pools_.get_allocator().GetMemoryResource();
+  }
+
+  /// Release all allocated memory.
+  void Release();
+
+ private:
+  // Big block larger than max_block_size_, doesn't go into a pool.
+  struct BigBlock {
+    size_t bytes;
+    size_t alignment;
+    void *data;
+  };
+
+  // TODO: Potential memory optimization is replacing `std::vector` with our
+  // custom vector implementation which doesn't store a `MemoryResource *`.
+  // Currently we have vectors for `pools_` and `unpooled_`, as well as each
+  // `impl::Pool` stores a `chunks_` vector.
+
+  // Pools are sorted by bound_size_, ascending.
+  AVector<impl::Pool> pools_;
+  impl::Pool *last_alloc_pool_{nullptr};
+  impl::Pool *last_dealloc_pool_{nullptr};
+  // Unpooled BigBlocks are sorted by data pointer.
+  AVector<BigBlock> unpooled_;
+  size_t max_blocks_per_chunk_;
+  size_t max_block_size_;
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+
+  bool DoIsEqual(const MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+};
+
+/// Like PoolResource but uses SpinLock for thread safe usage.
+class SynchronizedPoolResource final : public MemoryResource {
+ public:
+  SynchronizedPoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
+                           MemoryResource *memory = NewDeleteResource())
+      : pool_memory_(max_blocks_per_chunk, max_block_size, memory) {}
+
+ private:
+  PoolResource pool_memory_;
+  SpinLock lock_;
+
+  void *DoAllocate(size_t bytes, size_t alignment) override {
+    std::lock_guard<SpinLock> guard(lock_);
+    return pool_memory_.Allocate(bytes, alignment);
+  }
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+    std::lock_guard<SpinLock> guard(lock_);
+    pool_memory_.Deallocate(p, bytes, alignment);
+  }
 
   bool DoIsEqual(const MemoryResource &other) const noexcept override {
     return this == &other;
