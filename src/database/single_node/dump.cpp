@@ -105,7 +105,9 @@ void DumpVertex(std::ostream *os, GraphDbAccessor *dba,
 
 void DumpEdge(std::ostream *os, GraphDbAccessor *dba,
               const EdgeAccessor &edge) {
-  *os << "MATCH (u), (v)";
+  *os << "MATCH ";
+  *os << "(u:" << kInternalVertexLabel << "), ";
+  *os << "(v:" << kInternalVertexLabel << ")";
   *os << " WHERE ";
   *os << "u." << kInternalPropertyId << " = " << edge.from().CypherId();
   *os << " AND ";

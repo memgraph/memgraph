@@ -355,8 +355,8 @@ TEST(DumpTest, SingleEdge) {
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
     EXPECT_EQ(DumpNext(&dump),
-              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-              "(u)-[:EdgeType]->(v);");
+              "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = "
+              "0 AND v.__mg_id__ = 1 CREATE (u)-[:EdgeType]->(v);");
     EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
     EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
     EXPECT_EQ(DumpNext(&dump), "");
@@ -385,14 +385,14 @@ TEST(DumpTest, MultipleEdges) {
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 2});");
     EXPECT_EQ(DumpNext(&dump),
-              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-              "(u)-[:EdgeType]->(v);");
+              "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = "
+              "0 AND v.__mg_id__ = 1 CREATE (u)-[:EdgeType]->(v);");
     EXPECT_EQ(DumpNext(&dump),
-              "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE "
-              "(u)-[:EdgeType]->(v);");
+              "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = "
+              "1 AND v.__mg_id__ = 0 CREATE (u)-[:EdgeType]->(v);");
     EXPECT_EQ(DumpNext(&dump),
-              "MATCH (u), (v) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE "
-              "(u)-[:EdgeType]->(v);");
+              "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = "
+              "1 AND v.__mg_id__ = 2 CREATE (u)-[:EdgeType]->(v);");
     EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
     EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
     EXPECT_EQ(DumpNext(&dump), "");
@@ -417,8 +417,8 @@ TEST(DumpTest, EdgeWithProperties) {
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
     EXPECT_EQ(DumpNext(&dump),
-              "MATCH (u), (v) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
-              "(u)-[:EdgeType {prop: 13}]->(v);");
+              "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = "
+              "0 AND v.__mg_id__ = 1 CREATE (u)-[:EdgeType {prop: 13}]->(v);");
     EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
     EXPECT_EQ(DumpNext(&dump), kRemoveInternalLabelProperty);
     EXPECT_EQ(DumpNext(&dump), "");
