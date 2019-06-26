@@ -17,6 +17,12 @@
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
 
+// This code heavily depends on atomic operations. For a more detailed
+// description of how exactly atomic operations work, see:
+// https://www.codeproject.com/Articles/1183423/We-make-a-std-shared-mutex-times-faster
+// How the specified memory fences influence the generated assembler
+// instructions, see: https://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html
+
 namespace utils {
 
 /// This is the maximum height of the list. This value shouldn't be changed from
@@ -129,19 +135,19 @@ class SkipListGc final {
 
   Block *AllocateBlock(Block *head) {
     std::lock_guard<SpinLock> guard(lock_);
-    Block *curr_head = head_.load(std::memory_order_relaxed);
+    Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head == head) {
       Block *block = new (calloc(1, sizeof(Block))) Block();
-      block->prev.store(curr_head, std::memory_order_relaxed);
-      block->succ.store(nullptr, std::memory_order_relaxed);
+      block->prev.store(curr_head, std::memory_order_release);
+      block->succ.store(nullptr, std::memory_order_release);
       block->first_id = last_id_;
       last_id_ += kIdsInBlock;
       if (curr_head == nullptr) {
-        tail_.store(block, std::memory_order_relaxed);
+        tail_.store(block, std::memory_order_release);
       } else {
-        curr_head->succ.store(block, std::memory_order_relaxed);
+        curr_head->succ.store(block, std::memory_order_release);
       }
-      head_.store(block, std::memory_order_relaxed);
+      head_.store(block, std::memory_order_release);
       return block;
     } else {
       return curr_head;
@@ -162,9 +168,9 @@ class SkipListGc final {
   SkipListGc &operator=(SkipListGc &&other) = delete;
 
   ~SkipListGc() {
-    Block *head = head_.load(std::memory_order_relaxed);
+    Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {
-      Block *prev = head->prev.load(std::memory_order_relaxed);
+      Block *prev = head->prev.load(std::memory_order_acquire);
       head->~Block();
       free(head);
       head = prev;
@@ -177,7 +183,7 @@ class SkipListGc final {
   }
 
   uint64_t AllocateId() {
-    return accessor_id_.fetch_add(1, std::memory_order_relaxed);
+    return accessor_id_.fetch_add(1, std::memory_order_acq_rel);
   }
 
   void ReleaseId(uint64_t id) {
@@ -188,14 +194,14 @@ class SkipListGc final {
     // accessed without a lock because all of the pointers in the list are
     // atomic and their modification is done so that the access is always
     // correct.
-    Block *head = head_.load(std::memory_order_relaxed);
+    Block *head = head_.load(std::memory_order_acquire);
     if (head == nullptr) {
       head = AllocateBlock(head);
     }
     while (true) {
       CHECK(head != nullptr) << "Missing SkipListGc block!";
       if (id < head->first_id) {
-        head = head->prev.load(std::memory_order_relaxed);
+        head = head->prev.load(std::memory_order_acquire);
       } else if (id >= head->first_id + kIdsInBlock) {
         head = AllocateBlock(head);
       } else {
@@ -205,7 +211,7 @@ class SkipListGc final {
         uint64_t value = 1;
         value <<= bit;
         auto ret =
-            head->field[field].fetch_or(value, std::memory_order_relaxed);
+            head->field[field].fetch_or(value, std::memory_order_acq_rel);
         CHECK(!(ret & value)) << "A SkipList Accessor was released twice!";
         break;
       }
@@ -214,18 +220,18 @@ class SkipListGc final {
 
   void Collect(TNode *node) {
     std::lock_guard<SpinLock> guard(lock_);
-    deleted_.Push({accessor_id_.load(std::memory_order_relaxed), node});
+    deleted_.Push({accessor_id_.load(std::memory_order_acquire), node});
   }
 
   void Run() {
     if (!lock_.try_lock()) return;
     OnScopeExit cleanup([&] { lock_.unlock(); });
-    Block *tail = tail_.load(std::memory_order_relaxed);
+    Block *tail = tail_.load(std::memory_order_acquire);
     uint64_t last_dead = 0;
     bool remove_block = true;
     while (tail != nullptr && remove_block) {
       for (uint64_t pos = 0; pos < kSkipListGcBlockSize; ++pos) {
-        uint64_t field = tail->field[pos].load(std::memory_order_relaxed);
+        uint64_t field = tail->field[pos].load(std::memory_order_acquire);
         if (field != std::numeric_limits<uint64_t>::max()) {
           if (field != 0) {
             // Here we find the position of the least significant zero bit
@@ -246,7 +252,7 @@ class SkipListGc final {
           last_dead = tail->first_id + (pos + 1) * kIdsInField - 1;
         }
       }
-      Block *next = tail->succ.load(std::memory_order_relaxed);
+      Block *next = tail->succ.load(std::memory_order_acquire);
       // Here we also check whether the next block isn't a `nullptr`. If it is
       // `nullptr` that means that this is the last existing block. We don't
       // want to destroy it because we would need to change the `head_` to point
@@ -254,10 +260,10 @@ class SkipListGc final {
       // thread doesn't have a pointer to the block that it got from reading
       // `head_`. We bail out here, this block will be freed next time.
       if (remove_block && next != nullptr) {
-        CHECK(tail == tail_.load(std::memory_order_relaxed))
+        CHECK(tail == tail_.load(std::memory_order_acquire))
             << "Can't remove SkipListGc block that is in the middle!";
-        next->prev.store(nullptr, std::memory_order_relaxed);
-        tail_.store(next, std::memory_order_relaxed);
+        next->prev.store(nullptr, std::memory_order_release);
+        tail_.store(next, std::memory_order_release);
         // Destroy the block.
         tail->~Block();
         free(tail);
@@ -479,8 +485,8 @@ class SkipList final {
 
     Iterator &operator++() {
       while (true) {
-        node_ = node_->nexts[0].load(std::memory_order_relaxed);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_relaxed)) {
+        node_ = node_->nexts[0].load(std::memory_order_acquire);
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
           continue;
         } else {
           return *this;
@@ -515,8 +521,8 @@ class SkipList final {
 
     ConstIterator &operator++() {
       while (true) {
-        TNode *next = node_->nexts[0].load(std::memory_order_relaxed);
-        if (next == nullptr || !next->marked.load(std::memory_order_relaxed)) {
+        TNode *next = node_->nexts[0].load(std::memory_order_acquire);
+        if (next == nullptr || !next->marked.load(std::memory_order_acquire)) {
           node_ = next;
           return *this;
         }
@@ -559,15 +565,15 @@ class SkipList final {
     /// the list.
     Iterator begin() {
       return Iterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_relaxed)};
+          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
     }
     ConstIterator begin() const {
       return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_relaxed)};
+          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
     }
     ConstIterator cbegin() const {
       return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_relaxed)};
+          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
     }
 
     /// Functions that return an Iterator (or ConstIterator) to the end of the
@@ -698,11 +704,11 @@ class SkipList final {
 
     ConstIterator begin() const {
       return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_relaxed)};
+          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
     }
     ConstIterator cbegin() const {
       return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_relaxed)};
+          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
     }
 
     ConstIterator end() const { return ConstIterator{nullptr}; }
@@ -766,7 +772,7 @@ class SkipList final {
   SkipList &operator=(SkipList &&other) noexcept {
     TNode *head = head_;
     while (head != nullptr) {
-      TNode *succ = head->nexts[0].load(std::memory_order_relaxed);
+      TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       head->~TNode();
       free(head);
       head = succ;
@@ -783,7 +789,7 @@ class SkipList final {
   ~SkipList() {
     TNode *head = head_;
     while (head != nullptr) {
-      TNode *succ = head->nexts[0].load(std::memory_order_relaxed);
+      TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       head->~TNode();
       free(head);
       head = succ;
@@ -797,7 +803,7 @@ class SkipList final {
 
   /// The size of the list can be read directly from the list because it is an
   /// atomic operation.
-  uint64_t size() const { return size_.load(std::memory_order_relaxed); }
+  uint64_t size() const { return size_.load(std::memory_order_acquire); }
 
  private:
   template <typename TKey>
@@ -805,11 +811,11 @@ class SkipList final {
     int layer_found = -1;
     TNode *pred = head_;
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
-      TNode *curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       // Existence test is missing in the paper.
       while (curr != nullptr && curr->obj < key) {
         pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_relaxed);
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
       }
       // Existence test is missing in the paper.
       if (layer_found == -1 && curr && curr->obj == key) {
@@ -831,8 +837,8 @@ class SkipList final {
       int layer_found = find_node(object, preds, succs);
       if (layer_found != -1) {
         TNode *node_found = succs[layer_found];
-        if (!node_found->marked.load(std::memory_order_relaxed)) {
-          while (!node_found->fully_linked.load(std::memory_order_relaxed))
+        if (!node_found->marked.load(std::memory_order_acquire)) {
+          while (!node_found->fully_linked.load(std::memory_order_acquire))
             ;
           return {Iterator{node_found}, false};
         }
@@ -853,9 +859,9 @@ class SkipList final {
         }
         // Existence test is missing in the paper.
         valid =
-            !pred->marked.load(std::memory_order_relaxed) &&
-            pred->nexts[layer].load(std::memory_order_relaxed) == succ &&
-            (succ == nullptr || !succ->marked.load(std::memory_order_relaxed));
+            !pred->marked.load(std::memory_order_acquire) &&
+            pred->nexts[layer].load(std::memory_order_acquire) == succ &&
+            (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
       }
 
       if (!valid) continue;
@@ -871,12 +877,12 @@ class SkipList final {
       // The paper is also wrong here. It states that the loop should go up to
       // `top_layer` which is wrong.
       for (int layer = 0; layer < top_layer; ++layer) {
-        new_node->nexts[layer].store(succs[layer], std::memory_order_relaxed);
-        preds[layer]->nexts[layer].store(new_node, std::memory_order_relaxed);
+        new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+        preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
       }
 
-      new_node->fully_linked.store(true, std::memory_order_relaxed);
-      size_.fetch_add(1, std::memory_order_relaxed);
+      new_node->fully_linked.store(true, std::memory_order_release);
+      size_.fetch_add(1, std::memory_order_acq_rel);
       return {Iterator{new_node}, true};
     }
   }
@@ -886,8 +892,8 @@ class SkipList final {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
     return (layer_found != -1 &&
-            succs[layer_found]->fully_linked.load(std::memory_order_relaxed) &&
-            !succs[layer_found]->marked.load(std::memory_order_relaxed));
+            succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+            !succs[layer_found]->marked.load(std::memory_order_acquire));
   }
 
   template <typename TKey>
@@ -895,8 +901,8 @@ class SkipList final {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
     if (layer_found != -1 &&
-        succs[layer_found]->fully_linked.load(std::memory_order_relaxed) &&
-        !succs[layer_found]->marked.load(std::memory_order_relaxed)) {
+        succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+        !succs[layer_found]->marked.load(std::memory_order_acquire)) {
       return Iterator{succs[layer_found]};
     }
     return Iterator{nullptr};
@@ -906,8 +912,8 @@ class SkipList final {
   Iterator find_equal_or_greater(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     find_node(key, preds, succs);
-    if (succs[0] && succs[0]->fully_linked.load(std::memory_order_relaxed) &&
-        !succs[0]->marked.load(std::memory_order_relaxed)) {
+    if (succs[0] && succs[0]->fully_linked.load(std::memory_order_acquire) &&
+        !succs[0]->marked.load(std::memory_order_acquire)) {
       return Iterator{succs[0]};
     }
     return Iterator{nullptr};
@@ -930,14 +936,14 @@ class SkipList final {
     for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
          layer >= 0; --layer) {
       uint64_t nodes_traversed = 0;
-      TNode *curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       while (curr != nullptr && curr->obj < key) {
         pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_relaxed);
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
       }
       while (curr != nullptr && curr->obj == key) {
         pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_relaxed);
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
         ++nodes_traversed;
       }
       // Here we assume that the list is perfectly balanced and that each upper
@@ -975,36 +981,36 @@ class SkipList final {
     for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
          layer >= 0; --layer) {
       uint64_t nodes_traversed = 0;
-      TNode *curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       if (lower) {
         while (curr != nullptr && curr->obj < lower->value()) {
           pred = curr;
-          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
         }
         if (lower->IsExclusive()) {
           while (curr != nullptr && curr->obj == lower->value()) {
             pred = curr;
-            curr = pred->nexts[layer].load(std::memory_order_relaxed);
+            curr = pred->nexts[layer].load(std::memory_order_acquire);
           }
         }
       }
       if (upper) {
         while (curr != nullptr && curr->obj < upper->value()) {
           pred = curr;
-          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
           ++nodes_traversed;
         }
         if (upper->IsInclusive()) {
           while (curr != nullptr && curr->obj == upper->value()) {
             pred = curr;
-            curr = pred->nexts[layer].load(std::memory_order_relaxed);
+            curr = pred->nexts[layer].load(std::memory_order_acquire);
             ++nodes_traversed;
           }
         }
       } else {
         while (curr != nullptr) {
           pred = curr;
-          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
           ++nodes_traversed;
         }
       }
@@ -1019,9 +1025,9 @@ class SkipList final {
   bool ok_to_delete(TNode *candidate, int layer_found) {
     // The paper has an incorrect check here. It expects the `layer_found`
     // variable to be 1-indexed, but in fact it is 0-indexed.
-    return (candidate->fully_linked.load(std::memory_order_relaxed) &&
+    return (candidate->fully_linked.load(std::memory_order_acquire) &&
             candidate->height == layer_found + 1 &&
-            !candidate->marked.load(std::memory_order_relaxed));
+            !candidate->marked.load(std::memory_order_acquire));
   }
 
   template <typename TKey>
@@ -1039,10 +1045,10 @@ class SkipList final {
           node_to_delete = succs[layer_found];
           top_layer = node_to_delete->height;
           node_guard = std::unique_lock<SpinLock>(node_to_delete->lock);
-          if (node_to_delete->marked.load(std::memory_order_relaxed)) {
+          if (node_to_delete->marked.load(std::memory_order_acquire)) {
             return false;
           }
-          node_to_delete->marked.store(true, std::memory_order_relaxed);
+          node_to_delete->marked.store(true, std::memory_order_release);
           is_marked = true;
         }
 
@@ -1058,8 +1064,8 @@ class SkipList final {
             guards[layer] = std::unique_lock<SpinLock>(pred->lock);
             prev_pred = pred;
           }
-          valid = !pred->marked.load(std::memory_order_relaxed) &&
-                  pred->nexts[layer].load(std::memory_order_relaxed) == succ;
+          valid = !pred->marked.load(std::memory_order_acquire) &&
+                  pred->nexts[layer].load(std::memory_order_acquire) == succ;
         }
 
         if (!valid) continue;
@@ -1068,11 +1074,11 @@ class SkipList final {
         // from `top_layer` which is wrong.
         for (int layer = top_layer - 1; layer >= 0; --layer) {
           preds[layer]->nexts[layer].store(
-              node_to_delete->nexts[layer].load(std::memory_order_relaxed),
-              std::memory_order_relaxed);
+              node_to_delete->nexts[layer].load(std::memory_order_acquire),
+              std::memory_order_release);
         }
         gc_.Collect(node_to_delete);
-        size_.fetch_add(-1, std::memory_order_relaxed);
+        size_.fetch_add(-1, std::memory_order_acq_rel);
         return true;
       } else {
         return false;
