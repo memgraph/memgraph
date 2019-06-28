@@ -15,7 +15,7 @@ static_assert(
 /// This function computes the log2 function on integer types. It is faster than
 /// the cmath `log2` function because it doesn't use floating point values for
 /// calculation.
-inline uint64_t Log2(uint64_t val) {
+constexpr inline uint64_t Log2(uint64_t val) {
   // The `clz` function is undefined when the passed value is 0 and the value of
   // `log` is `-inf` so we special case it here.
   if (val == 0) return 0;
@@ -26,14 +26,14 @@ inline uint64_t Log2(uint64_t val) {
 }
 
 /// Return `true` if `val` is a power of 2.
-inline bool IsPow2(uint64_t val) noexcept {
+constexpr inline bool IsPow2(uint64_t val) noexcept {
   return val != 0ULL && (val & (val - 1ULL)) == 0ULL;
 }
 
 /// Return `val` if it is power of 2, otherwise get the next power of 2 value.
 /// If `val` is sufficiently large, the next power of 2 value may not fit into
 /// the result type and you will get a wrapped value to 1ULL.
-inline uint64_t Ceil2(uint64_t val) noexcept {
+constexpr inline uint64_t Ceil2(uint64_t val) noexcept {
   if (val == 0ULL || val == 1ULL) return 1ULL;
   return 1ULL << (Log2(val - 1ULL) + 1ULL);
 }

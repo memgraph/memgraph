@@ -106,10 +106,10 @@ TEST(MonotonicBufferResource, AllocationOverInitialSize) {
 TEST(MonotonicBufferResource, AllocationOverCapacity) {
   TestMemory test_mem;
   {
-    utils::MonotonicBufferResource mem(1024, &test_mem);
+    utils::MonotonicBufferResource mem(1000, &test_mem);
     CheckAllocation(&mem, 24, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
-    CheckAllocation(&mem, 1001);
+    CheckAllocation(&mem, 976);
     EXPECT_EQ(test_mem.new_count_, 2);
     EXPECT_EQ(test_mem.delete_count_, 0);
     mem.Release();
@@ -139,9 +139,9 @@ TEST(MonotonicBufferResource, AllocationWithSize0) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, AllocationWithAlignmentGreaterThanMaxAlign) {
-  utils::MonotonicBufferResource mem(1024);
-  EXPECT_THROW(mem.Allocate(24, 2U * alignof(std::max_align_t)),
-               std::bad_alloc);
+  TestMemory test_mem;
+  utils::MonotonicBufferResource mem(1024, &test_mem);
+  CheckAllocation(&mem, 24, 2U * alignof(std::max_align_t));
 }
 
 TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {

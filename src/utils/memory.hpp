@@ -283,14 +283,18 @@ inline MemoryResource *NewDeleteResource() noexcept {
 ///
 /// MonotonicBufferResource is not thread-safe!
 ///
-/// MonotonicBufferResource cannot handle alignment requests greater than
-/// `alignof(std::max_align_t)`!
-///
 /// It's meant to be used for very fast allocations in situations where memory
 /// is used to build objects and release them all at once. The class is
 /// constructed with initial buffer size for storing allocated objects. When the
 /// buffer is exhausted, a new one is requested from the upstream memory
 /// resource.
+///
+/// Note that each buffer of memory is actually a block of `Ceil2(size +
+/// sizeof(Buffer))` due to bookkeeping `Buffer` object being appended at the end.
+/// This means that if you use an `initial_size` of 1024 bytes, you will
+/// actually allocate `Ceil2(1024 + sizeof(Buffer))` which will be 2048 bytes.
+/// Therefore you will have `2048 - sizeof(Buffer)` bytes available before a new
+/// buffer will need to be allocated.
 class MonotonicBufferResource final : public MemoryResource {
  public:
   /// Construct the resource with the buffer size of at least `initial_size`.
@@ -333,7 +337,11 @@ class MonotonicBufferResource final : public MemoryResource {
   struct Buffer {
     Buffer *next;
     size_t capacity;
-    char *data() { return reinterpret_cast<char *>(this) + sizeof(Buffer); }
+    size_t alignment;
+    /// Get total allocated size.
+    size_t size() const { return sizeof(*this) + capacity; }
+    /// Get the pointer to data which is before the Buffer instance itself.
+    char *data() { return reinterpret_cast<char *>(this) - capacity; }
   };
 
   MemoryResource *memory_{NewDeleteResource()};
