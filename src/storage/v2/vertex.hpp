@@ -12,11 +12,6 @@
 namespace storage {
 
 struct Vertex {
-  // Default constructor necessary for utils::SkipList.
-  Vertex()
-      : gid(storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
-        delta(nullptr) {}
-
   Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
     CHECK(delta->action == Delta::Action::DELETE_OBJECT)
         << "Vertex must be created with an initial DELETE_OBJECT delta!";
