@@ -72,13 +72,9 @@ const uint64_t kSkipListGcStackSize = 8191;
 ///   Node structure         to the next Node
 template <typename TObj>
 struct SkipListNode {
-  SkipListNode(uint8_t _height) : height(_height) {}
-
-  SkipListNode(const TObj &_obj, uint8_t _height)
-      : obj(_obj), height(_height) {}
-
-  SkipListNode(TObj &&_obj, uint8_t _height) noexcept
-      : obj(std::move(_obj)), height(_height) {}
+  template <typename TObjUniv>
+  SkipListNode(uint8_t height, TObjUniv &&object)
+      : obj(std::forward<TObjUniv>(object)), height(height) {}
 
   // The items here are carefully placed to minimize padding gaps.
 
@@ -760,9 +756,16 @@ class SkipList final {
     // filled with zeros before we call the constructor. We don't use `malloc` +
     // `memset` because `calloc` is smarter:
     // https://stackoverflow.com/questions/2688466/why-mallocmemset-is-slower-than-calloc/2688522#2688522
-    head_ = new (calloc(
-        1, sizeof(TNode) + kSkipListMaxHeight * sizeof(std::atomic<TNode *>)))
-        SkipListNode<TObj>(kSkipListMaxHeight);
+    // Also, here we don't call the `SkipListNode` constructor so that the
+    // `TObj` doesn't have to have a default constructor. The initialization of
+    // the `height` and `lock` variables is done manually.
+    // NOTE: The `head_` node doesn't have a valid `TObj` (because we didn't
+    // call the constructor), so you mustn't perform any comparisons using its
+    // value.
+    head_ = reinterpret_cast<TNode *>(calloc(
+        1, sizeof(TNode) + kSkipListMaxHeight * sizeof(std::atomic<TNode *>)));
+    head_->height = kSkipListMaxHeight;
+    new (&head_->lock) utils::SpinLock();
   }
 
   SkipList(SkipList &&other) noexcept
@@ -787,12 +790,19 @@ class SkipList final {
   SkipList &operator=(const SkipList &) = delete;
 
   ~SkipList() {
-    TNode *head = head_;
-    while (head != nullptr) {
-      TNode *succ = head->nexts[0].load(std::memory_order_acquire);
-      head->~TNode();
-      free(head);
-      head = succ;
+    if (head_ != nullptr) {
+      TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
+      while (curr != nullptr) {
+        TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
+        curr->~TNode();
+        free(curr);
+        curr = succ;
+      }
+      // We need to free the `head_` node manually because we didn't call its
+      // constructor (see the note in the `SkipList` constructor). We mustn't
+      // call the `TObj` destructor because we didn't call its constructor.
+      head_->lock.~SpinLock();
+      free(head_);
     }
   }
 
@@ -872,7 +882,7 @@ class SkipList final {
       // https://stackoverflow.com/questions/2688466/why-mallocmemset-is-slower-than-calloc/2688522#2688522
       TNode *new_node = new (
           calloc(1, sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>)))
-          TNode(std::forward<TObjUniv>(object), top_layer);
+          TNode(top_layer, std::forward<TObjUniv>(object));
 
       // The paper is also wrong here. It states that the loop should go up to
       // `top_layer` which is wrong.
