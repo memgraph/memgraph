@@ -86,6 +86,7 @@ class Storage final {
           acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
       CHECK(inserted) << "The vertex must be inserted here!";
       CHECK(it != acc.end()) << "Invalid Vertex accessor!";
+      transaction_->modified_vertices.push_back(&*it);
       return VertexAccessor::Create(&*it, transaction_, View::NEW).value();
     }
 
