@@ -17,6 +17,7 @@ struct Delta {
         value(value),
         timestamp(timestamp),
         command_id(command_id),
+        prev(nullptr),
         next(nullptr) {}
 
   Delta(Delta &&other) noexcept
@@ -24,6 +25,7 @@ struct Delta {
         value(other.value),
         timestamp(other.timestamp),
         command_id(other.command_id),
+        prev(nullptr),
         next(other.next.load()) {}
 
   Delta(const Delta &) = delete;
@@ -38,6 +40,7 @@ struct Delta {
   // TODO: optimize with in-place copy
   std::atomic<uint64_t> *timestamp;
   uint64_t command_id;
+  Delta *prev;
   std::atomic<Delta *> next;
 };
 

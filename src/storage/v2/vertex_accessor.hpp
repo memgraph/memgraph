@@ -54,6 +54,9 @@ class VertexAccessor final {
       return Result<bool>{false};
 
     auto delta = transaction_->CreateDelta(Delta::Action::REMOVE_LABEL, label);
+    if (vertex_->delta) {
+      vertex_->delta->prev = delta;
+    }
     delta->next = vertex_->delta;
     vertex_->delta = delta;
 
@@ -71,6 +74,9 @@ class VertexAccessor final {
     if (it == vertex_->labels.end()) return Result<bool>{false};
 
     auto delta = transaction_->CreateDelta(Delta::Action::ADD_LABEL, label);
+    if (vertex_->delta) {
+      vertex_->delta->prev = delta;
+    }
     delta->next = vertex_->delta;
     vertex_->delta = delta;
 
