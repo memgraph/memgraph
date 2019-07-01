@@ -25,7 +25,7 @@ struct Delta {
         value(other.value),
         timestamp(other.timestamp),
         command_id(other.command_id),
-        prev(nullptr),
+        prev(other.prev),
         next(other.next.load()) {}
 
   Delta(const Delta &) = delete;
