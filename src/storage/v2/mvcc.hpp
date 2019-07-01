@@ -52,12 +52,18 @@ inline void ApplyDeltasForRead(Transaction *transaction, Delta *delta,
 /// transaction) and returns a `bool` value indicating whether the caller can
 /// proceed with a write operation.
 inline bool PrepareForWrite(Transaction *transaction, Vertex *vertex) {
-  if (vertex->delta == nullptr) return true;
+  if (vertex->delta == nullptr) {
+    if (transaction->modified_vertices.empty() ||
+        transaction->modified_vertices.back() != vertex) {
+      transaction->modified_vertices.push_back(vertex);
+    }
+    return true;
+  }
 
   auto ts = vertex->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
-    auto it = transaction->modified_vertices.rbegin();
-    if (it == transaction->modified_vertices.rend() || *it != vertex) {
+    if (transaction->modified_vertices.empty() ||
+        transaction->modified_vertices.back() != vertex) {
       transaction->modified_vertices.push_back(vertex);
     }
     return true;
