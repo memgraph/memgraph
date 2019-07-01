@@ -146,6 +146,10 @@ class Storage final {
               CHECK(acc.remove(vertex->gid)) << "Invalid database state!";
               break;
             }
+            case Delta::Action::RECREATE_OBJECT: {
+              vertex->deleted = false;
+              break;
+            }
           }
           current = current->next.load(std::memory_order_acquire);
         }

@@ -8,6 +8,7 @@ namespace storage {
 
 enum class Error : uint8_t {
   SERIALIZATION_ERROR,
+  DELETED_OBJECT,
 };
 
 template <typename TReturn>
@@ -20,14 +21,14 @@ class Result final {
   bool IsReturn() const { return return_.has_value(); }
   bool IsError() const { return error_.has_value(); }
 
-  TReturn *GetReturn() {
+  TReturn &GetReturn() {
     CHECK(return_) << "The storage result is an error!";
-    return &*return_;
+    return return_.value();
   }
 
-  const TReturn *GetReturn() const {
+  const TReturn &GetReturn() const {
     CHECK(return_) << "The storage result is an error!";
-    return &*return_;
+    return return_.value();
   }
 
   Error GetError() const {

@@ -21,18 +21,23 @@ class VertexAccessor final {
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
                                               View view) {
+    bool is_visible = true;
     Delta *delta = nullptr;
     {
       std::lock_guard<utils::SpinLock> guard(vertex->lock);
+      is_visible = !vertex->deleted;
       delta = vertex->delta;
     }
-    bool is_visible = true;
     ApplyDeltasForRead(transaction, delta, view,
                        [&is_visible](const Delta &delta) {
                          switch (delta.action) {
                            case Delta::Action::ADD_LABEL:
                            case Delta::Action::REMOVE_LABEL:
                              break;
+                           case Delta::Action::RECREATE_OBJECT: {
+                             is_visible = true;
+                             break;
+                           }
                            case Delta::Action::DELETE_OBJECT: {
                              is_visible = false;
                              break;
@@ -43,11 +48,29 @@ class VertexAccessor final {
     return VertexAccessor{vertex, transaction};
   }
 
+  Result<bool> Delete() {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+    if (!PrepareForWrite(transaction_, vertex_))
+      return Result<bool>{Error::SERIALIZATION_ERROR};
+
+    if (vertex_->deleted) return Result<bool>{false};
+
+    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::RECREATE_OBJECT,
+                       0);
+
+    vertex_->deleted = true;
+
+    return Result<bool>{true};
+  }
+
   Result<bool> AddLabel(uint64_t label) {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
     if (!PrepareForWrite(transaction_, vertex_))
       return Result<bool>{Error::SERIALIZATION_ERROR};
+
+    if (vertex_->deleted) return Result<bool>{Error::DELETED_OBJECT};
 
     if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) !=
         vertex_->labels.end())
@@ -66,6 +89,8 @@ class VertexAccessor final {
     if (!PrepareForWrite(transaction_, vertex_))
       return Result<bool>{Error::SERIALIZATION_ERROR};
 
+    if (vertex_->deleted) return Result<bool>{Error::DELETED_OBJECT};
+
     auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
     if (it == vertex_->labels.end()) return Result<bool>{false};
 
@@ -76,17 +101,19 @@ class VertexAccessor final {
     return Result<bool>{true};
   }
 
-  bool HasLabel(uint64_t label, View view) {
+  Result<bool> HasLabel(uint64_t label, View view) {
+    bool deleted = false;
     bool has_label = false;
     Delta *delta = nullptr;
     {
       std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+      deleted = vertex_->deleted;
       has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(),
                             label) != vertex_->labels.end();
       delta = vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view,
-                       [&has_label, label](const Delta &delta) {
+                       [&deleted, &has_label, label](const Delta &delta) {
                          switch (delta.action) {
                            case Delta::Action::REMOVE_LABEL: {
                              if (delta.value == label) {
@@ -106,21 +133,28 @@ class VertexAccessor final {
                              LOG(FATAL) << "Invalid accessor!";
                              break;
                            }
+                           case Delta::Action::RECREATE_OBJECT: {
+                             deleted = false;
+                             break;
+                           }
                          }
                        });
-    return has_label;
+    if (deleted) return Result<bool>{Error::DELETED_OBJECT};
+    return Result<bool>{has_label};
   }
 
-  std::vector<uint64_t> Labels(View view) {
+  Result<std::vector<uint64_t>> Labels(View view) {
+    bool deleted = false;
     std::vector<uint64_t> labels;
     Delta *delta = nullptr;
     {
       std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+      deleted = vertex_->deleted;
       labels = vertex_->labels;
       delta = vertex_->delta;
     }
     ApplyDeltasForRead(
-        transaction_, delta, view, [&labels](const Delta &delta) {
+        transaction_, delta, view, [&deleted, &labels](const Delta &delta) {
           switch (delta.action) {
             case Delta::Action::REMOVE_LABEL: {
               // Remove the label because we don't see the addition.
@@ -141,9 +175,14 @@ class VertexAccessor final {
               LOG(FATAL) << "Invalid accessor!";
               break;
             }
+            case Delta::Action::RECREATE_OBJECT: {
+              deleted = false;
+              break;
+            }
           }
         });
-    return labels;
+    if (deleted) return Result<std::vector<uint64_t>>{Error::DELETED_OBJECT};
+    return Result<std::vector<uint64_t>>{std::move(labels)};
   }
 
   Gid Gid() const { return vertex_->gid; }

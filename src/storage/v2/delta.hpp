@@ -7,6 +7,7 @@ namespace storage {
 struct Delta {
   enum class Action {
     DELETE_OBJECT,
+    RECREATE_OBJECT,
     ADD_LABEL,
     REMOVE_LABEL,
   };

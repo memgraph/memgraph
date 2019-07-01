@@ -12,7 +12,7 @@
 namespace storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     CHECK(delta->action == Delta::Action::DELETE_OBJECT)
         << "Vertex must be created with an initial DELETE_OBJECT delta!";
   }
@@ -24,7 +24,9 @@ struct Vertex {
   // std::unordered_map<uint64_t, storage::PropertyValue> properties;
 
   utils::SpinLock lock;
-  // uint32_t PAD;
+  bool deleted;
+  // uint8_t PAD;
+  // uint16_t PAD;
 
   Delta *delta;
 };
