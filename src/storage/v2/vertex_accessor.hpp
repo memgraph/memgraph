@@ -53,12 +53,8 @@ class VertexAccessor final {
         vertex_->labels.end())
       return Result<bool>{false};
 
-    auto delta = transaction_->CreateDelta(Delta::Action::REMOVE_LABEL, label);
-    if (vertex_->delta) {
-      vertex_->delta->prev = delta;
-    }
-    delta->next = vertex_->delta;
-    vertex_->delta = delta;
+    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::REMOVE_LABEL,
+                       label);
 
     vertex_->labels.push_back(label);
     return Result<bool>{true};
@@ -73,12 +69,7 @@ class VertexAccessor final {
     auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
     if (it == vertex_->labels.end()) return Result<bool>{false};
 
-    auto delta = transaction_->CreateDelta(Delta::Action::ADD_LABEL, label);
-    if (vertex_->delta) {
-      vertex_->delta->prev = delta;
-    }
-    delta->next = vertex_->delta;
-    vertex_->delta = delta;
+    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::ADD_LABEL, label);
 
     std::swap(*it, *vertex_->labels.rbegin());
     vertex_->labels.pop_back();

@@ -37,10 +37,6 @@ struct Transaction {
 
   ~Transaction() {}
 
-  Delta *CreateDelta(Delta::Action action, uint64_t value) {
-    return &deltas.emplace_back(action, value, &commit_timestamp, command_id);
-  }
-
   uint64_t transaction_id;
   uint64_t start_timestamp;
   std::atomic<uint64_t> commit_timestamp;

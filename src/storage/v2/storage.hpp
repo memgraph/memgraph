@@ -81,7 +81,7 @@ class Storage final {
     VertexAccessor CreateVertex() {
       auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
       auto acc = storage_->vertices_.access();
-      auto delta = transaction_->CreateDelta(Delta::Action::DELETE_OBJECT, 0);
+      auto delta = CreateDelta(transaction_, Delta::Action::DELETE_OBJECT, 0);
       auto [it, inserted] =
           acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
       CHECK(inserted) << "The vertex must be inserted here!";
