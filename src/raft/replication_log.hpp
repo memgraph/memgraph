@@ -62,10 +62,7 @@ class ReplicationLog final {
       }
     }
 
-    bool is_active() const {
-      if (flags_ & REPLICATED) return false;
-      return flags_ & ACTIVE;
-    }
+    bool is_active() const { return flags_ & ACTIVE; }
 
     bool is_replicated() const { return flags_ & REPLICATED; }
 

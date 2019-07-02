@@ -481,16 +481,24 @@ bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
       // circuit the check to always return true if in follower mode.
       return true;
     case Mode::LEADER:
-			// If we are shutting down, but we know that the Raft Log replicated
-			// successfully, we return true. This will eventually commit since we
-			// replicate NoOp on leader election.
-      if (rlog_->is_replicated(tx_id)) return true;
+      // We are taking copies of the rlog_ status here so we avoid the case
+      // where the call to `set_replicated` shadows the `active` bit that is
+      // checked after the `replicated` bit. It is possible that both `active`
+      // and `replicated` are `true` but  since we check `replicated` first this
+      // shouldn't be a problem.
+      bool active = rlog_->is_active(tx_id);
+      bool replicated = rlog_->is_replicated(tx_id);
 
-	    // Only if the transaction isn't replicated, thrown an exception to inform
+      // If we are shutting down, but we know that the Raft Log replicated
+      // successfully, we return true. This will eventually commit since we
+      // replicate NoOp on leader election.
+      if (replicated) return true;
+
+      // Only if the transaction isn't replicated, thrown an exception to inform
       // the client.
-			if (exiting_) throw RaftShutdownException();
+      if (exiting_) throw RaftShutdownException();
 
-      if (rlog_->is_active(tx_id)) {
+      if (active) {
         if (replication_timeout_.CheckTimeout(tx_id)) {
           throw ReplicationTimeoutException();
         }
