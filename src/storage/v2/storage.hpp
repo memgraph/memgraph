@@ -128,7 +128,7 @@ class Storage final {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                                  current->value);
+                                  current->key);
               CHECK(it != vertex->labels.end()) << "Invalid database state!";
               std::swap(*it, *vertex->labels.rbegin());
               vertex->labels.pop_back();
@@ -136,9 +136,24 @@ class Storage final {
             }
             case Delta::Action::ADD_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                                  current->value);
+                                  current->key);
               CHECK(it == vertex->labels.end()) << "Invalid database state!";
-              vertex->labels.push_back(current->value);
+              vertex->labels.push_back(current->key);
+              break;
+            }
+            case Delta::Action::SET_PROPERTY: {
+              auto it = vertex->properties.find(current->key);
+              if (it != vertex->properties.end()) {
+                if (current->value.IsNull()) {
+                  // remove the property
+                  vertex->properties.erase(it);
+                } else {
+                  // set the value
+                  it->second = current->value;
+                }
+              } else if (!current->value.IsNull()) {
+                vertex->properties.emplace(current->key, current->value);
+              }
               break;
             }
             case Delta::Action::DELETE_OBJECT: {

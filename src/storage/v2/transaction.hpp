@@ -7,6 +7,7 @@
 #include "utils/skip_list.hpp"
 
 #include "storage/v2/delta.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "storage/v2/delta.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
@@ -67,18 +68,21 @@ inline bool PrepareForWrite(Transaction *transaction, Vertex *vertex) {
 /// the created delta. It doesn't perform any linking of the delta and is
 /// primarily used to create the first delta for an object.
 inline Delta *CreateDelta(Transaction *transaction, Delta::Action action,
-                          uint64_t value) {
-  return &transaction->deltas.emplace_back(
-      action, value, &transaction->commit_timestamp, transaction->command_id);
+                          uint64_t key) {
+  return &transaction->deltas.emplace_back(action, key, PropertyValue(),
+                                           &transaction->commit_timestamp,
+                                           transaction->command_id);
 }
 
 /// This function creates a delta in the transaction for the Vertex object and
 /// links the delta into the Vertex's delta list. It also adds the Vertex to the
 /// transaction's modified vertices list.
 inline void CreateAndLinkDelta(Transaction *transaction, Vertex *vertex,
-                               Delta::Action action, uint64_t value) {
-  auto delta = &transaction->deltas.emplace_back(
-      action, value, &transaction->commit_timestamp, transaction->command_id);
+                               Delta::Action action, uint64_t key,
+                               const PropertyValue &value = PropertyValue()) {
+  auto delta = &transaction->deltas.emplace_back(action, key, value,
+                                                 &transaction->commit_timestamp,
+                                                 transaction->command_id);
 
   if (vertex->delta) {
     vertex->delta->prev = delta;

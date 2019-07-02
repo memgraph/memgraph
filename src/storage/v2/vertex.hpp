@@ -19,9 +19,7 @@ struct Vertex {
 
   Gid gid;
   std::vector<uint64_t> labels;
-
-  // TODO: add
-  // std::unordered_map<uint64_t, storage::PropertyValue> properties;
+  std::unordered_map<uint64_t, storage::PropertyValue> properties;
 
   utils::SpinLock lock;
   bool deleted;
