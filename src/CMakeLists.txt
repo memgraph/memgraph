@@ -11,6 +11,7 @@ add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
 add_subdirectory(slk)
+add_subdirectory(storage/v2)
 
 # ----------------------------------------------------------------------------
 # Common LCP files

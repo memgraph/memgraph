@@ -383,7 +383,7 @@ add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-utils)
+target_link_libraries(${test_prefix}storage_v2 mg-storage-v2)
 
 # Test LCP
 
