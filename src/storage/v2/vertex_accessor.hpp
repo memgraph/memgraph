@@ -57,8 +57,7 @@ class VertexAccessor final {
 
     if (vertex_->deleted) return Result<bool>{false};
 
-    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::RECREATE_OBJECT,
-                       0);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::RecreateObjectTag());
 
     vertex_->deleted = true;
 
@@ -77,8 +76,7 @@ class VertexAccessor final {
         vertex_->labels.end())
       return Result<bool>{false};
 
-    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::REMOVE_LABEL,
-                       label);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
     vertex_->labels.push_back(label);
     return Result<bool>{true};
@@ -95,7 +93,7 @@ class VertexAccessor final {
     auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
     if (it == vertex_->labels.end()) return Result<bool>{false};
 
-    CreateAndLinkDelta(transaction_, vertex_, Delta::Action::ADD_LABEL, label);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 
     std::swap(*it, *vertex_->labels.rbegin());
     vertex_->labels.pop_back();
@@ -117,14 +115,14 @@ class VertexAccessor final {
                        [&deleted, &has_label, label](const Delta &delta) {
                          switch (delta.action) {
                            case Delta::Action::REMOVE_LABEL: {
-                             if (delta.key == label) {
+                             if (delta.label == label) {
                                CHECK(has_label) << "Invalid database state!";
                                has_label = false;
                              }
                              break;
                            }
                            case Delta::Action::ADD_LABEL: {
-                             if (delta.key == label) {
+                             if (delta.label == label) {
                                CHECK(!has_label) << "Invalid database state!";
                                has_label = true;
                              }
@@ -161,7 +159,7 @@ class VertexAccessor final {
           switch (delta.action) {
             case Delta::Action::REMOVE_LABEL: {
               // Remove the label because we don't see the addition.
-              auto it = std::find(labels.begin(), labels.end(), delta.key);
+              auto it = std::find(labels.begin(), labels.end(), delta.label);
               CHECK(it != labels.end()) << "Invalid database state!";
               std::swap(*it, *labels.rbegin());
               labels.pop_back();
@@ -169,9 +167,9 @@ class VertexAccessor final {
             }
             case Delta::Action::ADD_LABEL: {
               // Add the label because we don't see the removal.
-              auto it = std::find(labels.begin(), labels.end(), delta.key);
+              auto it = std::find(labels.begin(), labels.end(), delta.label);
               CHECK(it == labels.end()) << "Invalid database state!";
-              labels.push_back(delta.key);
+              labels.push_back(delta.label);
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
@@ -201,7 +199,7 @@ class VertexAccessor final {
     auto it = vertex_->properties.find(property);
     bool existed = it != vertex_->properties.end();
     if (it != vertex_->properties.end()) {
-      CreateAndLinkDelta(transaction_, vertex_, Delta::Action::SET_PROPERTY,
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(),
                          property, it->second);
       if (value.IsNull()) {
         // remove the property
@@ -211,7 +209,7 @@ class VertexAccessor final {
         it->second = value;
       }
     } else {
-      CreateAndLinkDelta(transaction_, vertex_, Delta::Action::SET_PROPERTY,
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(),
                          property, PropertyValue());
       if (!value.IsNull()) {
         vertex_->properties.emplace(property, value);
@@ -238,8 +236,8 @@ class VertexAccessor final {
                        [&deleted, &value, property](const Delta &delta) {
                          switch (delta.action) {
                            case Delta::Action::SET_PROPERTY: {
-                             if (delta.key == property) {
-                               value = delta.value;
+                             if (delta.property.key == property) {
+                               value = delta.property.value;
                              }
                              break;
                            }
@@ -270,37 +268,37 @@ class VertexAccessor final {
       properties = vertex_->properties;
       delta = vertex_->delta;
     }
-    ApplyDeltasForRead(transaction_, delta, view,
-                       [&deleted, &properties](const Delta &delta) {
-                         switch (delta.action) {
-                           case Delta::Action::SET_PROPERTY: {
-                             auto it = properties.find(delta.key);
-                             if (it != properties.end()) {
-                               if (delta.value.IsNull()) {
-                                 // remove the property
-                                 properties.erase(it);
-                               } else {
-                                 // set the value
-                                 it->second = delta.value;
-                               }
-                             } else if (!delta.value.IsNull()) {
-                               properties.emplace(delta.key, delta.value);
-                             }
-                             break;
-                           }
-                           case Delta::Action::DELETE_OBJECT: {
-                             LOG(FATAL) << "Invalid accessor!";
-                             break;
-                           }
-                           case Delta::Action::RECREATE_OBJECT: {
-                             deleted = false;
-                             break;
-                           }
-                           case Delta::Action::ADD_LABEL:
-                           case Delta::Action::REMOVE_LABEL:
-                             break;
-                         }
-                       });
+    ApplyDeltasForRead(
+        transaction_, delta, view, [&deleted, &properties](const Delta &delta) {
+          switch (delta.action) {
+            case Delta::Action::SET_PROPERTY: {
+              auto it = properties.find(delta.property.key);
+              if (it != properties.end()) {
+                if (delta.property.value.IsNull()) {
+                  // remove the property
+                  properties.erase(it);
+                } else {
+                  // set the value
+                  it->second = delta.property.value;
+                }
+              } else if (!delta.property.value.IsNull()) {
+                properties.emplace(delta.property.key, delta.property.value);
+              }
+              break;
+            }
+            case Delta::Action::DELETE_OBJECT: {
+              LOG(FATAL) << "Invalid accessor!";
+              break;
+            }
+            case Delta::Action::RECREATE_OBJECT: {
+              deleted = false;
+              break;
+            }
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+              break;
+          }
+        });
     if (deleted) {
       return Result<std::unordered_map<uint64_t, PropertyValue>>{
           Error::DELETED_OBJECT};

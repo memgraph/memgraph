@@ -81,7 +81,7 @@ class Storage final {
     VertexAccessor CreateVertex() {
       auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
       auto acc = storage_->vertices_.access();
-      auto delta = CreateDelta(transaction_, Delta::Action::DELETE_OBJECT, 0);
+      auto delta = CreateDeleteObjectDelta(transaction_);
       auto [it, inserted] =
           acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
       CHECK(inserted) << "The vertex must be inserted here!";
@@ -128,7 +128,7 @@ class Storage final {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                                  current->key);
+                                  current->label);
               CHECK(it != vertex->labels.end()) << "Invalid database state!";
               std::swap(*it, *vertex->labels.rbegin());
               vertex->labels.pop_back();
@@ -136,23 +136,24 @@ class Storage final {
             }
             case Delta::Action::ADD_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                                  current->key);
+                                  current->label);
               CHECK(it == vertex->labels.end()) << "Invalid database state!";
-              vertex->labels.push_back(current->key);
+              vertex->labels.push_back(current->label);
               break;
             }
             case Delta::Action::SET_PROPERTY: {
-              auto it = vertex->properties.find(current->key);
+              auto it = vertex->properties.find(current->property.key);
               if (it != vertex->properties.end()) {
-                if (current->value.IsNull()) {
+                if (current->property.value.IsNull()) {
                   // remove the property
                   vertex->properties.erase(it);
                 } else {
                   // set the value
-                  it->second = current->value;
+                  it->second = current->property.value;
                 }
-              } else if (!current->value.IsNull()) {
-                vertex->properties.emplace(current->key, current->value);
+              } else if (!current->property.value.IsNull()) {
+                vertex->properties.emplace(current->property.key,
+                                           current->property.value);
               }
               break;
             }

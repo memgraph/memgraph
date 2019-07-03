@@ -64,12 +64,12 @@ inline bool PrepareForWrite(Transaction *transaction, Vertex *vertex) {
   return false;
 }
 
-/// This function creates a delta in the transaction and returns a pointer to
-/// the created delta. It doesn't perform any linking of the delta and is
-/// primarily used to create the first delta for an object.
-inline Delta *CreateDelta(Transaction *transaction, Delta::Action action,
-                          uint64_t key) {
-  return &transaction->deltas.emplace_back(action, key, PropertyValue(),
+/// This function creates a `DELETE_OBJECT` delta in the transaction and returns
+/// a pointer to the created delta. It doesn't perform any linking of the delta
+/// and is primarily used to create the first delta for an object (that must be
+/// a `DELETE_OBJECT` delta).
+inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
+  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(),
                                            &transaction->commit_timestamp,
                                            transaction->command_id);
 }
@@ -77,10 +77,10 @@ inline Delta *CreateDelta(Transaction *transaction, Delta::Action action,
 /// This function creates a delta in the transaction for the Vertex object and
 /// links the delta into the Vertex's delta list. It also adds the Vertex to the
 /// transaction's modified vertices list.
+template <class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, Vertex *vertex,
-                               Delta::Action action, uint64_t key,
-                               const PropertyValue &value = PropertyValue()) {
-  auto delta = &transaction->deltas.emplace_back(action, key, value,
+                               Args &&... args) {
+  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)...,
                                                  &transaction->commit_timestamp,
                                                  transaction->command_id);
 
