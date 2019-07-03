@@ -40,7 +40,6 @@ for i in range(NUM_MACHINES):
         ] + additional,
         "outfile_paths": outfile_paths,
         "parallel_run": "distributed__card_fraud",
-        "slave_group": "remote_4c32g",
         "enable_network": True,
     })
 

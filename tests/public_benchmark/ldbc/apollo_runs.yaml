@@ -11,5 +11,4 @@
   outfile_paths: # TODO: maybe this should also accept relative paths?
     - \./memgraph/tests/public_benchmark/ldbc/results/.+
     - \./memgraph/tests/public_benchmark/ldbc/plots/.+
-  slave_group: remote_16c128g
   enable_network: true
