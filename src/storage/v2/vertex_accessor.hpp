@@ -10,8 +10,12 @@
 
 namespace storage {
 
+class Storage;
+
 class VertexAccessor final {
  private:
+  friend class Storage;
+
   VertexAccessor(Vertex *vertex, Transaction *transaction)
       : vertex_(vertex), transaction_(transaction) {}
 
@@ -19,8 +23,6 @@ class VertexAccessor final {
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
                                               View view);
-
-  Result<bool> Delete();
 
   Result<bool> AddLabel(uint64_t label);
 

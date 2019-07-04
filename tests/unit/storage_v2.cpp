@@ -28,7 +28,7 @@ TEST(StorageV2, Commit) {
     auto vertex = acc.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto res = vertex->Delete();
+    auto res = acc.DeleteVertex(&*vertex);
     ASSERT_FALSE(res.IsError());
 
     acc.Commit();
@@ -224,7 +224,7 @@ TEST(StorageV2, VertexDeleteCommit) {
     auto vertex = acc4.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto res = vertex->Delete();
+    auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.IsReturn());
 
     acc4.Commit();
@@ -279,7 +279,7 @@ TEST(StorageV2, VertexDeleteAbort) {
     auto vertex = acc4.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto res = vertex->Delete();
+    auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.IsReturn());
 
     acc4.Abort();
@@ -305,7 +305,7 @@ TEST(StorageV2, VertexDeleteAbort) {
     auto vertex = acc6.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto res = vertex->Delete();
+    auto res = acc6.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.IsReturn());
 
     acc6.Commit();
@@ -359,13 +359,13 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     ASSERT_TRUE(vertex);
 
     {
-      auto res = vertex->Delete();
+      auto res = acc1.DeleteVertex(&*vertex);
       ASSERT_TRUE(res.IsReturn());
       ASSERT_TRUE(res.GetReturn());
     }
 
     {
-      auto res = vertex->Delete();
+      auto res = acc1.DeleteVertex(&*vertex);
       ASSERT_TRUE(res.IsReturn());
       ASSERT_FALSE(res.GetReturn());
     }
@@ -375,7 +375,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
   {
     auto vertex = acc2.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto res = vertex->Delete();
+    auto res = acc2.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.IsError());
     ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
   }
@@ -409,7 +409,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     gid1 = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
-    auto res = vertex.Delete();
+    auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.IsReturn());
     ASSERT_TRUE(res.GetReturn());
     acc.Abort();
@@ -422,7 +422,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     gid2 = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    auto res = vertex.Delete();
+    auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.IsReturn());
     ASSERT_TRUE(res.GetReturn());
     acc.Commit();
@@ -481,7 +481,7 @@ TEST(StorageV2, VertexDeleteLabel) {
     }
 
     // Delete the vertex
-    ASSERT_TRUE(vertex->Delete().GetReturn());
+    ASSERT_TRUE(acc.DeleteVertex(&*vertex).GetReturn());
 
     // Check whether label 5 exists
     ASSERT_FALSE(vertex->HasLabel(5, storage::View::OLD).GetReturn());
@@ -551,7 +551,7 @@ TEST(StorageV2, VertexDeleteLabel) {
     }
 
     // Delete the vertex
-    ASSERT_TRUE(vertex->Delete().GetReturn());
+    ASSERT_TRUE(acc.DeleteVertex(&*vertex).GetReturn());
 
     // Check whether label 5 exists
     ASSERT_TRUE(vertex->HasLabel(5, storage::View::OLD).GetReturn());
@@ -644,7 +644,7 @@ TEST(StorageV2, VertexDeleteProperty) {
     }
 
     // Delete the vertex
-    ASSERT_TRUE(vertex->Delete().GetReturn());
+    ASSERT_TRUE(acc.DeleteVertex(&*vertex).GetReturn());
 
     // Check whether label 5 exists
     ASSERT_TRUE(
@@ -719,7 +719,7 @@ TEST(StorageV2, VertexDeleteProperty) {
     }
 
     // Delete the vertex
-    ASSERT_TRUE(vertex->Delete().GetReturn());
+    ASSERT_TRUE(acc.DeleteVertex(&*vertex).GetReturn());
 
     // Check whether property 5 exists
     ASSERT_EQ(

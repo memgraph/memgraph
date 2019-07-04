@@ -4,6 +4,7 @@
 
 #include "utils/skip_list.hpp"
 
+#include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -38,6 +39,8 @@ class Storage final {
     VertexAccessor CreateVertex();
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
+
+    Result<bool> DeleteVertex(VertexAccessor *vertex);
 
     void AdvanceCommand();
 

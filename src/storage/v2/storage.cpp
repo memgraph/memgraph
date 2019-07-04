@@ -75,6 +75,26 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
   return VertexAccessor::Create(&*it, transaction_, view);
 }
 
+Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
+  CHECK(vertex->transaction_ == transaction_)
+      << "VertexAccessor must be from the same transaction as the storage "
+         "accessor when deleting a vertex!";
+  auto vertex_ptr = vertex->vertex_;
+
+  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_ptr))
+    return Result<bool>{Error::SERIALIZATION_ERROR};
+
+  if (vertex_ptr->deleted) return Result<bool>{false};
+
+  CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
+
+  vertex_ptr->deleted = true;
+
+  return Result<bool>{true};
+}
+
 void Storage::Accessor::AdvanceCommand() { ++transaction_->command_id; }
 
 void Storage::Accessor::Commit() {

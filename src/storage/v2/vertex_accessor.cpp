@@ -37,21 +37,6 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
   return VertexAccessor{vertex, transaction};
 }
 
-Result<bool> VertexAccessor::Delete() {
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-
-  if (!PrepareForWrite(transaction_, vertex_))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
-
-  if (vertex_->deleted) return Result<bool>{false};
-
-  CreateAndLinkDelta(transaction_, vertex_, Delta::RecreateObjectTag());
-
-  vertex_->deleted = true;
-
-  return Result<bool>{true};
-}
-
 Result<bool> VertexAccessor::AddLabel(uint64_t label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
