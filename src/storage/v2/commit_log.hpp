@@ -7,6 +7,8 @@
 #include "utils/memory.hpp"
 #include "utils/spin_lock.hpp"
 
+namespace storage {
+
 /// This class keeps track of finalized transactions to provide info on the
 /// oldest active transaction (minimal transaction ID which could still be
 /// active).
@@ -128,3 +130,5 @@ class CommitLog final {
   utils::SpinLock lock_;
   utils::Allocator<Block> allocator_;
 };
+
+}  // namespace storage

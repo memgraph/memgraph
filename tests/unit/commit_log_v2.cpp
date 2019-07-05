@@ -3,7 +3,7 @@
 #include "gtest/gtest.h"
 
 TEST(CommitLog, Simple) {
-  CommitLog log;
+  storage::CommitLog log;
   EXPECT_EQ(log.OldestActive(), 0);
 
   log.MarkFinished(1);
@@ -14,7 +14,7 @@ TEST(CommitLog, Simple) {
 }
 
 TEST(CommitLog, Fields) {
-  CommitLog log;
+  storage::CommitLog log;
 
   for (uint64_t i = 0; i < 64; ++i) {
     log.MarkFinished(i);
@@ -33,7 +33,7 @@ TEST(CommitLog, Fields) {
 }
 
 TEST(CommitLog, Blocks) {
-  CommitLog log;
+  storage::CommitLog log;
 
   for (uint64_t i = 0; i < 8192 * 64; ++i) {
     log.MarkFinished(i);
