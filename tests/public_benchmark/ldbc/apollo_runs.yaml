@@ -1,5 +1,5 @@
 - name: public_benchmark__ldbc
-  project: release
+  project: ^NEVER$ # regex that currently doesn't match any project (was 'release')
   commands: . continuous_integration
   infiles:
     - . # current directory
