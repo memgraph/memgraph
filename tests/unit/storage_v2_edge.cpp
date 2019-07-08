@@ -4622,3 +4622,525 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
   }
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2, EdgePropertyCommit) {
+  storage::Storage store;
+  storage::Gid gid =
+      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    ASSERT_EQ(edge.EdgeType(), 5);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_FALSE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "temporary");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "temporary");
+    }
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    acc.Commit();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue());
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue());
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_FALSE(res.GetReturn());
+    }
+
+    acc.Commit();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2, EdgePropertyAbort) {
+  storage::Storage store;
+  storage::Gid gid =
+      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+
+  // Create the vertex.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    ASSERT_EQ(edge.EdgeType(), 5);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+    acc.Commit();
+  }
+
+  // Set property 5 to "nandare", but abort the transaction.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_FALSE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "temporary");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "temporary");
+    }
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    acc.Abort();
+  }
+
+  // Check that property 5 is null.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+
+  // Set property 5 to "nandare".
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_FALSE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "temporary");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "temporary");
+    }
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    acc.Commit();
+  }
+
+  // Check that property 5 is "nandare".
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+
+  // Set property 5 to null, but abort the transaction.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue());
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    acc.Abort();
+  }
+
+  // Check that property 5 is "nandare".
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+
+  // Set property 5 to null.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    {
+      auto res = edge.SetProperty(5, storage::PropertyValue());
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_TRUE(res.GetReturn());
+    }
+
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+              "nandare");
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[5].ValueString(), "nandare");
+    }
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    acc.Commit();
+  }
+
+  // Check that property 5 is null.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+
+    acc.Abort();
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2, EdgePropertySerializationError) {
+  storage::Storage store;
+  storage::Gid gid =
+      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    ASSERT_EQ(edge.EdgeType(), 5);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+    acc.Commit();
+  }
+
+  auto acc1 = store.Access();
+  auto acc2 = store.Access();
+
+  // Set property 1 to 123 in accessor 1.
+  {
+    auto vertex = acc1.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(1, storage::PropertyValue(123));
+      ASSERT_TRUE(res.IsReturn());
+      ASSERT_FALSE(res.GetReturn());
+    }
+
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW).GetReturn().ValueInt(),
+              123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[1].ValueInt(), 123);
+    }
+  }
+
+  // Set property 2 to "nandare" in accessor 2.
+  {
+    auto vertex = acc2.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+
+    {
+      auto res = edge.SetProperty(2, storage::PropertyValue("nandare"));
+      ASSERT_TRUE(res.IsError());
+      ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
+    }
+  }
+
+  // Finalize both accessors.
+  acc1.Commit();
+  acc2.Abort();
+
+  // Check which properties exist.
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto [edge_type, other_vertex, edge] =
+        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+
+    ASSERT_EQ(edge.GetProperty(1, storage::View::OLD).GetReturn().ValueInt(),
+              123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
+    {
+      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[1].ValueInt(), 123);
+    }
+
+    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW).GetReturn().ValueInt(),
+              123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
+    {
+      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      ASSERT_EQ(properties.size(), 1);
+      ASSERT_EQ(properties[1].ValueInt(), 123);
+    }
+
+    acc.Abort();
+  }
+}

@@ -407,6 +407,22 @@ void Storage::Accessor::Abort() {
            current->timestamp->load(std::memory_order_acquire) ==
                transaction_->transaction_id) {
       switch (current->action) {
+        case Delta::Action::SET_PROPERTY: {
+          auto it = edge->properties.find(current->property.key);
+          if (it != edge->properties.end()) {
+            if (current->property.value.IsNull()) {
+              // remove the property
+              edge->properties.erase(it);
+            } else {
+              // set the value
+              it->second = current->property.value;
+            }
+          } else if (!current->property.value.IsNull()) {
+            edge->properties.emplace(current->property.key,
+                                     current->property.value);
+          }
+          break;
+        }
         case Delta::Action::DELETE_OBJECT: {
           auto acc = storage_->edges_.access();
           CHECK(acc.remove(edge->gid)) << "Invalid database state!";
@@ -418,7 +434,6 @@ void Storage::Accessor::Abort() {
         }
         case Delta::Action::REMOVE_LABEL:
         case Delta::Action::ADD_LABEL:
-        case Delta::Action::SET_PROPERTY:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::ADD_OUT_EDGE:
         case Delta::Action::REMOVE_IN_EDGE:

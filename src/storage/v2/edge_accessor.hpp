@@ -33,6 +33,12 @@ class EdgeAccessor final {
 
   uint64_t EdgeType() const { return edge_type_; }
 
+  Result<bool> SetProperty(uint64_t property, const PropertyValue &value);
+
+  Result<PropertyValue> GetProperty(uint64_t property, View view);
+
+  Result<std::unordered_map<uint64_t, PropertyValue>> Properties(View view);
+
   Gid Gid() const { return edge_->gid; }
 
   bool operator==(const EdgeAccessor &other) const {
