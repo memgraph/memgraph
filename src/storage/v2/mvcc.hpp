@@ -1,8 +1,12 @@
 #pragma once
 
+#include <type_traits>
+
 #include "storage/v2/delta.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
 namespace storage {
@@ -47,15 +51,16 @@ inline void ApplyDeltasForRead(Transaction *transaction, Delta *delta,
   }
 }
 
-/// This function prepares the Vertex object for a write. It checks whether
-/// there are any serialization errors in the process (eg. the object can't be
-/// written to from this transaction because it is being written to from another
+/// This function prepares the object for a write. It checks whether there are
+/// any serialization errors in the process (eg. the object can't be written to
+/// from this transaction because it is being written to from another
 /// transaction) and returns a `bool` value indicating whether the caller can
 /// proceed with a write operation.
-inline bool PrepareForWrite(Transaction *transaction, Vertex *vertex) {
-  if (vertex->delta == nullptr) return true;
+template <typename TObj>
+inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
+  if (object->delta == nullptr) return true;
 
-  auto ts = vertex->delta->timestamp->load(std::memory_order_acquire);
+  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
     return true;
   }
@@ -74,25 +79,33 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
                                            transaction->command_id);
 }
 
-/// This function creates a delta in the transaction for the Vertex object and
-/// links the delta into the Vertex's delta list. It also adds the Vertex to the
-/// transaction's modified vertices list.
-template <class... Args>
-inline void CreateAndLinkDelta(Transaction *transaction, Vertex *vertex,
+/// This function creates a delta in the transaction for the object and links
+/// the delta into the object's delta list. It also adds the object to the
+/// transaction's modified objects list.
+template <typename TObj, class... Args>
+inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                Args &&... args) {
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)...,
                                                  &transaction->commit_timestamp,
                                                  transaction->command_id);
 
-  if (vertex->delta) {
-    vertex->delta->prev = delta;
+  if (object->delta) {
+    object->delta->prev = delta;
   }
-  delta->next.store(vertex->delta, std::memory_order_release);
-  vertex->delta = delta;
+  delta->next.store(object->delta, std::memory_order_release);
+  object->delta = delta;
 
-  if (transaction->modified_vertices.empty() ||
-      transaction->modified_vertices.back() != vertex) {
-    transaction->modified_vertices.push_back(vertex);
+  if constexpr (std::is_same_v<TObj, Vertex>) {
+    if (transaction->modified_vertices.empty() ||
+        transaction->modified_vertices.back() != object) {
+      transaction->modified_vertices.push_back(object);
+    }
+  }
+  if constexpr (std::is_same_v<TObj, Edge>) {
+    if (transaction->modified_edges.empty() ||
+        transaction->modified_edges.back() != object) {
+      transaction->modified_edges.push_back(object);
+    }
   }
 }
 

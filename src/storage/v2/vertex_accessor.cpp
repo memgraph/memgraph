@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 
 namespace storage {
@@ -22,6 +23,10 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
                          case Delta::Action::ADD_LABEL:
                          case Delta::Action::REMOVE_LABEL:
                          case Delta::Action::SET_PROPERTY:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
                            break;
                          case Delta::Action::RECREATE_OBJECT: {
                            is_visible = true;
@@ -110,6 +115,10 @@ Result<bool> VertexAccessor::HasLabel(uint64_t label, View view) {
                            break;
                          }
                          case Delta::Action::SET_PROPERTY:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
                            break;
                        }
                      });
@@ -154,6 +163,10 @@ Result<std::vector<uint64_t>> VertexAccessor::Labels(View view) {
             break;
           }
           case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
             break;
         }
       });
@@ -226,6 +239,10 @@ Result<PropertyValue> VertexAccessor::GetProperty(uint64_t property,
                          }
                          case Delta::Action::ADD_LABEL:
                          case Delta::Action::REMOVE_LABEL:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
                            break;
                        }
                      });
@@ -272,6 +289,10 @@ Result<std::unordered_map<uint64_t, PropertyValue>> VertexAccessor::Properties(
           }
           case Delta::Action::ADD_LABEL:
           case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
             break;
         }
       });
@@ -281,6 +302,150 @@ Result<std::unordered_map<uint64_t, PropertyValue>> VertexAccessor::Properties(
   }
   return Result<std::unordered_map<uint64_t, PropertyValue>>{
       std::move(properties)};
+}
+
+Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
+  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    in_edges = vertex_->in_edges;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(
+      transaction_, delta, view, [&deleted, &in_edges](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_IN_EDGE: {
+            // Add the edge because we don't see the removal.
+            std::tuple<uint64_t, Vertex *, Edge *> link{
+                delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                delta.vertex_edge.edge};
+            auto it = std::find(in_edges.begin(), in_edges.end(), link);
+            CHECK(it == in_edges.end()) << "Invalid database state!";
+            in_edges.push_back(link);
+            break;
+          }
+          case Delta::Action::REMOVE_IN_EDGE: {
+            // Remove the label because we don't see the addition.
+            std::tuple<uint64_t, Vertex *, Edge *> link{
+                delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                delta.vertex_edge.edge};
+            auto it = std::find(in_edges.begin(), in_edges.end(), link);
+            CHECK(it != in_edges.end()) << "Invalid database state!";
+            std::swap(*it, *in_edges.rbegin());
+            in_edges.pop_back();
+            break;
+          }
+          case Delta::Action::DELETE_OBJECT: {
+            LOG(FATAL) << "Invalid accessor!";
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            deleted = false;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+      });
+  if (deleted) {
+    return Result<
+        std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
+        Error::DELETED_OBJECT};
+  }
+  std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>> ret;
+  ret.reserve(in_edges.size());
+  for (const auto &item : in_edges) {
+    auto [edge_type, from_vertex, edge] = item;
+    if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
+                                        edge_type) != edge_types.end()) {
+      ret.emplace_back(
+          edge_type, VertexAccessor{from_vertex, transaction_},
+          EdgeAccessor{edge, edge_type, from_vertex, vertex_, transaction_});
+    }
+  }
+  return Result<
+      std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
+      std::move(ret)};
+}
+
+Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
+  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    out_edges = vertex_->out_edges;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(
+      transaction_, delta, view, [&deleted, &out_edges](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_OUT_EDGE: {
+            // Add the edge because we don't see the removal.
+            std::tuple<uint64_t, Vertex *, Edge *> link{
+                delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                delta.vertex_edge.edge};
+            auto it = std::find(out_edges.begin(), out_edges.end(), link);
+            CHECK(it == out_edges.end()) << "Invalid database state!";
+            out_edges.push_back(link);
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            // Remove the label because we don't see the addition.
+            std::tuple<uint64_t, Vertex *, Edge *> link{
+                delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                delta.vertex_edge.edge};
+            auto it = std::find(out_edges.begin(), out_edges.end(), link);
+            CHECK(it != out_edges.end()) << "Invalid database state!";
+            std::swap(*it, *out_edges.rbegin());
+            out_edges.pop_back();
+            break;
+          }
+          case Delta::Action::DELETE_OBJECT: {
+            LOG(FATAL) << "Invalid accessor!";
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            deleted = false;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+            break;
+        }
+      });
+  if (deleted) {
+    return Result<
+        std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
+        Error::DELETED_OBJECT};
+  }
+  std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>> ret;
+  ret.reserve(out_edges.size());
+  for (const auto &item : out_edges) {
+    auto [edge_type, to_vertex, edge] = item;
+    if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
+                                        edge_type) != edge_types.end()) {
+      ret.emplace_back(
+          edge_type, VertexAccessor{to_vertex, transaction_},
+          EdgeAccessor{edge, edge_type, vertex_, to_vertex, transaction_});
+    }
+  }
+  return Result<
+      std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
+      std::move(ret)};
 }
 
 }  // namespace storage

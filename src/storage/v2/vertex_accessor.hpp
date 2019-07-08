@@ -10,16 +10,17 @@
 
 namespace storage {
 
+class EdgeAccessor;
 class Storage;
 
 class VertexAccessor final {
  private:
   friend class Storage;
 
+ public:
   VertexAccessor(Vertex *vertex, Transaction *transaction)
       : vertex_(vertex), transaction_(transaction) {}
 
- public:
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
                                               View view);
@@ -38,7 +39,20 @@ class VertexAccessor final {
 
   Result<std::unordered_map<uint64_t, PropertyValue>> Properties(View view);
 
+  Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+  InEdges(const std::vector<uint64_t> &edge_types, View view);
+
+  Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+  OutEdges(const std::vector<uint64_t> &edge_types, View view);
+
   Gid Gid() const { return vertex_->gid; }
+
+  bool operator==(const VertexAccessor &other) const {
+    return vertex_ == other.vertex_ && transaction_ == other.transaction_;
+  }
+  bool operator!=(const VertexAccessor &other) const {
+    return !(*this == other);
+  }
 
  private:
   Vertex *vertex_;

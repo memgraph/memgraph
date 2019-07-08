@@ -6,20 +6,38 @@
 
 namespace storage {
 
+// Forward declarations because we only store pointers here.
+struct Vertex;
+struct Edge;
+
 struct Delta {
   enum class Action {
+    // Used for both Vertex and Edge
     DELETE_OBJECT,
     RECREATE_OBJECT,
+    SET_PROPERTY,
+
+    // Used only for Vertex
     ADD_LABEL,
     REMOVE_LABEL,
-    SET_PROPERTY,
+    ADD_IN_EDGE,
+    ADD_OUT_EDGE,
+    REMOVE_IN_EDGE,
+    REMOVE_OUT_EDGE,
   };
 
+  // Used for both Vertex and Edge
   struct DeleteObjectTag {};
   struct RecreateObjectTag {};
   struct AddLabelTag {};
   struct RemoveLabelTag {};
   struct SetPropertyTag {};
+
+  // Used only for Vertex
+  struct AddInEdgeTag {};
+  struct AddOutEdgeTag {};
+  struct RemoveInEdgeTag {};
+  struct RemoveOutEdgeTag {};
 
   Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT),
@@ -53,6 +71,34 @@ struct Delta {
         command_id(command_id),
         property({key, value}) {}
 
+  Delta(AddInEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : action(Action::ADD_IN_EDGE),
+        timestamp(timestamp),
+        command_id(command_id),
+        vertex_edge({edge_type, vertex, edge}) {}
+
+  Delta(AddOutEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : action(Action::ADD_OUT_EDGE),
+        timestamp(timestamp),
+        command_id(command_id),
+        vertex_edge({edge_type, vertex, edge}) {}
+
+  Delta(RemoveInEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : action(Action::REMOVE_IN_EDGE),
+        timestamp(timestamp),
+        command_id(command_id),
+        vertex_edge({edge_type, vertex, edge}) {}
+
+  Delta(RemoveOutEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : action(Action::REMOVE_OUT_EDGE),
+        timestamp(timestamp),
+        command_id(command_id),
+        vertex_edge({edge_type, vertex, edge}) {}
+
   Delta(Delta &&other) noexcept
       : action(other.action),
         timestamp(other.timestamp),
@@ -70,6 +116,12 @@ struct Delta {
       case Action::SET_PROPERTY:
         property.key = other.property.key;
         new (&property.value) PropertyValue(std::move(other.property.value));
+        break;
+      case Action::ADD_IN_EDGE:
+      case Action::ADD_OUT_EDGE:
+      case Action::REMOVE_IN_EDGE:
+      case Action::REMOVE_OUT_EDGE:
+        vertex_edge = other.vertex_edge;
         break;
     }
 
@@ -98,6 +150,11 @@ struct Delta {
       uint64_t key;
       storage::PropertyValue value;
     } property;
+    struct {
+      uint64_t edge_type;
+      Vertex *vertex;
+      Edge *edge;
+    } vertex_edge;
   };
 
  private:
@@ -107,6 +164,10 @@ struct Delta {
       case Action::RECREATE_OBJECT:
       case Action::ADD_LABEL:
       case Action::REMOVE_LABEL:
+      case Action::ADD_IN_EDGE:
+      case Action::ADD_OUT_EDGE:
+      case Action::REMOVE_IN_EDGE:
+      case Action::REMOVE_OUT_EDGE:
         break;
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();

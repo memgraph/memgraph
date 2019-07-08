@@ -4,6 +4,9 @@
 
 #include "utils/skip_list.hpp"
 
+#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -42,6 +45,13 @@ class Storage final {
 
     Result<bool> DeleteVertex(VertexAccessor *vertex);
 
+    Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
+
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                    uint64_t edge_type);
+
+    Result<bool> DeleteEdge(EdgeAccessor *edge);
+
     void AdvanceCommand();
 
     void Commit();
@@ -59,7 +69,9 @@ class Storage final {
  private:
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
+  utils::SkipList<storage::Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
+  std::atomic<uint64_t> edge_id_{0};
 
   // Transaction engine
   utils::SpinLock lock_;

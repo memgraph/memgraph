@@ -1,12 +1,14 @@
 #pragma once
 
 #include <limits>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
 #include "utils/spin_lock.hpp"
 
 #include "storage/v2/delta.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/gid.hpp"
 
 namespace storage {
@@ -18,8 +20,12 @@ struct Vertex {
   }
 
   Gid gid;
+
   std::vector<uint64_t> labels;
   std::unordered_map<uint64_t, storage::PropertyValue> properties;
+
+  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
+  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
 
   utils::SpinLock lock;
   bool deleted;
