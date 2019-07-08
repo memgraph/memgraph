@@ -111,7 +111,7 @@ static void Distinct(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = plan_and_cost.first->MakeCursor(&dba, memory.get());
+    auto cursor = plan_and_cost.first->MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -161,7 +161,7 @@ static void ExpandVariable(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = expand_variable.MakeCursor(&dba, memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
@@ -197,7 +197,7 @@ static void ExpandBfs(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = expand_variable.MakeCursor(&dba, memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
@@ -235,7 +235,7 @@ static void ExpandShortest(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = expand_variable.MakeCursor(&dba, memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
       for (const auto &dest : dba.Vertices(false)) {
@@ -280,7 +280,7 @@ static void ExpandWeightedShortest(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = expand_variable.MakeCursor(&dba, memory.get());
+    auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
       frame[expand_variable.input_symbol_] = query::TypedValue(v);
       for (const auto &dest : dba.Vertices(false)) {
@@ -326,7 +326,7 @@ static void Accumulate(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = accumulate.MakeCursor(&dba, memory.get());
+    auto cursor = accumulate.MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -375,7 +375,7 @@ static void Aggregate(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = aggregate.MakeCursor(&dba, memory.get());
+    auto cursor = aggregate.MakeCursor(memory.get());
     frame[symbols.front()] = query::TypedValue(0);  // initial group_by value
     while (cursor->Pull(frame, execution_context)) {
       frame[symbols.front()].ValueInt()++;  // new group_by value
@@ -425,7 +425,7 @@ static void OrderBy(benchmark::State &state) {
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = order_by.MakeCursor(&dba, memory.get());
+    auto cursor = order_by.MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
@@ -464,7 +464,7 @@ static void Unwind(benchmark::State &state) {
     query::Frame frame(symbol_table.max_position(), memory.get());
     frame[list_sym] =
         query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
-    auto cursor = unwind.MakeCursor(&dba, memory.get());
+    auto cursor = unwind.MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());

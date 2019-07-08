@@ -95,8 +95,7 @@ class Interpreter {
           plan_(plan),
           execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
               kExecutionMemoryBlockSize)),
-          cursor_(
-              plan_->plan().MakeCursor(db_accessor, execution_memory_.get())),
+          cursor_(plan_->plan().MakeCursor(execution_memory_.get())),
           frame_(plan_->symbol_table().max_position(), execution_memory_.get()),
           output_symbols_(output_symbols),
           header_(header),

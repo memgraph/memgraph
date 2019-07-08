@@ -216,23 +216,20 @@ namespace {
 // initialization of a cursor.
 class RemotePuller {
  public:
-  RemotePuller(distributed::PullRpcClients *pull_clients,
-               database::GraphDbAccessor &db,
-               const std::vector<Symbol> &symbols, int64_t plan_id,
-               tx::CommandId command_id)
-      : pull_clients_(pull_clients),
-        db_(db),
-        symbols_(symbols),
-        plan_id_(plan_id),
-        command_id_(command_id) {
-    CHECK(pull_clients_);
-    worker_ids_ = pull_clients_->GetWorkerIds();
-    // Remove master from the worker ids list.
-    worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
-  }
+  RemotePuller(const std::vector<Symbol> &symbols, int64_t plan_id)
+      : symbols_(symbols), plan_id_(plan_id) {}
 
-  void Initialize(ExecutionContext &context) {
+  void Initialize(const ExecutionContext &context) {
     if (!remote_pulls_initialized_) {
+      db_ = context.db_accessor;
+      command_id_ = context.db_accessor->transaction().cid();
+      // TODO: Pass in a Master GraphDb.
+      pull_clients_ =
+          &dynamic_cast<database::Master *>(&db_->db())->pull_clients();
+      CHECK(pull_clients_);
+      worker_ids_ = pull_clients_->GetWorkerIds();
+      // Remove master from the worker ids list.
+      worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
       VLOG(10) << "[RemotePuller] [" << context.db_accessor->transaction_id()
                << "] [" << plan_id_ << "] [" << command_id_ << "] initialized";
       for (auto &worker_id : worker_ids_) {
@@ -317,6 +314,7 @@ class RemotePuller {
   }
 
   void Reset() {
+    if (!remote_pulls_initialized_) return;
     worker_ids_ = pull_clients_->GetWorkerIds();
     // Remove master from the worker ids list.
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
@@ -329,7 +327,7 @@ class RemotePuller {
     }
     remote_pulls_.clear();
     for (auto &worker_id : worker_ids_) {
-      pull_clients_->ResetCursor(&db_, worker_id, plan_id_, command_id_);
+      pull_clients_->ResetCursor(db_, worker_id, plan_id_, command_id_);
     }
     remote_results_.clear();
     remote_pulls_initialized_ = false;
@@ -368,9 +366,11 @@ class RemotePuller {
     return result;
   }
 
+  auto command_id() const { return command_id_; }
+
  private:
   distributed::PullRpcClients *pull_clients_{nullptr};
-  database::GraphDbAccessor &db_;
+  database::GraphDbAccessor *db_;
   std::vector<Symbol> symbols_;
   int64_t plan_id_;
   tx::CommandId command_id_;
@@ -382,23 +382,17 @@ class RemotePuller {
 
   void UpdatePullForWorker(int worker_id, const ExecutionContext &context) {
     remote_pulls_[worker_id] =
-        pull_clients_->Pull(&db_, worker_id, plan_id_, command_id_,
+        pull_clients_->Pull(db_, worker_id, plan_id_, command_id_,
                             context.evaluation_context, symbols_, false);
   }
 };
 
 class PullRemoteCursor : public Cursor {
  public:
-  PullRemoteCursor(const PullRemote &self, database::GraphDbAccessor *db,
-                   utils::MemoryResource *mem)
+  PullRemoteCursor(const PullRemote &self, utils::MemoryResource *mem)
       : self_(self),
-        input_cursor_(self.input() ? self.input()->MakeCursor(db, mem)
-                                   : nullptr),
-        command_id_(db->transaction().cid()),
-        remote_puller_(
-            // TODO: Pass in a Master GraphDb.
-            &dynamic_cast<database::Master *>(&db->db())->pull_clients(), *db,
-            self.symbols_, self.plan_id_, command_id_) {}
+        input_cursor_(self.input() ? self.input()->MakeCursor(mem) : nullptr),
+        remote_puller_(self.symbols_, self.plan_id_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     if (context.db_accessor->should_abort()) throw HintedAbortError();
@@ -434,14 +428,14 @@ class PullRemoteCursor : public Cursor {
         if (input_cursor_ && input_cursor_->Pull(frame, context)) {
           VLOG(10) << "[PullRemoteCursor] ["
                    << context.db_accessor->transaction_id() << "] ["
-                   << self_.plan_id_ << "] [" << command_id_
+                   << self_.plan_id_ << "] [" << command_id()
                    << "] producing local results ";
           return true;
         }
 
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor->transaction_id() << "] ["
-                 << self_.plan_id_ << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id()
                  << "] no results available, sleeping ";
         // If there aren't any local/remote results available, sleep.
         std::this_thread::sleep_for(
@@ -454,7 +448,7 @@ class PullRemoteCursor : public Cursor {
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor->transaction_id() << "] ["
-                 << self_.plan_id_ << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id()
                  << "] producing local results ";
         return true;
       }
@@ -465,7 +459,7 @@ class PullRemoteCursor : public Cursor {
       int worker_id = remote_puller_.GetWorkerId(last_pulled_worker_id_index_);
       VLOG(10) << "[PullRemoteCursor] ["
                << context.db_accessor->transaction_id() << "] ["
-               << self_.plan_id_ << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id()
                << "] producing results from worker " << worker_id;
       auto result = remote_puller_.PopResultFromWorker(worker_id);
       for (size_t i = 0; i < self_.symbols_.size(); ++i) {
@@ -487,41 +481,41 @@ class PullRemoteCursor : public Cursor {
   }
 
  private:
+  tx::CommandId command_id() const { return remote_puller_.command_id(); }
+
   const PullRemote &self_;
   const UniqueCursorPtr input_cursor_;
-  tx::CommandId command_id_;
   RemotePuller remote_puller_;
   int last_pulled_worker_id_index_ = 0;
 };
 
 class SynchronizeCursor : public Cursor {
  public:
-  SynchronizeCursor(const Synchronize &self, database::GraphDbAccessor *db,
-                    utils::MemoryResource *mem)
+  SynchronizeCursor(const Synchronize &self, utils::MemoryResource *mem)
       : self_(self),
-        pull_clients_(
-            // TODO: Pass in a Master GraphDb.
-            &dynamic_cast<database::Master *>(&db->db())->pull_clients()),
-        updates_clients_(
-            // TODO: Pass in a Master GraphDb.
-            &dynamic_cast<database::Master *>(&db->db())->updates_clients()),
-        updates_server_(
-            // TODO: Pass in a Master GraphDb.
-            &dynamic_cast<database::Master *>(&db->db())->updates_server()),
-        input_cursor_(self.input()->MakeCursor(db, mem)),
-        pull_remote_cursor_(self.pull_remote_
-                                ? self.pull_remote_->MakeCursor(db, mem)
-                                : nullptr),
-        command_id_(db->transaction().cid()),
-        master_id_(
-            // TODO: Pass in a Master GraphDb.
-            dynamic_cast<database::Master *>(&db->db())->WorkerId()) {}
+        input_cursor_(self.input()->MakeCursor(mem)),
+        pull_remote_cursor_(
+            self.pull_remote_ ? self.pull_remote_->MakeCursor(mem) : nullptr) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     if (!initial_pull_done_) {
+      // TODO: Pass in a Master GraphDb.
+      pull_clients_ =
+          &dynamic_cast<database::Master *>(&context.db_accessor->db())
+               ->pull_clients();
+      updates_clients_ =
+          &dynamic_cast<database::Master *>(&context.db_accessor->db())
+               ->updates_clients();
+      updates_server_ =
+          &dynamic_cast<database::Master *>(&context.db_accessor->db())
+               ->updates_server();
+      command_id_ = context.db_accessor->transaction().cid();
+      master_id_ = dynamic_cast<database::Master *>(&context.db_accessor->db())
+                       ->WorkerId();
       InitialPull(frame, context);
       initial_pull_done_ = true;
     }
+
     // Yield local stuff while available.
     if (!local_frames_.empty()) {
       VLOG(10) << "[SynchronizeCursor] ["
@@ -667,15 +661,10 @@ class SynchronizeCursor : public Cursor {
 class PullRemoteOrderByCursor : public Cursor {
  public:
   PullRemoteOrderByCursor(const PullRemoteOrderBy &self,
-                          database::GraphDbAccessor *db,
                           utils::MemoryResource *mem)
       : self_(self),
-        input_(self.input()->MakeCursor(db, mem)),
-        command_id_(db->transaction().cid()),
-        remote_puller_(
-            // TODO: Pass in a Master GraphDb.
-            &dynamic_cast<database::Master *>(&db->db())->pull_clients(), *db,
-            self.symbols_, self.plan_id_, command_id_) {}
+        input_(self.input()->MakeCursor(mem)),
+        remote_puller_(self.symbols_, self.plan_id_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     if (context.db_accessor->should_abort()) throw HintedAbortError();
@@ -700,10 +689,10 @@ class PullRemoteOrderByCursor : public Cursor {
     };
 
     if (!merge_initialized_) {
+      remote_puller_.Initialize(context);
       VLOG(10) << "[PullRemoteOrderBy] ["
                << context.db_accessor->transaction_id() << "] ["
-               << self_.plan_id_ << "] [" << command_id_ << "] initialize";
-      remote_puller_.Initialize(context);
+               << self_.plan_id_ << "] [" << command_id() << "] initialize";
       missing_results_from_ = remote_puller_.Workers();
       missing_master_result_ = true;
       merge_initialized_ = true;
@@ -739,7 +728,7 @@ class PullRemoteOrderByCursor : public Cursor {
       if (!has_all_result) {
         VLOG(10) << "[PullRemoteOrderByCursor] ["
                  << context.db_accessor->transaction_id() << "] ["
-                 << self_.plan_id_ << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id()
                  << "] missing results, sleep";
         // If we don't have results from all workers, sleep before continuing.
         std::this_thread::sleep_for(
@@ -772,14 +761,14 @@ class PullRemoteOrderByCursor : public Cursor {
     if (result_it->worker_id) {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor->transaction_id() << "] ["
-               << self_.plan_id_ << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id()
                << "] producing results from worker "
                << result_it->worker_id.value();
       missing_results_from_.push_back(result_it->worker_id.value());
     } else {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor->transaction_id() << "] ["
-               << self_.plan_id_ << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id()
                << "] producing local results";
       missing_master_result_ = true;
     }
@@ -809,9 +798,10 @@ class PullRemoteOrderByCursor : public Cursor {
     std::vector<TypedValue> order_by;
   };
 
+  tx::CommandId command_id() const { return remote_puller_.command_id(); }
+
   const PullRemoteOrderBy &self_;
   UniqueCursorPtr input_;
-  tx::CommandId command_id_;
   RemotePuller remote_puller_;
   std::vector<MergeResultItem> merge_;
   std::vector<int> missing_results_from_;
@@ -822,9 +812,8 @@ class PullRemoteOrderByCursor : public Cursor {
 class DistributedExpandCursor : public query::plan::Cursor {
  public:
   DistributedExpandCursor(const DistributedExpand *self,
-                          database::GraphDbAccessor *db,
                           utils::MemoryResource *mem)
-      : input_cursor_(self->input()->MakeCursor(db, mem)), self_(self) {}
+      : input_cursor_(self->input()->MakeCursor(mem)), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     // A helper function for expanding a node from an edge.
@@ -1065,11 +1054,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
 class DistributedExpandBfsCursor : public query::plan::Cursor {
  public:
   DistributedExpandBfsCursor(const DistributedExpandBfs &self,
-                             database::GraphDbAccessor *db,
                              utils::MemoryResource *mem)
-      : self_(self),
-        db_(*db),
-        input_cursor_(self_.input()->MakeCursor(db, mem)) {}
+      : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {}
 
   void InitSubcursors(database::GraphDbAccessor *dba,
                       const query::SymbolTable &symbol_table,
@@ -1105,8 +1091,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
       if (!skip_rest_) {
         if (current_depth_ >= lower_bound_) {
           for (; pull_pos_ != subcursor_ids_.end(); ++pull_pos_) {
-            auto vertex = bfs_subcursor_clients_->Pull(pull_pos_->first,
-                                                       pull_pos_->second, &db_);
+            auto vertex = bfs_subcursor_clients_->Pull(
+                pull_pos_->first, pull_pos_->second, context.db_accessor);
             if (vertex) {
               last_vertex = *vertex;
               break;
@@ -1149,9 +1135,11 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                    "should be set during path reconstruction";
             auto ret = current_edge_addr
                            ? bfs_subcursor_clients_->ReconstructPath(
-                                 subcursor_ids_, *current_edge_addr, &db_)
+                                 subcursor_ids_, *current_edge_addr,
+                                 context.db_accessor)
                            : bfs_subcursor_clients_->ReconstructPath(
-                                 subcursor_ids_, *current_vertex_addr, &db_);
+                                 subcursor_ids_, *current_vertex_addr,
+                                 context.db_accessor);
             for (const auto &edge : ret.edges) edges.emplace_back(edge);
             current_vertex_addr = ret.next_vertex;
             current_edge_addr = ret.next_edge;
@@ -1224,7 +1212,6 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
  private:
   const DistributedExpandBfs &self_;
-  database::GraphDbAccessor &db_;
   distributed::BfsRpcClients *bfs_subcursor_clients_{nullptr};
   UniqueCursorPtr input_cursor_;
 
@@ -1295,19 +1282,16 @@ VertexAccessor &CreateVertexOnWorker(int worker_id,
 class DistributedCreateNodeCursor : public query::plan::Cursor {
  public:
   DistributedCreateNodeCursor(const DistributedCreateNode *self,
-                              database::GraphDbAccessor *dba,
                               utils::MemoryResource *mem)
-      : input_cursor_(self->input()->MakeCursor(dba, mem)),
-        db_(&dba->db()),
+      : input_cursor_(self->input()->MakeCursor(mem)),
         node_info_(self->node_info_),
-        on_random_worker_(self->on_random_worker_) {
-    CHECK(db_);
-  }
+        on_random_worker_(self->on_random_worker_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     if (input_cursor_->Pull(frame, context)) {
       if (on_random_worker_) {
-        CreateVertexOnWorker(RandomWorkerId(*db_), node_info_, frame, context);
+        CreateVertexOnWorker(RandomWorkerId(context.db_accessor->db()),
+                             node_info_, frame, context);
       } else {
         CreateLocalVertex(node_info_, &frame, context);
       }
@@ -1322,7 +1306,6 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
 
  private:
   UniqueCursorPtr input_cursor_;
-  database::GraphDb *db_{nullptr};
   NodeCreationInfo node_info_;
   bool on_random_worker_{false};
 };
@@ -1330,13 +1313,8 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
 class DistributedCreateExpandCursor : public query::plan::Cursor {
  public:
   DistributedCreateExpandCursor(const DistributedCreateExpand *self,
-                                database::GraphDbAccessor *dba,
                                 utils::MemoryResource *mem)
-      : input_cursor_(self->input()->MakeCursor(dba, mem)),
-        self_(self),
-        db_(&dba->db()) {
-    CHECK(db_);
-  }
+      : input_cursor_(self->input()->MakeCursor(mem)), self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     if (!input_cursor_->Pull(frame, context)) return false;
@@ -1408,44 +1386,41 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
  private:
   UniqueCursorPtr input_cursor_;
   const DistributedCreateExpand *self_{nullptr};
-  database::GraphDb *db_{nullptr};
 };
 
 }  // namespace
 
-UniqueCursorPtr PullRemote::MakeCursor(database::GraphDbAccessor *db,
-                                       utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<PullRemoteCursor>(mem, *this, db, mem);
+UniqueCursorPtr PullRemote::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<PullRemoteCursor>(mem, *this, mem);
 }
 
-UniqueCursorPtr Synchronize::MakeCursor(database::GraphDbAccessor *db,
-                                        utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<SynchronizeCursor>(mem, *this, db, mem);
+UniqueCursorPtr Synchronize::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<SynchronizeCursor>(mem, *this, mem);
 }
 
 UniqueCursorPtr PullRemoteOrderBy::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<PullRemoteOrderByCursor>(mem, *this, db, mem);
+    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<PullRemoteOrderByCursor>(mem, *this, mem);
 }
 
 UniqueCursorPtr DistributedExpand::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<DistributedExpandCursor>(mem, this, db, mem);
+    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DistributedExpandCursor>(mem, this, mem);
 }
 
 UniqueCursorPtr DistributedExpandBfs::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<DistributedExpandBfsCursor>(mem, *this, db, mem);
+    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DistributedExpandBfsCursor>(mem, *this, mem);
 }
 
 UniqueCursorPtr DistributedCreateNode::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, this, db, mem);
+    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, this, mem);
 }
 
 UniqueCursorPtr DistributedCreateExpand::MakeCursor(
-    database::GraphDbAccessor *db, utils::MemoryResource *mem) const {
-  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, this, db, mem);
+    utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, this, mem);
 }
 
 }  // namespace query::plan

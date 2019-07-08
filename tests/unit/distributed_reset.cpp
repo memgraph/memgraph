@@ -20,8 +20,7 @@ TEST_F(DistributedReset, ResetTest) {
   auto dba = master().Access();
   query::Frame frame(0);
   query::ExecutionContext context{dba.get()};
-  auto pull_remote_cursor =
-      pull_remote->MakeCursor(dba.get(), utils::NewDeleteResource());
+  auto pull_remote_cursor = pull_remote->MakeCursor(utils::NewDeleteResource());
 
   for (int i = 0; i < 3; ++i) {
     EXPECT_TRUE(pull_remote_cursor->Pull(frame, context));

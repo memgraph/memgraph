@@ -281,8 +281,7 @@ TEST(QueryPlan, Delete) {
         n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
     auto context = MakeContext(storage, symbol_table, &dba);
-    delete_op->MakeCursor(&dba, utils::NewDeleteResource())
-        ->Pull(frame, context);
+    delete_op->MakeCursor(utils::NewDeleteResource())->Pull(frame, context);
     dba.AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
     EXPECT_EQ(3, CountIterable(dba.Edges(false)));

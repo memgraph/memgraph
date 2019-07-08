@@ -20,10 +20,6 @@
 #include "utils/hashing/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/visitor.hpp"
-
-namespace database {
-class GraphDbAccessor;
-}
 cpp<#
 
 (lcp:namespace query)
@@ -159,13 +155,10 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
    /** Construct a @c Cursor which is used to run this operator.
     *
-    * @param database::GraphDbAccessor Used to perform operations on the
-    *     database.
     * @param utils::MemoryResource Memory resource used for allocations during
     *     the lifetime of the returned Cursor.
     */
-   virtual UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const = 0;
+   virtual UniqueCursorPtr MakeCursor(utils::MemoryResource *) const = 0;
 
    /** Return @c Symbol vector where the query results will be stored.
     *
@@ -300,8 +293,7 @@ and false on every following Pull.")
   (:public
    #>cpp
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
      return {};
    }
@@ -395,8 +387,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    CreateNode(const std::shared_ptr<LogicalOperator> &input,
               const NodeCreationInfo &node_info);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -409,8 +400,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    #>cpp
    class CreateNodeCursor : public Cursor {
     public:
-     CreateNodeCursor(const CreateNode &, database::GraphDbAccessor *,
-                      utils::MemoryResource *);
+     CreateNodeCursor(const CreateNode &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -495,8 +485,7 @@ chained in cases when longer paths need creating.
                 const std::shared_ptr<LogicalOperator> &input,
                 Symbol input_symbol, bool existing_node);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -509,15 +498,13 @@ chained in cases when longer paths need creating.
    #>cpp
    class CreateExpandCursor : public Cursor {
     public:
-     CreateExpandCursor(const CreateExpand &, database::GraphDbAccessor *,
-                        utils::MemoryResource *);
+     CreateExpandCursor(const CreateExpand &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
     private:
      const CreateExpand &self_;
-     database::GraphDbAccessor &db_;
      const UniqueCursorPtr input_cursor_;
 
      // Get the existing node (if existing_node_ == true), or create a new node
@@ -562,8 +549,7 @@ with a constructor argument.
    ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
            GraphView graph_view = GraphView::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -591,8 +577,7 @@ given label.
                   Symbol output_symbol, storage::Label label,
                   GraphView graph_view = GraphView::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
   (:serialize (:slk))
   (:clone))
@@ -701,8 +686,7 @@ property value which is inside a range (inclusive or exlusive).
                                GraphView graph_view = GraphView::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
   (:serialize (:slk))
   (:clone))
@@ -742,8 +726,7 @@ property value.
                                GraphView graph_view = GraphView::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
   (:serialize (:slk))
   (:clone))
@@ -808,8 +791,7 @@ pulled.")
    Expand() {}
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -820,8 +802,7 @@ pulled.")
 
    class ExpandCursor : public Cursor {
     public:
-     ExpandCursor(const Expand &, database::GraphDbAccessor *,
-                  utils::MemoryResource *);
+     ExpandCursor(const Expand &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -835,7 +816,6 @@ pulled.")
 
      const Expand &self_;
      const UniqueCursorPtr input_cursor_;
-     database::GraphDbAccessor &db_;
 
      // The iterable over edges and the current edge iterator are referenced via
      // optional because they can not be initialized in the constructor of
@@ -959,8 +939,7 @@ pulled.")
                    std::optional<Symbol> total_weight);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -998,8 +977,7 @@ pulled.")
          path_symbol_(path_symbol),
          path_elements_(path_elements) {}
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1031,8 +1009,7 @@ a boolean value.")
    Filter(const std::shared_ptr<LogicalOperator> &input_,
           Expression *expression_);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1045,8 +1022,7 @@ a boolean value.")
    #>cpp
    class FilterCursor : public Cursor {
     public:
-     FilterCursor(const Filter &, database::GraphDbAccessor *,
-                  utils::MemoryResource *);
+     FilterCursor(const Filter &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1083,8 +1059,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
    Produce(const std::shared_ptr<LogicalOperator> &input,
            const std::vector<NamedExpression *> &named_expressions);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1098,8 +1073,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
    #>cpp
    class ProduceCursor : public Cursor {
     public:
-     ProduceCursor(const Produce &, database::GraphDbAccessor *,
-                   utils::MemoryResource *);
+     ProduceCursor(const Produce &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1133,8 +1107,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
    Delete(const std::shared_ptr<LogicalOperator> &input_,
           const std::vector<Expression *> &expressions, bool detach_);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1147,15 +1120,13 @@ Has a flag for using DETACH DELETE when deleting vertices.")
    #>cpp
    class DeleteCursor : public Cursor {
     public:
-     DeleteCursor(const Delete &, database::GraphDbAccessor *,
-                  utils::MemoryResource *);
+     DeleteCursor(const Delete &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
     private:
      const Delete &self_;
-     database::GraphDbAccessor &db_;
      const UniqueCursorPtr input_cursor_;
    };
    cpp<#)
@@ -1186,8 +1157,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
                storage::Property property, PropertyLookup *lhs,
                Expression *rhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1200,8 +1170,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    #>cpp
    class SetPropertyCursor : public Cursor {
     public:
-     SetPropertyCursor(const SetProperty &, database::GraphDbAccessor *,
-                       utils::MemoryResource *);
+     SetPropertyCursor(const SetProperty &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1247,8 +1216,7 @@ that the old properties are discarded and replaced with new ones.")
    SetProperties(const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, Expression *rhs, Op op);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1261,24 +1229,14 @@ that the old properties are discarded and replaced with new ones.")
    #>cpp
    class SetPropertiesCursor : public Cursor {
     public:
-     SetPropertiesCursor(const SetProperties &, database::GraphDbAccessor *,
-                         utils::MemoryResource *);
+     SetPropertiesCursor(const SetProperties &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
     private:
      const SetProperties &self_;
-     database::GraphDbAccessor &db_;
      const UniqueCursorPtr input_cursor_;
-
-     /** Helper function that sets the given values on either
-      * a VertexRecord or an EdgeRecord.
-      * @tparam TRecordAccessor Either RecordAccessor<Vertex> or
-      * RecordAccessor<Edge>
-      */
-     template <typename TRecordAccessor>
-     void Set(TRecordAccessor &record, const TypedValue &rhs) const;
    };
    cpp<#)
   (:serialize (:slk))
@@ -1301,8 +1259,7 @@ It does NOT remove labels that are already set on that Vertex.")
    SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
              const std::vector<storage::Label> &labels);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1315,8 +1272,7 @@ It does NOT remove labels that are already set on that Vertex.")
    #>cpp
    class SetLabelsCursor : public Cursor {
     public:
-     SetLabelsCursor(const SetLabels &, database::GraphDbAccessor *,
-                     utils::MemoryResource *);
+     SetLabelsCursor(const SetLabels &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1346,8 +1302,7 @@ It does NOT remove labels that are already set on that Vertex.")
    RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
                   storage::Property property, PropertyLookup *lhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1360,8 +1315,7 @@ It does NOT remove labels that are already set on that Vertex.")
    #>cpp
    class RemovePropertyCursor : public Cursor {
     public:
-     RemovePropertyCursor(const RemoveProperty &, database::GraphDbAccessor *,
-                          utils::MemoryResource *);
+     RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1391,8 +1345,7 @@ If a label does not exist on a Vertex, nothing happens.")
    RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
                 Symbol input_symbol, const std::vector<storage::Label> &labels);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1405,8 +1358,7 @@ If a label does not exist on a Vertex, nothing happens.")
    #>cpp
    class RemoveLabelsCursor : public Cursor {
     public:
-     RemoveLabelsCursor(const RemoveLabels &, database::GraphDbAccessor *,
-                        utils::MemoryResource *);
+     RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1447,8 +1399,7 @@ edge lists).")
                         Symbol expand_symbol,
                         const std::vector<Symbol> &previous_symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1462,7 +1413,6 @@ edge lists).")
    class EdgeUniquenessFilterCursor : public Cursor {
     public:
      EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &,
-                                database::GraphDbAccessor *,
                                 utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
@@ -1516,8 +1466,7 @@ has been cached will be reconstructed before Pull returns.
    Accumulate(const std::shared_ptr<LogicalOperator> &input,
               const std::vector<Symbol> &symbols, bool advance_command = false);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1595,8 +1544,7 @@ elements are in an undefined state after aggregation.")
              const std::vector<Expression *> &group_by,
              const std::vector<Symbol> &remember);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1633,8 +1581,7 @@ operator's implementation does not expect this.")
 
    Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1648,8 +1595,7 @@ operator's implementation does not expect this.")
    #>cpp
    class SkipCursor : public Cursor {
     public:
-     SkipCursor(const Skip &, database::GraphDbAccessor *,
-                utils::MemoryResource *);
+     SkipCursor(const Skip &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1694,8 +1640,7 @@ input should be performed).")
 
    Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1709,8 +1654,7 @@ input should be performed).")
    #>cpp
    class LimitCursor : public Cursor {
     public:
-     LimitCursor(const Limit &, database::GraphDbAccessor *,
-                 utils::MemoryResource *);
+     LimitCursor(const Limit &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1755,8 +1699,7 @@ are valid for usage after the OrderBy operator.")
            const std::vector<SortItem> &order_by,
            const std::vector<Symbol> &output_symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1799,8 +1742,7 @@ documentation.")
          const std::shared_ptr<LogicalOperator> &merge_match,
          const std::shared_ptr<LogicalOperator> &merge_create);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    // TODO: Consider whether we want to treat Merge as having single input. It
@@ -1816,8 +1758,7 @@ documentation.")
    #>cpp
    class MergeCursor : public Cursor {
     public:
-     MergeCursor(const Merge &, database::GraphDbAccessor *,
-                 utils::MemoryResource *);
+     MergeCursor(const Merge &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1861,8 +1802,7 @@ and returns true, once.")
             const std::shared_ptr<LogicalOperator> &optional,
             const std::vector<Symbol> &optional_symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
@@ -1875,8 +1815,7 @@ and returns true, once.")
    #>cpp
    class OptionalCursor : public Cursor {
     public:
-     OptionalCursor(const Optional &, database::GraphDbAccessor *,
-                    utils::MemoryResource *);
+     OptionalCursor(const Optional &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1916,8 +1855,7 @@ Input is optional (unwind can be the first clause in a query).")
    Unwind(const std::shared_ptr<LogicalOperator> &input,
           Expression *input_expression_, Symbol output_symbol);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override {
@@ -1950,8 +1888,7 @@ This implementation maintains input ordering.")
    Distinct(const std::shared_ptr<LogicalOperator> &input,
             const std::vector<Symbol> &value_symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -1990,8 +1927,7 @@ of symbols used by each of the inputs.")
          const std::vector<Symbol> &left_symbols,
          const std::vector<Symbol> &right_symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
@@ -2003,8 +1939,7 @@ of symbols used by each of the inputs.")
    #>cpp
    class UnionCursor : public Cursor {
     public:
-     UnionCursor(const Union &, database::GraphDbAccessor *,
-                 utils::MemoryResource *);
+     UnionCursor(const Union &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -2044,8 +1979,7 @@ of symbols used by each of the inputs.")
           right_symbols_(right_symbols) {}
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
     std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
     bool HasSingleInput() const override;
@@ -2074,8 +2008,7 @@ of symbols used by each of the inputs.")
      LOG(FATAL) << "OutputTable operator should not be visited!";
    }
 
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override {
      return output_symbols_;
    }
@@ -2109,8 +2042,7 @@ at once. Instead, each call of the callback should return a single row of the ta
      LOG(FATAL) << "OutputTableStream operator should not be visited!";
    }
 
-   UniqueCursorPtr MakeCursor(
-       database::GraphDbAccessor *, utils::MemoryResource *) const override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override {
      return output_symbols_;
    }

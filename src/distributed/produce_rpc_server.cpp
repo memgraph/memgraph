@@ -20,7 +20,7 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
       frame_(plan_pack.symbol_table.max_position()),
       execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
           query::kExecutionMemoryBlockSize)),
-      cursor_(plan_pack.plan->MakeCursor(dba_.get(), execution_memory_.get())) {
+      cursor_(plan_pack.plan->MakeCursor(execution_memory_.get())) {
   context_.symbol_table = plan_pack.symbol_table;
   // TODO: Maybe we want a seperate MemoryResource per pull evaluation
   context_.evaluation_context.memory = execution_memory_.get();
