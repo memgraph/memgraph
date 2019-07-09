@@ -85,7 +85,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                                  transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
-  // chains are valid at all times.
+  // chains are valid at all times. The chains must be valid at all times
+  // because garbage collection (which traverses the chains) is done
+  // concurrently (as well as other execution threads).
   delta->prev.Set(object);
   if (object->delta) {
     object->delta->prev.Set(delta);

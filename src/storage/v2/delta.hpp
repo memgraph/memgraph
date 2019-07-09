@@ -36,54 +36,56 @@ class PreviousPtr {
     EDGE,
   };
 
-  void Set(Delta *delta) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(delta);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
-    storage_ = value | kDelta;
-  }
+  struct Pointer {
+    explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
+    explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
+    explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
-  void Set(Vertex *vertex) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(vertex);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
-    storage_ = value | kVertex;
-  }
+    Type type;
+    Delta *delta{nullptr};
+    Vertex *vertex{nullptr};
+    Edge *edge{nullptr};
+  };
 
-  void Set(Edge *edge) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(edge);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
-    storage_ = value | kEdge;
-  }
+  PreviousPtr() : storage_(0) {}
 
-  Type GetType() const {
-    uintptr_t type = storage_ & kMask;
+  PreviousPtr(const PreviousPtr &other) noexcept
+      : storage_(other.storage_.load(std::memory_order_acquire)) {}
+
+  Pointer Get() const {
+    uintptr_t value = storage_.load(std::memory_order_acquire);
+    uintptr_t type = value & kMask;
     if (type == kDelta) {
-      return Type::DELTA;
+      return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
     } else if (type == kVertex) {
-      return Type::VERTEX;
+      return Pointer{reinterpret_cast<Vertex *>(value & ~kMask)};
     } else if (type == kEdge) {
-      return Type::EDGE;
+      return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
     } else {
       LOG(FATAL) << "Invalid pointer type!";
     }
   }
 
-  Delta *GetDelta() const {
-    CHECK((storage_ & kMask) == kDelta) << "Can't convert pointer to delta!";
-    return reinterpret_cast<Delta *>(storage_ & ~kMask);
+  void Set(Delta *delta) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(delta);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_.store(value | kDelta, std::memory_order_release);
   }
 
-  Vertex *GetVertex() const {
-    CHECK((storage_ & kMask) == kVertex) << "Can't convert pointer to vertex!";
-    return reinterpret_cast<Vertex *>(storage_ & ~kMask);
+  void Set(Vertex *vertex) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(vertex);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_.store(value | kVertex, std::memory_order_release);
   }
 
-  Edge *GetEdge() const {
-    CHECK((storage_ & kMask) == kEdge) << "Can't convert pointer to edge!";
-    return reinterpret_cast<Edge *>(storage_ & ~kMask);
+  void Set(Edge *edge) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(edge);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_.store(value | kEdge, std::memory_order_release);
   }
 
  private:
-  uintptr_t storage_{0};
+  std::atomic<uintptr_t> storage_;
 };
 
 struct Delta {

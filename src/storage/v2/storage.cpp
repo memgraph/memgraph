@@ -307,9 +307,10 @@ void Storage::Accessor::Commit() {
 void Storage::Accessor::Abort() {
   CHECK(transaction_->is_active) << "The transaction is already terminated!";
   for (const auto &delta : transaction_->deltas) {
-    switch (delta.prev.GetType()) {
+    auto prev = delta.prev.Get();
+    switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
-        auto vertex = delta.prev.GetVertex();
+        auto vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr &&
@@ -409,7 +410,7 @@ void Storage::Accessor::Abort() {
         break;
       }
       case PreviousPtr::Type::EDGE: {
-        auto edge = delta.prev.GetEdge();
+        auto edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr &&
