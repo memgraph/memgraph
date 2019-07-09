@@ -1,12 +1,8 @@
 #pragma once
 
-#include <type_traits>
-
 #include "storage/v2/delta.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
 namespace storage {
@@ -80,8 +76,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 }
 
 /// This function creates a delta in the transaction for the object and links
-/// the delta into the object's delta list. It also adds the object to the
-/// transaction's modified objects list.
+/// the delta into the object's delta list.
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                Args &&... args) {
@@ -89,24 +84,14 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                                  &transaction->commit_timestamp,
                                                  transaction->command_id);
 
+  // The operations are written in such order so that both `next` and `prev`
+  // chains are valid at all times.
+  delta->prev.Set(object);
   if (object->delta) {
-    object->delta->prev = delta;
+    object->delta->prev.Set(delta);
   }
   delta->next.store(object->delta, std::memory_order_release);
   object->delta = delta;
-
-  if constexpr (std::is_same_v<TObj, Vertex>) {
-    if (transaction->modified_vertices.empty() ||
-        transaction->modified_vertices.back() != object) {
-      transaction->modified_vertices.push_back(object);
-    }
-  }
-  if constexpr (std::is_same_v<TObj, Edge>) {
-    if (transaction->modified_edges.empty() ||
-        transaction->modified_edges.back() != object) {
-      transaction->modified_edges.push_back(object);
-    }
-  }
 }
 
 }  // namespace storage

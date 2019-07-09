@@ -63,7 +63,7 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   CHECK(inserted) << "The vertex must be inserted here!";
   CHECK(it != acc.end()) << "Invalid Vertex accessor!";
-  transaction_->modified_vertices.push_back(&*it);
+  delta->prev.Set(&*it);
   return VertexAccessor{&*it, transaction_};
 }
 
@@ -201,7 +201,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
   CHECK(inserted) << "The edge must be inserted here!";
   CHECK(it != acc.end()) << "Invalid Edge accessor!";
   auto edge = &*it;
-  transaction_->modified_edges.push_back(edge);
+  delta->prev.Set(&*it);
 
   CreateAndLinkDelta(transaction_, from_vertex, Delta::RemoveOutEdgeTag(),
                      edge_type, to_vertex, edge);
@@ -306,145 +306,163 @@ void Storage::Accessor::Commit() {
 
 void Storage::Accessor::Abort() {
   CHECK(transaction_->is_active) << "The transaction is already terminated!";
-  for (Vertex *vertex : transaction_->modified_vertices) {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    Delta *current = vertex->delta;
-    while (current != nullptr &&
-           current->timestamp->load(std::memory_order_acquire) ==
-               transaction_->transaction_id) {
-      switch (current->action) {
-        case Delta::Action::REMOVE_LABEL: {
-          auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                              current->label);
-          CHECK(it != vertex->labels.end()) << "Invalid database state!";
-          std::swap(*it, *vertex->labels.rbegin());
-          vertex->labels.pop_back();
-          break;
-        }
-        case Delta::Action::ADD_LABEL: {
-          auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
-                              current->label);
-          CHECK(it == vertex->labels.end()) << "Invalid database state!";
-          vertex->labels.push_back(current->label);
-          break;
-        }
-        case Delta::Action::SET_PROPERTY: {
-          auto it = vertex->properties.find(current->property.key);
-          if (it != vertex->properties.end()) {
-            if (current->property.value.IsNull()) {
-              // remove the property
-              vertex->properties.erase(it);
-            } else {
-              // set the value
-              it->second = current->property.value;
+  for (const auto &delta : transaction_->deltas) {
+    switch (delta.prev.GetType()) {
+      case PreviousPtr::Type::VERTEX: {
+        auto vertex = delta.prev.GetVertex();
+        std::lock_guard<utils::SpinLock> guard(vertex->lock);
+        Delta *current = vertex->delta;
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) ==
+                   transaction_->transaction_id) {
+          switch (current->action) {
+            case Delta::Action::REMOVE_LABEL: {
+              auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
+                                  current->label);
+              CHECK(it != vertex->labels.end()) << "Invalid database state!";
+              std::swap(*it, *vertex->labels.rbegin());
+              vertex->labels.pop_back();
+              break;
             }
-          } else if (!current->property.value.IsNull()) {
-            vertex->properties.emplace(current->property.key,
-                                       current->property.value);
-          }
-          break;
-        }
-        case Delta::Action::ADD_IN_EDGE: {
-          std::tuple<uint64_t, Vertex *, Edge *> link{
-              current->vertex_edge.edge_type, current->vertex_edge.vertex,
-              current->vertex_edge.edge};
-          auto it =
-              std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-          CHECK(it == vertex->in_edges.end()) << "Invalid database state!";
-          vertex->in_edges.push_back(link);
-          break;
-        }
-        case Delta::Action::ADD_OUT_EDGE: {
-          std::tuple<uint64_t, Vertex *, Edge *> link{
-              current->vertex_edge.edge_type, current->vertex_edge.vertex,
-              current->vertex_edge.edge};
-          auto it = std::find(vertex->out_edges.begin(),
-                              vertex->out_edges.end(), link);
-          CHECK(it == vertex->out_edges.end()) << "Invalid database state!";
-          vertex->out_edges.push_back(link);
-          break;
-        }
-        case Delta::Action::REMOVE_IN_EDGE: {
-          std::tuple<uint64_t, Vertex *, Edge *> link{
-              current->vertex_edge.edge_type, current->vertex_edge.vertex,
-              current->vertex_edge.edge};
-          auto it =
-              std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-          CHECK(it != vertex->in_edges.end()) << "Invalid database state!";
-          std::swap(*it, *vertex->in_edges.rbegin());
-          vertex->in_edges.pop_back();
-          break;
-        }
-        case Delta::Action::REMOVE_OUT_EDGE: {
-          std::tuple<uint64_t, Vertex *, Edge *> link{
-              current->vertex_edge.edge_type, current->vertex_edge.vertex,
-              current->vertex_edge.edge};
-          auto it = std::find(vertex->out_edges.begin(),
-                              vertex->out_edges.end(), link);
-          CHECK(it != vertex->out_edges.end()) << "Invalid database state!";
-          std::swap(*it, *vertex->out_edges.rbegin());
-          vertex->out_edges.pop_back();
-          break;
-        }
-        case Delta::Action::DELETE_OBJECT: {
-          auto acc = storage_->vertices_.access();
-          CHECK(acc.remove(vertex->gid)) << "Invalid database state!";
-          break;
-        }
-        case Delta::Action::RECREATE_OBJECT: {
-          vertex->deleted = false;
-          break;
-        }
-      }
-      current = current->next.load(std::memory_order_acquire);
-    }
-    vertex->delta = current;
-  }
-  for (Edge *edge : transaction_->modified_edges) {
-    std::lock_guard<utils::SpinLock> guard(edge->lock);
-    Delta *current = edge->delta;
-    while (current != nullptr &&
-           current->timestamp->load(std::memory_order_acquire) ==
-               transaction_->transaction_id) {
-      switch (current->action) {
-        case Delta::Action::SET_PROPERTY: {
-          auto it = edge->properties.find(current->property.key);
-          if (it != edge->properties.end()) {
-            if (current->property.value.IsNull()) {
-              // remove the property
-              edge->properties.erase(it);
-            } else {
-              // set the value
-              it->second = current->property.value;
+            case Delta::Action::ADD_LABEL: {
+              auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
+                                  current->label);
+              CHECK(it == vertex->labels.end()) << "Invalid database state!";
+              vertex->labels.push_back(current->label);
+              break;
             }
-          } else if (!current->property.value.IsNull()) {
-            edge->properties.emplace(current->property.key,
-                                     current->property.value);
+            case Delta::Action::SET_PROPERTY: {
+              auto it = vertex->properties.find(current->property.key);
+              if (it != vertex->properties.end()) {
+                if (current->property.value.IsNull()) {
+                  // remove the property
+                  vertex->properties.erase(it);
+                } else {
+                  // set the value
+                  it->second = current->property.value;
+                }
+              } else if (!current->property.value.IsNull()) {
+                vertex->properties.emplace(current->property.key,
+                                           current->property.value);
+              }
+              break;
+            }
+            case Delta::Action::ADD_IN_EDGE: {
+              std::tuple<uint64_t, Vertex *, Edge *> link{
+                  current->vertex_edge.edge_type, current->vertex_edge.vertex,
+                  current->vertex_edge.edge};
+              auto it = std::find(vertex->in_edges.begin(),
+                                  vertex->in_edges.end(), link);
+              CHECK(it == vertex->in_edges.end()) << "Invalid database state!";
+              vertex->in_edges.push_back(link);
+              break;
+            }
+            case Delta::Action::ADD_OUT_EDGE: {
+              std::tuple<uint64_t, Vertex *, Edge *> link{
+                  current->vertex_edge.edge_type, current->vertex_edge.vertex,
+                  current->vertex_edge.edge};
+              auto it = std::find(vertex->out_edges.begin(),
+                                  vertex->out_edges.end(), link);
+              CHECK(it == vertex->out_edges.end()) << "Invalid database state!";
+              vertex->out_edges.push_back(link);
+              break;
+            }
+            case Delta::Action::REMOVE_IN_EDGE: {
+              std::tuple<uint64_t, Vertex *, Edge *> link{
+                  current->vertex_edge.edge_type, current->vertex_edge.vertex,
+                  current->vertex_edge.edge};
+              auto it = std::find(vertex->in_edges.begin(),
+                                  vertex->in_edges.end(), link);
+              CHECK(it != vertex->in_edges.end()) << "Invalid database state!";
+              std::swap(*it, *vertex->in_edges.rbegin());
+              vertex->in_edges.pop_back();
+              break;
+            }
+            case Delta::Action::REMOVE_OUT_EDGE: {
+              std::tuple<uint64_t, Vertex *, Edge *> link{
+                  current->vertex_edge.edge_type, current->vertex_edge.vertex,
+                  current->vertex_edge.edge};
+              auto it = std::find(vertex->out_edges.begin(),
+                                  vertex->out_edges.end(), link);
+              CHECK(it != vertex->out_edges.end()) << "Invalid database state!";
+              std::swap(*it, *vertex->out_edges.rbegin());
+              vertex->out_edges.pop_back();
+              break;
+            }
+            case Delta::Action::DELETE_OBJECT: {
+              auto acc = storage_->vertices_.access();
+              CHECK(acc.remove(vertex->gid)) << "Invalid database state!";
+              break;
+            }
+            case Delta::Action::RECREATE_OBJECT: {
+              vertex->deleted = false;
+              break;
+            }
           }
-          break;
+          current = current->next.load(std::memory_order_acquire);
         }
-        case Delta::Action::DELETE_OBJECT: {
-          auto acc = storage_->edges_.access();
-          CHECK(acc.remove(edge->gid)) << "Invalid database state!";
-          break;
+        vertex->delta = current;
+        if (current != nullptr) {
+          current->prev.Set(vertex);
         }
-        case Delta::Action::RECREATE_OBJECT: {
-          edge->deleted = false;
-          break;
-        }
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE: {
-          LOG(FATAL) << "Invalid database state!";
-          break;
-        }
+
+        break;
       }
-      current = current->next.load(std::memory_order_acquire);
+      case PreviousPtr::Type::EDGE: {
+        auto edge = delta.prev.GetEdge();
+        std::lock_guard<utils::SpinLock> guard(edge->lock);
+        Delta *current = edge->delta;
+        while (current != nullptr &&
+               current->timestamp->load(std::memory_order_acquire) ==
+                   transaction_->transaction_id) {
+          switch (current->action) {
+            case Delta::Action::SET_PROPERTY: {
+              auto it = edge->properties.find(current->property.key);
+              if (it != edge->properties.end()) {
+                if (current->property.value.IsNull()) {
+                  // remove the property
+                  edge->properties.erase(it);
+                } else {
+                  // set the value
+                  it->second = current->property.value;
+                }
+              } else if (!current->property.value.IsNull()) {
+                edge->properties.emplace(current->property.key,
+                                         current->property.value);
+              }
+              break;
+            }
+            case Delta::Action::DELETE_OBJECT: {
+              auto acc = storage_->edges_.access();
+              CHECK(acc.remove(edge->gid)) << "Invalid database state!";
+              break;
+            }
+            case Delta::Action::RECREATE_OBJECT: {
+              edge->deleted = false;
+              break;
+            }
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::ADD_OUT_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_OUT_EDGE: {
+              LOG(FATAL) << "Invalid database state!";
+              break;
+            }
+          }
+          current = current->next.load(std::memory_order_acquire);
+        }
+        edge->delta = current;
+        if (current != nullptr) {
+          current->prev.Set(edge);
+        }
+
+        break;
+      }
+      case PreviousPtr::Type::DELTA:
+        break;
     }
-    edge->delta = current;
   }
   transaction_->is_active = false;
 }

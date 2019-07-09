@@ -29,7 +29,6 @@ struct Transaction {
         commit_timestamp(other.commit_timestamp.load()),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
-        modified_vertices(std::move(other.modified_vertices)),
         is_active(other.is_active),
         must_abort(other.must_abort) {}
 
@@ -44,8 +43,6 @@ struct Transaction {
   std::atomic<uint64_t> commit_timestamp;
   uint64_t command_id;
   std::list<Delta> deltas;
-  std::list<Vertex *> modified_vertices;
-  std::list<Edge *> modified_edges;
   bool is_active;
   bool must_abort;
 };

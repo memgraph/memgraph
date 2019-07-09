@@ -2,6 +2,8 @@
 
 #include <atomic>
 
+#include <glog/logging.h>
+
 #include "storage/v2/property_value.hpp"
 
 namespace storage {
@@ -9,6 +11,80 @@ namespace storage {
 // Forward declarations because we only store pointers here.
 struct Vertex;
 struct Edge;
+struct Delta;
+
+// This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)
+// without using additional memory for storing the type. The type is stored in
+// the pointer itself in the lower bits. All of those structures contain large
+// items in themselves (e.g. `uint64_t`) that require the pointer to be aligned
+// to their size (for `uint64_t` it is 8). That means that the pointer will
+// always be a multiple of 8 which implies that the lower 3 bits of the pointer
+// will always be 0. We can use those 3 bits to store information about the type
+// of the pointer stored (2 bits).
+class PreviousPtr {
+ private:
+  static constexpr uintptr_t kDelta = 0b01UL;
+  static constexpr uintptr_t kVertex = 0b10UL;
+  static constexpr uintptr_t kEdge = 0b11UL;
+
+  static constexpr uintptr_t kMask = 0b11UL;
+
+ public:
+  enum class Type {
+    DELTA,
+    VERTEX,
+    EDGE,
+  };
+
+  void Set(Delta *delta) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(delta);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_ = value | kDelta;
+  }
+
+  void Set(Vertex *vertex) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(vertex);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_ = value | kVertex;
+  }
+
+  void Set(Edge *edge) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(edge);
+    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    storage_ = value | kEdge;
+  }
+
+  Type GetType() const {
+    uintptr_t type = storage_ & kMask;
+    if (type == kDelta) {
+      return Type::DELTA;
+    } else if (type == kVertex) {
+      return Type::VERTEX;
+    } else if (type == kEdge) {
+      return Type::EDGE;
+    } else {
+      LOG(FATAL) << "Invalid pointer type!";
+    }
+  }
+
+  Delta *GetDelta() const {
+    CHECK((storage_ & kMask) == kDelta) << "Can't convert pointer to delta!";
+    return reinterpret_cast<Delta *>(storage_ & ~kMask);
+  }
+
+  Vertex *GetVertex() const {
+    CHECK((storage_ & kMask) == kVertex) << "Can't convert pointer to vertex!";
+    return reinterpret_cast<Vertex *>(storage_ & ~kMask);
+  }
+
+  Edge *GetEdge() const {
+    CHECK((storage_ & kMask) == kEdge) << "Can't convert pointer to edge!";
+    return reinterpret_cast<Edge *>(storage_ & ~kMask);
+  }
+
+ private:
+  uintptr_t storage_{0};
+};
 
 struct Delta {
   enum class Action {
@@ -141,7 +217,7 @@ struct Delta {
   // TODO: optimize with in-place copy
   std::atomic<uint64_t> *timestamp;
   uint64_t command_id;
-  Delta *prev{nullptr};
+  PreviousPtr prev;
   std::atomic<Delta *> next{nullptr};
 
   union {
@@ -175,5 +251,8 @@ struct Delta {
     }
   }
 };
+
+static_assert(alignof(Delta) >= 8,
+              "The Delta should be aligned to at least 8!");
 
 }  // namespace storage

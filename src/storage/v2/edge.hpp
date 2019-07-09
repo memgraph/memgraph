@@ -30,6 +30,8 @@ struct Edge {
   Delta *delta;
 };
 
+static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
+
 inline bool operator==(const Edge &first, const Edge &second) {
   return first.gid == second.gid;
 }
