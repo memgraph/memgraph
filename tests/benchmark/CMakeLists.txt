@@ -77,3 +77,6 @@ target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 
 add_benchmark(expansion.cpp)
 target_link_libraries(${test_prefix}expansion mg-single-node kvstore_dummy_lib)
+
+add_benchmark(storage_v2_gc.cpp)
+target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

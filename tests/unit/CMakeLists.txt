@@ -388,6 +388,9 @@ target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2)
 
+add_unit_test(storage_v2_gc.cpp)
+target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
+
 # Test LCP
 
 add_custom_command(

@@ -20,7 +20,6 @@ struct Transaction {
         start_timestamp(start_timestamp),
         commit_timestamp(transaction_id),
         command_id(0),
-        is_active(true),
         must_abort(false) {}
 
   Transaction(Transaction &&other) noexcept
@@ -29,7 +28,6 @@ struct Transaction {
         commit_timestamp(other.commit_timestamp.load()),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
-        is_active(other.is_active),
         must_abort(other.must_abort) {}
 
   Transaction(const Transaction &) = delete;
@@ -43,7 +41,6 @@ struct Transaction {
   std::atomic<uint64_t> commit_timestamp;
   uint64_t command_id;
   std::list<Delta> deltas;
-  bool is_active;
   bool must_abort;
 };
 
