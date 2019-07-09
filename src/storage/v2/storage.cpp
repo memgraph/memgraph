@@ -311,7 +311,7 @@ void Storage::Accessor::Abort() {
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto vertex = prev.vertex;
-        std::lock_guard<utils::SpinLock> guard(vertex->lock);
+        std::unique_lock<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) ==
@@ -392,6 +392,10 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               auto acc = storage_->vertices_.access();
+              // We must unlock the guard here. Otherwise it might try to access
+              // freed memory in its destructor because the vertex is deleted
+              // along with its lock.
+              guard.unlock();
               CHECK(acc.remove(vertex->gid)) << "Invalid database state!";
               break;
             }
@@ -411,7 +415,7 @@ void Storage::Accessor::Abort() {
       }
       case PreviousPtr::Type::EDGE: {
         auto edge = prev.edge;
-        std::lock_guard<utils::SpinLock> guard(edge->lock);
+        std::unique_lock<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) ==
@@ -435,6 +439,10 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               auto acc = storage_->edges_.access();
+              // We must unlock the guard here. Otherwise it might try to access
+              // freed memory in its destructor because the edge is deleted
+              // along with its lock.
+              guard.unlock();
               CHECK(acc.remove(edge->gid)) << "Invalid database state!";
               break;
             }
