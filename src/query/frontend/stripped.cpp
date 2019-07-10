@@ -8,16 +8,16 @@
 
 #include "glog/logging.h"
 
-#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
 
-namespace query {
+namespace query::frontend {
 
 using namespace lexer_constants;
 
@@ -515,4 +515,5 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   if (state != State::OUT) return comment_position - start;
   return i - start;
 }
-}  // namespace query
+
+}  // namespace query::frontend

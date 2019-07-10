@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
   google::InitGoogleLogging(argv[0]);
 
   auto preprocess = [](const std::string &query) {
-    return query::StrippedQuery(query);
+    return query::frontend::StrippedQuery(query);
   };
 
   for (auto test : kQueries) {

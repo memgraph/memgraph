@@ -791,7 +791,7 @@ Interpreter::Results Interpreter::operator()(
   utils::Timer parsing_timer;
   auto queries = StripAndParseQuery(query_string, &parameters, &ast_storage,
                                     &db_accessor, params);
-  StrippedQuery &stripped_query = queries.first;
+  frontend::StrippedQuery &stripped_query = queries.first;
   ParsedQuery &parsed_query = queries.second;
   auto parsing_time = parsing_timer.Elapsed();
 
@@ -874,7 +874,7 @@ Interpreter::Results Interpreter::operator()(
     auto queries =
         StripAndParseQuery(query_string.substr(kExplainQueryStart.size()),
                            &parameters, &ast_storage, &db_accessor, params);
-    StrippedQuery &stripped_query = queries.first;
+    frontend::StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
     CHECK(cypher_query)
@@ -933,7 +933,7 @@ Interpreter::Results Interpreter::operator()(
     auto queries =
         StripAndParseQuery(query_string.substr(kProfileQueryStart.size()),
                            &parameters, &ast_storage, &db_accessor, params);
-    StrippedQuery &stripped_query = queries.first;
+    frontend::StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
     CHECK(cypher_query)
@@ -1167,12 +1167,12 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
                      ast_it->second.required_privileges};
 }
 
-std::pair<StrippedQuery, Interpreter::ParsedQuery>
+std::pair<frontend::StrippedQuery, Interpreter::ParsedQuery>
 Interpreter::StripAndParseQuery(
     const std::string &query_string, Parameters *parameters,
     AstStorage *ast_storage, database::GraphDbAccessor *db_accessor,
     const std::map<std::string, PropertyValue> &params) {
-  StrippedQuery stripped_query(query_string);
+  frontend::StrippedQuery stripped_query(query_string);
 
   *parameters = stripped_query.literals();
   for (const auto &param_pair : stripped_query.parameters()) {

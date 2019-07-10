@@ -10,6 +10,7 @@
 #include "query/typed_value.hpp"
 
 using namespace query;
+using namespace query::frontend;
 
 namespace {
 

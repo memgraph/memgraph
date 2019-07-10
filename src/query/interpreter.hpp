@@ -225,7 +225,7 @@ class Interpreter {
   integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  protected:
-  std::pair<StrippedQuery, ParsedQuery> StripAndParseQuery(
+  std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(
       const std::string &, Parameters *, AstStorage *ast_storage,
       database::GraphDbAccessor *,
       const std::map<std::string, PropertyValue> &);

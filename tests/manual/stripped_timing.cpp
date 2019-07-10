@@ -19,7 +19,7 @@ int main(int argc, const char **a) {
 
   clock_t begin = clock();
   for (int i = 0; i < REPEATS; ++i) {
-    query::StrippedQuery(std::string(query));
+    query::frontend::StrippedQuery(std::string(query));
   }
   clock_t end = clock();
 

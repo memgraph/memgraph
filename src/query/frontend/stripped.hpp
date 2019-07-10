@@ -6,7 +6,7 @@
 #include "query/parameters.hpp"
 #include "utils/hashing/fnv.hpp"
 
-namespace query {
+namespace query::frontend {
 
 // Strings used to replace original tokens. Different types are replaced with
 // different token.
@@ -88,4 +88,5 @@ class StrippedQuery {
   // Hash based on the stripped query.
   HashType hash_;
 };
-}  // namespace query
+
+}  // namespace query::frontend

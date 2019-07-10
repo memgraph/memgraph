@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
   auto query = FLAGS_q;
 
   // run preprocessing
-  query::StrippedQuery preprocessed(query);
+  query::frontend::StrippedQuery preprocessed(query);
 
   // print query, stripped query, hash and variable values (propertie values)
   std::cout << fmt::format("Query: {}\n", query);

@@ -50,6 +50,7 @@ set(mg_single_node_sources
     query/common.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/ast/pretty_print.cpp
+    query/frontend/parsing.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
@@ -65,7 +66,7 @@ set(mg_single_node_sources
     query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
-		storage/common/constraints/unique_constraints.cpp
+    storage/common/constraints/unique_constraints.cpp
     storage/common/locking/record_lock.cpp
     storage/common/types/property_value.cpp
     storage/common/types/property_value_store.cpp
@@ -159,6 +160,7 @@ set(mg_distributed_sources
     query/common.cpp
     query/frontend/ast/pretty_print.cpp
     query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/parsing.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
@@ -258,6 +260,7 @@ set(mg_single_node_ha_sources
     query/common.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/ast/pretty_print.cpp
+    query/frontend/parsing.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
@@ -273,7 +276,7 @@ set(mg_single_node_ha_sources
     query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
-		storage/common/constraints/unique_constraints.cpp
+    storage/common/constraints/unique_constraints.cpp
     storage/common/types/property_value.cpp
     storage/common/types/slk.cpp
     storage/common/types/property_value_store.cpp

@@ -14,8 +14,8 @@
 
 #include <glog/logging.h>
 
-#include "query/common.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
