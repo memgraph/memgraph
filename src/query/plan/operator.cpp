@@ -16,13 +16,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "auth/auth.hpp"
-#include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "glue/auth.hpp"
-#include "glue/communication.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -33,7 +27,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
-#include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
