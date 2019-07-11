@@ -321,12 +321,20 @@ void Storage::Accessor::Commit() {
 
 void Storage::Accessor::Abort() {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
+
+  // We acquire accessors to the storage `SkipList`s so that we can safely
+  // delete objects in the lists. While the accessor is alive, all objects (even
+  // deleted ones) are guaranteed to still exist and pointers to them are still
+  // valid.
+  auto vertex_acc = storage_->vertices_.access();
+  auto edge_acc = storage_->edges_.access();
+
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto vertex = prev.vertex;
-        std::unique_lock<utils::SpinLock> guard(vertex->lock);
+        std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) ==
@@ -406,12 +414,8 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
-              auto acc = storage_->vertices_.access();
-              // We must unlock the guard here. Otherwise it might try to access
-              // freed memory in its destructor because the vertex is deleted
-              // along with its lock.
-              guard.unlock();
-              CHECK(acc.remove(vertex->gid)) << "Invalid database state!";
+              CHECK(vertex_acc.remove(vertex->gid))
+                  << "Invalid database state!";
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -430,7 +434,7 @@ void Storage::Accessor::Abort() {
       }
       case PreviousPtr::Type::EDGE: {
         auto edge = prev.edge;
-        std::unique_lock<utils::SpinLock> guard(edge->lock);
+        std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) ==
@@ -453,12 +457,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
-              auto acc = storage_->edges_.access();
-              // We must unlock the guard here. Otherwise it might try to access
-              // freed memory in its destructor because the edge is deleted
-              // along with its lock.
-              guard.unlock();
-              CHECK(acc.remove(edge->gid)) << "Invalid database state!";
+              CHECK(edge_acc.remove(edge->gid)) << "Invalid database state!";
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
