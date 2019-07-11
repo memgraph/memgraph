@@ -197,6 +197,29 @@ class Allocator {
               std::forward_as_tuple(std::forward<V>(xy.second)));
   }
 
+  template <class U>
+  void destroy(U *p) {
+    p->~U();
+  }
+
+  template <class U, class... TArgs>
+  U *new_object(TArgs &&... args) {
+    U *p = static_cast<U *>(memory_->Allocate(sizeof(U), alignof(U)));
+    try {
+      construct(p, std::forward<TArgs>(args)...);
+    } catch (...) {
+      memory_->Deallocate(p, sizeof(U), alignof(U));
+      throw;
+    }
+    return p;
+  }
+
+  template <class U>
+  void delete_object(U *p) {
+    destroy(p);
+    memory_->Deallocate(p, sizeof(U), alignof(U));
+  }
+
  private:
   MemoryResource *memory_;
 
