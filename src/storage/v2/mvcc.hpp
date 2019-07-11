@@ -70,8 +70,9 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// and is primarily used to create the first delta for an object (that must be
 /// a `DELETE_OBJECT` delta).
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
+  transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(),
-                                           &transaction->commit_timestamp,
+                                           transaction->commit_timestamp.get(),
                                            transaction->command_id);
 }
 
@@ -80,9 +81,10 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                Args &&... args) {
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)...,
-                                                 &transaction->commit_timestamp,
-                                                 transaction->command_id);
+  transaction->EnsureCommitTimestampExists();
+  auto delta = &transaction->deltas.emplace_back(
+      std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+      transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

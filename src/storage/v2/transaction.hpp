@@ -3,6 +3,7 @@
 #include <atomic>
 #include <limits>
 #include <list>
+#include <memory>
 
 #include "utils/skip_list.hpp"
 
@@ -18,14 +19,13 @@ struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
-        commit_timestamp(transaction_id),
         command_id(0),
         must_abort(false) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id),
         start_timestamp(other.start_timestamp),
-        commit_timestamp(other.commit_timestamp.load()),
+        commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort) {}
@@ -36,9 +36,18 @@ struct Transaction {
 
   ~Transaction() {}
 
+  void EnsureCommitTimestampExists() {
+    if (commit_timestamp != nullptr) return;
+    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
+  }
+
   uint64_t transaction_id;
   uint64_t start_timestamp;
-  std::atomic<uint64_t> commit_timestamp;
+  // The `Transaction` object is stack allocated, but the `commit_timestamp`
+  // must be heap allocated because `Delta`s have a pointer to it, and that
+  // pointer must stay valid after the `Transaction` is moved into
+  // `commited_transactions_` list for GC.
+  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
   uint64_t command_id;
   std::list<Delta> deltas;
   bool must_abort;

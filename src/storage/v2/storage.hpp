@@ -49,17 +49,20 @@ class Storage final {
   ~Storage();
 
   class Accessor final {
-   public:
-    explicit Accessor(Storage *storage);
+   private:
+    friend class Storage;
 
+    Accessor(Storage *storage, uint64_t transaction_id,
+             uint64_t start_timestamp);
+
+   public:
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
+    Accessor &operator=(Accessor &&other) = delete;
 
+    // NOTE: After the accessor is moved, all objects derived from it (accessors
+    // and iterators) are *invalid*. You have to get all derived objects again.
     Accessor(Accessor &&other) noexcept;
-
-    // This operator isn't `noexcept` because the `Abort` function isn't
-    // `noexcept`.
-    Accessor &operator=(Accessor &&other);
 
     ~Accessor();
 
@@ -84,13 +87,12 @@ class Storage final {
 
    private:
     Storage *storage_;
-    // TODO: when we are able to move Transaction objects without breaking the
-    // pointers in Delta, we can get rid of the unique pointer here
-    std::unique_ptr<Transaction> transaction_;
+    Transaction transaction_;
     bool is_transaction_starter_;
+    bool is_transaction_active_;
   };
 
-  Accessor Access() { return Accessor{this}; }
+  Accessor Access();
 
  private:
   void CollectGarbage();
@@ -112,9 +114,7 @@ class Storage final {
   CommitLog commit_log_;
 
   utils::SpinLock committed_transactions_lock_;
-  // TODO: when we are able to move Transaction objects without breaking the
-  // pointers in Delta, we can get rid of the unique pointer here
-  std::list<std::unique_ptr<Transaction>> committed_transactions_;
+  std::list<Transaction> committed_transactions_;
 
   utils::SpinLock aborted_undo_buffers_lock_;
   std::list<std::pair<uint64_t, std::list<Delta>>> aborted_undo_buffers_;
