@@ -49,9 +49,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -62,9 +60,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -106,9 +102,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -118,9 +112,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -130,9 +122,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -142,9 +132,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -223,9 +211,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -236,9 +222,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -280,9 +264,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -292,9 +274,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -304,9 +284,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -316,9 +294,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -386,9 +362,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -399,9 +373,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -430,9 +402,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -442,9 +412,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -454,9 +422,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -466,9 +432,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -537,9 +501,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -550,9 +512,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -630,9 +590,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -643,9 +601,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -687,9 +643,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -699,9 +653,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -711,9 +663,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -723,9 +673,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -804,9 +752,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -817,9 +763,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -897,9 +841,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -910,9 +852,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -954,9 +894,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -966,9 +904,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -978,9 +914,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -990,9 +924,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1060,9 +992,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1073,9 +1003,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1127,9 +1055,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1140,9 +1066,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1171,9 +1095,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1183,9 +1105,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1195,9 +1115,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1207,9 +1125,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1278,9 +1194,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1291,9 +1205,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1335,9 +1247,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1347,9 +1257,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1359,9 +1267,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1371,9 +1277,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1414,8 +1318,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -1431,9 +1334,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1445,9 +1346,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1545,9 +1444,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1558,9 +1455,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1602,9 +1497,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1614,9 +1507,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1626,9 +1517,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1638,9 +1527,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1681,8 +1568,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -1698,9 +1584,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1712,9 +1596,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -1801,9 +1683,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1814,9 +1694,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1845,9 +1723,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1857,9 +1733,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1869,9 +1743,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1881,9 +1753,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1912,8 +1782,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -1925,9 +1794,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -1938,9 +1805,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2019,9 +1884,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2032,9 +1895,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2076,9 +1937,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2088,9 +1947,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2100,9 +1957,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2112,9 +1967,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2155,8 +2008,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -2172,9 +2024,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2186,9 +2036,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2231,9 +2079,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2243,9 +2089,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2255,9 +2099,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2267,9 +2109,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2310,8 +2150,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -2327,9 +2166,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2341,9 +2178,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2441,9 +2276,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2454,9 +2287,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2498,9 +2329,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2510,9 +2339,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2522,9 +2349,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2534,9 +2359,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2577,8 +2400,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -2594,9 +2416,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2608,9 +2428,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2653,9 +2471,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2665,9 +2481,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2677,9 +2491,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2689,9 +2501,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2732,8 +2542,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -2749,9 +2558,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2763,9 +2570,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -2852,9 +2657,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2865,9 +2668,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2896,9 +2697,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2908,9 +2707,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2920,9 +2717,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2932,9 +2727,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2963,8 +2756,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -2976,9 +2768,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -2989,9 +2779,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3021,9 +2809,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3033,9 +2819,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3045,9 +2829,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3057,9 +2839,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3088,8 +2868,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     auto res = acc.DeleteEdge(&edge);
     ASSERT_TRUE(res.IsReturn());
@@ -3101,9 +2880,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3114,9 +2891,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
@@ -3182,9 +2957,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
@@ -3194,9 +2967,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
@@ -3238,9 +3009,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3252,9 +3021,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3337,21 +3104,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex1);
@@ -3362,21 +3125,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex1);
@@ -3387,21 +3146,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex2);
@@ -3412,21 +3167,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex2);
@@ -3464,21 +3215,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -3491,21 +3238,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -3518,21 +3261,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3543,9 +3282,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3555,21 +3292,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3580,9 +3313,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3605,9 +3336,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3617,9 +3346,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3629,9 +3356,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3641,9 +3366,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -3683,9 +3406,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
@@ -3695,9 +3416,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
@@ -3739,9 +3458,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3753,9 +3470,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3785,9 +3500,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3797,9 +3510,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3842,9 +3553,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_to);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3856,9 +3565,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 5);
-      ASSERT_EQ(v, *vertex_from);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
@@ -3941,21 +3648,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex1);
@@ -3966,21 +3669,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex1);
@@ -3991,21 +3690,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), vertex1);
         ASSERT_EQ(e.ToVertex(), vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex2);
@@ -4016,21 +3711,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), vertex2);
         ASSERT_EQ(e.ToVertex(), vertex2);
@@ -4068,21 +3759,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4095,21 +3782,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4122,21 +3805,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4147,9 +3826,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4159,21 +3836,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4184,9 +3857,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4209,21 +3880,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4234,21 +3901,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4259,21 +3922,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4284,21 +3943,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4309,21 +3964,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4334,21 +3985,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4359,21 +4006,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4384,21 +4027,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4436,21 +4075,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4463,21 +4098,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 30);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 30);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex1);
@@ -4490,21 +4121,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 10);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 10);
         ASSERT_EQ(e.FromVertex(), *vertex1);
         ASSERT_EQ(e.ToVertex(), *vertex2);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4515,9 +4142,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4527,21 +4152,17 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return std::get<0>(a) < std::get<0>(b);
+        return a.EdgeType() < b.EdgeType();
       });
       ASSERT_EQ(edges.size(), 2);
       {
-        auto [et, v, e] = edges[0];
-        ASSERT_EQ(et, 20);
-        ASSERT_EQ(v, *vertex1);
+        auto e = edges[0];
         ASSERT_EQ(e.EdgeType(), 20);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
       {
-        auto [et, v, e] = edges[1];
-        ASSERT_EQ(et, 40);
-        ASSERT_EQ(v, *vertex2);
+        auto e = edges[1];
         ASSERT_EQ(e.EdgeType(), 40);
         ASSERT_EQ(e.FromVertex(), *vertex2);
         ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4552,9 +4173,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4577,9 +4196,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4589,9 +4206,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4601,9 +4216,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4613,9 +4226,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_TRUE(ret.IsReturn());
       auto edges = ret.GetReturn();
       ASSERT_EQ(edges.size(), 1);
-      auto [et, v, e] = edges[0];
-      ASSERT_EQ(et, 40);
-      ASSERT_EQ(v, vertex2);
+      auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
       ASSERT_EQ(e.FromVertex(), *vertex2);
       ASSERT_EQ(e.ToVertex(), *vertex2);
@@ -4674,8 +4285,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
               "nandare");
@@ -4702,8 +4312,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue());
@@ -4734,8 +4343,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
     ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
@@ -4772,8 +4380,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
     ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
@@ -4814,8 +4421,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
     ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
@@ -4833,8 +4439,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
     ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
@@ -4875,8 +4480,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
               "nandare");
@@ -4905,8 +4509,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
               "nandare");
@@ -4949,8 +4552,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
               "nandare");
@@ -4979,8 +4581,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
               "nandare");
@@ -5023,8 +4624,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
     ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
@@ -5061,8 +4661,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
   {
     auto vertex = acc1.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
     ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
@@ -5094,8 +4693,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
   {
     auto vertex = acc2.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
     ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
@@ -5120,8 +4718,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto [edge_type, other_vertex, edge] =
-        vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
 
     ASSERT_EQ(edge.GetProperty(1, storage::View::OLD).GetReturn().ValueInt(),
               123);

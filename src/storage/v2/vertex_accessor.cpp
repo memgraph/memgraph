@@ -304,7 +304,7 @@ Result<std::unordered_map<uint64_t, PropertyValue>> VertexAccessor::Properties(
       std::move(properties)};
 }
 
-Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+Result<std::vector<EdgeAccessor>>
 VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
   std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
   bool deleted = false;
@@ -356,27 +356,21 @@ VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
         }
       });
   if (deleted) {
-    return Result<
-        std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
-        Error::DELETED_OBJECT};
+    return Result<std::vector<EdgeAccessor>>(Error::DELETED_OBJECT);
   }
-  std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>> ret;
+  std::vector<EdgeAccessor> ret;
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
                                         edge_type) != edge_types.end()) {
-      ret.emplace_back(
-          edge_type, VertexAccessor{from_vertex, transaction_},
-          EdgeAccessor{edge, edge_type, from_vertex, vertex_, transaction_});
+      ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_);
     }
   }
-  return Result<
-      std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
-      std::move(ret)};
+  return Result<decltype(ret)>(std::move(ret));
 }
 
-Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+Result<std::vector<EdgeAccessor>>
 VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
   std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
   bool deleted = false;
@@ -428,24 +422,18 @@ VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
         }
       });
   if (deleted) {
-    return Result<
-        std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
-        Error::DELETED_OBJECT};
+    return Result<std::vector<EdgeAccessor>>(Error::DELETED_OBJECT);
   }
-  std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>> ret;
+  std::vector<EdgeAccessor> ret;
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
                                         edge_type) != edge_types.end()) {
-      ret.emplace_back(
-          edge_type, VertexAccessor{to_vertex, transaction_},
-          EdgeAccessor{edge, edge_type, vertex_, to_vertex, transaction_});
+      ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_);
     }
   }
-  return Result<
-      std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>{
-      std::move(ret)};
+  return Result<decltype(ret)>(std::move(ret));
 }
 
 }  // namespace storage

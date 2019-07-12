@@ -124,7 +124,7 @@ TEST(StorageV2Gc, Sanity) {
             vertex->OutEdges(std::vector<uint64_t>{}, storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.GetReturn().size(), 1);
-          EXPECT_EQ(std::get<2>(out_edges.GetReturn().at(0)).EdgeType(), i);
+          EXPECT_EQ(out_edges.GetReturn().at(0).EdgeType(), i);
         } else {
           EXPECT_TRUE(out_edges.GetReturn().empty());
         }
@@ -133,7 +133,7 @@ TEST(StorageV2Gc, Sanity) {
             vertex->InEdges(std::vector<uint64_t>{}, storage::View::NEW);
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetReturn().size(), 1);
-          EXPECT_EQ(std::get<2>(in_edges.GetReturn().at(0)).EdgeType(),
+          EXPECT_EQ(in_edges.GetReturn().at(0).EdgeType(),
                     (i + 999) % 1000);
         } else {
           EXPECT_TRUE(in_edges.GetReturn().empty());

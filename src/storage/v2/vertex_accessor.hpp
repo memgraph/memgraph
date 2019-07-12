@@ -39,10 +39,10 @@ class VertexAccessor final {
 
   Result<std::unordered_map<uint64_t, PropertyValue>> Properties(View view);
 
-  Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+  Result<std::vector<EdgeAccessor>>
   InEdges(const std::vector<uint64_t> &edge_types, View view);
 
-  Result<std::vector<std::tuple<uint64_t, VertexAccessor, EdgeAccessor>>>
+  Result<std::vector<EdgeAccessor>>
   OutEdges(const std::vector<uint64_t> &edge_types, View view);
 
   Gid Gid() const { return vertex_->gid; }
