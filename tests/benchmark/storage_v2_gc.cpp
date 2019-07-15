@@ -26,7 +26,7 @@ std::pair<std::string, storage::StorageGcConfig> TestConfigurations[] = {
                               .interval = std::chrono::milliseconds(100)}},
     {"1000msPeriodicGc",
 
-     storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::ON_FINISH,
+     storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::PERIODIC,
                               .interval = std::chrono::milliseconds(1000)}}};
 
 void UpdateLabelFunc(int thread_id, storage::Storage *storage,
