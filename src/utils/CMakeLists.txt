@@ -4,7 +4,6 @@ set(utils_src_files
     memory.cpp
     signals.cpp
     thread.cpp
-    thread/sync.cpp
     uuid.cpp
     watchdog.cpp)
 

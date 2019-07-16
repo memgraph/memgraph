@@ -1,11 +1,6 @@
 /// @file
 #pragma once
 
-#include <pthread.h>
-#include <unistd.h>
-
-#include <atomic>
-#include <cstdint>
 #include <mutex>
 
 #include "utils/exceptions.hpp"
@@ -25,61 +20,6 @@ inline void CpuRelax() {
 class LockTimeoutException : public BasicException {
  public:
   using BasicException::BasicException;
-};
-
-class CasLock {
- public:
-  void lock() {
-    bool locked = false;
-
-    while (!lock_flag.compare_exchange_weak(
-        locked, true, std::memory_order_release, std::memory_order_relaxed)) {
-      usleep(250);
-    }
-  }
-
-  void unlock() { lock_flag.store(0, std::memory_order_release); }
-
-  bool locked() { return lock_flag.load(std::memory_order_relaxed); }
-
- private:
-  std::atomic<bool> lock_flag;
-};
-
-/// By passing the appropriate parameter to the `RWLock` constructor, it is
-/// possible to control the behavior of `RWLock` while shared lock is held. If
-/// the priority is set to `READ`, new shared (read) locks can be obtained even
-/// though there is a thread waiting for an exclusive (write) lock, which can
-/// lead to writer starvation. If the priority is set to `WRITE`, readers will
-/// be blocked from obtaining new shared locks while there are writers waiting,
-/// which can lead to reader starvation.
-enum RWLockPriority { READ, WRITE };
-
-/// A wrapper around `pthread_rwlock_t`, useful because it is not possible to
-/// choose read or write priority for `std::shared_mutex`.
-class RWLock {
- public:
-  RWLock(const RWLock &) = delete;
-  RWLock &operator=(const RWLock &) = delete;
-  RWLock(RWLock &&) = delete;
-  RWLock &operator=(RWLock &&) = delete;
-
-  /// Construct a RWLock object with chosen priority. See comment above
-  /// `RWLockPriority` for details.
-  explicit RWLock(RWLockPriority priority);
-
-  ~RWLock();
-
-  bool try_lock();
-  void lock();
-  void unlock();
-
-  bool try_lock_shared();
-  void lock_shared();
-  void unlock_shared();
-
- private:
-  pthread_rwlock_t lock_ = PTHREAD_RWLOCK_INITIALIZER;
 };
 
 /// Lockable is used as an custom implementation of a mutex mechanism.
@@ -102,80 +42,6 @@ class Lockable {
   }
 
   mutable lock_t lock;
-};
-
-class Futex {
-  using futex_t = uint32_t;
-  using flag_t = uint8_t;
-
-  /// Data structure for implementing fast mutexes
-  ///
-  /// This structure is 4B wide, as required for futex system call where
-  /// the last two bytes are used for two flags - contended and locked,
-  /// respectively. Memory layout for the structure looks like this:
-  ///
-  ///                 all
-  /// |---------------------------------|
-  /// 00000000 00000000 0000000C 0000000L
-  ///                   |------| |------|
-  ///                  contended  locked
-  ///
-  /// L marks the locked bit
-  /// C marks the contended bit
-  union mutex_t {
-    std::atomic<futex_t> all{0};
-
-    struct {
-      std::atomic<flag_t> locked;
-      std::atomic<flag_t> contended;
-    } state;
-  };
-
-  enum Contention : futex_t { UNCONTENDED = 0x0000, CONTENDED = 0x0100 };
-
-  enum State : futex_t {
-    UNLOCKED = 0x0000,
-    LOCKED = 0x0001,
-    UNLOCKED_CONTENDED = UNLOCKED | CONTENDED,  // 0x0100
-    LOCKED_CONTENDED = LOCKED | CONTENDED       // 0x0101
-  };
-
-  static constexpr size_t LOCK_RETRIES = 100;
-  static constexpr size_t UNLOCK_RETRIES = 200;
-
- public:
-  Futex() {
-    static_assert(sizeof(mutex_t) == sizeof(futex_t),
-                  "Atomic futex should be the same size as non_atomic");
-  }
-
-  bool try_lock() {
-    // we took the lock if we stored the LOCKED state and previous
-    // state was UNLOCKED
-    return mutex.state.locked.exchange(LOCKED, std::memory_order_seq_cst) ==
-           UNLOCKED;
-  }
-
-  void lock(const struct timespec *timeout = nullptr);
-
-  void unlock();
-
-  bool is_locked(std::memory_order order = std::memory_order_seq_cst) const {
-    return mutex.state.locked.load(order);
-  }
-
-  bool is_contended(std::memory_order order = std::memory_order_seq_cst) const {
-    return mutex.state.contended.load(order);
-  }
-
- private:
-  mutex_t mutex;
-
-  int futex_wait(int value, const struct timespec *timeout = nullptr);
-
-  void futex_wake(int value);
-
-  void relax() { CpuRelax(); }
 };
 
 }  // namespace utils

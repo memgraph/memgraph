@@ -29,9 +29,6 @@ target_link_libraries(${test_prefix}dynamic_bitset_set mg-single-node kvstore_du
 add_concurrent_test(dynamic_bitset_set_n.cpp)
 target_link_libraries(${test_prefix}dynamic_bitset_set_n mg-single-node kvstore_dummy_lib)
 
-add_concurrent_test(futex.cpp)
-target_link_libraries(${test_prefix}futex mg-single-node kvstore_dummy_lib)
-
 add_concurrent_test(network_read_hang.cpp)
 target_link_libraries(${test_prefix}network_read_hang mg-single-node kvstore_dummy_lib)
 
