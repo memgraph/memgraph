@@ -702,7 +702,12 @@ TypedValue Counter(TypedValue *args, int64_t nargs,
         "Third argument of 'counter' must be an integer.");
 
   int64_t step = 1;
-  if (nargs == 3) step = args[2].ValueInt();
+  if (nargs == 3) {
+    step = args[2].ValueInt();
+    if (step == 0)
+      throw QueryRuntimeException(
+          "Third argument of 'counter' must not be zero.");
+  }
 
   auto [it, inserted] =
       context.counters.emplace(args[0].ValueString(), args[1].ValueInt());

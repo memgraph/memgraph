@@ -1494,6 +1494,8 @@ TEST_F(FunctionTest, Counter) {
   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), -5);
   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), -10);
+
+  EXPECT_THROW(EvaluateFunction("COUNTER", "c6", 0, 0), QueryRuntimeException);
 }
 
 TEST_F(FunctionTest, Id) {
