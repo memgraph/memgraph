@@ -4,22 +4,19 @@
 #include "glog/logging.h"
 #include "gtest/gtest.h"
 
-#include "utils/thread/sync.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
 
-using utils::RWLock;
-using utils::RWLockPriority;
-
 TEST(RWLock, MultipleReaders) {
-  RWLock rwlock(RWLockPriority::READ);
+  utils::RWLock rwlock(utils::RWLock::Priority::READ);
 
   std::vector<std::thread> threads;
   utils::Timer timer;
   for (int i = 0; i < 3; ++i) {
     threads.push_back(std::thread([&rwlock] {
-      std::shared_lock<RWLock> lock(rwlock);
+      std::shared_lock<utils::RWLock> lock(rwlock);
       std::this_thread::sleep_for(100ms);
     }));
   }
@@ -33,13 +30,13 @@ TEST(RWLock, MultipleReaders) {
 }
 
 TEST(RWLock, SingleWriter) {
-  RWLock rwlock(RWLockPriority::READ);
+  utils::RWLock rwlock(utils::RWLock::Priority::READ);
 
   std::vector<std::thread> threads;
   utils::Timer timer;
   for (int i = 0; i < 3; ++i) {
     threads.push_back(std::thread([&rwlock] {
-      std::unique_lock<RWLock> lock(rwlock);
+      std::unique_lock<utils::RWLock> lock(rwlock);
       std::this_thread::sleep_for(100ms);
     }));
   }
@@ -59,19 +56,19 @@ TEST(RWLock, ReadPriority) {
    * - Thread 2 successfuly acquires a shared lock at T = 60ms, even though
    *   there's a writer waiting.
    */
-  RWLock rwlock(RWLockPriority::READ);
+  utils::RWLock rwlock(utils::RWLock::Priority::READ);
   rwlock.lock_shared();
   bool first = true;
 
   std::thread t1([&rwlock, &first] {
     std::this_thread::sleep_for(30ms);
-    std::unique_lock<RWLock> lock(rwlock);
+    std::unique_lock<utils::RWLock> lock(rwlock);
     EXPECT_FALSE(first);
   });
 
   std::thread t2([&rwlock, &first] {
     std::this_thread::sleep_for(60ms);
-    std::shared_lock<RWLock> lock(rwlock);
+    std::shared_lock<utils::RWLock> lock(rwlock);
     EXPECT_TRUE(first);
     first = false;
   });
@@ -89,20 +86,20 @@ TEST(RWLock, WritePriority) {
    * - Thread 2 tries to acquire a shared lock at T = 60ms, but it is not able
    *   to because of write priority.
    */
-  RWLock rwlock(RWLockPriority::WRITE);
+  utils::RWLock rwlock(utils::RWLock::Priority::WRITE);
   rwlock.lock_shared();
   bool first = true;
 
   std::thread t1([&rwlock, &first] {
     std::this_thread::sleep_for(30ms);
-    std::unique_lock<RWLock> lock(rwlock);
+    std::unique_lock<utils::RWLock> lock(rwlock);
     EXPECT_TRUE(first);
     first = false;
   });
 
   std::thread t2([&rwlock, &first] {
     std::this_thread::sleep_for(60ms);
-    std::shared_lock<RWLock> lock(rwlock);
+    std::shared_lock<utils::RWLock> lock(rwlock);
     EXPECT_FALSE(first);
   });
 
@@ -114,7 +111,7 @@ TEST(RWLock, WritePriority) {
 }
 
 TEST(RWLock, TryLock) {
-  RWLock rwlock(RWLockPriority::WRITE);
+  utils::RWLock rwlock(utils::RWLock::Priority::WRITE);
   rwlock.lock();
 
   std::thread t1([&rwlock] { EXPECT_FALSE(rwlock.try_lock()); });

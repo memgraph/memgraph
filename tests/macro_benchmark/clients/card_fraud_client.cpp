@@ -8,7 +8,7 @@
 #include "communication/rpc/client.hpp"
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/rw_lock.hpp"
 
 #include "long_running_common.hpp"
 
@@ -17,7 +17,7 @@ std::atomic<int64_t> num_cards;
 std::atomic<int64_t> num_transactions;
 std::atomic<int64_t> max_tx_id;
 
-utils::RWLock world_lock(utils::RWLockPriority::WRITE);
+utils::RWLock world_lock(utils::RWLock::Priority::WRITE);
 
 DEFINE_string(config, "", "test config");
 
