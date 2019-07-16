@@ -79,7 +79,8 @@ CommandId Engine::UpdateCommand(TransactionId id) {
 
 void Engine::Commit(const Transaction &t) {
   VLOG(11) << "[Tx] Committing transaction " << t.id_;
-  if (raft_->Emplace(database::StateDelta::TxCommit(t.id_))) {
+  auto delta_status = raft_->Emplace(database::StateDelta::TxCommit(t.id_));
+  if (delta_status.emplaced) {
     // It is important to note the following situation.  If our cluster ends up
     // with a network partition where the current leader can't communicate with
     // the majority of the peers, and the client is still sending queries to it,

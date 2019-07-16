@@ -12,9 +12,9 @@ using namespace tx;
 
 class RaftMock final : public raft::RaftInterface {
  public:
-  bool Emplace(const database::StateDelta &delta) override {
+   raft::DeltaStatus Emplace(const database::StateDelta &delta) override {
     log_[delta.transaction_id].emplace_back(std::move(delta));
-    return true;
+    return {true, std::nullopt};
   }
 
   bool SafeToCommit(const tx::TransactionId &) override {
@@ -24,6 +24,11 @@ class RaftMock final : public raft::RaftInterface {
   bool IsLeader() override { return true; }
 
   uint64_t TermId() override { return 1; }
+
+  raft::TxStatus TransactionStatus(uint64_t term_id,
+                                   uint64_t log_index) override {
+    return raft::TxStatus::REPLICATED;
+  }
 
   std::vector<database::StateDelta> GetLogForTx(
       const tx::TransactionId &tx_id) {

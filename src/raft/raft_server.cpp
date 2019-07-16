@@ -429,8 +429,9 @@ void RaftServer::PersistSnapshotMetadata(
   snapshot_metadata_.emplace(snapshot_metadata);
 }
 
-void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
-                             const std::vector<database::StateDelta> &deltas) {
+std::pair<std::optional<uint64_t>, std::optional<uint64_t>>
+RaftServer::AppendToLog(const tx::TransactionId &tx_id,
+                        const std::vector<database::StateDelta> &deltas) {
   std::unique_lock<std::mutex> lock(lock_);
   DCHECK(mode_ == Mode::LEADER)
       << "`AppendToLog` should only be called in LEADER mode";
@@ -440,7 +441,7 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
         << "Transactions with two state deltas must be reads (start with BEGIN "
            "and end with COMMIT)";
     rlog_->set_replicated(tx_id);
-    return;
+    return {std::nullopt, std::nullopt};
   }
 
   rlog_->set_active(tx_id);
@@ -459,9 +460,10 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   replication_timeout_.Insert(tx_id);
 
   state_changed_.notify_all();
+  return std::make_pair(current_term_.load(), log_size_ - 1);
 }
 
-bool RaftServer::Emplace(const database::StateDelta &delta) {
+DeltaStatus RaftServer::Emplace(const database::StateDelta &delta) {
   return log_entry_buffer_.Emplace(delta);
 }
 
@@ -520,6 +522,21 @@ bool RaftServer::IsLeader() { return !exiting_ && mode_ == Mode::LEADER; }
 
 uint64_t RaftServer::TermId() { return current_term_; }
 
+TxStatus RaftServer::TransactionStatus(uint64_t term_id, uint64_t log_index) {
+  std::unique_lock<std::mutex> lock(lock_);
+  if (term_id > current_term_ || log_index >= log_size_)
+    return TxStatus::INVALID;
+
+  auto log_entry = GetLogEntry(log_index);
+
+  // This is correct because the leader can only append to the log and no two
+  // workers can be leaders in the same term.
+  if (log_entry.term != term_id) return TxStatus::ABORTED;
+
+  if (last_applied_ < log_index) return TxStatus::WAITING;
+  return TxStatus::REPLICATED;
+}
+
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
     : raft_server_(raft_server) {
   CHECK(raft_server_) << "RaftServer can't be nullptr";
@@ -537,11 +554,16 @@ void RaftServer::LogEntryBuffer::Disable() {
   logs_.clear();
 }
 
-bool RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
+DeltaStatus RaftServer::LogEntryBuffer::Emplace(
+    const database::StateDelta &delta) {
   std::unique_lock<std::mutex> lock(buffer_lock_);
-  if (!enabled_) return false;
+  if (!enabled_) return {false, std::nullopt, std::nullopt};
 
   tx::TransactionId tx_id = delta.transaction_id;
+
+  std::optional<uint64_t> term_id = std::nullopt;
+  std::optional<uint64_t> log_index = std::nullopt;
+
   if (delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
     auto it = logs_.find(tx_id);
     CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
@@ -551,7 +573,9 @@ bool RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     logs_.erase(it);
 
     lock.unlock();
-    raft_server_->AppendToLog(tx_id, log);
+    auto metadata = raft_server_->AppendToLog(tx_id, log);
+    term_id = metadata.first;
+    log_index = metadata.second;
 
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
@@ -562,7 +586,7 @@ bool RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     logs_[tx_id].emplace_back(std::move(delta));
   }
 
-  return true;
+  return {true, term_id, log_index};
 }
 
 void RaftServer::RecoverPersistentData() {

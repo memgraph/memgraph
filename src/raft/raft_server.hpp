@@ -92,16 +92,22 @@ class RaftServer final : public RaftInterface {
   /// Persists snapshot metadata.
   void PersistSnapshotMetadata(const SnapshotMetadata &snapshot_metadata);
 
-  /// Append to the log a list of batched state deltasa that are ready to be
+  /// Append to the log a list of batched state deltas that are ready to be
   /// replicated.
-  void AppendToLog(const tx::TransactionId &tx_id,
-                   const std::vector<database::StateDelta> &deltas);
+  ///
+  /// @returns metadata about the emplaced log entry. More precisely, an
+  ///                   ordered pair (term_id, log_id) of the newly emplaced
+  ///                   log entry. If the entry was not emplaced, the method
+  ///                   returns std::nullopt (e.g. read-only transactions).
+  std::pair<std::optional<uint64_t>, std::optional<uint64_t>> AppendToLog(
+      const tx::TransactionId &tx_id,
+      const std::vector<database::StateDelta> &deltas);
 
   /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
   /// marks the transaction end, it will replicate the log accorss the cluster.
   ///
-  /// @returns true if the Delta is emplaced, false otherwise.
-  bool Emplace(const database::StateDelta &delta) override;
+  /// @returns DeltaStatus object as a result.
+  DeltaStatus Emplace(const database::StateDelta &delta) override;
 
   /// Checks if the transaction with the given transaction id can safely be
   /// Returns the current state of the replication known by this machine.
@@ -121,6 +127,10 @@ class RaftServer final : public RaftInterface {
 
   /// Returns the term ID of the current leader.
   uint64_t TermId() override;
+
+  /// Returns the status of the transaction which began its replication in
+  /// a given term ID and was emplaced in the raft log at the given index.
+  TxStatus TransactionStatus(uint64_t term_id, uint64_t log_index) override;
 
   void GarbageCollectReplicationLog(const tx::TransactionId &tx_id);
 
@@ -151,8 +161,8 @@ class RaftServer final : public RaftInterface {
     /// replicating, and if the type is `TRANSACTION_ABORT` it will delete the
     /// log from buffer.
     ///
-    /// @returns true if the Delta is emplaced, false otherwise.
-    bool Emplace(const database::StateDelta &delta);
+    /// @returns DeltaStatus object as a result.
+    DeltaStatus Emplace(const database::StateDelta &delta);
 
    private:
     bool enabled_{false};
