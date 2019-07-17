@@ -44,7 +44,7 @@ void UpdateLabelFunc(int thread_id, storage::Storage *storage,
         acc.FindVertex(gid, storage::View::OLD);
     CHECK(vertex.has_value())
         << "Vertex with GID " << gid.AsUint() << " doesn't exist";
-    if (vertex->AddLabel(label_dist(gen)).IsReturn()) {
+    if (vertex->AddLabel(label_dist(gen)).HasValue()) {
       acc.Commit();
     } else {
       acc.Abort();

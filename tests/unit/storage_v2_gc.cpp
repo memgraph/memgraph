@@ -73,12 +73,12 @@ TEST(StorageV2Gc, Sanity) {
 
       if (vertex.has_value()) {
         auto labels_old = vertex->Labels(storage::View::OLD);
-        EXPECT_TRUE(labels_old.IsReturn());
-        EXPECT_TRUE(labels_old.GetReturn().empty());
+        EXPECT_TRUE(labels_old.HasValue());
+        EXPECT_TRUE(labels_old->empty());
 
         auto labels_new = vertex->Labels(storage::View::NEW);
-        EXPECT_TRUE(labels_new.IsReturn());
-        EXPECT_THAT(labels_new.GetReturn(),
+        EXPECT_TRUE(labels_new.HasValue());
+        EXPECT_THAT(labels_new.GetValue(),
                     UnorderedElementsAre(3 * i, 3 * i + 1, 3 * i + 2));
       }
     }
@@ -123,20 +123,19 @@ TEST(StorageV2Gc, Sanity) {
         auto out_edges =
             vertex->OutEdges(std::vector<uint64_t>{}, storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
-          EXPECT_EQ(out_edges.GetReturn().size(), 1);
-          EXPECT_EQ(out_edges.GetReturn().at(0).EdgeType(), i);
+          EXPECT_EQ(out_edges.GetValue().size(), 1);
+          EXPECT_EQ(out_edges.GetValue().at(0).EdgeType(), i);
         } else {
-          EXPECT_TRUE(out_edges.GetReturn().empty());
+          EXPECT_TRUE(out_edges->empty());
         }
 
         auto in_edges =
             vertex->InEdges(std::vector<uint64_t>{}, storage::View::NEW);
         if (i % 5 != 1 && i % 3 != 1) {
-          EXPECT_EQ(in_edges.GetReturn().size(), 1);
-          EXPECT_EQ(in_edges.GetReturn().at(0).EdgeType(),
-                    (i + 999) % 1000);
+          EXPECT_EQ(in_edges.GetValue().size(), 1);
+          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType(), (i + 999) % 1000);
         } else {
-          EXPECT_TRUE(in_edges.GetReturn().empty());
+          EXPECT_TRUE(in_edges->empty());
         }
       }
     }

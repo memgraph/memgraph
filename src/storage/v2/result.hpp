@@ -12,33 +12,53 @@ enum class Error : uint8_t {
   VERTEX_HAS_EDGES,
 };
 
-template <typename TReturn>
+template <typename TValue>
 class Result final {
  public:
-  explicit Result(const TReturn &ret) : return_(ret) {}
-  explicit Result(TReturn &&ret) : return_(std::move(ret)) {}
+  explicit Result(const TValue &value) : value_(value) {}
+  explicit Result(TValue &&value) : value_(std::move(value)) {}
   explicit Result(const Error &error) : error_(error) {}
 
-  bool IsReturn() const { return return_.has_value(); }
-  bool IsError() const { return error_.has_value(); }
+  bool HasValue() const { return value_.has_value(); }
+  bool HasError() const { return error_.has_value(); }
 
-  TReturn &GetReturn() {
-    CHECK(return_) << "The storage result is an error!";
-    return return_.value();
+  TValue &GetValue() {
+    CHECK(value_) << "The storage result is an error!";
+    return *value_;
   }
 
-  const TReturn &GetReturn() const {
-    CHECK(return_) << "The storage result is an error!";
-    return return_.value();
+  const TValue &GetValue() const {
+    CHECK(value_) << "The storage result is an error!";
+    return *value_;
+  }
+
+  TValue &operator*() {
+    CHECK(value_) << "The storage result is an error!";
+    return *value_;
+  }
+
+  const TValue &operator*() const {
+    CHECK(value_) << "The storage result is an error!";
+    return *value_;
+  }
+
+  TValue *operator->() {
+    CHECK(value_) << "The storage result is an error!";
+    return &*value_;
+  }
+
+  const TValue *operator->() const {
+    CHECK(value_) << "The storage result is an error!";
+    return &*value_;
   }
 
   Error GetError() const {
-    CHECK(error_) << "The storage result is a return value!";
+    CHECK(error_) << "The storage result is a value!";
     return *error_;
   }
 
  private:
-  std::optional<TReturn> return_;
+  std::optional<TValue> value_;
   std::optional<Error> error_;
 };
 

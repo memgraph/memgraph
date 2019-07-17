@@ -31,55 +31,45 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -93,14 +83,12 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -109,8 +97,8 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -119,8 +107,8 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -129,38 +117,26 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -193,55 +169,45 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -255,14 +221,12 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -271,8 +235,8 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -281,8 +245,8 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -291,38 +255,26 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -349,29 +301,29 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     ASSERT_TRUE(vertex);
 
     auto res = acc.CreateEdge(&*vertex, &*vertex, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex);
     ASSERT_EQ(edge.ToVertex(), *vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -380,12 +332,10 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -399,8 +349,8 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -409,8 +359,8 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     }
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -419,8 +369,8 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -429,8 +379,8 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -439,18 +389,14 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -483,55 +429,45 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Abort();
   }
@@ -545,20 +481,14 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -572,55 +502,45 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -634,14 +554,12 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -650,8 +568,8 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -660,8 +578,8 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -670,38 +588,26 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -734,55 +640,45 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Abort();
   }
@@ -796,20 +692,14 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -823,55 +713,45 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -885,14 +765,12 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -901,8 +779,8 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -911,8 +789,8 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -921,38 +799,26 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -979,29 +845,29 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_TRUE(vertex);
 
     auto res = acc.CreateEdge(&*vertex, &*vertex, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex);
     ASSERT_EQ(edge.ToVertex(), *vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1010,12 +876,10 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Abort();
   }
@@ -1027,10 +891,10 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_TRUE(vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -1042,29 +906,29 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_TRUE(vertex);
 
     auto res = acc.CreateEdge(&*vertex, &*vertex, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex);
     ASSERT_EQ(edge.ToVertex(), *vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1073,12 +937,10 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1092,8 +954,8 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1102,8 +964,8 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1112,8 +974,8 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1122,8 +984,8 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1132,18 +994,14 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1176,55 +1034,45 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1238,14 +1086,12 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1254,8 +1100,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1264,8 +1110,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1274,38 +1120,26 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1318,55 +1152,45 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -1380,20 +1204,14 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -1426,55 +1244,45 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1488,14 +1296,12 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1504,8 +1310,8 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1514,8 +1320,8 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1524,38 +1330,26 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1568,55 +1362,45 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -1630,20 +1414,14 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -1670,29 +1448,29 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_TRUE(vertex);
 
     auto res = acc.CreateEdge(&*vertex, &*vertex, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex);
     ASSERT_EQ(edge.ToVertex(), *vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1701,12 +1479,10 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1720,8 +1496,8 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1730,8 +1506,8 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     }
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1740,8 +1516,8 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1750,8 +1526,8 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1760,18 +1536,14 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1782,43 +1554,41 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -1830,10 +1600,10 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_TRUE(vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -1866,55 +1636,45 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -1928,14 +1688,12 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1944,8 +1702,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1954,8 +1712,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -1964,38 +1722,26 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2008,55 +1754,45 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Abort();
   }
@@ -2070,14 +1806,12 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2086,8 +1820,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2096,8 +1830,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2106,38 +1840,26 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2150,55 +1872,45 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -2212,20 +1924,14 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -2258,55 +1964,45 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     auto res = acc.CreateEdge(&*vertex_from, &*vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex_from);
     ASSERT_EQ(edge.ToVertex(), *vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2320,14 +2016,12 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2336,8 +2030,8 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2346,8 +2040,8 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2356,38 +2050,26 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2400,55 +2082,45 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Abort();
   }
@@ -2462,14 +2134,12 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2478,8 +2148,8 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2488,8 +2158,8 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2498,38 +2168,26 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2542,55 +2200,45 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex_from->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-        1);
-    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex_from->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -2604,20 +2252,14 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges without filters
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -2644,29 +2286,29 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_TRUE(vertex);
 
     auto res = acc.CreateEdge(&*vertex, &*vertex, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), *vertex);
     ASSERT_EQ(edge.ToVertex(), *vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2675,12 +2317,10 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2694,8 +2334,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2704,8 +2344,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2714,8 +2354,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2724,8 +2364,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2734,18 +2374,14 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2756,43 +2392,41 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Abort();
   }
@@ -2806,8 +2440,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2816,8 +2450,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2826,8 +2460,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2836,8 +2470,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
     {
       auto ret = vertex->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2846,18 +2480,14 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     }
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::NEW)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::NEW)->size(), 1);
 
     acc.Commit();
   }
@@ -2868,43 +2498,41 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     auto vertex = acc.FindVertex(gid_vertex, storage::View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     auto res = acc.DeleteEdge(&edge);
-    ASSERT_TRUE(res.IsReturn());
-    ASSERT_TRUE(res.GetReturn());
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
     // Check edges without filters
     {
       auto ret = vertex->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex);
       ASSERT_EQ(e.ToVertex(), *vertex);
     }
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     // Check edges with filters
-    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
-    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD).GetReturn().size(),
-              1);
+    ASSERT_EQ(vertex->InEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({2, 5}, storage::View::OLD)->size(), 1);
+    ASSERT_EQ(vertex->OutEdges({2}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({2, 5}, storage::View::OLD)->size(), 1);
 
     acc.Commit();
   }
@@ -2916,10 +2544,10 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_TRUE(vertex);
 
     // Check edges without filters
-    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -2940,8 +2568,8 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     auto vertex_to = acc.CreateVertex();
 
     auto res = acc.CreateEdge(&vertex_from, &vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), vertex_from);
     ASSERT_EQ(edge.ToVertex(), vertex_to);
@@ -2950,12 +2578,11 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     gid_to = vertex_to.Gid();
 
     // Check edges
-    ASSERT_EQ(vertex_from.InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from.InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -2964,15 +2591,15 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     }
     {
       auto ret = vertex_to.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
     }
-    ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -2988,26 +2615,25 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
     ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetError(),
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -3018,19 +2644,17 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -3044,12 +2668,10 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
   }
 }
 
@@ -3071,29 +2693,29 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     gid_vertex2 = vertex2.Gid();
 
     auto res1 = acc.CreateEdge(&vertex1, &vertex2, 10);
-    ASSERT_TRUE(res1.IsReturn());
-    auto edge1 = res1.GetReturn();
+    ASSERT_TRUE(res1.HasValue());
+    auto edge1 = res1.GetValue();
     ASSERT_EQ(edge1.EdgeType(), 10);
     ASSERT_EQ(edge1.FromVertex(), vertex1);
     ASSERT_EQ(edge1.ToVertex(), vertex2);
 
     auto res2 = acc.CreateEdge(&vertex2, &vertex1, 20);
-    ASSERT_TRUE(res2.IsReturn());
-    auto edge2 = res2.GetReturn();
+    ASSERT_TRUE(res2.HasValue());
+    auto edge2 = res2.GetValue();
     ASSERT_EQ(edge2.EdgeType(), 20);
     ASSERT_EQ(edge2.FromVertex(), vertex2);
     ASSERT_EQ(edge2.ToVertex(), vertex1);
 
     auto res3 = acc.CreateEdge(&vertex1, &vertex1, 30);
-    ASSERT_TRUE(res3.IsReturn());
-    auto edge3 = res3.GetReturn();
+    ASSERT_TRUE(res3.HasValue());
+    auto edge3 = res3.GetValue();
     ASSERT_EQ(edge3.EdgeType(), 30);
     ASSERT_EQ(edge3.FromVertex(), vertex1);
     ASSERT_EQ(edge3.ToVertex(), vertex1);
 
     auto res4 = acc.CreateEdge(&vertex2, &vertex2, 40);
-    ASSERT_TRUE(res4.IsReturn());
-    auto edge4 = res4.GetReturn();
+    ASSERT_TRUE(res4.HasValue());
+    auto edge4 = res4.GetValue();
     ASSERT_EQ(edge4.EdgeType(), 40);
     ASSERT_EQ(edge4.FromVertex(), vertex2);
     ASSERT_EQ(edge4.ToVertex(), vertex2);
@@ -3101,8 +2723,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     // Check edges
     {
       auto ret = vertex1.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3122,8 +2744,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex1.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3143,8 +2765,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3164,8 +2786,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3198,22 +2820,22 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
     {
       auto ret = vertex1->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3235,8 +2857,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3258,8 +2880,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3279,8 +2901,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3289,8 +2911,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3310,8 +2932,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3333,8 +2955,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     // Check edges
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3343,8 +2965,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3353,8 +2975,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3363,8 +2985,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3389,8 +3011,8 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     auto vertex_to = acc.CreateVertex();
 
     auto res = acc.CreateEdge(&vertex_from, &vertex_to, 5);
-    ASSERT_TRUE(res.IsReturn());
-    auto edge = res.GetReturn();
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), vertex_from);
     ASSERT_EQ(edge.ToVertex(), vertex_to);
@@ -3399,12 +3021,11 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     gid_to = vertex_to.Gid();
 
     // Check edges
-    ASSERT_EQ(vertex_from.InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from.InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -3413,15 +3034,15 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     }
     {
       auto ret = vertex_to.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), vertex_from);
       ASSERT_EQ(e.ToVertex(), vertex_to);
     }
-    ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -3437,26 +3058,25 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
     ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetError(),
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -3467,19 +3087,17 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Abort();
   }
@@ -3493,12 +3111,11 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW)->size(), 0);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -3507,16 +3124,15 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     }
     {
       auto ret = vertex_to->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -3532,26 +3148,25 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
-    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_from->InEdges({}, storage::View::OLD)->size(), 0);
     ASSERT_EQ(vertex_from->InEdges({}, storage::View::NEW).GetError(),
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
@@ -3562,19 +3177,17 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 5);
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -3588,12 +3201,10 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     ASSERT_TRUE(vertex_to);
 
     // Check edges
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW).GetReturn().size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD).GetReturn().size(),
-              0);
-    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW).GetReturn().size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges({}, storage::View::NEW)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::OLD)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
   }
 }
 
@@ -3615,29 +3226,29 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     gid_vertex2 = vertex2.Gid();
 
     auto res1 = acc.CreateEdge(&vertex1, &vertex2, 10);
-    ASSERT_TRUE(res1.IsReturn());
-    auto edge1 = res1.GetReturn();
+    ASSERT_TRUE(res1.HasValue());
+    auto edge1 = res1.GetValue();
     ASSERT_EQ(edge1.EdgeType(), 10);
     ASSERT_EQ(edge1.FromVertex(), vertex1);
     ASSERT_EQ(edge1.ToVertex(), vertex2);
 
     auto res2 = acc.CreateEdge(&vertex2, &vertex1, 20);
-    ASSERT_TRUE(res2.IsReturn());
-    auto edge2 = res2.GetReturn();
+    ASSERT_TRUE(res2.HasValue());
+    auto edge2 = res2.GetValue();
     ASSERT_EQ(edge2.EdgeType(), 20);
     ASSERT_EQ(edge2.FromVertex(), vertex2);
     ASSERT_EQ(edge2.ToVertex(), vertex1);
 
     auto res3 = acc.CreateEdge(&vertex1, &vertex1, 30);
-    ASSERT_TRUE(res3.IsReturn());
-    auto edge3 = res3.GetReturn();
+    ASSERT_TRUE(res3.HasValue());
+    auto edge3 = res3.GetValue();
     ASSERT_EQ(edge3.EdgeType(), 30);
     ASSERT_EQ(edge3.FromVertex(), vertex1);
     ASSERT_EQ(edge3.ToVertex(), vertex1);
 
     auto res4 = acc.CreateEdge(&vertex2, &vertex2, 40);
-    ASSERT_TRUE(res4.IsReturn());
-    auto edge4 = res4.GetReturn();
+    ASSERT_TRUE(res4.HasValue());
+    auto edge4 = res4.GetValue();
     ASSERT_EQ(edge4.EdgeType(), 40);
     ASSERT_EQ(edge4.FromVertex(), vertex2);
     ASSERT_EQ(edge4.ToVertex(), vertex2);
@@ -3645,8 +3256,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     // Check edges
     {
       auto ret = vertex1.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3666,8 +3277,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex1.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3687,8 +3298,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2.InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3708,8 +3319,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2.OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3742,22 +3353,22 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
     {
       auto ret = vertex1->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3779,8 +3390,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3802,8 +3413,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3823,8 +3434,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3833,8 +3444,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3854,8 +3465,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -3877,8 +3488,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     // Check edges
     {
       auto ret = vertex1->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3898,8 +3509,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex1->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3919,8 +3530,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex1->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3940,8 +3551,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex1->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3961,8 +3572,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -3982,8 +3593,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4003,8 +3614,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4024,8 +3635,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4058,22 +3669,22 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     // Delete must fail
     {
       auto ret = acc.DeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsError());
+      ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::VERTEX_HAS_EDGES);
     }
 
     // Detach delete vertex
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
-      ASSERT_TRUE(ret.IsReturn());
-      ASSERT_TRUE(ret.GetReturn());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
     }
 
     // Check edges
     {
       auto ret = vertex1->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4095,8 +3706,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4118,8 +3729,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
               storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4139,8 +3750,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4149,8 +3760,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
         return a.EdgeType() < b.EdgeType();
       });
@@ -4170,8 +3781,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4193,8 +3804,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     // Check edges
     {
       auto ret = vertex2->InEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4203,8 +3814,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->InEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4213,8 +3824,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::OLD);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4223,8 +3834,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
     }
     {
       auto ret = vertex2->OutEdges({}, storage::View::NEW);
-      ASSERT_TRUE(ret.IsReturn());
-      auto edges = ret.GetReturn();
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
       ASSERT_EQ(edges.size(), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), 40);
@@ -4243,38 +3854,38 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_FALSE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "temporary");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "temporary");
     }
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
@@ -4285,26 +3896,26 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4312,29 +3923,29 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue());
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue());
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_FALSE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     acc.Commit();
@@ -4343,15 +3954,15 @@ TEST(StorageV2, EdgePropertyCommit) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4368,7 +3979,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
@@ -4380,35 +3991,35 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_FALSE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "temporary");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "temporary");
     }
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
@@ -4421,15 +4032,15 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4439,35 +4050,35 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("temporary"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_FALSE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "temporary");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "temporary");
     }
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue("nandare"));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
@@ -4480,26 +4091,26 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4509,40 +4120,40 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue());
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     acc.Abort();
   }
@@ -4552,26 +4163,26 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4581,40 +4192,40 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::NEW)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
     {
       auto res = edge.SetProperty(5, storage::PropertyValue());
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_TRUE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD).GetReturn().ValueString(),
+    ASSERT_EQ(edge.GetProperty(5, storage::View::OLD)->ValueString(),
               "nandare");
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[5].ValueString(), "nandare");
     }
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     acc.Commit();
   }
@@ -4624,15 +4235,15 @@ TEST(StorageV2, EdgePropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(5, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(10, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -4647,7 +4258,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetReturn();
+    auto edge = acc.CreateEdge(&vertex, &vertex, 5).GetValue();
     ASSERT_EQ(edge.EdgeType(), 5);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
@@ -4661,29 +4272,28 @@ TEST(StorageV2, EdgePropertySerializationError) {
   {
     auto vertex = acc1.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(1, storage::PropertyValue(123));
-      ASSERT_TRUE(res.IsReturn());
-      ASSERT_FALSE(res.GetReturn());
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW).GetReturn().ValueInt(),
-              123);
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD)->IsNull());
+    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW)->ValueInt(), 123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[1].ValueInt(), 123);
     }
@@ -4693,18 +4303,18 @@ TEST(StorageV2, EdgePropertySerializationError) {
   {
     auto vertex = acc2.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
-    ASSERT_EQ(edge.Properties(storage::View::OLD).GetReturn().size(), 0);
-    ASSERT_EQ(edge.Properties(storage::View::NEW).GetReturn().size(), 0);
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
       auto res = edge.SetProperty(2, storage::PropertyValue("nandare"));
-      ASSERT_TRUE(res.IsError());
+      ASSERT_TRUE(res.HasError());
       ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
     }
   }
@@ -4718,22 +4328,20 @@ TEST(StorageV2, EdgePropertySerializationError) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    auto edge = vertex->OutEdges({}, storage::View::NEW).GetReturn()[0];
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(1, storage::View::OLD).GetReturn().ValueInt(),
-              123);
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD).GetReturn().IsNull());
+    ASSERT_EQ(edge.GetProperty(1, storage::View::OLD)->ValueInt(), 123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::OLD)->IsNull());
     {
-      auto properties = edge.Properties(storage::View::OLD).GetReturn();
+      auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[1].ValueInt(), 123);
     }
 
-    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW).GetReturn().ValueInt(),
-              123);
-    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW).GetReturn().IsNull());
+    ASSERT_EQ(edge.GetProperty(1, storage::View::NEW)->ValueInt(), 123);
+    ASSERT_TRUE(edge.GetProperty(2, storage::View::NEW)->IsNull());
     {
-      auto properties = edge.Properties(storage::View::NEW).GetReturn();
+      auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[1].ValueInt(), 123);
     }

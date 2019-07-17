@@ -110,7 +110,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e{edge, edge_type, from_vertex, vertex_ptr, &transaction_};
     auto ret = DeleteEdge(&e);
-    if (ret.IsError()) {
+    if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
           << "Invalid database state!";
       return ret;
@@ -120,7 +120,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e{edge, edge_type, vertex_ptr, to_vertex, &transaction_};
     auto ret = DeleteEdge(&e);
-    if (ret.IsError()) {
+    if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
           << "Invalid database state!";
       return ret;
