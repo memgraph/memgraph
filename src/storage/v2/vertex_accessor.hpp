@@ -60,3 +60,12 @@ class VertexAccessor final {
 };
 
 }  // namespace storage
+
+namespace std {
+template <>
+struct hash<storage::VertexAccessor> {
+  size_t operator()(const storage::VertexAccessor &v) const {
+    return v.Gid().AsUint();
+  }
+};
+}  // namespace std

@@ -55,3 +55,12 @@ class EdgeAccessor final {
 };
 
 }  // namespace storage
+
+namespace std {
+template <>
+struct hash<storage::EdgeAccessor> {
+  size_t operator()(const storage::EdgeAccessor &e) const {
+    return e.Gid().AsUint();
+  }
+};
+}  // namespace std
