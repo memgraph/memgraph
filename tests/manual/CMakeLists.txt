@@ -30,35 +30,6 @@ target_link_libraries(${test_prefix}binomial mg-utils)
 add_manual_test(bolt_client.cpp)
 target_link_libraries(${test_prefix}bolt_client mg-communication)
 
-add_manual_test(card_fraud_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}card_fraud_generate_snapshot mg-distributed kvstore_dummy_lib)
-
-add_manual_test(card_fraud_local.cpp)
-target_link_libraries(${test_prefix}card_fraud_local mg-distributed kvstore_dummy_lib gtest)
-
-add_manual_test(distributed_query_planner.cpp interactive_planning.cpp)
-target_link_libraries(${test_prefix}distributed_query_planner mg-distributed
-                      kvstore_dummy_lib)
-if (READLINE_FOUND)
-  target_link_libraries(${test_prefix}distributed_query_planner readline)
-endif()
-
-add_manual_test(distributed_repl.cpp)
-target_link_libraries(${test_prefix}distributed_repl mg-distributed kvstore_dummy_lib gtest readline)
-
-add_manual_test(generate_snapshot.cpp)
-target_link_libraries(${test_prefix}generate_snapshot mg-distributed kvstore_dummy_lib)
-
-add_manual_test(graph_500_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}graph_500_generate_snapshot mg-distributed kvstore_dummy_lib)
-
-add_manual_test(ha_client.cpp)
-target_link_libraries(${test_prefix}ha_client mg-utils mg-communication)
-
-add_manual_test(ha_proxy.cpp)
-target_include_directories(${test_prefix}ha_proxy PRIVATE ${CMAKE_BINARY_DIR}/src)
-target_link_libraries(${test_prefix}ha_proxy mg-utils mg-communication)
-
 add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 

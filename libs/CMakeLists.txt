@@ -205,22 +205,6 @@ import_external_library(rocksdb STATIC
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
   BUILD_COMMAND $(MAKE) rocksdb)
 
-# Setup librdkafka.
-import_external_library(librdkafka STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include/librdkafka
-  CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
-             -DRDKAFKA_BUILD_EXAMPLES=OFF
-             -DRDKAFKA_BUILD_TESTS=OFF
-             -DCMAKE_INSTALL_LIBDIR=lib
-             -DWITH_SSL=ON
-             # If we want SASL, we need to install it on build machines
-             -DWITH_SASL=OFF)
-
-import_library(librdkafka++ STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
-  librdkafka-proj)
-
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a
@@ -230,11 +214,3 @@ import_external_library(libbcrypt STATIC
                      CC=${CMAKE_C_COMPILER}
                      CXX=${CMAKE_CXX_COMPILER}
   INSTALL_COMMAND true)
-
-# Setup mgclient
-import_external_library(mgclient STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
-  CMAKE_ARGS -DBUILD_TESTING=OFF)
-find_package(OpenSSL REQUIRED)
-target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})

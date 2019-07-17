@@ -2,10 +2,6 @@
 add_executable(mg_import_csv mg_import_csv/main.cpp)
 target_link_libraries(mg_import_csv mg-single-node kvstore_dummy_lib)
 
-# StatsD Target
-add_executable(mg_statsd mg_statsd/main.cpp)
-target_link_libraries(mg_statsd mg-communication mg-io mg-utils mg-stats)
-
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})
 configure_file(../../src/version.hpp.in version.hpp @ONLY)
@@ -18,11 +14,6 @@ if (READLINE_FOUND)
   list(APPEND CLIENT_LIBS readline)
 endif()
 target_link_libraries(mg_client ${CLIENT_LIBS})
-
-# Memgraph Dump Target
-add_executable(mg_dump mg_dump/main.cpp)
-target_include_directories(mg_dump PRIVATE ${MGCLIENT_INCLUDE_DIR})
-target_link_libraries(mg_dump fmt gflags glog mgclient pthread)
 
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -39,4 +30,4 @@ install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
 install(TARGETS mg_client RUNTIME DESTINATION bin)
 
 # Target for building all the tool executables.
-add_custom_target(tools DEPENDS mg_import_csv mg_statsd mg_client mg_dump)
+add_custom_target(tools DEPENDS mg_import_csv mg_client)

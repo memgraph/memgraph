@@ -7,7 +7,6 @@
 #include <functional>
 #include <random>
 
-#include "database/single_node/dump.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "utils/string.hpp"
@@ -684,7 +683,6 @@ TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(args[0], ctx.memory);
 }
 
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
 TypedValue Counter(TypedValue *args, int64_t nargs,
                    const EvaluationContext &context,
                    database::GraphDbAccessor *) {
@@ -716,28 +714,6 @@ TypedValue Counter(TypedValue *args, int64_t nargs,
 
   return TypedValue(value, context.memory);
 }
-#endif
-
-#ifdef MG_DISTRIBUTED
-TypedValue WorkerId(TypedValue *args, int64_t nargs,
-                    const EvaluationContext &ctx, database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'workerId' requires exactly one argument.");
-  }
-  const auto &arg = args[0];
-  switch (arg.type()) {
-    case TypedValue::Type::Vertex:
-      return TypedValue(arg.ValueVertex().GlobalAddress().worker_id(),
-                        ctx.memory);
-    case TypedValue::Type::Edge:
-      return TypedValue(arg.ValueEdge().GlobalAddress().worker_id(),
-                        ctx.memory);
-    default:
-      throw QueryRuntimeException(
-          "'workerId' argument must be a node or an edge.");
-  }
-}
-#endif
 
 TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
               database::GraphDbAccessor *dba) {
@@ -1068,12 +1044,7 @@ NameToFunction(const std::string &function_name) {
 
   // Memgraph specific functions
   if (function_name == "ASSERT") return Assert;
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
   if (function_name == "COUNTER") return Counter;
-#endif
-#ifdef MG_DISTRIBUTED
-  if (function_name == "WORKERID") return WorkerId;
-#endif
 
   return nullptr;
 }

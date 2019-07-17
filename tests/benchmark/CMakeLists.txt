@@ -54,12 +54,6 @@ target_link_libraries(${test_prefix}edge_storage mg-single-node kvstore_dummy_li
 add_benchmark(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
 
-add_benchmark(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-comm-rpc)
-
-add_benchmark(serialization.cpp)
-target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
-
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)
 
@@ -77,6 +71,3 @@ target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 
 add_benchmark(expansion.cpp)
 target_link_libraries(${test_prefix}expansion mg-single-node kvstore_dummy_lib)
-
-add_benchmark(storage_v2_gc.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

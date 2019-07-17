@@ -63,20 +63,12 @@ void query::Repl(database::GraphDb *db, query::Interpreter *interpreter) {
     try {
       auto dba = db->Access();
       ResultStreamFaker<query::TypedValue> stream;
-#ifndef MG_DISTRIBUTED
       auto results = (*interpreter)(command, dba, {}, false);
-#else
-      auto results = (*interpreter)(command, *dba, {}, false);
-#endif
       stream.Header(results.header());
       results.PullAll(stream);
       stream.Summary(results.summary());
       std::cout << stream;
-#ifndef MG_DISTRIBUTED
       dba.Commit();
-#else
-      dba->Commit();
-#endif
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::LexingException &e) {

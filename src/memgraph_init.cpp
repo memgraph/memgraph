@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 
 #include "config.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
@@ -29,8 +28,6 @@ BoltSession::BoltSession(SessionData *data,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
       transaction_engine_(data->db, data->interpreter),
-      auth_(data->auth),
-      audit_log_(data->audit_log),
       endpoint_(endpoint) {}
 
 using TEncoder =
@@ -43,28 +40,8 @@ std::vector<std::string> BoltSession::Interpret(
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-#ifndef MG_SINGLE_NODE_HA
-  audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
-                     params_pv);
-#endif
   try {
-    auto result = transaction_engine_.Interpret(query, params_pv);
-#ifndef MG_SINGLE_NODE_HA
-    if (user_) {
-      const auto &permissions = user_->GetPermissions();
-      for (const auto &privilege : result.second) {
-        if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
-            auth::PermissionLevel::GRANT) {
-          transaction_engine_.Abort();
-          throw communication::bolt::ClientError(
-              "You are not authorized to execute this query! Please contact "
-              "your database administrator.");
-        }
-      }
-    }
-#endif
-    return result.first;
-
+    return transaction_engine_.Interpret(query, params_pv);
   } catch (const query::QueryException &e) {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
@@ -91,17 +68,6 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
 
 void BoltSession::Abort() { transaction_engine_.Abort(); }
 
-bool BoltSession::Authenticate(const std::string &username,
-                               const std::string &password) {
-#ifdef MG_SINGLE_NODE_HA
-  return true;
-#else
-  if (!auth_->HasUsers()) return true;
-  user_ = auth_->Authenticate(username, password);
-  return !!user_;
-#endif
-}
-
 BoltSession::TypedValueResultStream::TypedValueResultStream(TEncoder *encoder)
     : encoder_(encoder) {}
 
@@ -114,33 +80,6 @@ void BoltSession::TypedValueResultStream::Result(
   }
   encoder_->MessageRecord(decoded_values);
 }
-
-void KafkaStreamWriter(
-    SessionData &session_data, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params) {
-  auto dba = session_data.db->Access();
-  KafkaResultStream stream;
-  std::map<std::string, PropertyValue> params_pv;
-  for (const auto &kv : params)
-    params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-  try {
-#ifndef MG_DISTRIBUTED
-    (*session_data.interpreter)(query, dba, params_pv, false).PullAll(stream);
-    dba.Commit();
-#else
-    (*session_data.interpreter)(query, *dba, params_pv, false).PullAll(stream);
-    dba->Commit();
-#endif
-  } catch (const utils::BasicException &e) {
-    LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                 << e.what();
-#ifndef MG_DISTRIBUTED
-    dba.Abort();
-#else
-    dba->Abort();
-#endif
-  }
-};
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled

@@ -85,15 +85,6 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
 bool VersionConsistency(const std::filesystem::path &durability_dir);
 
 /**
- * Checks whether the current memgraph binary (on a worker) is
- * version consistent with the cluster master.
- *
- * @param master_version - Version of the master.
- * @return - True if versions match.
- */
-bool DistributedVersionConsistency(const int64_t master_version);
-
-/**
  * Checks whether the durability directory contains snapshot
  * or write-ahead log file.
  *

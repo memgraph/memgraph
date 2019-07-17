@@ -11,8 +11,6 @@
 
 #include "communication/server.hpp"
 #include "database/single_node/graph_db.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
@@ -39,77 +37,19 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
-// Audit logging flags.
-DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
-DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_VALIDATED_int32(
-    audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
-    "Interval (in milliseconds) used for flushing the audit log buffer.",
-    FLAG_IN_RANGE(10, INT32_MAX));
-
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
 
-  // All enterprise features should be constructed before the main database
-  // storage. This will cause them to be destructed *after* the main database
-  // storage. That way any errors that happen during enterprise features
-  // destruction won't have an impact on the storage engine.
-  // Example: When the main storage is destructed it makes a snapshot. When
-  // audit logging is destructed it syncs all pending data to disk and that can
-  // fail. That is why it must be destructed *after* the main database storage
-  // to minimise the impact of their failure on the main storage.
-
-  // Begin enterprise features initialization
-
   auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
-
-  // Auth
-  auth::Init();
-  auth::Auth auth{durability_directory / "auth"};
-
-  // Audit log
-  audit::Log audit_log{durability_directory / "audit", FLAGS_audit_buffer_size,
-                       FLAGS_audit_buffer_flush_interval_ms};
-  // Start the log if enabled.
-  if (FLAGS_audit_enabled) {
-    audit_log.Start();
-  }
-  // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
-  // rotates our audit logs.
-  CHECK(utils::SignalHandler::RegisterHandler(
-      utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }))
-      << "Unable to register SIGUSR2 handler!";
-
-  // End enterprise features initialization
 
   // Main storage and execution engines initialization
 
   database::GraphDb db;
   query::Interpreter interpreter;
-  SessionData session_data{&db, &interpreter, &auth, &audit_log};
-
-  integrations::kafka::Streams kafka_streams{
-      durability_directory / "streams",
-      [&session_data](
-          const std::string &query,
-          const std::map<std::string, communication::bolt::Value> &params) {
-        KafkaStreamWriter(session_data, query, params);
-      }};
-
-  try {
-    // Recover possible streams.
-    kafka_streams.Recover();
-  } catch (const integrations::kafka::KafkaStreamException &e) {
-    LOG(ERROR) << e.what();
-  }
-
-  session_data.interpreter->auth_ = &auth;
-  session_data.interpreter->kafka_streams_ = &kafka_streams;
+  SessionData session_data{&db, &interpreter};
 
   ServerContext context;
   std::string service_name = "Bolt";

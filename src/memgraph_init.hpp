@@ -9,8 +9,6 @@
 
 #include <gflags/gflags.h>
 
-#include "audit/log.hpp"
-#include "auth/auth.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
@@ -25,16 +23,11 @@ DECLARE_string(durability_directory);
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(database::GraphDb *_db, query::Interpreter *_interpreter,
-              auth::Auth *_auth, audit::Log *_audit_log)
+  SessionData(database::GraphDb *_db, query::Interpreter *_interpreter)
       : db(_db),
-        interpreter(_interpreter),
-        auth(_auth),
-        audit_log(_audit_log) {}
+        interpreter(_interpreter) {}
   database::GraphDb *db;
   query::Interpreter *interpreter;
-  auth::Auth *auth;
-  audit::Log *audit_log;
 };
 
 class BoltSession final
@@ -57,9 +50,6 @@ class BoltSession final
 
   void Abort() override;
 
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override;
-
  private:
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
@@ -74,25 +64,8 @@ class BoltSession final
   };
 
   query::TransactionEngine transaction_engine_;
-  auth::Auth *auth_;
-  std::optional<auth::User> user_;
-  audit::Log *audit_log_;
   io::network::Endpoint endpoint_;
 };
-
-/// Class that implements ResultStream API for Kafka.
-///
-/// Kafka doesn't need to stream the import results back to the client so we
-/// don't need any functionality here.
-class KafkaResultStream {
- public:
-  void Result(const std::vector<query::TypedValue> &) {}
-};
-
-/// Writes data streamed from kafka to memgraph.
-void KafkaStreamWriter(
-    SessionData &session_data, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params);
 
 /// Set up signal handlers and register `shutdown` on SIGTERM and SIGINT.
 /// In most cases you don't have to call this. If you are using a custom server

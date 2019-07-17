@@ -5,9 +5,6 @@
 
 #include "gflags/gflags.h"
 
-#include "communication/rpc/client.hpp"
-#include "stats/stats.hpp"
-#include "stats/stats_rpc_messages.hpp"
 #include "utils/thread/sync.hpp"
 
 #include "long_running_common.hpp"
@@ -22,14 +19,6 @@ utils::RWLock world_lock(utils::RWLockPriority::WRITE);
 DEFINE_string(config, "", "test config");
 
 enum class Role { WORKER, ANALYTIC, CLEANUP };
-
-stats::Gauge &num_vertices = stats::GetGauge("vertices");
-stats::Gauge &num_edges = stats::GetGauge("edges");
-
-void UpdateStats() {
-  num_vertices.Set(num_pos + num_cards + num_transactions);
-  num_edges.Set(2 * num_transactions);
-}
 
 int64_t NumNodesWithLabel(Client &client, std::string label) {
   std::string query = fmt::format("MATCH (u :{}) RETURN count(u)", label);
@@ -176,7 +165,6 @@ class CardFraudClient : public TestClient {
         card_id, tx_id, pos_id);
 
     num_transactions++;
-    UpdateStats();
   }
 
   int64_t UniformInt(int64_t a, int64_t b) {
@@ -261,7 +249,6 @@ class CardFraudClient : public TestClient {
           num_transactions, num_transactions_db, deleted,
           num_transactions - num_transactions_db);
       num_transactions = num_transactions_db;
-      UpdateStats();
     }
 
     std::this_thread::sleep_for(
@@ -334,9 +321,6 @@ int main(int argc, char **argv) {
 
   communication::Init();
 
-  stats::InitStatsLogging(
-      fmt::format("client.long_running.{}.{}", FLAGS_group, FLAGS_scenario));
-
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);
   Client client(&context);
@@ -381,8 +365,6 @@ int main(int argc, char **argv) {
   }
 
   RunMultithreadedTest(clients);
-
-  stats::StopStatsLogging();
 
   return 0;
 }

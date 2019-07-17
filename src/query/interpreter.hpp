@@ -17,14 +17,6 @@
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
-namespace integrations::kafka {
-class Streams;
-}  // namespace integrations::kafka
-
 namespace query {
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -63,19 +55,16 @@ class Interpreter {
   struct CachedQuery {
     AstStorage ast_storage;
     Query *query;
-    std::vector<AuthQuery::Privilege> required_privileges;
   };
 
   using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
 
  public:
   /**
-   * Wraps a `Query` that was created as a result of parsing a query string
-   * along with its privileges.
+   * Wraps a `Query` that was created as a result of parsing a query string.
    */
   struct ParsedQuery {
     Query *query;
-    std::vector<AuthQuery::Privilege> required_privileges;
   };
 
   /**
@@ -89,7 +78,6 @@ class Interpreter {
             std::shared_ptr<CachedPlan> plan,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
-            std::vector<AuthQuery::Privilege> privileges,
             bool is_profile_query = false, bool should_abort_query = false)
         : ctx_{db_accessor},
           plan_(plan),
@@ -100,7 +88,6 @@ class Interpreter {
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          privileges_(std::move(privileges)),
           should_abort_query_(should_abort_query) {
       ctx_.is_profile_query = is_profile_query;
       ctx_.symbol_table = plan_->symbol_table();
@@ -178,10 +165,6 @@ class Interpreter {
     const std::vector<std::string> &header() { return header_; }
     const std::map<std::string, TypedValue> &summary() { return summary_; }
 
-    const std::vector<AuthQuery::Privilege> &privileges() {
-      return privileges_;
-    }
-
     bool ShouldAbortQuery() const { return should_abort_query_; }
 
    private:
@@ -198,8 +181,6 @@ class Interpreter {
     std::map<std::string, TypedValue> summary_;
 
     double execution_time_{0};
-
-    std::vector<AuthQuery::Privilege> privileges_;
 
     bool should_abort_query_;
   };
@@ -220,9 +201,6 @@ class Interpreter {
                              database::GraphDbAccessor &db_accessor,
                              const std::map<std::string, PropertyValue> &params,
                              bool in_explicit_transaction);
-
-  auth::Auth *auth_ = nullptr;
-  integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  protected:
   std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(

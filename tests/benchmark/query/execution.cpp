@@ -7,7 +7,6 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/planner.hpp"
@@ -82,8 +81,7 @@ static query::CypherQuery *ParseCypherQuery(const std::string &query_string,
   query::frontend::CypherMainVisitor cypher_visitor(parsing_context, ast);
   cypher_visitor.visit(parser.tree());
   query::Interpreter::ParsedQuery parsed_query{
-      cypher_visitor.query(),
-      query::GetRequiredPrivileges(cypher_visitor.query())};
+      cypher_visitor.query()};
   return utils::Downcast<query::CypherQuery>(parsed_query.query);
 };
 
