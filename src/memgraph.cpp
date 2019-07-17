@@ -9,9 +9,10 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "memgraph_init.hpp"
+
 #include "communication/server.hpp"
 #include "database/single_node/graph_db.hpp"
-#include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"

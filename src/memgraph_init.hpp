@@ -9,12 +9,13 @@
 
 #include <gflags/gflags.h>
 
+#include "query/interpreter.hpp"
+#include "query/transaction_engine.hpp"
+
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
 #include "communication/session.hpp"
-#include "query/interpreter.hpp"
-#include "query/transaction_engine.hpp"
 
 DECLARE_string(durability_directory);
 
