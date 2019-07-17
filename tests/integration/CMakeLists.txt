@@ -13,9 +13,6 @@ add_subdirectory(kafka)
 # auth test binaries
 add_subdirectory(auth)
 
-# distributed test binaries
-add_subdirectory(distributed)
-
 # distributed ha/basic binaries
 add_subdirectory(ha/basic)
 

@@ -57,9 +57,6 @@ target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-comm-rpc)
 
-add_benchmark(serialization.cpp)
-target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
-
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)
 

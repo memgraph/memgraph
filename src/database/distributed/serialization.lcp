@@ -1,9 +1,0 @@
-#>cpp
-#pragma once
-
-#include "durability/distributed/state_delta.hpp"
-#include "storage/distributed/rpc/serialization.hpp"
-cpp<#
-
-;; Generate serialization of state-delta
-(load "durability/distributed/state_delta.lcp")

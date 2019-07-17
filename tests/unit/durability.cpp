@@ -11,8 +11,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-// TODO: FIXME
-// #include "database/distributed/distributed_graph_db.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"

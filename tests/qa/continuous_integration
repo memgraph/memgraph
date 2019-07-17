@@ -70,9 +70,8 @@ def generate_status(suite, result_path, required):
     return (msg, passed, total)
 
 
-def generate_remarkup(data, distributed=False):
-    extra_desc = "distributed " if distributed else ""
-    ret = "==== Quality assurance {}status: ====\n\n".format(extra_desc)
+def generate_remarkup(data):
+    ret = "==== Quality assurance status: ====\n\n"
     ret += "<table>\n"
     for row in data:
         ret += "  <tr>\n"
@@ -123,88 +122,16 @@ class MemgraphRunner():
         assert code == 0, "The Memgraph process exited with non-zero!"
 
 
-class MemgraphDistributedRunner():
-    def __init__(self, build_directory, cluster_size):
-        self.build_directory = build_directory
-        self.cluster_size = cluster_size
-        self.procs = []
-        self.durability_directories = []
-        self.args = []
-
-    def start(self, args):
-        if args == self.args and self.is_running():
-            return
-
-        self.stop()
-        self.args = copy.deepcopy(args)
-
-        memgraph_binary = os.path.join(self.build_directory,
-                                       "memgraph_distributed")
-
-        self.procs = []
-        self.durability_directories = []
-        for i in range(self.cluster_size):
-            durability_directory = tempfile.TemporaryDirectory()
-            self.durability_directories.append(durability_directory)
-
-            args_mg = [memgraph_binary]
-            if i == 0:
-                args_mg.extend(["--master", "--master-port", "10000"])
-            else:
-                args_mg.extend(["--worker", "--worker-id", str(i),
-                                "--worker-port", str(10000 + i),
-                                "--master-port", "10000"])
-            args_mg.extend(["--durability-directory",
-                            durability_directory.name])
-
-            proc_mg = subprocess.Popen(args_mg + self.args)
-            self.procs.append(proc_mg)
-
-            wait_for_server(10000 + i, 1)
-
-        wait_for_server(7687, 1)
-        assert self.is_running(), "The Memgraph cluster died!"
-
-    def is_running(self):
-        if len(self.procs) == 0:
-            return False
-        for i, proc in enumerate(self.procs):
-            code = proc.poll()
-            if code is not None:
-                if code != 0:
-                    print("Memgraph node", i, "exited with non-zero!")
-                return False
-        return True
-
-    def stop(self):
-        if len(self.procs) == 0:
-            return
-        self.procs[0].terminate()
-        died = False
-        for i, proc in enumerate(self.procs):
-            code = proc.wait()
-            if code != 0:
-                print("Memgraph node", i, "exited with non-zero!")
-                died = True
-        assert not died, "The Memgraph cluster died!"
-
-
 def main():
     # Parse args
     argp = argparse.ArgumentParser()
     argp.add_argument("--build-directory", default=BUILD_DIR)
     argp.add_argument("--cluster-size", default=3, type=int)
-    argp.add_argument("--distributed", action="store_true")
     args = argp.parse_args()
 
     # Load tests from config file
     with open(os.path.join(TESTS_DIR, "config.yaml")) as f:
         suites = yaml.load(f)
-
-    # Tests are not mandatory for distributed
-    if args.distributed:
-        for suite in suites:
-            suite["must_pass"] = False
 
     # venv used to run the qa engine
     venv_python = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
@@ -213,11 +140,7 @@ def main():
     output_dir = tempfile.TemporaryDirectory()
 
     # Memgraph runner
-    if args.distributed:
-        memgraph = MemgraphDistributedRunner(args.build_directory,
-                                             args.cluster_size)
-    else:
-        memgraph = MemgraphRunner(args.build_directory)
+    memgraph = MemgraphRunner(args.build_directory)
 
     @atexit.register
     def cleanup():
@@ -261,7 +184,7 @@ def main():
             break
 
     # Create status message
-    qa_status_message = generate_remarkup(status_data, args.distributed)
+    qa_status_message = generate_remarkup(status_data)
 
     # Create the report file
     qa_status_path = os.path.join(SCRIPT_DIR, ".quality_assurance_status")

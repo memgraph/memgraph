@@ -64,14 +64,6 @@
     - ../../../build_debug/tests/integration/ldap/tester # tester binary
   enable_network: true
 
-- name: integration__distributed
-  cd: distributed
-  commands: TIMEOUT=480 ./runner.py
-  infiles:
-    - runner.py # runner script
-    - ../../../build_debug/memgraph_distributed # memgraph distributed binary
-    - ../../../build_debug/tests/integration/distributed/tester # tester binary
-
 - name: integration__ha_basic
   cd: ha/basic
   commands: TIMEOUT=480 ./runner.py

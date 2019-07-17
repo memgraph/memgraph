@@ -110,135 +110,6 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 # ----------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------
-# Memgraph Distributed
-# ----------------------------------------------------------------------------
-
-set(mg_distributed_sources
-    ${lcp_common_cpp_files}
-    audit/log.cpp
-    database/distributed/distributed_graph_db.cpp
-    distributed/bfs_rpc_clients.cpp
-    distributed/bfs_subcursor.cpp
-    distributed/cluster_discovery_master.cpp
-    distributed/cluster_discovery_worker.cpp
-    distributed/coordination.cpp
-    distributed/coordination_master.cpp
-    distributed/coordination_worker.cpp
-    distributed/data_manager.cpp
-    distributed/data_rpc_clients.cpp
-    distributed/data_rpc_server.cpp
-    distributed/dgp/partitioner.cpp
-    distributed/dgp/vertex_migrator.cpp
-    distributed/durability_rpc_master.cpp
-    distributed/durability_rpc_worker.cpp
-    distributed/dynamic_worker.cpp
-    distributed/index_rpc_server.cpp
-    distributed/plan_consumer.cpp
-    distributed/plan_dispatcher.cpp
-    distributed/produce_rpc_server.cpp
-    distributed/pull_rpc_clients.cpp
-    distributed/updates_rpc_clients.cpp
-    distributed/updates_rpc_server.cpp
-    query/distributed/interpreter.cpp
-    query/distributed/plan/planner.cpp
-    query/distributed/plan/ops.cpp
-    query/distributed/plan/pretty_print.cpp
-    storage/distributed/concurrent_id_mapper_master.cpp
-    storage/distributed/concurrent_id_mapper_worker.cpp
-    transactions/distributed/engine_master.cpp
-    transactions/distributed/engine_worker.cpp
-    data_structures/concurrent/skiplist_gc.cpp
-    database/distributed/config.cpp
-    database/distributed/graph_db_accessor.cpp
-    durability/distributed/state_delta.cpp
-    durability/distributed/paths.cpp
-    durability/distributed/recovery.cpp
-    durability/distributed/snapshooter.cpp
-    durability/distributed/wal.cpp
-    glue/auth.cpp
-    glue/communication.cpp
-    query/common.cpp
-    query/frontend/ast/pretty_print.cpp
-    query/frontend/ast/cypher_main_visitor.cpp
-    query/frontend/parsing.cpp
-    query/frontend/semantic/required_privileges.cpp
-    query/frontend/semantic/symbol_generator.cpp
-    query/frontend/stripped.cpp
-    query/interpret/awesome_memgraph_functions.cpp
-    query/interpreter.cpp
-    query/plan/operator.cpp
-    query/plan/preprocess.cpp
-    query/plan/pretty_print.cpp
-    query/plan/profile.cpp
-    query/plan/rewrite/index_lookup.cpp
-    query/plan/rule_based_planner.cpp
-    query/plan/variable_start_planner.cpp
-    query/repl.cpp
-    query/distributed/serialization.cpp
-    query/typed_value.cpp
-    storage/common/locking/record_lock.cpp
-    storage/common/types/property_value.cpp
-    storage/common/types/property_value_store.cpp
-    storage/common/types/slk.cpp
-    storage/distributed/edge_accessor.cpp
-    storage/distributed/edges_iterator.cpp
-    storage/distributed/record_accessor.cpp
-    storage/distributed/rpc/serialization.cpp
-    storage/distributed/vertex_accessor.cpp
-    memgraph_init.cpp
-    transactions/distributed/engine_single_node.cpp
-)
-
-# -----------------------------------------------------------------------------
-
-define_add_lcp(add_lcp_distributed mg_distributed_sources generated_lcp_distributed_files)
-
-add_lcp_distributed(durability/distributed/state_delta.lcp)
-add_lcp_distributed(database/distributed/serialization.lcp SLK_SERIALIZE
-                    DEPENDS durability/distributed/state_delta.lcp)
-add_lcp_distributed(distributed/bfs_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/coordination_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/data_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/durability_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/index_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/plan_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/pull_produce_rpc_messages.lcp SLK_SERIALIZE
-                    DEPENDS transactions/distributed/serialization.lcp)
-add_lcp_distributed(distributed/storage_gc_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/token_sharing_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/updates_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(distributed/dynamic_worker_rpc_messages.lcp SLK_SERIALIZE)
-
-add_lcp_distributed(query/distributed/frontend/ast/ast_serialization.lcp SLK_SERIALIZE
-        DEPENDS query/frontend/ast/ast.lcp)
-add_lcp_distributed(query/distributed/frontend/semantic/symbol_serialization.lcp SLK_SERIALIZE
-        DEPENDS query/frontend/semantic/symbol.lcp)
-add_lcp_distributed(query/distributed/plan/ops.lcp SLK_SERIALIZE
-        DEPENDS query/plan/operator.lcp)
-
-add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lcp SLK_SERIALIZE)
-add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp SLK_SERIALIZE
-        DEPENDS transactions/distributed/serialization.lcp)
-
-add_custom_target(generate_lcp_distributed DEPENDS generate_lcp_common ${generated_lcp_distributed_files})
-
-set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags
-    mg-utils mg-io mg-integrations-kafka mg-requests
-    mg-communication mg-comm-rpc mg-auth)
-
-# STATIC library used by memgraph executables
-add_library(mg-distributed STATIC ${mg_distributed_sources})
-target_link_libraries(mg-distributed ${MG_DISTRIBUTED_LIBS})
-add_dependencies(mg-distributed generate_opencypher_parser)
-add_dependencies(mg-distributed generate_lcp_distributed)
-target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
-
-# ----------------------------------------------------------------------------
-# END Memgraph Distributed
-# ----------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources
@@ -326,7 +197,7 @@ target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
 # ----------------------------------------------------------------------------
 
 add_custom_target(generate_lcp)
-add_dependencies(generate_lcp generate_lcp_single_node generate_lcp_single_node_ha generate_lcp_distributed)
+add_dependencies(generate_lcp generate_lcp_single_node generate_lcp_single_node_ha)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -404,20 +275,6 @@ install(
                    WORKING_DIRECTORY ${examples})")
 install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
 
-
-# memgraph distributed main executable
-add_executable(memgraph_distributed memgraph_distributed.cpp)
-target_link_libraries(memgraph_distributed mg-distributed kvstore_lib telemetry_lib)
-set_target_properties(memgraph_distributed PROPERTIES
-                      # Set the executable output name to include version information.
-                      OUTPUT_NAME "memgraph_distributed-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
-                      # Output the executable in main binary dir.
-                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-# Create symlink to the built executable.
-add_custom_command(TARGET memgraph_distributed POST_BUILD
-                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph_distributed> ${CMAKE_BINARY_DIR}/memgraph_distributed
-                   BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph_distributed
-                   COMMENT Creating symlink to memgraph distributed executable)
 
 # memgraph single node high availability executable
 add_executable(memgraph_ha memgraph_ha.cpp)

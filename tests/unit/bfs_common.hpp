@@ -32,10 +32,6 @@ using EdgeAddress = mvcc::VersionList<Edge> *;
 using VertexAddress = mvcc::VersionList<Vertex> *;
 using EdgeAddress = mvcc::VersionList<Edge> *;
 #endif
-#ifdef MG_DISTRIBUTED
-using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
-using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
-#endif
 
 const auto kVertexCount = 6;
 // Maps vertices to workers

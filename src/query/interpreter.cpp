@@ -674,7 +674,6 @@ Callback HandleInfoQuery(InfoQuery *info_query,
       };
       break;
     case InfoQuery::InfoType::CONSTRAINT:
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
       callback.header = {"constraint type", "label", "properties"};
       callback.fn = [db_accessor] {
         std::vector<std::vector<TypedValue>> results;
@@ -693,9 +692,6 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         }
         return results;
       };
-#else
-      throw utils::NotYetImplemented("constraints info");
-#endif
       break;
     case InfoQuery::InfoType::RAFT:
 #if defined(MG_SINGLE_NODE_HA)
@@ -721,7 +717,6 @@ Callback HandleInfoQuery(InfoQuery *info_query,
 
 Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
                                database::GraphDbAccessor *db_accessor) {
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
   std::vector<storage::Property> properties;
   auto label = db_accessor->Label(constraint_query->constraint_.label.name);
   properties.reserve(constraint_query->constraint_.properties.size());
@@ -773,9 +768,6 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
     } break;
   }
   return callback;
-#else
-  throw utils::NotYetImplemented("Constraints");
-#endif
 }
 
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}

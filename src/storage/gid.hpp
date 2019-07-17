@@ -7,7 +7,3 @@
 #ifdef MG_SINGLE_NODE_HA
 #include "storage/single_node_ha/gid.hpp"
 #endif
-
-#ifdef MG_DISTRIBUTED
-#include "storage/distributed/gid.hpp"
-#endif
