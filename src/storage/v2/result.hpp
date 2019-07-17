@@ -13,7 +13,7 @@ enum class Error : uint8_t {
 };
 
 template <typename TValue>
-class Result final {
+class [[nodiscard]] Result final {
  public:
   explicit Result(const TValue &value) : value_(value) {}
   explicit Result(TValue &&value) : value_(std::move(value)) {}

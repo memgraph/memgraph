@@ -32,7 +32,7 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc.FindVertex(vertices[i], storage::View::OLD);
       ASSERT_TRUE(vertex.has_value());
       if (i % 5 == 0) {
-        acc.DeleteVertex(&vertex.value());
+        EXPECT_FALSE(acc.DeleteVertex(&vertex.value()).HasError());
       }
     }
 
@@ -57,9 +57,9 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
-        vertex->AddLabel(3 * i);
-        vertex->AddLabel(3 * i + 1);
-        vertex->AddLabel(3 * i + 2);
+        EXPECT_FALSE(vertex->AddLabel(3 * i).HasError());
+        EXPECT_FALSE(vertex->AddLabel(3 * i + 1).HasError());
+        EXPECT_FALSE(vertex->AddLabel(3 * i + 2).HasError());
       }
     }
 
@@ -97,7 +97,8 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
       if (from_vertex.has_value() && to_vertex.has_value()) {
-        acc.CreateEdge(&from_vertex.value(), &to_vertex.value(), i);
+        EXPECT_FALSE(acc.CreateEdge(&from_vertex.value(), &to_vertex.value(), i)
+                         .HasError());
       }
     }
 
@@ -107,7 +108,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
       if (vertex.has_value()) {
         if (i % 3 == 0) {
-          acc.DetachDeleteVertex(&vertex.value());
+          EXPECT_FALSE(acc.DetachDeleteVertex(&vertex.value()).HasError());
         }
       }
     }
