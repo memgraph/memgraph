@@ -1,7 +1,7 @@
 #pragma once
 
 #include <limits>
-#include <unordered_map>
+#include <map>
 
 #include "utils/spin_lock.hpp"
 
@@ -20,7 +20,7 @@ struct Edge {
 
   Gid gid;
 
-  std::unordered_map<uint64_t, storage::PropertyValue> properties;
+  std::map<uint64_t, storage::PropertyValue> properties;
 
   utils::SpinLock lock;
   bool deleted;

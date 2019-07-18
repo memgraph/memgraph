@@ -37,7 +37,7 @@ class VertexAccessor final {
 
   Result<PropertyValue> GetProperty(uint64_t property, View view);
 
-  Result<std::unordered_map<uint64_t, PropertyValue>> Properties(View view);
+  Result<std::map<uint64_t, PropertyValue>> Properties(View view);
 
   Result<std::vector<EdgeAccessor>>
   InEdges(const std::vector<uint64_t> &edge_types, View view);

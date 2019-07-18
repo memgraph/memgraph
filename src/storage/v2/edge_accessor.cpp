@@ -90,9 +90,8 @@ Result<PropertyValue> EdgeAccessor::GetProperty(uint64_t property, View view) {
   return Result<PropertyValue>{std::move(value)};
 }
 
-Result<std::unordered_map<uint64_t, PropertyValue>> EdgeAccessor::Properties(
-    View view) {
-  std::unordered_map<uint64_t, PropertyValue> properties;
+Result<std::map<uint64_t, PropertyValue>> EdgeAccessor::Properties(View view) {
+  std::map<uint64_t, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -137,11 +136,9 @@ Result<std::unordered_map<uint64_t, PropertyValue>> EdgeAccessor::Properties(
         }
       });
   if (deleted) {
-    return Result<std::unordered_map<uint64_t, PropertyValue>>{
-        Error::DELETED_OBJECT};
+    return Result<std::map<uint64_t, PropertyValue>>{Error::DELETED_OBJECT};
   }
-  return Result<std::unordered_map<uint64_t, PropertyValue>>{
-      std::move(properties)};
+  return Result<std::map<uint64_t, PropertyValue>>{std::move(properties)};
 }
 
 }  // namespace storage

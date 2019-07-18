@@ -1,8 +1,8 @@
 #pragma once
 
 #include <limits>
+#include <map>
 #include <tuple>
-#include <unordered_map>
 #include <vector>
 
 #include "utils/spin_lock.hpp"
@@ -22,7 +22,7 @@ struct Vertex {
   Gid gid;
 
   std::vector<uint64_t> labels;
-  std::unordered_map<uint64_t, storage::PropertyValue> properties;
+  std::map<uint64_t, storage::PropertyValue> properties;
 
   std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
   std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;

@@ -250,9 +250,9 @@ Result<PropertyValue> VertexAccessor::GetProperty(uint64_t property,
   return Result<PropertyValue>{std::move(value)};
 }
 
-Result<std::unordered_map<uint64_t, PropertyValue>> VertexAccessor::Properties(
+Result<std::map<uint64_t, PropertyValue>> VertexAccessor::Properties(
     View view) {
-  std::unordered_map<uint64_t, PropertyValue> properties;
+  std::map<uint64_t, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -297,11 +297,9 @@ Result<std::unordered_map<uint64_t, PropertyValue>> VertexAccessor::Properties(
         }
       });
   if (deleted) {
-    return Result<std::unordered_map<uint64_t, PropertyValue>>{
-        Error::DELETED_OBJECT};
+    return Result<std::map<uint64_t, PropertyValue>>{Error::DELETED_OBJECT};
   }
-  return Result<std::unordered_map<uint64_t, PropertyValue>>{
-      std::move(properties)};
+  return Result<std::map<uint64_t, PropertyValue>>{std::move(properties)};
 }
 
 Result<std::vector<EdgeAccessor>>
