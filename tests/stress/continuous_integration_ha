@@ -32,7 +32,7 @@ SMALL_DATASET = [
 LARGE_DATASET = [
     {
         "test": "long_running.cpp",
-        "options": ["--vertex-count", "200000", "--edge-count", "1000000", "--max-time", "120", "--verify", "300"],
+        "options": ["--vertex-count", "10000", "--edge-count", "50000", "--max-time", "120", "--verify", "300"],
         "timeout": 140,
     },
 ]
@@ -168,6 +168,8 @@ def cleanup():
         if proc_mg.poll() is not None: continue
         proc_mg.kill()
         proc_mg.wait()
+
+time.sleep(3)
 
 # run tests
 runtimes = {}
