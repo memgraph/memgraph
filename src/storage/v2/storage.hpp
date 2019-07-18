@@ -6,6 +6,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -79,6 +80,14 @@ class Storage final {
 
     Result<bool> DeleteEdge(EdgeAccessor *edge);
 
+    const std::string &LabelToName(uint64_t label);
+    const std::string &PropertyToName(uint64_t property);
+    const std::string &EdgeTypeToName(uint64_t edge_type);
+
+    uint64_t NameToLabel(const std::string &name);
+    uint64_t NameToProperty(const std::string &name);
+    uint64_t NameToEdgeType(const std::string &name);
+
     void AdvanceCommand();
 
     void Commit();
@@ -112,6 +121,8 @@ class Storage final {
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   CommitLog commit_log_;
+
+  NameIdMapper name_id_mapper_;
 
   utils::SpinLock committed_transactions_lock_;
   std::list<Transaction> committed_transactions_;

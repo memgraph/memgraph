@@ -274,6 +274,26 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   return Result<bool>{true};
 }
 
+const std::string &Storage::Accessor::LabelToName(uint64_t label) {
+  return storage_->name_id_mapper_.IdToName(label);
+}
+const std::string &Storage::Accessor::PropertyToName(uint64_t property) {
+  return storage_->name_id_mapper_.IdToName(property);
+}
+const std::string &Storage::Accessor::EdgeTypeToName(uint64_t edge_type) {
+  return storage_->name_id_mapper_.IdToName(edge_type);
+}
+
+uint64_t Storage::Accessor::NameToLabel(const std::string &name) {
+  return storage_->name_id_mapper_.NameToId(name);
+}
+uint64_t Storage::Accessor::NameToProperty(const std::string &name) {
+  return storage_->name_id_mapper_.NameToId(name);
+}
+uint64_t Storage::Accessor::NameToEdgeType(const std::string &name) {
+  return storage_->name_id_mapper_.NameToId(name);
+}
+
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
 void Storage::Accessor::Commit() {
