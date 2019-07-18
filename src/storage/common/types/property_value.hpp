@@ -8,6 +8,16 @@
 #include "utils/exceptions.hpp"
 
 /**
+ * An exception raised by the PropertyValue system. Typically when
+ * trying to perform operations (such as addition) on PropertyValues
+ * of incompatible Types.
+ */
+class PropertyValueException : public utils::StacktraceException {
+ public:
+  using utils::StacktraceException::StacktraceException;
+};
+
+/**
  * Encapsulation of a value and its type in a class that has no compile-time
  * info about the type.
  *
@@ -92,6 +102,69 @@ class PropertyValue {
   template <typename T>
   T &Value();
 
+  bool ValueBool() const {
+    if (type_ != Type::Bool) {
+      throw PropertyValueException("This value isn't a bool!");
+    }
+    return bool_v;
+  }
+
+  int64_t ValueInt() const {
+    if (type_ != Type::Int) {
+      throw PropertyValueException("This value isn't a int!");
+    }
+    return int_v;
+  }
+
+  double ValueDouble() const {
+    if (type_ != Type::Double) {
+      throw PropertyValueException("This value isn't a double!");
+    }
+    return double_v;
+  }
+
+  const std::string &ValueString() const {
+    if (type_ != Type::String) {
+      throw PropertyValueException("The value isn't a string!");
+    }
+    return string_v;
+  }
+
+  const std::vector<PropertyValue> &ValueList() const {
+    if (type_ != Type::List) {
+      throw PropertyValueException("The value isn't a list!");
+    }
+    return list_v;
+  }
+
+  const std::map<std::string, PropertyValue> &ValueMap() const {
+    if (type_ != Type::Map) {
+      throw PropertyValueException("The value isn't a map!");
+    }
+    return map_v;
+  }
+
+  std::string &ValueString() {
+    if (type_ != Type::String) {
+      throw PropertyValueException("The value isn't a string!");
+    }
+    return string_v;
+  }
+
+  std::vector<PropertyValue> &ValueList() {
+    if (type_ != Type::List) {
+      throw PropertyValueException("The value isn't a list!");
+    }
+    return list_v;
+  }
+
+  std::map<std::string, PropertyValue> &ValueMap() {
+    if (type_ != Type::Map) {
+      throw PropertyValueException("The value isn't a map!");
+    }
+    return map_v;
+  }
+
  private:
   void DestroyValue();
 
@@ -111,16 +184,6 @@ class PropertyValue {
    * The Type of property.
    */
   Type type_;
-};
-
-/**
- * An exception raised by the PropertyValue system. Typically when
- * trying to perform operations (such as addition) on PropertyValues
- * of incompatible Types.
- */
-class PropertyValueException : public utils::StacktraceException {
- public:
-  using utils::StacktraceException::StacktraceException;
 };
 
 // stream output
