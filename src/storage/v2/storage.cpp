@@ -26,7 +26,8 @@ Storage::Accessor::Accessor(Storage *storage, uint64_t transaction_id,
     : storage_(storage),
       transaction_(transaction_id, start_timestamp),
       is_transaction_starter_(true),
-      is_transaction_active_(true) {}
+      is_transaction_active_(true),
+      storage_guard_(storage_->main_lock_) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),

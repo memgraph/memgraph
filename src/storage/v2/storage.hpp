@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <shared_mutex>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge.hpp"
@@ -11,6 +12,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
 
@@ -99,12 +101,22 @@ class Storage final {
     Transaction transaction_;
     bool is_transaction_starter_;
     bool is_transaction_active_;
+
+    std::shared_lock<utils::RWLock> storage_guard_;
   };
 
   Accessor Access();
 
  private:
   void CollectGarbage();
+
+  // Main storage lock.
+  //
+  // Accessors take a shared lock when starting, so it is possible to block
+  // creation of new accessors by taking a unique lock. This is used when
+  // building a label-property index because it is much simpler to do when there
+  // are no parallel reads and writes.
+  utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
