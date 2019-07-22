@@ -15,6 +15,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace storage {
 
@@ -124,6 +125,8 @@ class Storage final {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
+  NameIdMapper name_id_mapper_;
+
   // Transaction engine
   utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
@@ -134,18 +137,22 @@ class Storage final {
   // whatever.
   CommitLog commit_log_;
 
-  NameIdMapper name_id_mapper_;
-
-  utils::SpinLock committed_transactions_lock_;
-  std::list<Transaction> committed_transactions_;
-
-  utils::SpinLock aborted_undo_buffers_lock_;
-  std::list<std::pair<uint64_t, std::list<Delta>>> aborted_undo_buffers_;
+  utils::Synchronized<std::list<Transaction>, utils::SpinLock>
+      committed_transactions_;
 
   StorageGcConfig gc_config_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
-  std::list<std::pair<uint64_t, std::list<Delta>>> marked_undo_buffers_;
+
+  // Undo buffers that were unlinked and now are waiting to be freed.
+  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>,
+                      utils::SpinLock>
+      garbage_undo_buffers_;
+
+  // Vertices that are logically deleted and now are waiting to be removed from
+  // the main storage.
+  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 };
 
 }  // namespace storage
