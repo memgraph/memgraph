@@ -15,7 +15,7 @@ VertexAccessor EdgeAccessor::ToVertex() {
   return VertexAccessor{to_vertex_, transaction_};
 }
 
-Result<bool> EdgeAccessor::SetProperty(uint64_t property,
+Result<bool> EdgeAccessor::SetProperty(PropertyId property,
                                        const PropertyValue &value) {
   std::lock_guard<utils::SpinLock> guard(edge_->lock);
 
@@ -47,7 +47,8 @@ Result<bool> EdgeAccessor::SetProperty(uint64_t property,
   return Result<bool>{existed};
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(uint64_t property, View view) {
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
+                                                View view) {
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
@@ -90,8 +91,9 @@ Result<PropertyValue> EdgeAccessor::GetProperty(uint64_t property, View view) {
   return Result<PropertyValue>{std::move(value)};
 }
 
-Result<std::map<uint64_t, PropertyValue>> EdgeAccessor::Properties(View view) {
-  std::map<uint64_t, PropertyValue> properties;
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
+    View view) {
+  std::map<PropertyId, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -136,9 +138,9 @@ Result<std::map<uint64_t, PropertyValue>> EdgeAccessor::Properties(View view) {
         }
       });
   if (deleted) {
-    return Result<std::map<uint64_t, PropertyValue>>{Error::DELETED_OBJECT};
+    return Result<std::map<PropertyId, PropertyValue>>{Error::DELETED_OBJECT};
   }
-  return Result<std::map<uint64_t, PropertyValue>>{std::move(properties)};
+  return Result<std::map<PropertyId, PropertyValue>>{std::move(properties)};
 }
 
 }  // namespace storage

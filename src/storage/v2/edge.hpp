@@ -6,7 +6,7 @@
 #include "utils/spin_lock.hpp"
 
 #include "storage/v2/delta.hpp"
-#include "storage/v2/gid.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace storage {
 
@@ -20,7 +20,7 @@ struct Edge {
 
   Gid gid;
 
-  std::map<uint64_t, storage::PropertyValue> properties;
+  std::map<PropertyId, storage::PropertyValue> properties;
 
   utils::SpinLock lock;
   bool deleted;

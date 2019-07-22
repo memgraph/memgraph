@@ -57,9 +57,12 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
-        EXPECT_FALSE(vertex->AddLabel(3 * i).HasError());
-        EXPECT_FALSE(vertex->AddLabel(3 * i + 1).HasError());
-        EXPECT_FALSE(vertex->AddLabel(3 * i + 2).HasError());
+        EXPECT_FALSE(
+            vertex->AddLabel(storage::LabelId::FromUint(3 * i)).HasError());
+        EXPECT_FALSE(
+            vertex->AddLabel(storage::LabelId::FromUint(3 * i + 1)).HasError());
+        EXPECT_FALSE(
+            vertex->AddLabel(storage::LabelId::FromUint(3 * i + 2)).HasError());
       }
     }
 
@@ -78,8 +81,11 @@ TEST(StorageV2Gc, Sanity) {
 
         auto labels_new = vertex->Labels(storage::View::NEW);
         EXPECT_TRUE(labels_new.HasValue());
-        EXPECT_THAT(labels_new.GetValue(),
-                    UnorderedElementsAre(3 * i, 3 * i + 1, 3 * i + 2));
+        EXPECT_THAT(
+            labels_new.GetValue(),
+            UnorderedElementsAre(storage::LabelId::FromUint(3 * i),
+                                 storage::LabelId::FromUint(3 * i + 1),
+                                 storage::LabelId::FromUint(3 * i + 2)));
       }
     }
 
@@ -97,7 +103,8 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
       if (from_vertex.has_value() && to_vertex.has_value()) {
-        EXPECT_FALSE(acc.CreateEdge(&from_vertex.value(), &to_vertex.value(), i)
+        EXPECT_FALSE(acc.CreateEdge(&from_vertex.value(), &to_vertex.value(),
+                                    storage::EdgeTypeId::FromUint(i))
                          .HasError());
       }
     }
@@ -121,20 +128,19 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc.FindVertex(vertices[i], storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0 && i % 3 != 0);
       if (vertex.has_value()) {
-        auto out_edges =
-            vertex->OutEdges(std::vector<uint64_t>{}, storage::View::NEW);
+        auto out_edges = vertex->OutEdges({}, storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.GetValue().size(), 1);
-          EXPECT_EQ(out_edges.GetValue().at(0).EdgeType(), i);
+          EXPECT_EQ(out_edges.GetValue().at(0).EdgeType().AsUint(), i);
         } else {
           EXPECT_TRUE(out_edges->empty());
         }
 
-        auto in_edges =
-            vertex->InEdges(std::vector<uint64_t>{}, storage::View::NEW);
+        auto in_edges = vertex->InEdges({}, storage::View::NEW);
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetValue().size(), 1);
-          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType(), (i + 999) % 1000);
+          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(),
+                    (i + 999) % 1000);
         } else {
           EXPECT_TRUE(in_edges->empty());
         }

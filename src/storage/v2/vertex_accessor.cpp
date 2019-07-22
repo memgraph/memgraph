@@ -42,7 +42,7 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
   return VertexAccessor{vertex, transaction};
 }
 
-Result<bool> VertexAccessor::AddLabel(uint64_t label) {
+Result<bool> VertexAccessor::AddLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_))
@@ -60,7 +60,7 @@ Result<bool> VertexAccessor::AddLabel(uint64_t label) {
   return Result<bool>{true};
 }
 
-Result<bool> VertexAccessor::RemoveLabel(uint64_t label) {
+Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_))
@@ -78,7 +78,7 @@ Result<bool> VertexAccessor::RemoveLabel(uint64_t label) {
   return Result<bool>{true};
 }
 
-Result<bool> VertexAccessor::HasLabel(uint64_t label, View view) {
+Result<bool> VertexAccessor::HasLabel(LabelId label, View view) {
   bool deleted = false;
   bool has_label = false;
   Delta *delta = nullptr;
@@ -126,9 +126,9 @@ Result<bool> VertexAccessor::HasLabel(uint64_t label, View view) {
   return Result<bool>{has_label};
 }
 
-Result<std::vector<uint64_t>> VertexAccessor::Labels(View view) {
+Result<std::vector<LabelId>> VertexAccessor::Labels(View view) {
   bool deleted = false;
-  std::vector<uint64_t> labels;
+  std::vector<LabelId> labels;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -170,11 +170,11 @@ Result<std::vector<uint64_t>> VertexAccessor::Labels(View view) {
             break;
         }
       });
-  if (deleted) return Result<std::vector<uint64_t>>{Error::DELETED_OBJECT};
-  return Result<std::vector<uint64_t>>{std::move(labels)};
+  if (deleted) return Result<std::vector<LabelId>>{Error::DELETED_OBJECT};
+  return Result<std::vector<LabelId>>{std::move(labels)};
 }
 
-Result<bool> VertexAccessor::SetProperty(uint64_t property,
+Result<bool> VertexAccessor::SetProperty(PropertyId property,
                                          const PropertyValue &value) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -206,7 +206,7 @@ Result<bool> VertexAccessor::SetProperty(uint64_t property,
   return Result<bool>{existed};
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(uint64_t property,
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                                                   View view) {
   bool deleted = false;
   PropertyValue value;
@@ -250,9 +250,9 @@ Result<PropertyValue> VertexAccessor::GetProperty(uint64_t property,
   return Result<PropertyValue>{std::move(value)};
 }
 
-Result<std::map<uint64_t, PropertyValue>> VertexAccessor::Properties(
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
     View view) {
-  std::map<uint64_t, PropertyValue> properties;
+  std::map<PropertyId, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -297,14 +297,14 @@ Result<std::map<uint64_t, PropertyValue>> VertexAccessor::Properties(
         }
       });
   if (deleted) {
-    return Result<std::map<uint64_t, PropertyValue>>{Error::DELETED_OBJECT};
+    return Result<std::map<PropertyId, PropertyValue>>{Error::DELETED_OBJECT};
   }
-  return Result<std::map<uint64_t, PropertyValue>>{std::move(properties)};
+  return Result<std::map<PropertyId, PropertyValue>>{std::move(properties)};
 }
 
-Result<std::vector<EdgeAccessor>>
-VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
+Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
+    const std::vector<EdgeTypeId> &edge_types, View view) {
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -318,7 +318,7 @@ VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
             // Add the edge because we don't see the removal.
-            std::tuple<uint64_t, Vertex *, Edge *> link{
+            std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
@@ -328,7 +328,7 @@ VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
           }
           case Delta::Action::REMOVE_IN_EDGE: {
             // Remove the label because we don't see the addition.
-            std::tuple<uint64_t, Vertex *, Edge *> link{
+            std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
@@ -368,9 +368,9 @@ VertexAccessor::InEdges(const std::vector<uint64_t> &edge_types, View view) {
   return Result<decltype(ret)>(std::move(ret));
 }
 
-Result<std::vector<EdgeAccessor>>
-VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
+Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
+    const std::vector<EdgeTypeId> &edge_types, View view) {
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
   bool deleted = false;
   Delta *delta = nullptr;
   {
@@ -384,7 +384,7 @@ VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
             // Add the edge because we don't see the removal.
-            std::tuple<uint64_t, Vertex *, Edge *> link{
+            std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);
@@ -394,7 +394,7 @@ VertexAccessor::OutEdges(const std::vector<uint64_t> &edge_types, View view) {
           }
           case Delta::Action::REMOVE_OUT_EDGE: {
             // Remove the label because we don't see the addition.
-            std::tuple<uint64_t, Vertex *, Edge *> link{
+            std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);

@@ -91,8 +91,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
          "accessor when deleting a vertex!";
   auto vertex_ptr = vertex->vertex_;
 
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
 
   {
     std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
@@ -146,7 +146,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                                                    VertexAccessor *to,
-                                                   uint64_t edge_type) {
+                                                   EdgeTypeId edge_type) {
   CHECK(from->transaction_ == to->transaction_)
       << "VertexAccessors must be from the same transaction when creating "
          "an edge!";
@@ -251,7 +251,8 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(),
                      edge_type, to_vertex, edge_ptr);
   {
-    std::tuple<uint64_t, Vertex *, Edge *> link{edge_type, to_vertex, edge_ptr};
+    std::tuple<EdgeTypeId, Vertex *, Edge *> link{edge_type, to_vertex,
+                                                  edge_ptr};
     auto it = std::find(from_vertex->out_edges.begin(),
                         from_vertex->out_edges.end(), link);
     CHECK(it != from_vertex->out_edges.end()) << "Invalid database state!";
@@ -262,8 +263,8 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type,
                      from_vertex, edge_ptr);
   {
-    std::tuple<uint64_t, Vertex *, Edge *> link{edge_type, from_vertex,
-                                                edge_ptr};
+    std::tuple<EdgeTypeId, Vertex *, Edge *> link{edge_type, from_vertex,
+                                                  edge_ptr};
     auto it =
         std::find(to_vertex->in_edges.begin(), to_vertex->in_edges.end(), link);
     CHECK(it != to_vertex->in_edges.end()) << "Invalid database state!";
@@ -274,24 +275,24 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   return Result<bool>{true};
 }
 
-const std::string &Storage::Accessor::LabelToName(uint64_t label) {
-  return storage_->name_id_mapper_.IdToName(label);
+const std::string &Storage::Accessor::LabelToName(LabelId label) {
+  return storage_->name_id_mapper_.IdToName(label.AsUint());
 }
-const std::string &Storage::Accessor::PropertyToName(uint64_t property) {
-  return storage_->name_id_mapper_.IdToName(property);
+const std::string &Storage::Accessor::PropertyToName(PropertyId property) {
+  return storage_->name_id_mapper_.IdToName(property.AsUint());
 }
-const std::string &Storage::Accessor::EdgeTypeToName(uint64_t edge_type) {
-  return storage_->name_id_mapper_.IdToName(edge_type);
+const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) {
+  return storage_->name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-uint64_t Storage::Accessor::NameToLabel(const std::string &name) {
-  return storage_->name_id_mapper_.NameToId(name);
+LabelId Storage::Accessor::NameToLabel(const std::string &name) {
+  return LabelId::FromUint(storage_->name_id_mapper_.NameToId(name));
 }
-uint64_t Storage::Accessor::NameToProperty(const std::string &name) {
-  return storage_->name_id_mapper_.NameToId(name);
+PropertyId Storage::Accessor::NameToProperty(const std::string &name) {
+  return PropertyId::FromUint(storage_->name_id_mapper_.NameToId(name));
 }
-uint64_t Storage::Accessor::NameToEdgeType(const std::string &name) {
-  return storage_->name_id_mapper_.NameToId(name);
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
+  return EdgeTypeId::FromUint(storage_->name_id_mapper_.NameToId(name));
 }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
@@ -392,7 +393,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::ADD_IN_EDGE: {
-              std::tuple<uint64_t, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
@@ -402,7 +403,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::ADD_OUT_EDGE: {
-              std::tuple<uint64_t, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),
@@ -412,7 +413,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_IN_EDGE: {
-              std::tuple<uint64_t, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
@@ -423,7 +424,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_OUT_EDGE: {
-              std::tuple<uint64_t, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),

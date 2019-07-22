@@ -76,17 +76,17 @@ class Storage final {
     Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                    uint64_t edge_type);
+                                    EdgeTypeId edge_type);
 
     Result<bool> DeleteEdge(EdgeAccessor *edge);
 
-    const std::string &LabelToName(uint64_t label);
-    const std::string &PropertyToName(uint64_t property);
-    const std::string &EdgeTypeToName(uint64_t edge_type);
+    const std::string &LabelToName(LabelId label);
+    const std::string &PropertyToName(PropertyId property);
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type);
 
-    uint64_t NameToLabel(const std::string &name);
-    uint64_t NameToProperty(const std::string &name);
-    uint64_t NameToEdgeType(const std::string &name);
+    LabelId NameToLabel(const std::string &name);
+    PropertyId NameToProperty(const std::string &name);
+    EdgeTypeId NameToEdgeType(const std::string &name);
 
     void AdvanceCommand();
 

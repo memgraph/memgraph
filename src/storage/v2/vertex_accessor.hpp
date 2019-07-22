@@ -25,25 +25,25 @@ class VertexAccessor final {
                                               Transaction *transaction,
                                               View view);
 
-  Result<bool> AddLabel(uint64_t label);
+  Result<bool> AddLabel(LabelId label);
 
-  Result<bool> RemoveLabel(uint64_t label);
+  Result<bool> RemoveLabel(LabelId label);
 
-  Result<bool> HasLabel(uint64_t label, View view);
+  Result<bool> HasLabel(LabelId label, View view);
 
-  Result<std::vector<uint64_t>> Labels(View view);
+  Result<std::vector<LabelId>> Labels(View view);
 
-  Result<bool> SetProperty(uint64_t property, const PropertyValue &value);
+  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
-  Result<PropertyValue> GetProperty(uint64_t property, View view);
+  Result<PropertyValue> GetProperty(PropertyId property, View view);
 
-  Result<std::map<uint64_t, PropertyValue>> Properties(View view);
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view);
 
-  Result<std::vector<EdgeAccessor>>
-  InEdges(const std::vector<uint64_t> &edge_types, View view);
+  Result<std::vector<EdgeAccessor>> InEdges(
+      const std::vector<EdgeTypeId> &edge_types, View view);
 
-  Result<std::vector<EdgeAccessor>>
-  OutEdges(const std::vector<uint64_t> &edge_types, View view);
+  Result<std::vector<EdgeAccessor>> OutEdges(
+      const std::vector<EdgeTypeId> &edge_types, View view);
 
   Gid Gid() const { return vertex_->gid; }
 

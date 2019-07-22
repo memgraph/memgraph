@@ -9,7 +9,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/gid.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace storage {
 
@@ -21,11 +21,11 @@ struct Vertex {
 
   Gid gid;
 
-  std::vector<uint64_t> labels;
-  std::map<uint64_t, storage::PropertyValue> properties;
+  std::vector<LabelId> labels;
+  std::map<PropertyId, storage::PropertyValue> properties;
 
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> in_edges;
-  std::vector<std::tuple<uint64_t, Vertex *, Edge *>> out_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
 
   utils::SpinLock lock;
   bool deleted;

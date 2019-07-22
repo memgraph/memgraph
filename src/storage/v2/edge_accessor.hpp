@@ -19,7 +19,7 @@ class EdgeAccessor final {
   friend class Storage;
 
  public:
-  EdgeAccessor(Edge *edge, uint64_t edge_type, Vertex *from_vertex,
+  EdgeAccessor(Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
                Vertex *to_vertex, Transaction *transaction)
       : edge_(edge),
         edge_type_(edge_type),
@@ -31,13 +31,13 @@ class EdgeAccessor final {
 
   VertexAccessor ToVertex();
 
-  uint64_t EdgeType() const { return edge_type_; }
+  EdgeTypeId EdgeType() const { return edge_type_; }
 
-  Result<bool> SetProperty(uint64_t property, const PropertyValue &value);
+  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
-  Result<PropertyValue> GetProperty(uint64_t property, View view);
+  Result<PropertyValue> GetProperty(PropertyId property, View view);
 
-  Result<std::map<uint64_t, PropertyValue>> Properties(View view);
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view);
 
   Gid Gid() const { return edge_->gid; }
 
@@ -48,7 +48,7 @@ class EdgeAccessor final {
 
  private:
   Edge *edge_;
-  uint64_t edge_type_;
+  EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
   Transaction *transaction_;

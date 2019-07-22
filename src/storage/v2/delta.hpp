@@ -4,6 +4,7 @@
 
 #include <glog/logging.h>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace storage {
@@ -128,49 +129,49 @@ struct Delta {
         timestamp(timestamp),
         command_id(command_id) {}
 
-  Delta(AddLabelTag, uint64_t label, std::atomic<uint64_t> *timestamp,
+  Delta(AddLabelTag, LabelId label, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::ADD_LABEL),
         timestamp(timestamp),
         command_id(command_id),
         label(label) {}
 
-  Delta(RemoveLabelTag, uint64_t label, std::atomic<uint64_t> *timestamp,
+  Delta(RemoveLabelTag, LabelId label, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::REMOVE_LABEL),
         timestamp(timestamp),
         command_id(command_id),
         label(label) {}
 
-  Delta(SetPropertyTag, uint64_t key, const PropertyValue &value,
+  Delta(SetPropertyTag, PropertyId key, const PropertyValue &value,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::SET_PROPERTY),
         timestamp(timestamp),
         command_id(command_id),
         property({key, value}) {}
 
-  Delta(AddInEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+  Delta(AddInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(AddOutEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+  Delta(AddOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveInEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+  Delta(RemoveInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveOutEdgeTag, uint64_t edge_type, Vertex *vertex, Edge *edge,
+  Delta(RemoveOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
         timestamp(timestamp),
@@ -223,13 +224,13 @@ struct Delta {
   std::atomic<Delta *> next{nullptr};
 
   union {
-    uint64_t label;
+    LabelId label;
     struct {
-      uint64_t key;
+      PropertyId key;
       storage::PropertyValue value;
     } property;
     struct {
-      uint64_t edge_type;
+      EdgeTypeId edge_type;
       Vertex *vertex;
       Edge *edge;
     } vertex_edge;
