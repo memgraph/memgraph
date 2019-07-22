@@ -46,6 +46,40 @@ inline static constexpr StorageGcConfig DefaultGcConfig = {
     .type = StorageGcConfig::Type::PERIODIC,
     .interval = std::chrono::milliseconds(1000)};
 
+class VerticesIterable final {
+  utils::SkipList<Vertex>::Accessor vertices_accessor_;
+  Transaction *transaction_;
+  View view_;
+
+  class Iterator final {
+    VerticesIterable *self_;
+    utils::SkipList<Vertex>::Iterator it_;
+
+   public:
+    Iterator(VerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+
+    VertexAccessor operator*() const;
+
+    Iterator &operator++();
+
+    bool operator==(const Iterator &other) const {
+      return self_ == other.self_ && it_ == other.it_;
+    }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+ public:
+  VerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
+                   Transaction *transaction, View view)
+      : vertices_accessor_(std::move(vertices_accessor)),
+        transaction_(transaction),
+        view_(view) {}
+
+  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
+  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+};
+
 class Storage final {
  public:
   explicit Storage(StorageGcConfig gc_config = DefaultGcConfig);
@@ -73,6 +107,11 @@ class Storage final {
     VertexAccessor CreateVertex();
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
+
+    VerticesIterable Vertices(View view) {
+      return VerticesIterable(storage_->vertices_.access(), &transaction_,
+                              view);
+    }
 
     Result<bool> DeleteVertex(VertexAccessor *vertex);
 

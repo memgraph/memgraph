@@ -8,6 +8,41 @@
 
 namespace storage {
 
+namespace {
+
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
+                            utils::SkipList<Vertex>::Iterator end,
+                            Transaction *tx, View view) {
+  while (it != end) {
+    auto maybe_vertex = VertexAccessor::Create(&*it, tx, view);
+    if (!maybe_vertex) {
+      ++it;
+      continue;
+    }
+    break;
+  }
+  return it;
+}
+
+}  // namespace
+
+VerticesIterable::Iterator::Iterator(VerticesIterable *self,
+                                     utils::SkipList<Vertex>::Iterator it)
+    : self_(self),
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
+                                 self->transaction_, self->view_)) {}
+
+VertexAccessor VerticesIterable::Iterator::operator*() const {
+  return *VertexAccessor::Create(&*it_, self_->transaction_, self_->view_);
+}
+
+VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
+  ++it_;
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
+                               self_->transaction_, self_->view_);
+  return *this;
+}
+
 Storage::Storage(StorageGcConfig gc_config) : gc_config_(gc_config) {
   if (gc_config.type == StorageGcConfig::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", gc_config.interval,
