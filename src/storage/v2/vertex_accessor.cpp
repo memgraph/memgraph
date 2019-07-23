@@ -449,4 +449,78 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
   return std::move(ret);
 }
 
+Result<size_t> VertexAccessor::InDegree(View view) const {
+  size_t degree = 0;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    degree = vertex_->in_edges.size();
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view,
+                     [&deleted, &degree](const Delta &delta) {
+                       switch (delta.action) {
+                         case Delta::Action::ADD_IN_EDGE:
+                           ++degree;
+                           break;
+                         case Delta::Action::REMOVE_IN_EDGE:
+                           --degree;
+                           break;
+                         case Delta::Action::DELETE_OBJECT:
+                           LOG(FATAL) << "Invalid accessor!";
+                           break;
+                         case Delta::Action::RECREATE_OBJECT:
+                           deleted = false;
+                           break;
+                         case Delta::Action::ADD_LABEL:
+                         case Delta::Action::REMOVE_LABEL:
+                         case Delta::Action::SET_PROPERTY:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
+                           break;
+                       }
+                     });
+  if (deleted) return Error::DELETED_OBJECT;
+  return degree;
+}
+
+Result<size_t> VertexAccessor::OutDegree(View view) const {
+  size_t degree = 0;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    degree = vertex_->out_edges.size();
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view,
+                     [&deleted, &degree](const Delta &delta) {
+                       switch (delta.action) {
+                         case Delta::Action::ADD_OUT_EDGE:
+                           ++degree;
+                           break;
+                         case Delta::Action::REMOVE_OUT_EDGE:
+                           --degree;
+                           break;
+                         case Delta::Action::DELETE_OBJECT:
+                           LOG(FATAL) << "Invalid accessor!";
+                           break;
+                         case Delta::Action::RECREATE_OBJECT:
+                           deleted = false;
+                           break;
+                         case Delta::Action::ADD_LABEL:
+                         case Delta::Action::REMOVE_LABEL:
+                         case Delta::Action::SET_PROPERTY:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                           break;
+                       }
+                     });
+  if (deleted) return Error::DELETED_OBJECT;
+  return degree;
+}
+
 }  // namespace storage

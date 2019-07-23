@@ -49,6 +49,10 @@ class VertexAccessor final {
   Result<std::vector<EdgeAccessor>> OutEdges(
       const std::vector<EdgeTypeId> &edge_types, View view) const;
 
+  Result<size_t> InDegree(View view) const;
+
+  Result<size_t> OutDegree(View view) const;
+
   Gid Gid() const { return vertex_->gid; }
 
   bool operator==(const VertexAccessor &other) const {

@@ -132,6 +132,7 @@ TEST(StorageV2Gc, Sanity) {
         auto out_edges = vertex->OutEdges({}, storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.GetValue().size(), 1);
+          EXPECT_EQ(*vertex->OutDegree(storage::View::NEW), 1);
           EXPECT_EQ(out_edges.GetValue().at(0).EdgeType().AsUint(), i);
         } else {
           EXPECT_TRUE(out_edges->empty());
@@ -140,6 +141,7 @@ TEST(StorageV2Gc, Sanity) {
         auto in_edges = vertex->InEdges({}, storage::View::NEW);
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetValue().size(), 1);
+          EXPECT_EQ(*vertex->InDegree(storage::View::NEW), 1);
           EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(),
                     (i + 999) % 1000);
         } else {
