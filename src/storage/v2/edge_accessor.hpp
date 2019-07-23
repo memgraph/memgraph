@@ -27,17 +27,17 @@ class EdgeAccessor final {
         to_vertex_(to_vertex),
         transaction_(transaction) {}
 
-  VertexAccessor FromVertex();
+  VertexAccessor FromVertex() const;
 
-  VertexAccessor ToVertex();
+  VertexAccessor ToVertex() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
-  Result<PropertyValue> GetProperty(PropertyId property, View view);
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view);
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   Gid Gid() const { return edge_->gid; }
 

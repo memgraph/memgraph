@@ -29,21 +29,21 @@ class VertexAccessor final {
 
   Result<bool> RemoveLabel(LabelId label);
 
-  Result<bool> HasLabel(LabelId label, View view);
+  Result<bool> HasLabel(LabelId label, View view) const;
 
-  Result<std::vector<LabelId>> Labels(View view);
+  Result<std::vector<LabelId>> Labels(View view) const;
 
   Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
-  Result<PropertyValue> GetProperty(PropertyId property, View view);
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view);
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   Result<std::vector<EdgeAccessor>> InEdges(
-      const std::vector<EdgeTypeId> &edge_types, View view);
+      const std::vector<EdgeTypeId> &edge_types, View view) const;
 
   Result<std::vector<EdgeAccessor>> OutEdges(
-      const std::vector<EdgeTypeId> &edge_types, View view);
+      const std::vector<EdgeTypeId> &edge_types, View view) const;
 
   Gid Gid() const { return vertex_->gid; }
 

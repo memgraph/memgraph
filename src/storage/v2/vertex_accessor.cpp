@@ -78,7 +78,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   return Result<bool>{true};
 }
 
-Result<bool> VertexAccessor::HasLabel(LabelId label, View view) {
+Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool deleted = false;
   bool has_label = false;
   Delta *delta = nullptr;
@@ -126,7 +126,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) {
   return Result<bool>{has_label};
 }
 
-Result<std::vector<LabelId>> VertexAccessor::Labels(View view) {
+Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool deleted = false;
   std::vector<LabelId> labels;
   Delta *delta = nullptr;
@@ -207,7 +207,7 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
-                                                  View view) {
+                                                  View view) const {
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
@@ -251,7 +251,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
-    View view) {
+    View view) const {
   std::map<PropertyId, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -303,7 +303,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
-    const std::vector<EdgeTypeId> &edge_types, View view) {
+    const std::vector<EdgeTypeId> &edge_types, View view) const {
   std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -369,7 +369,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
-    const std::vector<EdgeTypeId> &edge_types, View view) {
+    const std::vector<EdgeTypeId> &edge_types, View view) const {
   std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
   bool deleted = false;
   Delta *delta = nullptr;

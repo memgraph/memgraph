@@ -7,11 +7,11 @@
 
 namespace storage {
 
-VertexAccessor EdgeAccessor::FromVertex() {
+VertexAccessor EdgeAccessor::FromVertex() const {
   return VertexAccessor{from_vertex_, transaction_};
 }
 
-VertexAccessor EdgeAccessor::ToVertex() {
+VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_};
 }
 
@@ -48,7 +48,7 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
-                                                View view) {
+                                                View view) const {
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
@@ -92,7 +92,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
-    View view) {
+    View view) const {
   std::map<PropertyId, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
