@@ -44,10 +44,18 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
     # NOTE: ${${}ARGN} syntax escapes evaluating macro's ARGN variable; see:
     # https://stackoverflow.com/questions/50365544/how-to-access-enclosing-functions-arguments-from-within-a-macro
     cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
-    string(REGEX REPLACE "\.lcp$" ".hpp" h_file
-           "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+    if (IS_ABSOLUTE ${lcp_file})
+      string(REGEX REPLACE "\.lcp$" ".hpp" h_file ${lcp_file})
+    else()
+      string(REGEX REPLACE "\.lcp$" ".hpp" h_file
+             "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+    endif()
     if (NOT KW_NO_CPP)
-      set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
+      if (IS_ABSOLUTE ${lcp_file})
+        set(cpp_file ${lcp_file}.cpp)
+      else()
+        set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
+      endif()
       # Update *global* main_src_files
       set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
     endif()
@@ -68,7 +76,7 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/debug.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/test.lisp
-				${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
         ${CMAKE_SOURCE_DIR}/tools/lcp)
     add_custom_command(OUTPUT ${h_file} ${cpp_file}
       COMMAND ${CMAKE_SOURCE_DIR}/tools/lcp ${lcp_file} ${slk_serialize}
