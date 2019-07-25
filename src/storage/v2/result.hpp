@@ -22,24 +22,44 @@ class [[nodiscard]] Result final {
   bool HasValue() const { return value_.has_value(); }
   bool HasError() const { return error_.has_value(); }
 
-  TValue &GetValue() {
+  TValue &GetValue() & {
     CHECK(value_) << "The storage result is an error!";
     return *value_;
   }
 
-  const TValue &GetValue() const {
+  TValue &&GetValue() && {
+    CHECK(value_) << "The storage result is an error!";
+    return std::move(*value_);
+  }
+
+  const TValue &GetValue() const & {
     CHECK(value_) << "The storage result is an error!";
     return *value_;
   }
 
-  TValue &operator*() {
+  const TValue &&GetValue() const && {
+    CHECK(value_) << "The storage result is an error!";
+    return std::move(*value_);
+  }
+
+  TValue &operator*() & {
     CHECK(value_) << "The storage result is an error!";
     return *value_;
   }
 
-  const TValue &operator*() const {
+  TValue &&operator*() && {
+    CHECK(value_) << "The storage result is an error!";
+    return std::move(*value_);
+  }
+
+  const TValue &operator*() const & {
     CHECK(value_) << "The storage result is an error!";
     return *value_;
+  }
+
+  const TValue &&operator*() const && {
+    CHECK(value_) << "The storage result is an error!";
+    return std::move(*value_);
   }
 
   TValue *operator->() {
