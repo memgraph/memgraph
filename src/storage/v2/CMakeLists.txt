@@ -1,5 +1,6 @@
 set(storage_v2_src_files
     edge_accessor.cpp
+    indices.cpp
     vertex_accessor.cpp
     storage.cpp)
 

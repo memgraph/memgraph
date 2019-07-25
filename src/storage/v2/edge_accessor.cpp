@@ -8,11 +8,11 @@
 namespace storage {
 
 VertexAccessor EdgeAccessor::FromVertex() const {
-  return VertexAccessor{from_vertex_, transaction_};
+  return VertexAccessor{from_vertex_, transaction_, indices_};
 }
 
 VertexAccessor EdgeAccessor::ToVertex() const {
-  return VertexAccessor{to_vertex_, transaction_};
+  return VertexAccessor{to_vertex_, transaction_, indices_};
 }
 
 Result<bool> EdgeAccessor::SetProperty(PropertyId property,

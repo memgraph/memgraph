@@ -5,8 +5,9 @@
 
 using testing::UnorderedElementsAre;
 
-// TODO: We should implement a more sophisticated stress test to verify that GC
-// is working properly in a multithreaded environment.
+// TODO: The point of these is not to test GC fully, these are just simple
+// sanity checks. These will be superseded by a more sophisticated stress test
+// which will verify that GC is working properly in a multithreaded environment.
 
 // A simple test trying to get GC to run while a transaction is still alive and
 // then verify that GC didn't delete anything it shouldn't have.
@@ -148,5 +149,47 @@ TEST(StorageV2Gc, Sanity) {
     }
 
     acc.Commit();
+  }
+}
+
+// A simple sanity check for index GC:
+// 1. Start transaction 0, create some vertices, add a label to them and
+//    commit.
+// 2. Start transaction 1.
+// 3. Start transaction 2, remove the labels and commit;
+// 4. Wait for GC. GC shouldn't remove the vertices from index because
+//    transaction 1 can still see them with that label.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2Gc, Indices) {
+  storage::Storage storage(
+      storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::PERIODIC,
+                               .interval = std::chrono::milliseconds(100)});
+
+  {
+    auto acc0 = storage.Access();
+    for (uint64_t i = 0; i < 1000; ++i) {
+      auto vertex = acc0.CreateVertex();
+      ASSERT_TRUE(*vertex.AddLabel(acc0.NameToLabel("label")));
+    }
+    acc0.Commit();
+  }
+  {
+    auto acc1 = storage.Access();
+
+    auto acc2 = storage.Access();
+    for (auto vertex : acc2.Vertices(storage::View::OLD)) {
+      ASSERT_TRUE(*vertex.RemoveLabel(acc2.NameToLabel("label")));
+    }
+    acc2.Commit();
+
+    // Wait for GC.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    std::set<storage::Gid> gids;
+    for (auto vertex :
+         acc1.Vertices(acc1.NameToLabel("label"), storage::View::OLD)) {
+      gids.insert(vertex.Gid());
+    }
+    EXPECT_EQ(gids.size(), 1000);
   }
 }

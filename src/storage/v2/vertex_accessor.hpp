@@ -12,18 +12,19 @@ namespace storage {
 
 class EdgeAccessor;
 class Storage;
+struct Indices;
 
 class VertexAccessor final {
  private:
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Transaction *transaction)
-      : vertex_(vertex), transaction_(transaction) {}
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices)
+      : vertex_(vertex), transaction_(transaction), indices_(indices) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
-                                              View view);
+                                              Indices *indices, View view);
 
   Result<bool> AddLabel(LabelId label);
 
@@ -57,6 +58,7 @@ class VertexAccessor final {
  private:
   Vertex *vertex_;
   Transaction *transaction_;
+  Indices *indices_;
 };
 
 }  // namespace storage

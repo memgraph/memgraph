@@ -3,12 +3,14 @@
 #include <memory>
 
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 
 namespace storage {
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
                                                      Transaction *transaction,
+                                                     Indices *indices,
                                                      View view) {
   bool is_visible = true;
   Delta *delta = nullptr;
@@ -39,7 +41,7 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
                        }
                      });
   if (!is_visible) return std::nullopt;
-  return VertexAccessor{vertex, transaction};
+  return VertexAccessor{vertex, transaction, indices};
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
@@ -57,6 +59,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
   vertex_->labels.push_back(label);
+
+  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+
   return Result<bool>{true};
 }
 
@@ -202,6 +207,8 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
       vertex_->properties.emplace(property, value);
     }
   }
+
+  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
   return Result<bool>{existed};
 }
@@ -362,7 +369,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
     auto [edge_type, from_vertex, edge] = item;
     if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
                                         edge_type) != edge_types.end()) {
-      ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_);
+      ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_,
+                       indices_);
     }
   }
   return Result<decltype(ret)>(std::move(ret));
@@ -428,7 +436,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
     auto [edge_type, to_vertex, edge] = item;
     if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
                                         edge_type) != edge_types.end()) {
-      ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_);
+      ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_,
+                       indices_);
     }
   }
   return Result<decltype(ret)>(std::move(ret));

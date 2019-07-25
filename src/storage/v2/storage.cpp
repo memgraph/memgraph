@@ -8,13 +8,11 @@
 
 namespace storage {
 
-namespace {
-
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
-                            Transaction *tx, View view) {
+                            Transaction *tx, View view, Indices *indices) {
   while (it != end) {
-    auto maybe_vertex = VertexAccessor::Create(&*it, tx, view);
+    auto maybe_vertex = VertexAccessor::Create(&*it, tx, indices, view);
     if (!maybe_vertex) {
       ++it;
       continue;
@@ -24,22 +22,25 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
   return it;
 }
 
-}  // namespace
-
 VerticesIterable::Iterator::Iterator(VerticesIterable *self,
                                      utils::SkipList<Vertex>::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
-                                 self->transaction_, self->view_)) {}
+                                 self->transaction_, self->view_,
+                                 self->indices_)) {}
 
 VertexAccessor VerticesIterable::Iterator::operator*() const {
-  return *VertexAccessor::Create(&*it_, self_->transaction_, self_->view_);
+  // TODO: current vertex accessor could be cached to avoid reconstructing every
+  // time
+  return *VertexAccessor::Create(&*it_, self_->transaction_, self_->indices_,
+                                 self_->view_);
 }
 
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
-                               self_->transaction_, self_->view_);
+                               self_->transaction_, self_->view_,
+                               self_->indices_);
   return *this;
 }
 
@@ -88,7 +89,7 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   CHECK(inserted) << "The vertex must be inserted here!";
   CHECK(it != acc.end()) << "Invalid Vertex accessor!";
   delta->prev.Set(&*it);
-  return VertexAccessor{&*it, &transaction_};
+  return VertexAccessor{&*it, &transaction_, &storage_->indices_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
@@ -96,7 +97,7 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
   auto acc = storage_->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, view);
+  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, view);
 }
 
 Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -144,7 +145,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e{edge, edge_type, from_vertex, vertex_ptr, &transaction_};
+    EdgeAccessor e{edge,       edge_type,     from_vertex,
+                   vertex_ptr, &transaction_, &storage_->indices_};
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -154,7 +156,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e{edge, edge_type, vertex_ptr, to_vertex, &transaction_};
+    EdgeAccessor e{edge,      edge_type,     vertex_ptr,
+                   to_vertex, &transaction_, &storage_->indices_};
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -235,8 +238,9 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                      edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-  return Result<EdgeAccessor>{
-      EdgeAccessor{edge, edge_type, from_vertex, to_vertex, &transaction_}};
+  return Result<EdgeAccessor>{EdgeAccessor{edge, edge_type, from_vertex,
+                                           to_vertex, &transaction_,
+                                           &storage_->indices_}};
 }
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
@@ -587,6 +591,32 @@ Storage::Accessor Storage::Access() {
   return Accessor{this, transaction_id, start_timestamp};
 }
 
+LabelIndex::Iterable Storage::Accessor::Vertices(LabelId label, View view) {
+  return storage_->indices_.label_index.Vertices(label, view, &transaction_);
+}
+
+LabelPropertyIndex::Iterable Storage::Accessor::Vertices(LabelId label,
+                                                         PropertyId property,
+                                                         View view) {
+  return storage_->indices_.label_property_index.Vertices(
+      label, property, std::nullopt, std::nullopt, view, &transaction_);
+}
+
+LabelPropertyIndex::Iterable Storage::Accessor::Vertices(
+    LabelId label, PropertyId property, const PropertyValue &value, View view) {
+  return storage_->indices_.label_property_index.Vertices(
+      label, property, utils::MakeBoundInclusive(value),
+      utils::MakeBoundInclusive(value), view, &transaction_);
+}
+
+LabelPropertyIndex::Iterable Storage::Accessor::Vertices(
+    LabelId label, PropertyId property,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
+  return storage_->indices_.label_property_index.Vertices(
+      label, property, lower_bound, upper_bound, view, &transaction_);
+}
+
 void Storage::CollectGarbage() {
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
@@ -606,9 +636,9 @@ void Storage::CollectGarbage() {
   // garbage_undo_buffers lock.
   std::list<std::pair<uint64_t, std::list<Delta>>> unlinked_undo_buffers;
 
-  // We will free only vertices deleted up until now in this GC cycle.
-  // Otherwise, GC cycle might be prolonged by aborted transactions adding new
-  // edges and vertices to the lists over and over again.
+  // We will only free vertices deleted up until now in this GC cycle, and we
+  // will do it after cleaning-up the indices. That way we are sure that all
+  // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
   deleted_vertices_->swap(current_deleted_vertices);
@@ -697,10 +727,15 @@ void Storage::CollectGarbage() {
     });
   }
 
+  // After unlinking deltas from vertices, we refresh the indices. That way
+  // we're sure that none of the vertices from `current_deleted_vertices`
+  // appears in an index, and we can safely remove the from the main storage
+  // after the last currently active transaction is finished.
+  RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+
   {
-    uint64_t mark_timestamp;
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
-    mark_timestamp = timestamp_;
+    uint64_t mark_timestamp = timestamp_;
     // Take garbage_undo_buffers lock while holding the engine lock to make
     // sure that entries are sorted by mark timestamp in the list.
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
@@ -716,6 +751,9 @@ void Storage::CollectGarbage() {
       garbage_undo_buffers.splice(garbage_undo_buffers.end(),
                                   unlinked_undo_buffers);
     });
+    for (auto vertex : current_deleted_vertices) {
+      garbage_vertices_.emplace_back(mark_timestamp, vertex);
+    }
   }
 
   while (true) {
@@ -730,8 +768,11 @@ void Storage::CollectGarbage() {
 
   {
     auto vertex_acc = vertices_.access();
-    for (auto vertex : current_deleted_vertices) {
-      CHECK(vertex_acc.remove(vertex)) << "Invalid database state!";
+    while (!garbage_vertices_.empty() &&
+           garbage_vertices_.front().first < oldest_active_start_timestamp) {
+      CHECK(vertex_acc.remove(garbage_vertices_.front().second))
+          << "Invalid database state!";
+      garbage_vertices_.pop_front();
     }
   }
   {

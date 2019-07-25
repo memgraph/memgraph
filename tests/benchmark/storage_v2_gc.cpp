@@ -18,9 +18,6 @@ DEFINE_int32(num_iterations, kNumIterations, "number of iterations");
 std::pair<std::string, storage::StorageGcConfig> TestConfigurations[] = {
     {"NoGc",
      storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::NONE}},
-    {"OnFinishGc",
-     storage::StorageGcConfig{.type =
-                                  storage::StorageGcConfig::Type::ON_FINISH}},
     {"100msPeriodicGc",
      storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::PERIODIC,
                               .interval = std::chrono::milliseconds(100)}},

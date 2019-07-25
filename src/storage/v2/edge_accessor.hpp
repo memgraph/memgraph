@@ -12,7 +12,7 @@ namespace storage {
 
 struct Vertex;
 class VertexAccessor;
-class Storage;
+struct Indices;
 
 class EdgeAccessor final {
  private:
@@ -20,12 +20,13 @@ class EdgeAccessor final {
 
  public:
   EdgeAccessor(Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
-               Vertex *to_vertex, Transaction *transaction)
+               Vertex *to_vertex, Transaction *transaction, Indices *indices)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
-        transaction_(transaction) {}
+        transaction_(transaction),
+        indices_(indices) {}
 
   VertexAccessor FromVertex() const;
 
@@ -52,6 +53,7 @@ class EdgeAccessor final {
   Vertex *from_vertex_;
   Vertex *to_vertex_;
   Transaction *transaction_;
+  Indices *indices_;
 };
 
 }  // namespace storage

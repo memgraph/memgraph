@@ -6,6 +6,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
@@ -50,6 +51,7 @@ class VerticesIterable final {
   utils::SkipList<Vertex>::Accessor vertices_accessor_;
   Transaction *transaction_;
   View view_;
+  Indices *indices_;
 
   class Iterator final {
     VerticesIterable *self_;
@@ -71,10 +73,11 @@ class VerticesIterable final {
 
  public:
   VerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
-                   Transaction *transaction, View view)
+                   Transaction *transaction, View view, Indices *indices)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
-        view_(view) {}
+        view_(view),
+        indices_(indices) {}
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
   Iterator end() { return Iterator(this, vertices_accessor_.end()); }
@@ -109,9 +112,24 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(storage_->vertices_.access(), &transaction_,
-                              view);
+      return VerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                              &storage_->indices_);
     }
+
+    LabelIndex::Iterable Vertices(LabelId label, View view);
+
+    LabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
+                                          View view);
+
+    LabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
+                                          const PropertyValue &value,
+                                          View view);
+
+    LabelPropertyIndex::Iterable Vertices(
+        LabelId label, PropertyId property,
+        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+        View view);
 
     Result<bool> DeleteVertex(VertexAccessor *vertex);
 
@@ -147,6 +165,21 @@ class Storage final {
 
   Accessor Access();
 
+  bool CreateIndex(LabelId label, PropertyId property) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return indices_.label_property_index.CreateIndex(label, property,
+                                                     vertices_.access());
+  }
+
+  bool DropIndex(LabelId label, PropertyId property) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return indices_.label_property_index.DropIndex(label, property);
+  }
+
+  bool LabelPropertyIndexExists(LabelId label, PropertyId property) {
+    return indices_.label_property_index.IndexExists(label, property);
+  }
+
  private:
   void CollectGarbage();
 
@@ -165,6 +198,8 @@ class Storage final {
   std::atomic<uint64_t> edge_id_{0};
 
   NameIdMapper name_id_mapper_;
+
+  Indices indices_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;
@@ -188,9 +223,16 @@ class Storage final {
                       utils::SpinLock>
       garbage_undo_buffers_;
 
-  // Vertices that are logically deleted and now are waiting to be removed from
-  // the main storage.
+  // Vertices that are logically deleted but still have to be removed from
+  // indices before removing them from the main storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+
+  // Vertices that are logically deleted and removed from indices and now wait
+  // to be removed from the main storage.
+  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
+
+  // Edges that are logically deleted and wait to be removed from the main
+  // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 };
 
