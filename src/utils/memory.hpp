@@ -15,7 +15,11 @@
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
+#if _GLIBCXX_RELEASE < 9
 #include <experimental/memory_resource>
+#else
+#include <memory_resource>
+#endif
 
 #include "utils/math.hpp"
 #include "utils/spin_lock.hpp"
@@ -264,9 +268,13 @@ using AVector = std::vector<T, Allocator<T>>;
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {
  public:
-  /// Implicitly convert std::pmr::memory_resource to StdMemoryResource
+#if _GLIBCXX_RELEASE < 9
   StdMemoryResource(std::experimental::pmr::memory_resource *memory)
       : memory_(memory) {}
+#else
+  /// Implicitly convert std::pmr::memory_resource to StdMemoryResource
+  StdMemoryResource(std::pmr::memory_resource *memory) : memory_(memory) {}
+#endif
 
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override {
@@ -292,12 +300,20 @@ class StdMemoryResource final : public MemoryResource {
     return *memory_ == *other_std->memory_;
   }
 
+#if _GLIBCXX_RELEASE < 9
   std::experimental::pmr::memory_resource *memory_;
+#else
+  std::pmr::memory_resource *memory_;
+#endif
 };
 
 inline MemoryResource *NewDeleteResource() noexcept {
+#if _GLIBCXX_RELEASE < 9
   static StdMemoryResource memory(
       std::experimental::pmr::new_delete_resource());
+#else
+  static StdMemoryResource memory(std::pmr::new_delete_resource());
+#endif
   return &memory;
 }
 
