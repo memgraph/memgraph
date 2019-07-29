@@ -47,18 +47,23 @@ inline static constexpr StorageGcConfig DefaultGcConfig = {
     .type = StorageGcConfig::Type::PERIODIC,
     .interval = std::chrono::milliseconds(1000)};
 
-class VerticesIterable final {
+/// Iterable for iterating through all vertices of a Storage.
+///
+/// An instance of this will be usually be wrapped inside VerticesIterable for
+/// generic, public use.
+class AllVerticesIterable final {
   utils::SkipList<Vertex>::Accessor vertices_accessor_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
 
+ public:
   class Iterator final {
-    VerticesIterable *self_;
+    AllVerticesIterable *self_;
     utils::SkipList<Vertex>::Iterator it_;
 
    public:
-    Iterator(VerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
 
     VertexAccessor operator*() const;
 
@@ -71,9 +76,8 @@ class VerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
- public:
-  VerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
-                   Transaction *transaction, View view, Indices *indices)
+  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
+                      Transaction *transaction, View view, Indices *indices)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
@@ -81,6 +85,68 @@ class VerticesIterable final {
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
   Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+};
+
+/// Generic access to different kinds of vertex iterations.
+///
+/// This class should be the primary type used by the client code to iterate
+/// over vertices inside a Storage instance.
+class VerticesIterable final {
+  enum class Type { ALL, BY_LABEL, BY_LABEL_PROPERTY };
+
+  Type type_;
+  union {
+    AllVerticesIterable all_vertices_;
+    LabelIndex::Iterable vertices_by_label_;
+    LabelPropertyIndex::Iterable vertices_by_label_property_;
+  };
+
+ public:
+  explicit VerticesIterable(AllVerticesIterable);
+  explicit VerticesIterable(LabelIndex::Iterable);
+  explicit VerticesIterable(LabelPropertyIndex::Iterable);
+
+  VerticesIterable(const VerticesIterable &) = delete;
+  VerticesIterable &operator=(const VerticesIterable &) = delete;
+
+  VerticesIterable(VerticesIterable &&) noexcept;
+  VerticesIterable &operator=(VerticesIterable &&) noexcept;
+
+  ~VerticesIterable();
+
+  class Iterator final {
+    Type type_;
+    union {
+      AllVerticesIterable::Iterator all_it_;
+      LabelIndex::Iterable::Iterator by_label_it_;
+      LabelPropertyIndex::Iterable::Iterator by_label_property_it_;
+    };
+
+    void Destroy() noexcept;
+
+   public:
+    explicit Iterator(AllVerticesIterable::Iterator);
+    explicit Iterator(LabelIndex::Iterable::Iterator);
+    explicit Iterator(LabelPropertyIndex::Iterable::Iterator);
+
+    Iterator(const Iterator &);
+    Iterator &operator=(const Iterator &);
+
+    Iterator(Iterator &&) noexcept;
+    Iterator &operator=(Iterator &&) noexcept;
+
+    ~Iterator();
+
+    VertexAccessor operator*() const;
+
+    Iterator &operator++();
+
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  Iterator begin();
+  Iterator end();
 };
 
 class Storage final {
@@ -112,20 +178,19 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                              &storage_->indices_);
+      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(),
+                                                  &transaction_, view,
+                                                  &storage_->indices_));
     }
 
-    LabelIndex::Iterable Vertices(LabelId label, View view);
+    VerticesIterable Vertices(LabelId label, View view);
 
-    LabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
-                                          View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property, View view);
 
-    LabelPropertyIndex::Iterable Vertices(LabelId label, PropertyId property,
-                                          const PropertyValue &value,
-                                          View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property,
+                              const PropertyValue &value, View view);
 
-    LabelPropertyIndex::Iterable Vertices(
+    VerticesIterable Vertices(
         LabelId label, PropertyId property,
         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
         const std::optional<utils::Bound<PropertyValue>> &upper_bound,

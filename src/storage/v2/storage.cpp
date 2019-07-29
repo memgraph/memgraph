@@ -22,26 +22,267 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
   return it;
 }
 
-VerticesIterable::Iterator::Iterator(VerticesIterable *self,
-                                     utils::SkipList<Vertex>::Iterator it)
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
+                                        utils::SkipList<Vertex>::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
                                  self->transaction_, self->view_,
                                  self->indices_)) {}
 
-VertexAccessor VerticesIterable::Iterator::operator*() const {
+VertexAccessor AllVerticesIterable::Iterator::operator*() const {
   // TODO: current vertex accessor could be cached to avoid reconstructing every
   // time
   return *VertexAccessor::Create(&*it_, self_->transaction_, self_->indices_,
                                  self_->view_);
 }
 
-VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
+AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
                                self_->transaction_, self_->view_,
                                self_->indices_);
   return *this;
+}
+
+VerticesIterable::VerticesIterable(AllVerticesIterable vertices)
+    : type_(Type::ALL) {
+  new (&all_vertices_) AllVerticesIterable(std::move(vertices));
+}
+
+VerticesIterable::VerticesIterable(LabelIndex::Iterable vertices)
+    : type_(Type::BY_LABEL) {
+  new (&vertices_by_label_) LabelIndex::Iterable(std::move(vertices));
+}
+
+VerticesIterable::VerticesIterable(LabelPropertyIndex::Iterable vertices)
+    : type_(Type::BY_LABEL_PROPERTY) {
+  new (&vertices_by_label_property_)
+      LabelPropertyIndex::Iterable(std::move(vertices));
+}
+
+VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept
+    : type_(other.type_) {
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
+      break;
+    case Type::BY_LABEL:
+      new (&vertices_by_label_)
+          LabelIndex::Iterable(std::move(other.vertices_by_label_));
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&vertices_by_label_property_) LabelPropertyIndex::Iterable(
+          std::move(other.vertices_by_label_property_));
+      break;
+  }
+}
+
+VerticesIterable &VerticesIterable::operator=(
+    VerticesIterable &&other) noexcept {
+  switch (type_) {
+    case Type::ALL:
+      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
+      break;
+    case Type::BY_LABEL:
+      vertices_by_label_.LabelIndex::Iterable::~Iterable();
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      vertices_by_label_property_.LabelPropertyIndex::Iterable::~Iterable();
+      break;
+  }
+  type_ = other.type_;
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
+      break;
+    case Type::BY_LABEL:
+      new (&vertices_by_label_)
+          LabelIndex::Iterable(std::move(other.vertices_by_label_));
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&vertices_by_label_property_) LabelPropertyIndex::Iterable(
+          std::move(other.vertices_by_label_property_));
+      break;
+  }
+  return *this;
+}
+
+VerticesIterable::~VerticesIterable() {
+  switch (type_) {
+    case Type::ALL:
+      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
+      break;
+    case Type::BY_LABEL:
+      vertices_by_label_.LabelIndex::Iterable::~Iterable();
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      vertices_by_label_property_.LabelPropertyIndex::Iterable::~Iterable();
+      break;
+  }
+}
+
+VerticesIterable::Iterator VerticesIterable::begin() {
+  switch (type_) {
+    case Type::ALL:
+      return Iterator(all_vertices_.begin());
+    case Type::BY_LABEL:
+      return Iterator(vertices_by_label_.begin());
+    case Type::BY_LABEL_PROPERTY:
+      return Iterator(vertices_by_label_property_.begin());
+  }
+}
+
+VerticesIterable::Iterator VerticesIterable::end() {
+  switch (type_) {
+    case Type::ALL:
+      return Iterator(all_vertices_.end());
+    case Type::BY_LABEL:
+      return Iterator(vertices_by_label_.end());
+    case Type::BY_LABEL_PROPERTY:
+      return Iterator(vertices_by_label_property_.end());
+  }
+}
+
+VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it)
+    : type_(Type::ALL) {
+  new (&all_it_) AllVerticesIterable::Iterator(std::move(it));
+}
+
+VerticesIterable::Iterator::Iterator(LabelIndex::Iterable::Iterator it)
+    : type_(Type::BY_LABEL) {
+  new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(it));
+}
+
+VerticesIterable::Iterator::Iterator(LabelPropertyIndex::Iterable::Iterator it)
+    : type_(Type::BY_LABEL_PROPERTY) {
+  new (&by_label_property_it_)
+      LabelPropertyIndex::Iterable::Iterator(std::move(it));
+}
+
+VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other)
+    : type_(other.type_) {
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+      break;
+    case Type::BY_LABEL:
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&by_label_property_it_)
+          LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
+      break;
+  }
+}
+
+VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(
+    const VerticesIterable::Iterator &other) {
+  Destroy();
+  type_ = other.type_;
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+      break;
+    case Type::BY_LABEL:
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&by_label_property_it_)
+          LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
+      break;
+  }
+  return *this;
+}
+
+VerticesIterable::Iterator::Iterator(
+    VerticesIterable::Iterator &&other) noexcept
+    : type_(other.type_) {
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+      break;
+    case Type::BY_LABEL:
+      new (&by_label_it_)
+          LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(
+          std::move(other.by_label_property_it_));
+      break;
+  }
+}
+
+VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(
+    VerticesIterable::Iterator &&other) noexcept {
+  Destroy();
+  type_ = other.type_;
+  switch (other.type_) {
+    case Type::ALL:
+      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+      break;
+    case Type::BY_LABEL:
+      new (&by_label_it_)
+          LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(
+          std::move(other.by_label_property_it_));
+      break;
+  }
+  return *this;
+}
+
+VerticesIterable::Iterator::~Iterator() { Destroy(); }
+
+void VerticesIterable::Iterator::Destroy() noexcept {
+  switch (type_) {
+    case Type::ALL:
+      all_it_.AllVerticesIterable::Iterator::~Iterator();
+      break;
+    case Type::BY_LABEL:
+      by_label_it_.LabelIndex::Iterable::Iterator::~Iterator();
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      by_label_property_it_.LabelPropertyIndex::Iterable::Iterator::~Iterator();
+      break;
+  }
+}
+
+VertexAccessor VerticesIterable::Iterator::operator*() const {
+  switch (type_) {
+    case Type::ALL:
+      return *all_it_;
+    case Type::BY_LABEL:
+      return *by_label_it_;
+    case Type::BY_LABEL_PROPERTY:
+      return *by_label_property_it_;
+  }
+}
+
+VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
+  switch (type_) {
+    case Type::ALL:
+      ++all_it_;
+      break;
+    case Type::BY_LABEL:
+      ++by_label_it_;
+      break;
+    case Type::BY_LABEL_PROPERTY:
+      ++by_label_property_it_;
+      break;
+  }
+  return *this;
+}
+
+bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
+  switch (type_) {
+    case Type::ALL:
+      return all_it_ == other.all_it_;
+    case Type::BY_LABEL:
+      return by_label_it_ == other.by_label_it_;
+    case Type::BY_LABEL_PROPERTY:
+      return by_label_property_it_ == other.by_label_property_it_;
+  }
 }
 
 Storage::Storage(StorageGcConfig gc_config) : gc_config_(gc_config) {
@@ -591,30 +832,31 @@ Storage::Accessor Storage::Access() {
   return Accessor{this, transaction_id, start_timestamp};
 }
 
-LabelIndex::Iterable Storage::Accessor::Vertices(LabelId label, View view) {
-  return storage_->indices_.label_index.Vertices(label, view, &transaction_);
+VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {
+  return VerticesIterable(
+      storage_->indices_.label_index.Vertices(label, view, &transaction_));
 }
 
-LabelPropertyIndex::Iterable Storage::Accessor::Vertices(LabelId label,
-                                                         PropertyId property,
-                                                         View view) {
-  return storage_->indices_.label_property_index.Vertices(
-      label, property, std::nullopt, std::nullopt, view, &transaction_);
+VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
+                                             View view) {
+  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
+      label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
-LabelPropertyIndex::Iterable Storage::Accessor::Vertices(
-    LabelId label, PropertyId property, const PropertyValue &value, View view) {
-  return storage_->indices_.label_property_index.Vertices(
+VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
+                                             const PropertyValue &value,
+                                             View view) {
+  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
       label, property, utils::MakeBoundInclusive(value),
-      utils::MakeBoundInclusive(value), view, &transaction_);
+      utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
-LabelPropertyIndex::Iterable Storage::Accessor::Vertices(
+VerticesIterable Storage::Accessor::Vertices(
     LabelId label, PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return storage_->indices_.label_property_index.Vertices(
-      label, property, lower_bound, upper_bound, view, &transaction_);
+  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
+      label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
 void Storage::CollectGarbage() {
