@@ -69,6 +69,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a pointer to the created delta. It doesn't perform any linking of the delta
 /// and is primarily used to create the first delta for an object (that must be
 /// a `DELETE_OBJECT` delta).
+/// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(),
@@ -78,6 +79,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 
 /// This function creates a delta in the transaction for the object and links
 /// the delta into the object's delta list.
+/// @throw std::bad_alloc
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
                                Args &&... args) {

@@ -44,6 +44,7 @@ class CommitLog final {
   }
 
   /// Mark a transaction as finished.
+  /// @throw std::bad_alloc
   void MarkFinished(uint64_t id) {
     std::lock_guard<utils::SpinLock> guard(lock_);
 
@@ -98,6 +99,7 @@ class CommitLog final {
     oldest_active_ = next_start_;
   }
 
+  /// @throw std::bad_alloc
   Block *FindOrCreateBlock(uint64_t id) {
     if (!head_) {
       head_ = allocator_.allocate(1);

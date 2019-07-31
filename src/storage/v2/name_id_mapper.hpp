@@ -32,6 +32,7 @@ class NameIdMapper final {
   };
 
  public:
+  /// @throw std::bad_alloc if unable to insert a new mapping
   uint64_t NameToId(const std::string &name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);

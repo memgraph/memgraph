@@ -42,6 +42,7 @@ class LabelIndex {
  public:
   explicit LabelIndex(Indices *indices) : indices_(indices) {}
 
+  /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
@@ -87,6 +88,7 @@ class LabelIndex {
   };
 
   /// Returns an self with vertices visible from the given transaction.
+  /// @throw std::bad_alloc
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     return Iterable(GetOrCreateStorage(label)->access(), label, view,
                     transaction, indices_);
@@ -100,6 +102,7 @@ class LabelIndex {
   utils::SkipList<LabelStorage> index_;
   Indices *indices_;
 
+  /// @throw std::bad_alloc
   utils::SkipList<Entry> *GetOrCreateStorage(LabelId label);
 };
 
@@ -120,11 +123,14 @@ class LabelPropertyIndex {
  public:
   explicit LabelPropertyIndex(Indices *indices) : indices_(indices) {}
 
+  /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
+  /// @throw std::bad_alloc
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
                            Vertex *vertex, const Transaction &tx);
 
+  /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property,
                    utils::SkipList<Vertex>::Accessor vertices);
 
@@ -136,10 +142,12 @@ class LabelPropertyIndex {
     return index_.find({label, property}) != index_.end();
   }
 
+  /// @throw std::bad_alloc if unable to copy a PropertyValue
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   class Iterable {
    public:
+    /// @throw std::bad_alloc if unable to copy a PropertyValue
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
              PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -148,6 +156,7 @@ class LabelPropertyIndex {
 
     class Iterator {
      public:
+      /// @throw std::bad_alloc raised in AdvanceUntilValid
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
@@ -159,9 +168,11 @@ class LabelPropertyIndex {
         return index_iterator_ != other.index_iterator_;
       }
 
+      /// @throw std::bad_alloc raised in AdvanceUntilValid
       Iterator &operator++();
 
      private:
+      /// @throw std::bad_alloc if unable to copy a PropertyValue
       void AdvanceUntilValid();
 
       Iterable *self_;
@@ -184,6 +195,7 @@ class LabelPropertyIndex {
     Indices *indices_;
   };
 
+  /// @throw std::bad_alloc if unable to copy a PropertyValue
   Iterable Vertices(
       LabelId label, PropertyId property,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -234,6 +246,7 @@ struct Indices {
 
 /// This function should be called from garbage collection to clean-up the
 /// index.
+/// @throw std::bad_alloc raised in LabelPropertyIndex::RemoveObsoleteEntries
 void RemoveObsoleteEntries(Indices *indices,
                            uint64_t oldest_active_start_timestamp);
 
@@ -242,10 +255,12 @@ void RemoveObsoleteEntries(Indices *indices,
 // view for use in Merge.
 
 /// This function should be called whenever a label is added to a vertex.
+/// @throw std::bad_alloc
 void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex,
                       const Transaction &tx);
 
 /// This function should be called whenever a property is modified on a vertex.
+/// @throw std::bad_alloc
 void UpdateOnSetProperty(Indices *indices, PropertyId property,
                          const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);

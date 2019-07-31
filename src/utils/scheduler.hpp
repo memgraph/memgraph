@@ -26,6 +26,8 @@ class Scheduler {
    * @param f - Function
    * @Tparam TRep underlying arithmetic type in duration
    * @Tparam TPeriod duration in seconds between two ticks
+   * @throw std::system_error if thread could not be started.
+   * @throw std::bad_alloc
    */
   template <typename TRep, typename TPeriod>
   void Run(const std::string &service_name,
@@ -67,6 +69,7 @@ class Scheduler {
   /**
    * @brief Stops the thread execution. This is a blocking call and may take as
    * much time as one call to the function given previously to Run takes.
+   * @throw std::system_error
    */
   void Stop() {
     is_working_.store(false);

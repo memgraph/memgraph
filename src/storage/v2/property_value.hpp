@@ -39,16 +39,22 @@ class PropertyValue {
   }
 
   // copy constructors for non-primitive types
+  /// @throw std::bad_alloc
   explicit PropertyValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if length of value exceeds
+  ///        std::string::max_length().
   explicit PropertyValue(const char *value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
+  /// @throw std::bad_alloc
   explicit PropertyValue(const std::vector<PropertyValue> &value)
       : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(value);
   }
+  /// @throw std::bad_alloc
   explicit PropertyValue(const std::map<std::string, PropertyValue> &value)
       : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(value);
@@ -68,12 +74,14 @@ class PropertyValue {
   }
 
   // copy constructor
+  /// @throw std::bad_alloc
   PropertyValue(const PropertyValue &other);
 
   // move constructor
   PropertyValue(PropertyValue &&other) noexcept;
 
   // copy assignment
+  /// @throw std::bad_alloc
   PropertyValue &operator=(const PropertyValue &other);
 
   // move assignment
@@ -95,18 +103,21 @@ class PropertyValue {
   bool IsMap() const { return type_ == Type::Map; }
 
   // value getters for primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
   bool ValueBool() const {
     if (type_ != Type::Bool) {
       throw PropertyValueException("The value isn't a bool!");
     }
     return bool_v;
   }
+  /// @throw PropertyValueException if value isn't of correct type.
   int64_t ValueInt() const {
     if (type_ != Type::Int) {
       throw PropertyValueException("The value isn't an int!");
     }
     return int_v;
   }
+  /// @throw PropertyValueException if value isn't of correct type.
   double ValueDouble() const {
     if (type_ != Type::Double) {
       throw PropertyValueException("The value isn't a double!");
@@ -115,6 +126,7 @@ class PropertyValue {
   }
 
   // const value getters for non-primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
   const std::string &ValueString() const {
     if (type_ != Type::String) {
       throw PropertyValueException("The value isn't a string!");
@@ -122,6 +134,7 @@ class PropertyValue {
     return string_v;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
   const std::vector<PropertyValue> &ValueList() const {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
@@ -129,6 +142,7 @@ class PropertyValue {
     return list_v;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
   const std::map<std::string, PropertyValue> &ValueMap() const {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
@@ -137,6 +151,7 @@ class PropertyValue {
   }
 
   // reference value getters for non-primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
   std::string &ValueString() {
     if (type_ != Type::String) {
       throw PropertyValueException("The value isn't a string!");
@@ -144,6 +159,7 @@ class PropertyValue {
     return string_v;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
   std::vector<PropertyValue> &ValueList() {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
@@ -151,6 +167,7 @@ class PropertyValue {
     return list_v;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
   std::map<std::string, PropertyValue> &ValueMap() {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
@@ -174,6 +191,7 @@ class PropertyValue {
 };
 
 // stream output
+/// @throw anything std::ostream::operator<< may throw.
 inline std::ostream &operator<<(std::ostream &os,
                                 const PropertyValue::Type type) {
   switch (type) {
@@ -193,6 +211,7 @@ inline std::ostream &operator<<(std::ostream &os,
       return os << "map";
   }
 }
+/// @throw anything std::ostream::operator<< may throw.
 inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
@@ -221,7 +240,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
 
 // comparison
 inline bool operator==(const PropertyValue &first,
-                       const PropertyValue &second) {
+                       const PropertyValue &second) noexcept {
   if (first.type() != second.type()) return false;
   switch (first.type()) {
     case PropertyValue::Type::Null:
@@ -240,7 +259,9 @@ inline bool operator==(const PropertyValue &first,
       return first.ValueMap() == second.ValueMap();
   }
 }
-inline bool operator<(const PropertyValue &first, const PropertyValue &second) {
+
+inline bool operator<(const PropertyValue &first,
+                      const PropertyValue &second) noexcept {
   if (first.type() != second.type()) return first.type() < second.type();
   switch (first.type()) {
     case PropertyValue::Type::Null:

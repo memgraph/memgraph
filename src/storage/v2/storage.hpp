@@ -140,6 +140,8 @@ class VerticesIterable final {
 
     VertexAccessor operator*() const;
 
+    /// @throw std::bad_alloc raised in
+    ///        LabelPropertyIndex::Iterable::Iterator::operator++
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const;
@@ -152,6 +154,8 @@ class VerticesIterable final {
 
 class Storage final {
  public:
+  /// @throw std::system_error
+  /// @throw std::bad_alloc
   explicit Storage(StorageGcConfig gc_config = DefaultGcConfig);
 
   ~Storage();
@@ -174,6 +178,7 @@ class Storage final {
 
     ~Accessor();
 
+    /// @throw std::bad_alloc
     VertexAccessor CreateVertex();
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
@@ -184,13 +189,17 @@ class Storage final {
                                                   &storage_->indices_));
     }
 
+    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, View view);
 
+    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, PropertyId property, View view);
 
+    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, PropertyId property,
                               const PropertyValue &value, View view);
 
+    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(
         LabelId label, PropertyId property,
         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -236,21 +245,30 @@ class Storage final {
           label, property, lower, upper);
     }
 
+    /// @throw std::bad_alloc
     Result<bool> DeleteVertex(VertexAccessor *vertex);
 
+    /// @throw std::bad_alloc
     Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
 
+    /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                     EdgeTypeId edge_type);
 
+    /// @throw std::bad_alloc
     Result<bool> DeleteEdge(EdgeAccessor *edge);
 
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
+    /// @throw std::bad_alloc if unable to insert a new mapping
     LabelId NameToLabel(const std::string &name);
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
     PropertyId NameToProperty(const std::string &name);
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(const std::string &name);
 
     void AdvanceCommand();
@@ -258,8 +276,10 @@ class Storage final {
     /// Commit returns `ExistenceConstraintViolation` if the changes made by
     /// this transaction violate an existence constraint. In that case the
     /// transaction is automatically aborted. Otherwise, nullopt is returned.
+    /// @throw std::bad_alloc
     [[nodiscard]] std::optional<ExistenceConstraintViolation> Commit();
 
+    /// @throw std::bad_alloc
     void Abort();
 
    private:
@@ -276,10 +296,16 @@ class Storage final {
   const std::string &PropertyToName(PropertyId property) const;
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
+  /// @throw std::bad_alloc if unable to insert a new mapping
   LabelId NameToLabel(const std::string &name);
+
+  /// @throw std::bad_alloc if unable to insert a new mapping
   PropertyId NameToProperty(const std::string &name);
+
+  /// @throw std::bad_alloc if unable to insert a new mapping
   EdgeTypeId NameToEdgeType(const std::string &name);
 
+  /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property) {
     std::unique_lock<utils::RWLock> storage_guard(main_lock_);
     return indices_.label_property_index.CreateIndex(label, property,
@@ -317,6 +343,8 @@ class Storage final {
   }
 
  private:
+  /// @throw std::system_error
+  /// @throw std::bad_alloc
   void CollectGarbage();
 
   // Main storage lock.

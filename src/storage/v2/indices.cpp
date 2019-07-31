@@ -110,6 +110,7 @@ bool AnyVersionHasLabel(Vertex *vertex, LabelId label, uint64_t timestamp) {
 /// Helper function for label-property index garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property value.
+/// @throw std::bad_alloc if unable to copy the PropertyValue
 bool AnyVersionHasLabelProperty(Vertex *vertex, LabelId label, PropertyId key,
                                 const PropertyValue &value,
                                 uint64_t timestamp) {
@@ -230,6 +231,7 @@ bool CurrentVersionHasLabel(Vertex *vertex, LabelId label,
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
+// @throw std::bad_alloc if unable to copy the PropertyValue
 bool CurrentVersionHasLabelProperty(Vertex *vertex, LabelId label,
                                     PropertyId key, const PropertyValue &value,
                                     Transaction *transaction, View view) {

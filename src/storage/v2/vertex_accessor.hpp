@@ -26,12 +26,21 @@ class VertexAccessor final {
                                               Transaction *transaction,
                                               Indices *indices, View view);
 
+  /// Add a label and return `true` if insertion took place.
+  /// `false` is returned if the label already existed.
+  /// @throw std::bad_alloc
   Result<bool> AddLabel(LabelId label);
 
+  /// Remove a label and return `true` if deletion took place.
+  /// `false` is returned if the vertex did not have a label already.
+  /// @throw std::bad_alloc
   Result<bool> RemoveLabel(LabelId label);
 
   Result<bool> HasLabel(LabelId label, View view) const;
 
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if the resulting vector exceeds
+  ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
   /// Set a property value and return `true` if insertion took place.
@@ -39,13 +48,22 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
+  /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  // TODO: Add API for obtaining edges filtered by destination VertexAccessor
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if the resulting vector exceeds
+  ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> InEdges(
       const std::vector<EdgeTypeId> &edge_types, View view) const;
 
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if the resulting vector exceeds
+  ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> OutEdges(
       const std::vector<EdgeTypeId> &edge_types, View view) const;
 
@@ -73,7 +91,7 @@ class VertexAccessor final {
 namespace std {
 template <>
 struct hash<storage::VertexAccessor> {
-  size_t operator()(const storage::VertexAccessor &v) const {
+  size_t operator()(const storage::VertexAccessor &v) const noexcept {
     return v.Gid().AsUint();
   }
 };

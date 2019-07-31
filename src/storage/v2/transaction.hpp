@@ -36,6 +36,7 @@ struct Transaction {
 
   ~Transaction() {}
 
+  /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
     commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
