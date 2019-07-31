@@ -65,7 +65,7 @@ class NameIdMapper final {
   // Currently, we never delete anything from the `utils::SkipList` so the
   // references will always be valid. If you change this class to remove unused
   // names, be sure to change the signature of this function.
-  const std::string &IdToName(uint64_t id) {
+  const std::string &IdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();
     auto result = id_to_name_acc.find(id);
     CHECK(result != id_to_name_acc.end())

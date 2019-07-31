@@ -205,9 +205,9 @@ class Storage final {
 
     Result<bool> DeleteEdge(EdgeAccessor *edge);
 
-    const std::string &LabelToName(LabelId label);
-    const std::string &PropertyToName(PropertyId property);
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type);
+    const std::string &LabelToName(LabelId label) const;
+    const std::string &PropertyToName(PropertyId property) const;
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     LabelId NameToLabel(const std::string &name);
     PropertyId NameToProperty(const std::string &name);
@@ -229,6 +229,14 @@ class Storage final {
   };
 
   Accessor Access();
+
+  const std::string &LabelToName(LabelId label) const;
+  const std::string &PropertyToName(PropertyId property) const;
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+
+  LabelId NameToLabel(const std::string &name);
+  PropertyId NameToProperty(const std::string &name);
+  EdgeTypeId NameToEdgeType(const std::string &name);
 
   bool CreateIndex(LabelId label, PropertyId property) {
     std::unique_lock<utils::RWLock> storage_guard(main_lock_);

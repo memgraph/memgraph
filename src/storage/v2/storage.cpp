@@ -556,24 +556,30 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   return Result<bool>{true};
 }
 
-const std::string &Storage::Accessor::LabelToName(LabelId label) {
-  return storage_->name_id_mapper_.IdToName(label.AsUint());
+const std::string &Storage::Accessor::LabelToName(LabelId label) const {
+  return storage_->LabelToName(label);
 }
-const std::string &Storage::Accessor::PropertyToName(PropertyId property) {
-  return storage_->name_id_mapper_.IdToName(property.AsUint());
+
+const std::string &Storage::Accessor::PropertyToName(
+    PropertyId property) const {
+  return storage_->PropertyToName(property);
 }
-const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) {
-  return storage_->name_id_mapper_.IdToName(edge_type.AsUint());
+
+const std::string &Storage::Accessor::EdgeTypeToName(
+    EdgeTypeId edge_type) const {
+  return storage_->EdgeTypeToName(edge_type);
 }
 
 LabelId Storage::Accessor::NameToLabel(const std::string &name) {
-  return LabelId::FromUint(storage_->name_id_mapper_.NameToId(name));
+  return storage_->NameToLabel(name);
 }
+
 PropertyId Storage::Accessor::NameToProperty(const std::string &name) {
-  return PropertyId::FromUint(storage_->name_id_mapper_.NameToId(name));
+  return storage_->NameToProperty(name);
 }
+
 EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
-  return EdgeTypeId::FromUint(storage_->name_id_mapper_.NameToId(name));
+  return storage_->NameToEdgeType(name);
 }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
@@ -830,6 +836,30 @@ Storage::Accessor Storage::Access() {
     start_timestamp = timestamp_++;
   }
   return Accessor{this, transaction_id, start_timestamp};
+}
+
+const std::string &Storage::LabelToName(LabelId label) const {
+  return name_id_mapper_.IdToName(label.AsUint());
+}
+
+const std::string &Storage::PropertyToName(PropertyId property) const {
+  return name_id_mapper_.IdToName(property.AsUint());
+}
+
+const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
+  return name_id_mapper_.IdToName(edge_type.AsUint());
+}
+
+LabelId Storage::NameToLabel(const std::string &name) {
+  return LabelId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+PropertyId Storage::NameToProperty(const std::string &name) {
+  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+EdgeTypeId Storage::NameToEdgeType(const std::string &name) {
+  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {
