@@ -58,11 +58,22 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   /** Returns the number of incoming edges. */
   size_t in_degree() const;
 
-  /** Adds a label to the Vertex. If the Vertex already has that label the call
-   * has no effect. */
+  /**
+   * Add a label to the Vertex.
+   * If the Vertex already has that label the call has no effect.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   * @throw ConstraintViolationException
+   */
   void add_label(storage::Label label);
 
-  /** Removes a label from the Vertex. */
+  /**
+   * Removes a label from the Vertex.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void remove_label(storage::Label label);
 
   /** Indicates if the Vertex has the given label. */
@@ -138,12 +149,20 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
 
   /** Removes the given edge from the outgoing edges of this vertex. Note that
    * this operation should always be accompanied by the removal of the edge from
-   * the incoming edges on the other side and edge deletion. */
+   * the incoming edges on the other side and edge deletion.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void RemoveOutEdge(mvcc::VersionList<Edge> *edge);
 
   /** Removes the given edge from the incoming edges of this vertex. Note that
    * this operation should always be accompanied by the removal of the edge from
-   * the outgoing edges on the other side and edge deletion. */
+   * the outgoing edges on the other side and edge deletion.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void RemoveInEdge(mvcc::VersionList<Edge> *edge);
 };
 

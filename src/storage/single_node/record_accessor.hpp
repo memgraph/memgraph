@@ -54,13 +54,27 @@ class RecordAccessor {
   /** Gets the property for the given key. */
   PropertyValue PropsAt(storage::Property key) const;
 
-  /** Sets a value on the record for the given property. */
+  /**
+   * Sets a value on the record for the given property.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   * @throw ConstraintViolationException
+   */
   void PropsSet(storage::Property key, PropertyValue value);
 
-  /** Erases the property for the given key. */
+  /**
+   * Erases the property for the given key.
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void PropsErase(storage::Property key);
 
-  /** Removes all the properties from this record. */
+  /**
+   * Removes all the properties from this record.
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void PropsClear();
 
   /** Returns the properties of this record. */
@@ -127,7 +141,9 @@ class RecordAccessor {
    * It is not legal to call this function on a Vertex/Edge that has been
    * deleted in the current transaction+command.
    *
-   * @throws RecordDeletedError
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   TRecord &update() const;
 

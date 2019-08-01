@@ -20,6 +20,7 @@ class LockStore {
    public:
     LockHolder() = default;
 
+    /// @throw utils::LockTimeoutException
     LockHolder(RecordLock *lock, const Transaction &tx, tx::Engine &engine)
         : lock_(lock) {
       DCHECK(lock != nullptr) << "Lock is nullptr.";
@@ -57,6 +58,7 @@ class LockStore {
   };
 
  public:
+  /// @throw utils::LockTimeoutException
   void Take(RecordLock *lock, const tx::Transaction &tx, tx::Engine &engine) {
     // Creating a lock holder locks the version list to the given transaction.
     // Note that it's an op that can take a long time (if there are multiple

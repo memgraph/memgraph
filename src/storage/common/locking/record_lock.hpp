@@ -14,6 +14,7 @@ class Transaction;
 
 class RecordLock {
  public:
+  /// @throw utils::LockTimeoutException
   LockStatus Lock(const tx::Transaction &id, tx::Engine &engine);
 
   void Unlock();
