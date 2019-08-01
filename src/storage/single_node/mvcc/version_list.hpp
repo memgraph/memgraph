@@ -191,6 +191,8 @@ class VersionList {
    * older visible record when this update is called.
    *
    * @param t The transaction
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   T *update(const tx::Transaction &t) {
     DCHECK(head_ != nullptr) << "Head is nullptr on update.";
@@ -208,7 +210,11 @@ class VersionList {
     return update(old_record, t);
   }
 
-  /** Makes the given record as being expired by the given transaction. */
+  /**
+   * Makes the given record as being expired by the given transaction.
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   */
   void remove(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on removal.";
     lock_and_validate(record, t);
@@ -220,6 +226,8 @@ class VersionList {
   int64_t cypher_id() { return utils::MemcpyCast<int64_t>(gid_); }
 
  private:
+  /// @throw utils::LockTimeoutException
+  /// @throw SerializationError
   void lock_and_validate(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on lock and validation.";
 
@@ -234,6 +242,8 @@ class VersionList {
     throw SerializationError();
   }
 
+  /// @throw utils::LockTimeoutException
+  /// @throw SerializationError
   T *update(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on update.";
     lock_and_validate(record, t);

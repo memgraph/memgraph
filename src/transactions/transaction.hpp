@@ -54,6 +54,7 @@ class Transaction final {
  public:
   /// Acquires the lock over the given RecordLock, preventing other transactions
   /// from doing the same
+  /// @throw utils::LockTimeoutException
   void TakeLock(RecordLock &lock) const { locks_.Take(&lock, *this, engine_); }
 
   /// Transaction's id. Unique in the engine that owns it
@@ -81,7 +82,8 @@ class Transaction final {
   auto blocking() const { return blocking_; }
 
  private:
-  // Function used to advance the command.
+  /// Function used to advance the command.
+  /// @throw TransactionError
   CommandId AdvanceCommand() {
     if (cid_ == std::numeric_limits<CommandId>::max()) {
       throw TransactionError(

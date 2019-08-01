@@ -29,12 +29,15 @@ class Engine final {
   Engine &operator=(const Engine &) = delete;
   Engine &operator=(Engine &&) = delete;
 
+  /// @throw TransactionEngineError
   Transaction *Begin();
   /// Blocking transactions are used when we can't allow any other transaction to
   /// run (besides this one). This is the reason why this transactions blocks the
   /// engine from creating new transactions and waits for the existing ones to
   /// finish.
+  /// @throw TransactionEngineError
   Transaction *BeginBlocking(std::optional<TransactionId> parent_tx);
+  /// @throw TransactionException
   CommandId Advance(TransactionId id);
   CommandId UpdateCommand(TransactionId id);
   void Commit(const Transaction &t);

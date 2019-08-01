@@ -91,6 +91,8 @@ class GraphDbAccessor {
    * @param check_empty If the vertex should be checked for existing edges
    * before deletion.
    * @return  If or not the vertex was deleted.
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   bool RemoveVertex(VertexAccessor &vertex_accessor, bool check_empty = true);
 
@@ -99,6 +101,9 @@ class GraphDbAccessor {
    * and incoming connections.
    *
    * @param vertex_accessor  Accessor to a vertex.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   void DetachRemoveVertex(VertexAccessor &vertex_accessor);
 
@@ -294,6 +299,9 @@ class GraphDbAccessor {
    * recovering from durability.
    *
    * @return  An accessor to the edge.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
                           storage::EdgeType type,
@@ -310,6 +318,9 @@ class GraphDbAccessor {
    * side.
    * @param remove_in_edge If the edge should be removed from the its
    * destination side.
+   * @throw RecordDeletedError
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
                   bool remove_in_edge = true);
@@ -413,13 +424,14 @@ class GraphDbAccessor {
    *
    * @param label - label to build for
    * @param property - property to build for
+   * @throw IndexExistsException
+   * @throw TransactionException
    */
   void BuildIndex(storage::Label label, storage::Property property);
 
   /// Deletes the index responisble for (label, property).
   ///
-  /// @throws IndexTransactionException if it can't obtain a blocking
-  ///         transaction.
+  /// @throw TransactionException if it can't obtain a blocking transaction.
   void DeleteIndex(storage::Label label, storage::Property property);
 
   /// Populates index with vertices containing the key
@@ -433,10 +445,10 @@ class GraphDbAccessor {
    * properties.
    * If the constraint already exists, this method does nothing.
    *
-   * @throws ConstraintViolationException if constraint couldn't be build
+   * @throw ConstraintViolationException if constraint couldn't be build
    * due to existing constraint violation.
-   * @throws TransactionEngineError if the engine doesn't accept transactions.
-   * @throws mvcc::SerializationError on serialization errors.
+   * @throw TransactionEngineError if the engine doesn't accept transactions.
+   * @throw mvcc::SerializationError on serialization errors.
    */
   void BuildUniqueConstraint(storage::Label label,
                              const std::vector<storage::Property> &properties);
@@ -444,6 +456,7 @@ class GraphDbAccessor {
   /**
    * Deletes existing unique constraint.
    * If the constraint doesn't exist, this method does nothing.
+   * @throw TransactionException
    */
   void DeleteUniqueConstraint(storage::Label label,
                               const std::vector<storage::Property> &properties);
@@ -574,7 +587,10 @@ class GraphDbAccessor {
   /** Returns the id of this accessor's transaction */
   tx::TransactionId transaction_id() const;
 
-  /** Advances transaction's command id by 1. */
+  /**
+   * Advances transaction's command id by 1.
+   * @throw TransactionException
+   */
   void AdvanceCommand();
 
   /** Commit transaction. */
@@ -622,6 +638,9 @@ class GraphDbAccessor {
    * @param label - label that was added
    * @param vertex_accessor - vertex_accessor that was updated
    * @param vertex - vertex that was updated
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   * @throw ConstraintViolationException
    */
   void UpdateOnAddLabel(storage::Label label,
                         const VertexAccessor &vertex_accessor,
@@ -632,6 +651,8 @@ class GraphDbAccessor {
    *
    * @param label - label that was removed
    * @param vertex_accessor - vertex_accessor that was updated
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   void UpdateOnRemoveLabel(storage::Label label,
                            const RecordAccessor<Vertex> &accessor);
@@ -643,6 +664,8 @@ class GraphDbAccessor {
    * @param previous_value - previous value of the property
    * @param vertex_accessor - vertex_accessor that was updated
    * @param vertex - vertex that was updated
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
    */
   void UpdateOnRemoveProperty(storage::Property property,
                               const PropertyValue &previous_value,
@@ -657,6 +680,9 @@ class GraphDbAccessor {
    * @param new_value - new value of the property
    * @param vertex_accessor - vertex accessor that was updated
    * @param vertex - vertex that was updated
+   * @throw utils::LockTimeoutException
+   * @throw SerializationError
+   * @throw ConstraintViolationException
    */
   void UpdateOnAddProperty(storage::Property property,
                            const PropertyValue &previous_value,
