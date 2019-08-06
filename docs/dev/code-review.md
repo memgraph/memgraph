@@ -3,6 +3,34 @@
 This chapter describes some of the things you should be on the lookout when
 reviewing someone else's code.
 
+## Exceptions
+
+Although the Google C++ Style Guide forbids exceptions, we do allow them in
+our codebase. As a reviewer you should watch out for the following.
+
+The documentation of throwing functions needs to be in-sync with the
+implementation. This must be enforced recursively. I.e. if a function A now
+throws a new exception, and the function B uses A, then B needs to handle that
+exception or have its documentation updated and so on. Naturally, the same
+applies when an exception is removed.
+
+Transitive callers of the function which throws a new exception must be OK
+with that. This ties into the previous point. You need to check that all users
+of the new exception either handle it correctly or propagate it.
+
+Exceptions should not escape out of class destructors, because that will
+terminate the program. The code should be changed so that such cases are not
+possible.
+
+Exceptions being thrown in class constructors. Although this is well defined
+in C++, it usually implies that a constructor is doing too much work and the
+class construction & initialization should be redesigned. Usual approaches are
+using the (Static) Factory Method pattern or having some sort of an
+initialization method that needs to be called after the construction is done.
+Prefer the Factory Method.
+
+Don't forget that STL functions may also throw!
+
 ## Pointers & References
 
 In cases when some code passes a pointer or reference, or if a code stores a

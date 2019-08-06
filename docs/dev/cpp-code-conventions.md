@@ -8,6 +8,9 @@ C++ code.
 Memgraph uses the
 [Google Style Guide for C++](https://google.github.io/styleguide/cppguide.html)
 in most of its code.  You should follow them whenever writing new code.
+Besides following the style guide, take a look at
+[Code Review Guidelines](code-review.md) for common design issues and pitfalls
+with C++ as well as [Required Reading](required-reading.md).
 
 ### Often Overlooked Style Conventions
 
@@ -39,8 +42,8 @@ code. Unfortunately, they do have 2 major downsides.
 
 For those reasons the style guide recommends minimal work that cannot fail.
 Using virtual methods or doing a lot more should be delegated to some form of
-`Init` method, possibly coupled with factory functions. Similar rules apply to
-destructors, which are not allowed to even throw exceptions.
+`Init` method, possibly coupled with static factory methods. Similar rules
+apply to destructors, which are not allowed to even throw exceptions.
 
 [Style guide reference](https://google.github.io/styleguide/cppguide.html#Doing_Work_in_Constructors)
 
@@ -63,6 +66,10 @@ will terminate the program. The same will happen if a thread doesn't handle an
 exception even though it is not the main thread.
 
 [Style guide reference](https://google.github.io/styleguide/cppguide.html#Exceptions)
+
+In general, when introducing a new exception, either via `throw` statement or
+calling a function which throws, you must examine all transitive callers and
+update their implementation and/or documentation.
 
 #### Assertions
 
