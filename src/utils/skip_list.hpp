@@ -575,15 +575,12 @@ class SkipList final {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
 
-    Accessor(const Accessor &other)
-        : skiplist_(other.skiplist_), id_(skiplist_->gc_.AllocateId()) {}
+    Accessor(const Accessor &) = delete;
+    Accessor &operator=(const Accessor &) = delete;
+
     Accessor(Accessor &&other) noexcept
         : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
-    }
-    Accessor &operator=(const Accessor &other) {
-      skiplist_ = other.skiplist_;
-      id_ = skiplist_->gc_.AllocateId();
     }
     Accessor &operator=(Accessor &&other) noexcept {
       skiplist_ = other.skiplist_;
@@ -716,15 +713,12 @@ class SkipList final {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
 
-    ConstAccessor(const ConstAccessor &other)
-        : skiplist_(other.skiplist_), id_(skiplist_->gc_.AllocateId()) {}
+    ConstAccessor(const ConstAccessor &) = delete;
+    ConstAccessor &operator=(const ConstAccessor &) = delete;
+
     ConstAccessor(ConstAccessor &&other) noexcept
         : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
-    }
-    ConstAccessor &operator=(const ConstAccessor &other) {
-      skiplist_ = other.skiplist_;
-      id_ = skiplist_->gc_.AllocateId();
     }
     ConstAccessor &operator=(ConstAccessor &&other) noexcept {
       skiplist_ = other.skiplist_;
