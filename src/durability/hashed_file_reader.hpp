@@ -3,7 +3,7 @@
 #include <fstream>
 
 #include "hasher.hpp"
-#include "utils/bswap.hpp"
+#include "utils/endian.hpp"
 
 /**
  * Buffer reads data from file and calculates hash of read data. Implements
@@ -50,8 +50,7 @@ class HashedFileReader {
   bool ReadType(TValue &val, bool hash = true) {
     if (!Read(reinterpret_cast<uint8_t *>(&val), sizeof(TValue), hash))
       return false;
-    // TODO: must be platform specific in the future
-    val = utils::Bswap(val);
+    val = utils::BigEndianToHost(val);
     return true;
   }
 
