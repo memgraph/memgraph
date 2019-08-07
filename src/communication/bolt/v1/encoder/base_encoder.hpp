@@ -4,8 +4,8 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/bswap.hpp"
 #include "utils/cast.hpp"
+#include "utils/endian.hpp"
 
 static_assert(std::is_same_v<std::uint8_t, char> ||
                   std::is_same_v<std::uint8_t, unsigned char>,
@@ -216,7 +216,7 @@ class BaseEncoder {
  private:
   template <class T>
   void WritePrimitiveValue(T value) {
-    value = utils::Bswap(value);
+    value = utils::HostToBigEndian(value);
     WriteRAW(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
   }
 };

@@ -6,8 +6,8 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/bswap.hpp"
 #include "utils/cast.hpp"
+#include "utils/endian.hpp"
 
 namespace communication::bolt {
 
@@ -186,18 +186,18 @@ class Decoder {
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         return false;
       }
-      ret = utils::Bswap(tmp);
+      ret = utils::BigEndianToHost(tmp);
     } else if (marker == Marker::Int32) {
       int32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         return false;
       }
-      ret = utils::Bswap(tmp);
+      ret = utils::BigEndianToHost(tmp);
     } else if (marker == Marker::Int64) {
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&ret), sizeof(ret))) {
         return false;
       }
-      ret = utils::Bswap(ret);
+      ret = utils::BigEndianToHost(ret);
     } else {
       return false;
     }
@@ -212,7 +212,7 @@ class Decoder {
     if (!buffer_.Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) {
       return false;
     }
-    value = utils::Bswap(value);
+    value = utils::BigEndianToHost(value);
     ret = utils::MemcpyCast<double>(value);
     *data = Value(ret);
     return true;
@@ -233,14 +233,14 @@ class Decoder {
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         return -1;
       }
-      tmp = utils::Bswap(tmp);
+      tmp = utils::BigEndianToHost(tmp);
       return tmp;
     } else if (marker == Marker32[type]) {
       uint32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         return -1;
       }
-      tmp = utils::Bswap(tmp);
+      tmp = utils::BigEndianToHost(tmp);
       return tmp;
     } else {
       return -1;

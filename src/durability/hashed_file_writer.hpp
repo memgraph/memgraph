@@ -3,7 +3,7 @@
 #include <fstream>
 
 #include "hasher.hpp"
-#include "utils/bswap.hpp"
+#include "utils/endian.hpp"
 
 /**
  * Buffer that writes data to file and calculates hash of written data.
@@ -54,9 +54,8 @@ class HashedFileWriter {
    */
   template <typename TValue>
   void WriteValue(const TValue &val, bool hash = true) {
-    TValue val_bswapped = utils::Bswap(val);
-    Write(reinterpret_cast<const uint8_t *>(&val_bswapped), sizeof(TValue),
-          hash);
+    TValue val_big = utils::HostToBigEndian(val);
+    Write(reinterpret_cast<const uint8_t *>(&val_big), sizeof(TValue), hash);
   }
 
   // TODO try to remove before diff
