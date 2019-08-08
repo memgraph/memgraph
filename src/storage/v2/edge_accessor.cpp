@@ -20,9 +20,9 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
   std::lock_guard<utils::SpinLock> guard(edge_->lock);
 
   if (!PrepareForWrite(transaction_, edge_))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (edge_->deleted) return Result<bool>{Error::DELETED_OBJECT};
+  if (edge_->deleted) return Error::DELETED_OBJECT;
 
   auto it = edge_->properties.find(property);
   bool existed = it != edge_->properties.end();
@@ -44,7 +44,7 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
     }
   }
 
-  return Result<bool>{existed};
+  return existed;
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
@@ -87,8 +87,8 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                            break;
                        }
                      });
-  if (deleted) return Result<PropertyValue>{Error::DELETED_OBJECT};
-  return Result<PropertyValue>{std::move(value)};
+  if (deleted) return Error::DELETED_OBJECT;
+  return std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
@@ -138,9 +138,9 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
         }
       });
   if (deleted) {
-    return Result<std::map<PropertyId, PropertyValue>>{Error::DELETED_OBJECT};
+    return Error::DELETED_OBJECT;
   }
-  return Result<std::map<PropertyId, PropertyValue>>{std::move(properties)};
+  return std::move(properties);
 }
 
 }  // namespace storage

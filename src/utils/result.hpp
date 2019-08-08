@@ -10,10 +10,10 @@ namespace utils {
 template <class TError, class TValue>
 class [[nodiscard]] BasicResult final {
  public:
-  explicit BasicResult(const TValue &value) : value_(value) {}
-  explicit BasicResult(TValue &&value) noexcept : value_(std::move(value)) {}
-  explicit BasicResult(const TError &error) : error_(error) {}
-  explicit BasicResult(TError &&error) noexcept : error_(std::move(error)) {}
+  BasicResult(const TValue &value) : value_(value) {}
+  BasicResult(TValue &&value) noexcept : value_(std::move(value)) {}
+  BasicResult(const TError &error) : error_(error) {}
+  BasicResult(TError &&error) noexcept : error_(std::move(error)) {}
 
   bool HasValue() const { return value_.has_value(); }
   bool HasError() const { return error_.has_value(); }

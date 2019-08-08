@@ -48,13 +48,13 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Result<bool>{Error::DELETED_OBJECT};
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) !=
       vertex_->labels.end())
-    return Result<bool>{false};
+    return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
@@ -62,25 +62,25 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
 
-  return Result<bool>{true};
+  return true;
 }
 
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Result<bool>{Error::DELETED_OBJECT};
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
-  if (it == vertex_->labels.end()) return Result<bool>{false};
+  if (it == vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 
   std::swap(*it, *vertex_->labels.rbegin());
   vertex_->labels.pop_back();
-  return Result<bool>{true};
+  return true;
 }
 
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
@@ -127,8 +127,8 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
                            break;
                        }
                      });
-  if (deleted) return Result<bool>{Error::DELETED_OBJECT};
-  return Result<bool>{has_label};
+  if (deleted) return Error::DELETED_OBJECT;
+  return has_label;
 }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -175,8 +175,8 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
             break;
         }
       });
-  if (deleted) return Result<std::vector<LabelId>>{Error::DELETED_OBJECT};
-  return Result<std::vector<LabelId>>{std::move(labels)};
+  if (deleted) return Error::DELETED_OBJECT;
+  return std::move(labels);
 }
 
 Result<bool> VertexAccessor::SetProperty(PropertyId property,
@@ -184,9 +184,9 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Result<bool>{Error::DELETED_OBJECT};
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto it = vertex_->properties.find(property);
   bool existed = it != vertex_->properties.end();
@@ -210,7 +210,7 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
-  return Result<bool>{existed};
+  return existed;
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
@@ -253,8 +253,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                            break;
                        }
                      });
-  if (deleted) return Result<PropertyValue>{Error::DELETED_OBJECT};
-  return Result<PropertyValue>{std::move(value)};
+  if (deleted) return Error::DELETED_OBJECT;
+  return std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
@@ -304,9 +304,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
         }
       });
   if (deleted) {
-    return Result<std::map<PropertyId, PropertyValue>>{Error::DELETED_OBJECT};
+    return Error::DELETED_OBJECT;
   }
-  return Result<std::map<PropertyId, PropertyValue>>{std::move(properties)};
+  return std::move(properties);
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
@@ -361,7 +361,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
         }
       });
   if (deleted) {
-    return Result<std::vector<EdgeAccessor>>(Error::DELETED_OBJECT);
+    return Error::DELETED_OBJECT;
   }
   std::vector<EdgeAccessor> ret;
   ret.reserve(in_edges.size());
@@ -373,7 +373,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
                        indices_);
     }
   }
-  return Result<decltype(ret)>(std::move(ret));
+  return std::move(ret);
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
@@ -428,7 +428,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
         }
       });
   if (deleted) {
-    return Result<std::vector<EdgeAccessor>>(Error::DELETED_OBJECT);
+    return Error::DELETED_OBJECT;
   }
   std::vector<EdgeAccessor> ret;
   ret.reserve(out_edges.size());
@@ -440,7 +440,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
                        indices_);
     }
   }
-  return Result<decltype(ret)>(std::move(ret));
+  return std::move(ret);
 }
 
 }  // namespace storage

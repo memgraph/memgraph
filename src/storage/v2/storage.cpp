@@ -350,17 +350,17 @@ Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
   if (!PrepareForWrite(&transaction_, vertex_ptr))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (vertex_ptr->deleted) return Result<bool>{false};
+  if (vertex_ptr->deleted) return false;
 
   if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty())
-    return Result<bool>{Error::VERTEX_HAS_EDGES};
+    return Error::VERTEX_HAS_EDGES;
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return Result<bool>{true};
+  return true;
 }
 
 Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
@@ -376,9 +376,9 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
     std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, vertex_ptr))
-      return Result<bool>{Error::SERIALIZATION_ERROR};
+      return Error::SERIALIZATION_ERROR;
 
-    if (vertex_ptr->deleted) return Result<bool>{false};
+    if (vertex_ptr->deleted) return false;
 
     in_edges = vertex_ptr->in_edges;
     out_edges = vertex_ptr->out_edges;
@@ -414,14 +414,14 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   // meantime if we didn't have any edges to delete.
 
   if (!PrepareForWrite(&transaction_, vertex_ptr))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
   CHECK(!vertex_ptr->deleted) << "Invalid database state!";
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return Result<bool>{true};
+  return true;
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
@@ -453,12 +453,12 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex))
-    return Result<EdgeAccessor>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
   CHECK(!from_vertex->deleted) << "Invalid database state!";
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex))
-      return Result<EdgeAccessor>{Error::SERIALIZATION_ERROR};
+      return Error::SERIALIZATION_ERROR;
     CHECK(!to_vertex->deleted) << "Invalid database state!";
   }
 
@@ -479,9 +479,8 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                      edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-  return Result<EdgeAccessor>{EdgeAccessor{edge, edge_type, from_vertex,
-                                           to_vertex, &transaction_,
-                                           &storage_->indices_}};
+  return EdgeAccessor{edge,      edge_type,     from_vertex,
+                      to_vertex, &transaction_, &storage_->indices_};
 }
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
@@ -494,9 +493,9 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   std::lock_guard<utils::SpinLock> guard(edge_ptr->lock);
 
   if (!PrepareForWrite(&transaction_, edge_ptr))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
 
-  if (edge_ptr->deleted) return Result<bool>{false};
+  if (edge_ptr->deleted) return false;
 
   auto from_vertex = edge->from_vertex_;
   auto to_vertex = edge->to_vertex_;
@@ -517,12 +516,12 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex))
-    return Result<bool>{Error::SERIALIZATION_ERROR};
+    return Error::SERIALIZATION_ERROR;
   CHECK(!from_vertex->deleted) << "Invalid database state!";
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex))
-      return Result<bool>{Error::SERIALIZATION_ERROR};
+      return Error::SERIALIZATION_ERROR;
     CHECK(!to_vertex->deleted) << "Invalid database state!";
   }
 
@@ -553,7 +552,7 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
     to_vertex->in_edges.pop_back();
   }
 
-  return Result<bool>{true};
+  return true;
 }
 
 const std::string &Storage::Accessor::LabelToName(LabelId label) const {
