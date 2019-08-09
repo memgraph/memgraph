@@ -454,12 +454,12 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
 
   if (!PrepareForWrite(&transaction_, from_vertex))
     return Error::SERIALIZATION_ERROR;
-  CHECK(!from_vertex->deleted) << "Invalid database state!";
+  if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex))
       return Error::SERIALIZATION_ERROR;
-    CHECK(!to_vertex->deleted) << "Invalid database state!";
+    if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
   auto gid = storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel);
