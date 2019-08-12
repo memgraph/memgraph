@@ -14,6 +14,304 @@
 namespace query {
 namespace {
 
+////////////////////////////////////////////////////////////////////////////////
+// eDSL using template magic for describing a type of an awesome memgraph
+// function and checking if the passed in arguments match the description.
+//
+// To use the type checking eDSL, you should put a `FType` invocation in the
+// body of your awesome Memgraph function. `FType` takes type arguments as the
+// description of the function type signature. Each runtime argument will be
+// checked in order corresponding to given compile time type arguments. These
+// type arguments can come in two forms:
+//
+//   * final, primitive type descriptor and
+//   * combinator type descriptor.
+//
+// The primitive type descriptors are defined as empty structs, they are right
+// below this documentation.
+//
+// Combinator type descriptors are defined as structs taking additional type
+// parameters, you can find these further below in the implementation. Of
+// primary interest are `Or` and `Optional` type combinators.
+//
+// With `Or` you can describe that an argument can be any of the types listed in
+// `Or`. For example, `Or<Null, Bool, Integer>` allows an argument to be either
+// `Null` or a boolean or an integer.
+//
+// The `Optional` combinator is used to define optional arguments to a function.
+// These must come as the last positional arguments. Naturally, you can use `Or`
+// inside `Optional`. So for example, `Optional<Or<Null, Bool>, Integer>`
+// describes that a function takes 2 optional arguments. The 1st one must be
+// either a `Null` or a boolean, while the 2nd one must be an integer. The type
+// signature check will succeed in the following cases.
+//
+//   * No optional arguments were supplied.
+//   * One argument was supplied and it passes `Or<Null, Bool>` check.
+//   * Two arguments were supplied, the 1st one passes `Or<Null, Bool>` check
+//     and the 2nd one passes `Integer` check.
+//
+// Runtime arguments to `FType` are: function name, pointer to arguments and the
+// number of received arguments.
+//
+// Full example.
+//
+//     FType<Or<Null, String>, NonNegativeInteger,
+//           Optional<NonNegativeInteger>>("substring", args, nargs);
+//
+// The above will check that `substring` function received the 2 required
+// arguments. Optionally, the function may take a 3rd argument. The 1st argument
+// must be either a `Null` or a character string. The 2nd argument is required
+// to be a non-negative integer. If the 3rd argument was supplied, it will also
+// be checked that it is a non-negative integer. If any of these checks fail,
+// `FType` will throw a `QueryRuntimeException` with an appropriate error
+// message.
+////////////////////////////////////////////////////////////////////////////////
+
+struct Null {};
+struct Bool {};
+struct Integer {};
+struct PositiveInteger {};
+struct NonZeroInteger {};
+struct NonNegativeInteger {};
+struct Number {};
+struct List {};
+struct String {};
+struct Map {};
+struct Edge {};
+struct Vertex {};
+struct Path {};
+
+template <class ArgType>
+bool ArgIsType(const TypedValue &arg) {
+  if constexpr (std::is_same_v<ArgType, Null>) {
+    return arg.IsNull();
+  } else if constexpr (std::is_same_v<ArgType, Bool>) {
+    return arg.IsBool();
+  } else if constexpr (std::is_same_v<ArgType, Integer>) {
+    return arg.IsInt();
+  } else if constexpr (std::is_same_v<ArgType, PositiveInteger>) {
+    return arg.IsInt() && arg.ValueInt() > 0;
+  } else if constexpr (std::is_same_v<ArgType, NonZeroInteger>) {
+    return arg.IsInt() && arg.ValueInt() != 0;
+  } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
+    return arg.IsInt() && arg.ValueInt() >= 0;
+  } else if constexpr (std::is_same_v<ArgType, Number>) {
+    return arg.IsNumeric();
+  } else if constexpr (std::is_same_v<ArgType, List>) {
+    return arg.IsList();
+  } else if constexpr (std::is_same_v<ArgType, String>) {
+    return arg.IsString();
+  } else if constexpr (std::is_same_v<ArgType, Map>) {
+    return arg.IsMap();
+  } else if constexpr (std::is_same_v<ArgType, Vertex>) {
+    return arg.IsVertex();
+  } else if constexpr (std::is_same_v<ArgType, Edge>) {
+    return arg.IsEdge();
+  } else if constexpr (std::is_same_v<ArgType, Path>) {
+    return arg.IsPath();
+  } else if constexpr (std::is_same_v<ArgType, void>) {
+    return true;
+  } else {
+    static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
+  }
+  return false;
+}
+
+template <class ArgType>
+constexpr const char *ArgTypeName() {
+  if constexpr (std::is_same_v<ArgType, Null>) {
+    return "null";
+  } else if constexpr (std::is_same_v<ArgType, Bool>) {
+    return "boolean";
+  } else if constexpr (std::is_same_v<ArgType, Integer>) {
+    return "integer";
+  } else if constexpr (std::is_same_v<ArgType, PositiveInteger>) {
+    return "positive integer";
+  } else if constexpr (std::is_same_v<ArgType, NonZeroInteger>) {
+    return "non-zero integer";
+  } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
+    return "non-negative integer";
+  } else if constexpr (std::is_same_v<ArgType, Number>) {
+    return "number";
+  } else if constexpr (std::is_same_v<ArgType, List>) {
+    return "list";
+  } else if constexpr (std::is_same_v<ArgType, String>) {
+    return "string";
+  } else if constexpr (std::is_same_v<ArgType, Map>) {
+    return "map";
+  } else if constexpr (std::is_same_v<ArgType, Vertex>) {
+    return "node";
+  } else if constexpr (std::is_same_v<ArgType, Edge>) {
+    return "edge";
+  } else if constexpr (std::is_same_v<ArgType, Path>) {
+    return "path";
+  } else if constexpr (std::is_same_v<ArgType, void>) {
+    return "void";
+  } else {
+    static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
+  }
+  return "<unknown-type>";
+}
+
+template <class... ArgType>
+struct Or;
+
+template <class ArgType>
+struct Or<ArgType> {
+  static bool Check(const TypedValue &arg) { return ArgIsType<ArgType>(arg); }
+
+  static std::string TypeNames() { return ArgTypeName<ArgType>(); }
+};
+
+template <class ArgType, class... ArgTypes>
+struct Or<ArgType, ArgTypes...> {
+  static bool Check(const TypedValue &arg) {
+    if (ArgIsType<ArgType>(arg)) return true;
+    return Or<ArgTypes...>::Check(arg);
+  }
+
+  static std::string TypeNames() {
+    if constexpr (sizeof...(ArgTypes) > 1) {
+      return fmt::format("'{}', {}", ArgTypeName<ArgType>(),
+                         Or<ArgTypes...>::TypeNames());
+    } else {
+      return fmt::format("'{}' or '{}'", ArgTypeName<ArgType>(),
+                         Or<ArgTypes...>::TypeNames());
+    }
+  }
+};
+
+template <class T>
+struct IsOrType {
+  static constexpr bool value = false;
+};
+
+template <class... ArgTypes>
+struct IsOrType<Or<ArgTypes...>> {
+  static constexpr bool value = true;
+};
+
+template <class... ArgTypes>
+struct Optional;
+
+template <class ArgType>
+struct Optional<ArgType> {
+  static constexpr size_t size = 1;
+
+  static void Check(const char *name, const TypedValue *args, int64_t nargs,
+                    int64_t pos) {
+    if (nargs == 0) return;
+    const TypedValue &arg = args[0];
+    if constexpr (IsOrType<ArgType>::value) {
+      if (!ArgType::Check(arg)) {
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be either {}.", name,
+            pos, ArgType::TypeNames());
+      }
+    } else {
+      if (!ArgIsType<ArgType>(arg))
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be '{}'.", name, pos,
+            ArgTypeName<ArgType>());
+    }
+  }
+};
+
+template <class ArgType, class... ArgTypes>
+struct Optional<ArgType, ArgTypes...> {
+  static constexpr size_t size = 1 + sizeof...(ArgTypes);
+
+  static void Check(const char *name, const TypedValue *args, int64_t nargs,
+                    int64_t pos) {
+    if (nargs == 0) return;
+    Optional<ArgType>::Check(name, args, nargs, pos);
+    Optional<ArgTypes...>::Check(name, args + 1, nargs - 1, pos + 1);
+  }
+};
+
+template <class T>
+struct IsOptional {
+  static constexpr bool value = false;
+};
+
+template <class... ArgTypes>
+struct IsOptional<Optional<ArgTypes...>> {
+  static constexpr bool value = true;
+};
+
+template <class ArgType, class... ArgTypes>
+constexpr size_t FTypeRequiredArgs() {
+  if constexpr (IsOptional<ArgType>::value) {
+    static_assert(sizeof...(ArgTypes) == 0, "Optional arguments must be last!");
+    return 0;
+  } else if constexpr (sizeof...(ArgTypes) == 0) {
+    return 1;
+  } else {
+    return 1U + FTypeRequiredArgs<ArgTypes...>();
+  }
+}
+
+template <class ArgType, class... ArgTypes>
+constexpr size_t FTypeOptionalArgs() {
+  if constexpr (IsOptional<ArgType>::value) {
+    static_assert(sizeof...(ArgTypes) == 0, "Optional arguments must be last!");
+    return ArgType::size;
+  } else if constexpr (sizeof...(ArgTypes) == 0) {
+    return 0;
+  } else {
+    return FTypeOptionalArgs<ArgTypes...>();
+  }
+}
+
+template <class ArgType, class... ArgTypes>
+void FType(const char *name, const TypedValue *args, int64_t nargs,
+           int64_t pos = 1) {
+  if constexpr (std::is_same_v<ArgType, void>) {
+    if (nargs != 0) {
+      throw QueryRuntimeException("'{}' requires no arguments.", name);
+    }
+    return;
+  }
+  constexpr int64_t required_args = FTypeRequiredArgs<ArgType, ArgTypes...>();
+  constexpr int64_t optional_args = FTypeOptionalArgs<ArgType, ArgTypes...>();
+  constexpr int64_t total_args = required_args + optional_args;
+  if constexpr (optional_args > 0) {
+    if (nargs < required_args || nargs > total_args) {
+      throw QueryRuntimeException("'{}' requires between {} and {} arguments.",
+                                  name, required_args, total_args);
+    }
+  } else {
+    if (nargs != required_args) {
+      throw QueryRuntimeException(
+          "'{}' requires exactly {} {}.", name, required_args,
+          required_args == 1 ? "argument" : "arguments");
+    }
+  }
+  const TypedValue &arg = args[0];
+  if constexpr (IsOrType<ArgType>::value) {
+    if (!ArgType::Check(arg)) {
+      throw QueryRuntimeException(
+          "'{}' argument at position {} must be either {}.", name, pos,
+          ArgType::TypeNames());
+    }
+  } else if constexpr (IsOptional<ArgType>::value) {
+    static_assert(sizeof...(ArgTypes) == 0, "Optional arguments must be last!");
+    ArgType::Check(name, args, nargs, pos);
+  } else {
+    if (!ArgIsType<ArgType>(arg)) {
+      throw QueryRuntimeException("'{}' argument at position {} must be '{}'",
+                                  name, pos, ArgTypeName<ArgType>());
+    }
+  }
+  if constexpr (sizeof...(ArgTypes) > 0) {
+    FType<ArgTypes...>(name, args + 1, nargs - 1, pos + 1);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// END function type description eDSL
+////////////////////////////////////////////////////////////////////////////////
+
 // Predicate functions.
 // Neo4j has all, any, exists, none, single
 // Those functions are a little bit different since they take a filterExpression
@@ -41,61 +339,33 @@ namespace {
 
 TypedValue EndNode(TypedValue *args, int64_t nargs,
                    const EvaluationContext &ctx, database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'endNode' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Edge:
-      return TypedValue(args[0].Value<EdgeAccessor>().to(), ctx.memory);
-    default:
-      throw QueryRuntimeException("'endNode' argument must be an edge.");
-  }
+  FType<Or<Null, Edge>>("endNode", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  return TypedValue(args[0].ValueEdge().to(), ctx.memory);
 }
 
 TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'head' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::List: {
-      const auto &list = args[0].ValueList();
-      if (list.empty()) return TypedValue(ctx.memory);
-      return TypedValue(list[0], ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'head' argument must be a list.");
-  }
+  FType<Or<Null, List>>("head", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  const auto &list = args[0].ValueList();
+  if (list.empty()) return TypedValue(ctx.memory);
+  return TypedValue(list[0], ctx.memory);
 }
 
 TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'last' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::List: {
-      const auto &list = args[0].ValueList();
-      if (list.empty()) return TypedValue(ctx.memory);
-      return TypedValue(list.back(), ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'last' argument must be a list.");
-  }
+  FType<Or<Null, List>>("last", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  const auto &list = args[0].ValueList();
+  if (list.empty()) return TypedValue(ctx.memory);
+  return TypedValue(list.back(), ctx.memory);
 }
 
 TypedValue Properties(TypedValue *args, int64_t nargs,
                       const EvaluationContext &ctx,
                       database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'properties' requires exactly one argument.");
-  }
+  FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
     for (const auto &property : record_accessor.Properties()) {
@@ -118,9 +388,7 @@ TypedValue Properties(TypedValue *args, int64_t nargs,
 
 TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'size' requires exactly one argument.");
-  }
+  FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
@@ -147,81 +415,42 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 TypedValue StartNode(TypedValue *args, int64_t nargs,
                      const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'startNode' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Edge:
-      return TypedValue(args[0].Value<EdgeAccessor>().from(), ctx.memory);
-    default:
-      throw QueryRuntimeException("'startNode' argument must be an edge.");
-  }
+  FType<Or<Null, Edge>>("startNode", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  return TypedValue(args[0].ValueEdge().from(), ctx.memory);
 }
 
 TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                   database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'degree' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex: {
-      const auto &vertex = args[0].Value<VertexAccessor>();
-      return TypedValue(
-          static_cast<int64_t>(vertex.out_degree() + vertex.in_degree()),
-          ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'degree' argument must be a node.");
-  }
+  FType<Or<Null, Vertex>>("degree", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  const auto &vertex = args[0].ValueVertex();
+  return TypedValue(
+      static_cast<int64_t>(vertex.out_degree() + vertex.in_degree()),
+      ctx.memory);
 }
 
 TypedValue InDegree(TypedValue *args, int64_t nargs,
                     const EvaluationContext &ctx, database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'inDegree' requires exactly one argument.");
-  }
-
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex: {
-      const auto &vertex = args[0].Value<VertexAccessor>();
-      return TypedValue(static_cast<int64_t>(vertex.in_degree()), ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'inDegree' argument must be a node.");
-  }
+  FType<Or<Null, Vertex>>("inDegree", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  const auto &vertex = args[0].ValueVertex();
+  return TypedValue(static_cast<int64_t>(vertex.in_degree()), ctx.memory);
 }
 
 TypedValue OutDegree(TypedValue *args, int64_t nargs,
                      const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'outDegree' requires exactly one argument.");
-  }
-
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex: {
-      const auto &vertex = args[0].Value<VertexAccessor>();
-      return TypedValue(static_cast<int64_t>(vertex.out_degree()), ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'outDegree' argument must be a node.");
-  }
+  FType<Or<Null, Vertex>>("outDegree", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  const auto &vertex = args[0].ValueVertex();
+  return TypedValue(static_cast<int64_t>(vertex.out_degree()), ctx.memory);
 }
 
 TypedValue ToBoolean(TypedValue *args, int64_t nargs,
                      const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'toBoolean' requires exactly one argument.");
-  }
+  FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
@@ -245,9 +474,7 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs,
 
 TypedValue ToFloat(TypedValue *args, int64_t nargs,
                    const EvaluationContext &ctx, database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'toFloat' requires exactly one argument.");
-  }
+  FType<Or<Null, Number, String>>("toFloat", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
@@ -272,9 +499,7 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs,
 TypedValue ToInteger(TypedValue *args, int64_t nargs,
                      const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'toInteger' requires exactly one argument'");
-  }
+  FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
@@ -303,26 +528,15 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs,
 
 TypedValue Type(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'type' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Edge:
-      return TypedValue(
-          dba->EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType()),
-          ctx.memory);
-    default:
-      throw QueryRuntimeException("'type' argument must be an edge.");
-  }
+  FType<Or<Null, Edge>>("type", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  return TypedValue(dba->EdgeTypeName(args[0].ValueEdge().EdgeType()),
+                    ctx.memory);
 }
 
 TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'keys' requires exactly one argument.");
-  }
+  FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     for (const auto &property : record_accessor.Properties()) {
@@ -344,33 +558,19 @@ TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 
 TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                   database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'labels' requires exactly one argument.");
+  FType<Or<Null, Vertex>>("labels", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  TypedValue::TVector labels(ctx.memory);
+  for (const auto &label : args[0].ValueVertex().labels()) {
+    labels.emplace_back(dba->LabelName(label));
   }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex: {
-      TypedValue::TVector labels(ctx.memory);
-      for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
-        labels.emplace_back(dba->LabelName(label));
-      }
-      return TypedValue(std::move(labels));
-    }
-    default:
-      throw QueryRuntimeException("'labels' argument must be a node.");
-  }
+  return TypedValue(std::move(labels));
 }
 
 TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                  database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'nodes' requires exactly one argument.");
-  }
+  FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  if (!args[0].IsPath()) {
-    throw QueryRuntimeException("'nodes' argument should be a path.");
-  }
   const auto &vertices = args[0].ValuePath().vertices();
   TypedValue::TVector values(ctx.memory);
   values.reserve(vertices.size());
@@ -381,14 +581,8 @@ TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 TypedValue Relationships(TypedValue *args, int64_t nargs,
                          const EvaluationContext &ctx,
                          database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException(
-        "'relationships' requires exactly one argument.");
-  }
+  FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  if (!args[0].IsPath()) {
-    throw QueryRuntimeException("'relationships' argument must be a path.");
-  }
   const auto &edges = args[0].ValuePath().edges();
   TypedValue::TVector values(ctx.memory);
   values.reserve(edges.size());
@@ -398,25 +592,13 @@ TypedValue Relationships(TypedValue *args, int64_t nargs,
 
 TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                  database::GraphDbAccessor *) {
-  if (nargs != 2 && nargs != 3) {
-    throw QueryRuntimeException("'range' requires two or three arguments.");
-  }
-  bool has_null = false;
-  auto check_type = [&](const TypedValue &t) {
-    if (t.IsNull()) {
-      has_null = true;
-    } else if (t.type() != TypedValue::Type::Int) {
-      throw QueryRuntimeException("arguments of 'range' must be integers.");
-    }
-  };
-  for (int64_t i = 0; i < nargs; ++i) check_type(args[i]);
-  if (has_null) return TypedValue(ctx.memory);
+  FType<Or<Null, Integer>, Or<Null, Integer>,
+        Optional<Or<Null, NonZeroInteger>>>("range", args, nargs);
+  for (int64_t i = 0; i < nargs; ++i)
+    if (args[i].IsNull()) return TypedValue(ctx.memory);
   auto lbound = args[0].Value<int64_t>();
   auto rbound = args[1].Value<int64_t>();
   int64_t step = nargs == 3 ? args[2].Value<int64_t>() : 1;
-  if (step == 0) {
-    throw QueryRuntimeException("step argument of 'range' can't be zero.");
-  }
   TypedValue::TVector list(ctx.memory);
   if (lbound <= rbound && step > 0) {
     for (auto i = lbound; i <= rbound; i += step) {
@@ -432,66 +614,37 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 
 TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'tail' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::List: {
-      TypedValue::TVector list(args[0].ValueList(), ctx.memory);
-      if (list.empty()) return TypedValue(std::move(list));
-      list.erase(list.begin());
-      return TypedValue(std::move(list));
-    }
-    default:
-      throw QueryRuntimeException("'tail' argument must be a list.");
-  }
+  FType<Or<Null, List>>("tail", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  TypedValue::TVector list(args[0].ValueList(), ctx.memory);
+  if (list.empty()) return TypedValue(std::move(list));
+  list.erase(list.begin());
+  return TypedValue(std::move(list));
 }
 
 TypedValue UniformSample(TypedValue *args, int64_t nargs,
                          const EvaluationContext &ctx,
                          database::GraphDbAccessor *) {
+  FType<Or<Null, List>, Or<Null, NonNegativeInteger>>("uniformSample", args,
+                                                      nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
-  if (nargs != 2) {
-    throw QueryRuntimeException(
-        "'uniformSample' requires exactly two arguments.");
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  const auto &population = args[0].ValueList();
+  auto population_size = population.size();
+  if (population_size == 0) return TypedValue(ctx.memory);
+  auto desired_length = args[1].ValueInt();
+  std::uniform_int_distribution<uint64_t> rand_dist{0, population_size - 1};
+  TypedValue::TVector sampled(ctx.memory);
+  sampled.reserve(desired_length);
+  for (int i = 0; i < desired_length; ++i) {
+    sampled.emplace_back(population[rand_dist(pseudo_rand_gen_)]);
   }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue(ctx.memory);
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'uniformSample' must be a non-negative integer.");
-    case TypedValue::Type::List:
-      if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        auto &population = args[0].ValueList();
-        auto population_size = population.size();
-        if (population_size == 0) return TypedValue(ctx.memory);
-        auto desired_length = args[1].ValueInt();
-        std::uniform_int_distribution<uint64_t> rand_dist{0,
-                                                          population_size - 1};
-        TypedValue::TVector sampled(ctx.memory);
-        sampled.reserve(desired_length);
-        for (int i = 0; i < desired_length; ++i) {
-          sampled.emplace_back(population[rand_dist(pseudo_rand_gen_)]);
-        }
-        return TypedValue(std::move(sampled));
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'uniformSample' must be a non-negative integer.");
-    default:
-      throw QueryRuntimeException(
-          "First argument of 'uniformSample' must be a list.");
-  }
+  return TypedValue(std::move(sampled));
 }
 
 TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'abs' requires exactly one argument.");
-  }
+  FType<Or<Null, Number>>("abs", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
@@ -507,10 +660,7 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 #define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                       \
   TypedValue name(TypedValue *args, int64_t nargs,                             \
                   const EvaluationContext &ctx, database::GraphDbAccessor *) { \
-    if (nargs != 1) {                                                          \
-      throw QueryRuntimeException("'" #lowercased_name                         \
-                                  "' requires exactly one argument.");         \
-    }                                                                          \
+    FType<Or<Null, Number>>(#lowercased_name, args, nargs);                    \
     switch (args[0].type()) {                                                  \
       case TypedValue::Type::Null:                                             \
         return TypedValue(ctx.memory);                                         \
@@ -546,9 +696,7 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                  database::GraphDbAccessor *) {
-  if (nargs != 2) {
-    throw QueryRuntimeException("'atan2' requires two arguments.");
-  }
+  FType<Or<Null, Number>, Or<Null, Number>>("atan2", args, nargs);
   if (args[0].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
   if (args[1].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
   auto to_double = [](const TypedValue &t) -> double {
@@ -568,9 +716,7 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 
 TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'sign' requires exactly one argument.");
-  }
+  FType<Or<Null, Number>>("sign", args, nargs);
   auto sign = [&](auto x) { return TypedValue((0 < x) - (x < 0), ctx.memory); };
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -584,93 +730,73 @@ TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   }
 }
 
-TypedValue E(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
+TypedValue E(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
              database::GraphDbAccessor *) {
-  if (nargs != 0) {
-    throw QueryRuntimeException("'e' requires no arguments.");
-  }
+  FType<void>("e", args, nargs);
   return TypedValue(M_E, ctx.memory);
 }
 
-TypedValue Pi(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
+TypedValue Pi(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
               database::GraphDbAccessor *) {
-  if (nargs != 0) {
-    throw QueryRuntimeException("'pi' requires no arguments.");
-  }
+  FType<void>("pi", args, nargs);
   return TypedValue(M_PI, ctx.memory);
 }
 
-TypedValue Rand(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
+TypedValue Rand(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *) {
+  FType<void>("rand", args, nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
-  if (nargs != 0) {
-    throw QueryRuntimeException("'rand' requires no arguments.");
-  }
   return TypedValue(rand_dist_(pseudo_rand_gen_), ctx.memory);
 }
 
-template <bool (*Predicate)(const TypedValue::TString &s1,
-                            const TypedValue::TString &s2)>
+template <class TPredicate>
 TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
                                const EvaluationContext &ctx,
                                database::GraphDbAccessor *) {
-  if (nargs != 2) {
-    throw QueryRuntimeException(
-        "'startsWith' and 'endsWith' require two arguments.");
-  }
-  bool has_null = false;
-  auto check_arg = [&](const TypedValue &t) {
-    if (t.IsNull()) {
-      has_null = true;
-    } else if (t.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException(
-          "Arguments of 'startsWith' and 'endsWith' must be strings.");
-    }
-  };
-  check_arg(args[0]);
-  check_arg(args[1]);
-  if (has_null) return TypedValue(ctx.memory);
+  FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
   const auto &s2 = args[1].ValueString();
-  return TypedValue(Predicate(s1, s2), ctx.memory);
+  return TypedValue(TPredicate{}(s1, s2), ctx.memory);
 }
 
 // Check if s1 starts with s2.
-bool StartsWithPredicate(const TypedValue::TString &s1,
-                         const TypedValue::TString &s2) {
-  if (s1.size() < s2.size()) return false;
-  return std::equal(s2.begin(), s2.end(), s1.begin());
-}
+struct StartsWithPredicate {
+  constexpr static const char *name = "startsWith";
+  bool operator()(const TypedValue::TString &s1,
+                  const TypedValue::TString &s2) const {
+    if (s1.size() < s2.size()) return false;
+    return std::equal(s2.begin(), s2.end(), s1.begin());
+  }
+};
 auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 
 // Check if s1 ends with s2.
-bool EndsWithPredicate(const TypedValue::TString &s1,
-                       const TypedValue::TString &s2) {
-  if (s1.size() < s2.size()) return false;
-  return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
-}
+struct EndsWithPredicate {
+  constexpr static const char *name = "endsWith";
+  bool operator()(const TypedValue::TString &s1,
+                  const TypedValue::TString &s2) const {
+    if (s1.size() < s2.size()) return false;
+    return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
+  }
+};
 auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 
 // Check if s1 contains s2.
-bool ContainsPredicate(const TypedValue::TString &s1,
-                       const TypedValue::TString &s2) {
-  if (s1.size() < s2.size()) return false;
-  return s1.find(s2) != std::string::npos;
-}
+struct ContainsPredicate {
+  constexpr static const char *name = "contains";
+  bool operator()(const TypedValue::TString &s1,
+                  const TypedValue::TString &s2) const {
+    if (s1.size() < s2.size()) return false;
+    return s1.find(s2) != std::string::npos;
+  }
+};
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
 TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                   database::GraphDbAccessor *) {
-  if (nargs < 1 || nargs > 2) {
-    throw QueryRuntimeException("'assert' requires one or two arguments");
-  }
-  if (args[0].type() != TypedValue::Type::Bool)
-    throw QueryRuntimeException(
-        "First argument of 'assert' must be a boolean.");
-  if (nargs == 2 && args[1].type() != TypedValue::Type::String)
-    throw QueryRuntimeException(
-        "Second argument of 'assert' must be a string.");
+  FType<Bool, Optional<String>>("assert", args, nargs);
   if (!args[0].ValueBool()) {
     std::string message("Assertion failed");
     if (nargs == 2) {
@@ -686,25 +812,10 @@ TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 TypedValue Counter(TypedValue *args, int64_t nargs,
                    const EvaluationContext &context,
                    database::GraphDbAccessor *) {
-  if (nargs < 2 || nargs > 3) {
-    throw QueryRuntimeException("'counter' requires two or three arguments.");
-  }
-  if (!args[0].IsString())
-    throw QueryRuntimeException(
-        "First argument of 'counter' must be a string.");
-  if (!args[1].IsInt())
-    throw QueryRuntimeException(
-        "Second argument of 'counter' must be an integer.");
-  if (nargs == 3 && !args[2].IsInt())
-    throw QueryRuntimeException(
-        "Third argument of 'counter' must be an integer.");
-
+  FType<String, Integer, Optional<NonZeroInteger>>("counter", args, nargs);
   int64_t step = 1;
   if (nargs == 3) {
     step = args[2].ValueInt();
-    if (step == 0)
-      throw QueryRuntimeException(
-          "Third argument of 'counter' must not be zero.");
   }
 
   auto [it, inserted] =
@@ -717,27 +828,17 @@ TypedValue Counter(TypedValue *args, int64_t nargs,
 
 TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
               database::GraphDbAccessor *dba) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'id' requires exactly one argument.");
-  }
+  FType<Or<Vertex, Edge>>("id", args, nargs);
   const auto &arg = args[0];
-  switch (arg.type()) {
-    case TypedValue::Type::Vertex: {
-      return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
-    }
-    case TypedValue::Type::Edge: {
-      return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException("'id' argument must be a node or an edge.");
-  }
+  if (arg.IsVertex())
+    return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
+  else
+    return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
 }
 
 TypedValue ToString(TypedValue *args, int64_t nargs,
                     const EvaluationContext &ctx, database::GraphDbAccessor *) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'toString' requires exactly one argument.");
-  }
+  FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   switch (arg.type()) {
     case TypedValue::Type::Null:
@@ -758,86 +859,39 @@ TypedValue ToString(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Timestamp(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
+TypedValue Timestamp(TypedValue *args, int64_t nargs,
+                     const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 0) {
-    throw QueryRuntimeException("'timestamp' requires no arguments.");
-  }
+  FType<void>("timestamp", args, nargs);
   return TypedValue(ctx.timestamp, ctx.memory);
 }
 
 TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                 database::GraphDbAccessor *dba) {
-  if (nargs != 2) {
-    throw QueryRuntimeException("'left' requires two arguments.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue(ctx.memory);
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'left' must be a non-negative integer.");
-    case TypedValue::Type::String:
-      if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        return TypedValue(
-            utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()),
-            ctx.memory);
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'left' must be a non-negative integer.");
-    default:
-      throw QueryRuntimeException("First argument of 'left' must be a string.");
-  }
+  FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()),
+                    ctx.memory);
 }
 
 TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                  database::GraphDbAccessor *dba) {
-  if (nargs != 2) {
-    throw QueryRuntimeException("'right' requires two arguments.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      if (args[1].IsNull() || (args[1].IsInt() && args[1].ValueInt() >= 0)) {
-        return TypedValue(ctx.memory);
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'right' must be a non-negative integer.");
-    case TypedValue::Type::String: {
-      const auto &str = args[0].ValueString();
-      if (args[1].IsInt() && args[1].ValueInt() >= 0) {
-        auto len = args[1].ValueInt();
-        return len <= str.size()
-                   ? TypedValue(utils::Substr(str, str.size() - len, len),
-                                ctx.memory)
-                   : TypedValue(str, ctx.memory);
-      }
-      throw QueryRuntimeException(
-          "Second argument of 'right' must be a non-negative integer.");
-    }
-    default:
-      throw QueryRuntimeException(
-          "First argument of 'right' must be a string.");
-  }
+  FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("right", args, nargs);
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  const auto &str = args[0].ValueString();
+  auto len = args[1].ValueInt();
+  return len <= str.size()
+             ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
+             : TypedValue(str, ctx.memory);
 }
 
 TypedValue CallStringFunction(
     TypedValue *args, int64_t nargs, utils::MemoryResource *memory,
-    const std::string &name,
+    const char *name,
     std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
-  if (nargs != 1) {
-    throw QueryRuntimeException("'" + name +
-                                "' requires exactly one argument.");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(memory);
-    case TypedValue::Type::String:
-      return TypedValue(fun(args[0].ValueString()), memory);
-    default:
-      throw QueryRuntimeException("'" + name +
-                                  "' argument should be a string.");
-  }
+  FType<Or<Null, String>>(name, args, nargs);
+  if (args[0].IsNull()) return TypedValue(memory);
+  return TypedValue(fun(args[0].ValueString()), memory);
 }
 
 TypedValue LTrim(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
@@ -894,21 +948,8 @@ TypedValue ToUpper(TypedValue *args, int64_t nargs,
 TypedValue Replace(TypedValue *args, int64_t nargs,
                    const EvaluationContext &ctx,
                    database::GraphDbAccessor *dba) {
-  if (nargs != 3) {
-    throw QueryRuntimeException("'replace' requires three arguments.");
-  }
-  if (!args[0].IsNull() && !args[0].IsString()) {
-    throw QueryRuntimeException(
-        "First argument of 'replace' should be a string.");
-  }
-  if (!args[1].IsNull() && !args[1].IsString()) {
-    throw QueryRuntimeException(
-        "Second argument of 'replace' should be a string.");
-  }
-  if (!args[2].IsNull() && !args[2].IsString()) {
-    throw QueryRuntimeException(
-        "Third argument of 'replace' should be a string.");
-  }
+  FType<Or<Null, String>, Or<Null, String>, Or<Null, String>>("replace", args,
+                                                              nargs);
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
     return TypedValue(ctx.memory);
   }
@@ -920,17 +961,7 @@ TypedValue Replace(TypedValue *args, int64_t nargs,
 
 TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
                  database::GraphDbAccessor *dba) {
-  if (nargs != 2) {
-    throw QueryRuntimeException("'split' requires two arguments.");
-  }
-  if (!args[0].IsNull() && !args[0].IsString()) {
-    throw QueryRuntimeException(
-        "First argument of 'split' should be a string.");
-  }
-  if (!args[1].IsNull() && !args[1].IsString()) {
-    throw QueryRuntimeException(
-        "Second argument of 'split' should be a string.");
-  }
+  FType<Or<Null, String>, Or<Null, String>>("split", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
   }
@@ -942,29 +973,12 @@ TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 TypedValue Substring(TypedValue *args, int64_t nargs,
                      const EvaluationContext &ctx,
                      database::GraphDbAccessor *) {
-  if (nargs != 2 && nargs != 3) {
-    throw QueryRuntimeException("'substring' requires two or three arguments.");
-  }
-  if (!args[0].IsNull() && !args[0].IsString()) {
-    throw QueryRuntimeException(
-        "First argument of 'substring' should be a string.");
-  }
-  if (!args[1].IsInt() || args[1].ValueInt() < 0) {
-    throw QueryRuntimeException(
-        "Second argument of 'substring' should be a non-negative integer.");
-  }
-  if (nargs == 3 && (!args[2].IsInt() || args[2].ValueInt() < 0)) {
-    throw QueryRuntimeException(
-        "Third argument of 'substring' should be a non-negative integer.");
-  }
-  if (args[0].IsNull()) {
-    return TypedValue(ctx.memory);
-  }
+  FType<Or<Null, String>, NonNegativeInteger, Optional<NonNegativeInteger>>(
+      "substring", args, nargs);
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();
-  if (nargs == 2) {
-    return TypedValue(utils::Substr(str, start), ctx.memory);
-  }
+  if (nargs == 2) return TypedValue(utils::Substr(str, start), ctx.memory);
   auto len = args[2].ValueInt();
   return TypedValue(utils::Substr(str, start, len), ctx.memory);
 }
