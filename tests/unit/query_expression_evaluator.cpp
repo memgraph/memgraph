@@ -1304,9 +1304,9 @@ TEST_F(FunctionTest, UniformSample) {
   ASSERT_TRUE(
       EvaluateFunction("UNIFORMSAMPLE", TypedValue(), TypedValue()).IsNull());
   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", TypedValue(), 1).IsNull());
-  ASSERT_THROW(
-      EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(), TypedValue()),
-      QueryRuntimeException);
+  ASSERT_TRUE(
+      EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(), TypedValue())
+          .IsNull());
   ASSERT_TRUE(
       EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(), 1).IsNull());
   ASSERT_THROW(
