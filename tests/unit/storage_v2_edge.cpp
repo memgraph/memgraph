@@ -4143,7 +4143,7 @@ TEST(StorageV2, EdgePropertyCommit) {
       auto res =
           edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4157,7 +4157,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4212,7 +4212,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
@@ -4229,7 +4229,7 @@ TEST(StorageV2, EdgePropertyCommit) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     acc.Commit();
@@ -4291,7 +4291,7 @@ TEST(StorageV2, EdgePropertyAbort) {
       auto res =
           edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4305,7 +4305,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4357,7 +4357,7 @@ TEST(StorageV2, EdgePropertyAbort) {
       auto res =
           edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4371,7 +4371,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -4446,7 +4446,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
@@ -4524,7 +4524,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     {
       auto res = edge.SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
@@ -4603,7 +4603,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
     {
       auto res = edge.SetProperty(property1, storage::PropertyValue(123));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_TRUE(edge.GetProperty(property1, storage::View::OLD)->IsNull());

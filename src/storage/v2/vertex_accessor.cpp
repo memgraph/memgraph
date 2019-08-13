@@ -190,6 +190,12 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
 
   auto it = vertex_->properties.find(property);
   bool existed = it != vertex_->properties.end();
+  // We could skip setting the value if the previous one is the same to the new
+  // one. This would save some memory as a delta would not be created as well as
+  // avoid copying the value. The reason we are not doing that is because the
+  // current code always follows the logical pattern of "create a delta" and
+  // "modify in-place". Additionally, the created delta will make other
+  // transactions get a SERIALIZATION_ERROR.
   if (it != vertex_->properties.end()) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
                        it->second);
@@ -210,7 +216,7 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
-  return existed;
+  return !existed;
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,

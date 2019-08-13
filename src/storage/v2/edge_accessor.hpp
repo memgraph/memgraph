@@ -34,6 +34,9 @@ class EdgeAccessor final {
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
+  /// Set a property value and return `true` if insertion took place.
+  /// `false` is returned if assignment took place.
+  /// @throw std::bad_alloc
   Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;

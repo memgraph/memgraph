@@ -26,6 +26,12 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
 
   auto it = edge_->properties.find(property);
   bool existed = it != edge_->properties.end();
+  // We could skip setting the value if the previous one is the same to the new
+  // one. This would save some memory as a delta would not be created as well as
+  // avoid copying the value. The reason we are not doing that is because the
+  // current code always follows the logical pattern of "create a delta" and
+  // "modify in-place". Additionally, the created delta will make other
+  // transactions get a SERIALIZATION_ERROR.
   if (it != edge_->properties.end()) {
     CreateAndLinkDelta(transaction_, edge_, Delta::SetPropertyTag(), property,
                        it->second);
@@ -44,7 +50,7 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
     }
   }
 
-  return existed;
+  return !existed;
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,

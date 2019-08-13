@@ -743,7 +743,7 @@ TEST(StorageV2, VertexDeleteProperty) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     // Set property 5 to "nandare"
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         vertex->SetProperty(property, storage::PropertyValue("nandare"))
             .GetValue());
 
@@ -796,7 +796,7 @@ TEST(StorageV2, VertexDeleteProperty) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     // Set property 5 to "nandare"
-    ASSERT_FALSE(
+    ASSERT_TRUE(
         vertex->SetProperty(property, storage::PropertyValue("nandare"))
             .GetValue());
 
@@ -1364,7 +1364,7 @@ TEST(StorageV2, VertexPropertyCommit) {
       auto res =
           vertex.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1379,7 +1379,7 @@ TEST(StorageV2, VertexPropertyCommit) {
       auto res =
           vertex.SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1434,7 +1434,7 @@ TEST(StorageV2, VertexPropertyCommit) {
     {
       auto res = vertex->SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
@@ -1451,7 +1451,7 @@ TEST(StorageV2, VertexPropertyCommit) {
     {
       auto res = vertex->SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     acc.Commit();
@@ -1508,7 +1508,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       auto res =
           vertex->SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1523,7 +1523,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       auto res =
           vertex->SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1575,7 +1575,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       auto res =
           vertex->SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1590,7 +1590,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       auto res =
           vertex->SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
@@ -1665,7 +1665,7 @@ TEST(StorageV2, VertexPropertyAbort) {
     {
       auto res = vertex->SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
@@ -1743,7 +1743,7 @@ TEST(StorageV2, VertexPropertyAbort) {
     {
       auto res = vertex->SetProperty(property, storage::PropertyValue());
       ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.GetValue());
     }
 
     ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
@@ -1817,7 +1817,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
     {
       auto res = vertex->SetProperty(property1, storage::PropertyValue(123));
       ASSERT_TRUE(res.HasValue());
-      ASSERT_FALSE(res.GetValue());
+      ASSERT_TRUE(res.GetValue());
     }
 
     ASSERT_TRUE(vertex->GetProperty(property1, storage::View::OLD)->IsNull());
@@ -1941,7 +1941,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
 
   // Set property 5 to "nandare"
-  ASSERT_FALSE(vertex.SetProperty(property, storage::PropertyValue("nandare"))
+  ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue("nandare"))
                    .GetValue());
 
   // Check whether label 5 and property 5 exist
@@ -1999,7 +1999,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   }
 
   // Set property 5 to "haihai"
-  ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue("haihai"))
+  ASSERT_FALSE(vertex.SetProperty(property, storage::PropertyValue("haihai"))
                   .GetValue());
 
   // Check whether label 5 and property 5 exist
@@ -2112,7 +2112,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   }
 
   // Set property 5 to null
-  ASSERT_TRUE(
+  ASSERT_FALSE(
       vertex.SetProperty(property, storage::PropertyValue()).GetValue());
 
   // Check whether label 5 and property 5 exist
