@@ -957,7 +957,7 @@ void Storage::CollectGarbage() {
         switch (prev.type) {
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
-            std::unique_lock<utils::SpinLock> vertex_guard(vertex->lock);
+            std::lock_guard<utils::SpinLock> vertex_guard(vertex->lock);
             if (vertex->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -971,12 +971,13 @@ void Storage::CollectGarbage() {
           }
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
-            std::unique_lock<utils::SpinLock> edge_guard(edge->lock);
+            std::lock_guard<utils::SpinLock> edge_guard(edge->lock);
             if (edge->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
               continue;
             }
+            edge->delta = nullptr;
             if (edge->deleted) {
               current_deleted_edges.push_back(edge->gid);
             }
