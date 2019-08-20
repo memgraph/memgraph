@@ -2,7 +2,6 @@
 
 #include <gflags/gflags.h>
 
-#include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
@@ -11,6 +10,7 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
 
@@ -65,8 +65,6 @@ class Interpreter {
     Query *query;
     std::vector<AuthQuery::Privilege> required_privileges;
   };
-
-  using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
 
  public:
   /**
@@ -244,8 +242,41 @@ class Interpreter {
                                  const plan::LogicalOperator *);
 
  private:
-  ConcurrentMap<HashType, CachedQuery> ast_cache_;
-  PlanCacheT plan_cache_;
+  struct QueryCacheEntry {
+    bool operator==(const QueryCacheEntry &other) const {
+      return first == other.first;
+    }
+    bool operator<(const QueryCacheEntry &other) const {
+      return first < other.first;
+    }
+    bool operator==(const HashType &other) const { return first == other; }
+    bool operator<(const HashType &other) const { return first < other; }
+
+    HashType first;
+    // TODO: Maybe store the query string here and use it as a key with the hash
+    // so that we eliminate the risk of hash collisions.
+    CachedQuery second;
+  };
+
+  struct PlanCacheEntry {
+    bool operator==(const PlanCacheEntry &other) const {
+      return first == other.first;
+    }
+    bool operator<(const PlanCacheEntry &other) const {
+      return first < other.first;
+    }
+    bool operator==(const HashType &other) const { return first == other; }
+    bool operator<(const HashType &other) const { return first < other; }
+
+    HashType first;
+    // TODO: Maybe store the query string here and use it as a key with the hash
+    // so that we eliminate the risk of hash collisions.
+    std::shared_ptr<CachedPlan> second;
+  };
+
+  utils::SkipList<QueryCacheEntry> ast_cache_;
+  utils::SkipList<PlanCacheEntry> plan_cache_;
+
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we

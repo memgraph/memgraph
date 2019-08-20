@@ -1095,9 +1095,9 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
     }
   }
   return plan_cache_access
-      .insert(query_hash,
-              std::make_shared<CachedPlan>(MakeLogicalPlan(
-                  query, std::move(ast_storage), parameters, db_accessor)))
+      .insert({query_hash,
+               std::make_shared<CachedPlan>(MakeLogicalPlan(
+                   query, std::move(ast_storage), parameters, db_accessor))})
       .first->second;
 }
 
@@ -1148,9 +1148,9 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
     CachedQuery cached_query{std::move(cached_ast_storage), visitor.query(),
                              query::GetRequiredPrivileges(visitor.query())};
     // Cache it.
-    ast_it =
-        ast_cache_accessor.insert(stripped_query_hash, std::move(cached_query))
-            .first;
+    ast_it = ast_cache_accessor
+                 .insert({stripped_query_hash, std::move(cached_query)})
+                 .first;
   }
   ast_storage->properties_ = ast_it->second.ast_storage.properties_;
   ast_storage->labels_ = ast_it->second.ast_storage.labels_;
