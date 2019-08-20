@@ -222,7 +222,6 @@ class Storage final {
    private:
     Storage *storage_;
     Transaction transaction_;
-    bool is_transaction_starter_;
     bool is_transaction_active_;
 
     std::shared_lock<utils::RWLock> storage_guard_;

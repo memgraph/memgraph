@@ -302,22 +302,19 @@ Storage::Accessor::Accessor(Storage *storage, uint64_t transaction_id,
                             uint64_t start_timestamp)
     : storage_(storage),
       transaction_(transaction_id, start_timestamp),
-      is_transaction_starter_(true),
       is_transaction_active_(true),
       storage_guard_(storage_->main_lock_) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       transaction_(std::move(other.transaction_)),
-      is_transaction_starter_(true),
       is_transaction_active_(other.is_transaction_active_) {
-  CHECK(other.is_transaction_starter_) << "The original accessor isn't valid!";
-  // Don't allow the other accessor to abort our transaction.
-  other.is_transaction_starter_ = false;
+  // Don't allow the other accessor to abort our transaction in destructor.
+  other.is_transaction_active_ = false;
 }
 
 Storage::Accessor::~Accessor() {
-  if (is_transaction_starter_ && is_transaction_active_) {
+  if (is_transaction_active_) {
     Abort();
   }
 }
