@@ -310,6 +310,9 @@ target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
 
+add_unit_test(storage_v2_constraints.cpp)
+target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
+
 add_unit_test(storage_v2_edge.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
 

@@ -43,7 +43,7 @@ void UpdateLabelFunc(int thread_id, storage::Storage *storage,
         << "Vertex with GID " << gid.AsUint() << " doesn't exist";
     if (vertex->AddLabel(storage::LabelId::FromUint(label_dist(gen)))
             .HasValue()) {
-      acc.Commit();
+      CHECK(acc.Commit() == std::nullopt);
     } else {
       acc.Abort();
     }
@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
         vertices.push_back(acc.CreateVertex().Gid());
       }
-      acc.Commit();
+      CHECK(acc.Commit() == std::nullopt);
     }
 
     utils::Timer timer;

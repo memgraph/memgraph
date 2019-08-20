@@ -4,6 +4,7 @@
 #include <shared_mutex>
 
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/constraints.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
@@ -215,7 +216,10 @@ class Storage final {
 
     void AdvanceCommand();
 
-    void Commit();
+    /// Commit returns `ExistenceConstraintViolation` if the changes made by
+    /// this transaction violate an existence constraint. In that case the
+    /// transaction is automatically aborted. Otherwise, nullopt is returned.
+    [[nodiscard]] std::optional<ExistenceConstraintViolation> Commit();
 
     void Abort();
 
@@ -252,15 +256,36 @@ class Storage final {
     return indices_.label_property_index.IndexExists(label, property);
   }
 
+  /// Creates a unique constraint`. Returns true if the constraint was
+  /// successfuly added, false if it already exists and an
+  /// `ExistenceConstraintViolation` if there is an existing vertex violating
+  /// the constraint.
+  ///
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  utils::BasicResult<ExistenceConstraintViolation, bool>
+  CreateExistenceConstraint(LabelId label, PropertyId property) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return ::storage::CreateExistenceConstraint(&constraints_, label, property,
+                                                vertices_.access());
+  }
+
+  /// Removes a unique constraint. Returns true if the constraint was removed,
+  /// and false if it doesn't exist.
+  bool DropExistenceConstraint(LabelId label, PropertyId property) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return ::storage::DropExistenceConstraint(&constraints_, label, property);
+  }
+
  private:
   void CollectGarbage();
 
   // Main storage lock.
   //
   // Accessors take a shared lock when starting, so it is possible to block
-  // creation of new accessors by taking a unique lock. This is used when
-  // building a label-property index because it is much simpler to do when there
-  // are no parallel reads and writes.
+  // creation of new accessors by taking a unique lock. This is used when doing
+  // operations on storage that affect the global state, for example index
+  // creation.
   utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
@@ -272,6 +297,7 @@ class Storage final {
   NameIdMapper name_id_mapper_;
 
   Indices indices_;
+  Constraints constraints_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

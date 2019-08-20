@@ -580,7 +580,8 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-void Storage::Accessor::Commit() {
+[[nodiscard]] std::optional<ExistenceConstraintViolation>
+Storage::Accessor::Commit() {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
   CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
 
@@ -589,6 +590,23 @@ void Storage::Accessor::Commit() {
     // it.
     storage_->commit_log_.MarkFinished(transaction_.start_timestamp);
   } else {
+    // Validate that existence constraints are satisfied for all modified
+    // vertices.
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        continue;
+      }
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      auto validation_result =
+          ValidateExistenceConstraints(prev.vertex, &storage_->constraints_);
+      if (validation_result) {
+        Abort();
+        return *validation_result;
+      }
+    }
+
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
     uint64_t commit_timestamp;
@@ -622,6 +640,8 @@ void Storage::Accessor::Commit() {
   if (storage_->gc_config_.type == StorageGcConfig::Type::ON_FINISH) {
     storage_->CollectGarbage();
   }
+
+  return std::nullopt;
 }
 
 void Storage::Accessor::Abort() {
