@@ -932,6 +932,13 @@ void Storage::CollectGarbage() {
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
+  // Flag that will be used to determine whether the Index GC should be run. It
+  // should be run when there were any items that were cleaned up (there were
+  // updates between this run of the GC and the previous run of the GC). This
+  // eliminates high CPU usage when the GC doesn't have to clean up anything.
+  bool run_index_cleanup =
+      !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
+
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
@@ -1020,7 +1027,11 @@ void Storage::CollectGarbage() {
   // we're sure that none of the vertices from `current_deleted_vertices`
   // appears in an index, and we can safely remove the from the main storage
   // after the last currently active transaction is finished.
-  RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+  if (run_index_cleanup) {
+    // This operation is very expensive as it traverses through all of the items
+    // in every index every time.
+    RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+  }
 
   {
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
@@ -1048,7 +1059,7 @@ void Storage::CollectGarbage() {
   while (true) {
     auto garbage_undo_buffers_ptr = garbage_undo_buffers_.Lock();
     if (garbage_undo_buffers_ptr->empty() ||
-        garbage_undo_buffers_ptr->front().first >=
+        garbage_undo_buffers_ptr->front().first >
             oldest_active_start_timestamp) {
       break;
     }
