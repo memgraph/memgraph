@@ -449,7 +449,7 @@ bool LabelPropertyIndex::CreateIndex(
   }
   auto acc = it->second.access();
   for (Vertex &vertex : vertices) {
-    if (!utils::Contains(vertex.labels, label)) {
+    if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
       continue;
     }
     auto it = vertex.properties.find(property);
