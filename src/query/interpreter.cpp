@@ -775,7 +775,7 @@ Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
 Interpreter::Results Interpreter::operator()(
     const std::string &query_string, database::GraphDbAccessor &db_accessor,
     const std::map<std::string, PropertyValue> &params,
-    bool in_explicit_transaction) {
+    bool in_explicit_transaction, utils::MemoryResource *execution_memory) {
   AstStorage ast_storage;
   Parameters parameters;
   std::map<std::string, TypedValue> summary;
@@ -832,7 +832,7 @@ Interpreter::Results Interpreter::operator()(
     }
 
     return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges);
+                   summary, parsed_query.required_privileges, execution_memory);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ExplainQuery::kType)) {
@@ -902,7 +902,7 @@ Interpreter::Results Interpreter::operator()(
     std::vector<std::string> header{query_plan_symbol.name()};
 
     return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges);
+                   summary, parsed_query.required_privileges, execution_memory);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
@@ -983,7 +983,7 @@ Interpreter::Results Interpreter::operator()(
     summary["planning_time"] = planning_time.count();
 
     return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges,
+                   summary, parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
@@ -1005,7 +1005,7 @@ Interpreter::Results Interpreter::operator()(
     summary["planning_time"] = planning_timer.Elapsed().count();
 
     return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges,
+                   summary, parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ false,
                    /* should_abort_query */ false);
 #else
@@ -1079,6 +1079,7 @@ Interpreter::Results Interpreter::operator()(
 
   return Results(&db_accessor, parameters, plan, output_symbols,
                  callback.header, summary, parsed_query.required_privileges,
+                 execution_memory,
                  /* is_profile_query */ false, callback.should_abort_query);
 }
 

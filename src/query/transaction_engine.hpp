@@ -5,14 +5,20 @@
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "utils/likely.hpp"
+#include "utils/memory.hpp"
 #include "utils/string.hpp"
 
 namespace query {
 
+static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
+
 class TransactionEngine final {
  public:
   TransactionEngine(database::GraphDb *db, Interpreter *interpreter)
-      : db_(db), interpreter_(interpreter) {}
+      : db_(db),
+        interpreter_(interpreter),
+        execution_memory_(&initial_memory_block_[0],
+                          kExecutionMemoryBlockSize) {}
 
   ~TransactionEngine() { Abort(); }
 
@@ -21,6 +27,7 @@ class TransactionEngine final {
             const std::map<std::string, PropertyValue> &params) {
     // Clear pending results.
     results_ = std::nullopt;
+    execution_memory_.Release();
 
     // Check the query for transaction commands.
     auto query_upper = utils::Trim(utils::ToUpperCase(query));
@@ -67,10 +74,15 @@ class TransactionEngine final {
     // Create a DB accessor if we don't yet have one.
     if (!db_accessor_) db_accessor_.emplace(db_->Access());
 
+    // Clear leftover results.
+    results_ = std::nullopt;
+    execution_memory_.Release();
+
     // Interpret the query and return the headers.
     try {
       results_.emplace((*interpreter_)(query, *db_accessor_, params,
-                                       in_explicit_transaction_));
+                                       in_explicit_transaction_,
+                                       &execution_memory_));
       return {results_->header(), results_->privileges()};
     } catch (const utils::BasicException &) {
       AbortCommand();
@@ -112,6 +124,7 @@ class TransactionEngine final {
 
   void Abort() {
     results_ = std::nullopt;
+    execution_memory_.Release();
     expect_rollback_ = false;
     in_explicit_transaction_ = false;
     if (!db_accessor_) return;
@@ -131,8 +144,12 @@ class TransactionEngine final {
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
+  uint8_t initial_memory_block_[kExecutionMemoryBlockSize];
+  utils::MonotonicBufferResource execution_memory_;
+
   void Commit() {
     results_ = std::nullopt;
+    execution_memory_.Release();
     if (!db_accessor_) return;
     db_accessor_->Commit();
     db_accessor_ = std::nullopt;
@@ -140,12 +157,14 @@ class TransactionEngine final {
 
   void AdvanceCommand() {
     results_ = std::nullopt;
+    execution_memory_.Release();
     if (!db_accessor_) return;
     db_accessor_->AdvanceCommand();
   }
 
   void AbortCommand() {
     results_ = std::nullopt;
+    execution_memory_.Release();
     if (in_explicit_transaction_) {
       expect_rollback_ = true;
     } else {

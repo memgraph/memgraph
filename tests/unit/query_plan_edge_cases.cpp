@@ -40,7 +40,8 @@ class QueryExecution : public testing::Test {
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = query::Interpreter()(query, *dba_, {}, false);
+    auto results = query::Interpreter()(query, *dba_, {}, false,
+                                        utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());

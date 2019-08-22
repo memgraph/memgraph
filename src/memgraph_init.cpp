@@ -126,7 +126,9 @@ void KafkaStreamWriter(
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    (*session_data.interpreter)(query, dba, params_pv, false).PullAll(stream);
+    (*session_data.interpreter)(query, dba, params_pv, false,
+                                utils::NewDeleteResource())
+        .PullAll(stream);
     dba.Commit();
   } catch (const utils::BasicException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "

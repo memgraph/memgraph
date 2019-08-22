@@ -7,8 +7,6 @@
 
 namespace query {
 
-static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
-
 struct EvaluationContext {
   /// Memory for allocations during evaluation of a *single* Pull call.
   ///

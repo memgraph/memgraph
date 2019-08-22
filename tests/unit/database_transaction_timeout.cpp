@@ -13,7 +13,8 @@ TEST(TransactionTimeout, TransactionTimeout) {
   query::Interpreter interpreter;
   auto interpret = [&](auto &dba, const std::string &query) {
     ResultStreamFaker<query::TypedValue> stream;
-    interpreter(query, dba, {}, false).PullAll(stream);
+    interpreter(query, dba, {}, false, utils::NewDeleteResource())
+        .PullAll(stream);
   };
   {
     auto dba = db.Access();
