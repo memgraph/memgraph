@@ -1,6 +1,7 @@
 #include <benchmark/benchmark.h>
 
 #include "query/interpret/eval.hpp"
+#include "query/transaction_engine.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE

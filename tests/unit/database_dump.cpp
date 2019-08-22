@@ -184,7 +184,8 @@ class DatabaseEnvironment {
 void Execute(GraphDbAccessor *dba, const std::string &query) {
   CHECK(dba);
   ResultStreamFaker<query::TypedValue> results;
-  query::Interpreter()(query, *dba, {}, false).PullAll(results);
+  query::Interpreter()(query, *dba, {}, false, utils::NewDeleteResource())
+      .PullAll(results);
 }
 
 VertexAccessor CreateVertex(GraphDbAccessor *dba,
@@ -560,7 +561,8 @@ TEST(DumpTest, ExecuteDumpDatabase) {
     auto dba = db.Access();
     const std::string query = "DUMP DATABASE";
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = query::Interpreter()(query, dba, {}, false);
+    auto results =
+        query::Interpreter()(query, dba, {}, false, utils::NewDeleteResource());
 
     stream.Header(results.header());
     results.PullAll(stream);

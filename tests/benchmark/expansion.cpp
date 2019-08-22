@@ -46,7 +46,8 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false, utils::NewDeleteResource())
+        .PullAll(results);
   }
 }
 
@@ -60,7 +61,8 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false, utils::NewDeleteResource())
+        .PullAll(results);
   }
 }
 

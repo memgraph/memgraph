@@ -21,7 +21,8 @@ class InterpreterTest : public ::testing::Test {
                  const std::map<std::string, PropertyValue> &params = {}) {
     auto dba = db_.Access();
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = interpreter_(query, dba, params, false);
+    auto results =
+        interpreter_(query, dba, params, false, utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());
@@ -204,7 +205,7 @@ TEST_F(InterpreterTest, Bfs) {
   auto results = interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
       "e.reachable)]->(m) RETURN r",
-      dba, {}, false);
+      dba, {}, false, utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -247,9 +248,10 @@ TEST_F(InterpreterTest, Bfs) {
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
   ResultStreamFaker<query::TypedValue> stream;
   auto dba = db_.Access();
-  ASSERT_THROW(
-      interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
-      query::IndexInMulticommandTxException);
+  ASSERT_THROW(interpreter_("CREATE INDEX ON :X(y)", dba, {}, true,
+                            utils::NewDeleteResource())
+                   .PullAll(stream),
+               query::IndexInMulticommandTxException);
 }
 
 // Test shortest path end to end.
@@ -260,7 +262,7 @@ TEST_F(InterpreterTest, ShortestPath) {
     interpreter_(
         "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
         "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)",
-        dba, {}, true)
+        dba, {}, true, utils::NewDeleteResource())
         .PullAll(stream);
 
     dba.Commit();
@@ -270,7 +272,7 @@ TEST_F(InterpreterTest, ShortestPath) {
   auto dba = db_.Access();
   auto results =
       interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e",
-                   dba, {}, false);
+                   dba, {}, false, utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -308,44 +310,55 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   {
     auto dba = db_.Access();
     interpreter_("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;", dba,
-                 {}, true)
+                 {}, true, utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();
   }
 
   {
     auto dba = db_.Access();
-    interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true).PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true).PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    ASSERT_THROW(
-        interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true).PullAll(stream),
-        query::QueryRuntimeException);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", dba, {}, true)
+    interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true,
+                 utils::NewDeleteResource())
         .PullAll(stream);
-    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true).PullAll(stream);
     dba.Commit();
   }
 
   {
     auto dba = db_.Access();
-    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", dba, {}, true)
+    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true,
+                 utils::NewDeleteResource())
         .PullAll(stream);
-    interpreter_("CREATE (n:A{a:2, b:2})", dba, {}, true).PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    ASSERT_THROW(interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true,
+                              utils::NewDeleteResource())
+                     .PullAll(stream),
+                 query::QueryRuntimeException);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", dba, {}, true,
+                 utils::NewDeleteResource())
+        .PullAll(stream);
+    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true,
+                 utils::NewDeleteResource())
+        .PullAll(stream);
+    dba.Commit();
+  }
+
+  {
+    auto dba = db_.Access();
+    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", dba, {}, true,
+                 utils::NewDeleteResource())
+        .PullAll(stream);
+    interpreter_("CREATE (n:A{a:2, b:2})", dba, {}, true,
+                 utils::NewDeleteResource())
+        .PullAll(stream);
     dba.Commit();
   }
 }

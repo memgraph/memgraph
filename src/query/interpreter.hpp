@@ -78,13 +78,12 @@ class Interpreter {
             std::shared_ptr<CachedPlan> plan,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
+            utils::MemoryResource *execution_memory,
             bool is_profile_query = false, bool should_abort_query = false)
         : ctx_{db_accessor},
           plan_(plan),
-          execution_memory_(std::make_unique<utils::MonotonicBufferResource>(
-              kExecutionMemoryBlockSize)),
-          cursor_(plan_->plan().MakeCursor(execution_memory_.get())),
-          frame_(plan_->symbol_table().max_position(), execution_memory_.get()),
+          cursor_(plan_->plan().MakeCursor(execution_memory)),
+          frame_(plan_->symbol_table().max_position(), execution_memory),
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
@@ -170,9 +169,6 @@ class Interpreter {
    private:
     ExecutionContext ctx_;
     std::shared_ptr<CachedPlan> plan_;
-    // execution_memory_ is unique_ptr, because we are passing the address to
-    // cursor_, and we want to preserve the pointer in case we get moved.
-    std::unique_ptr<utils::MonotonicBufferResource> execution_memory_;
     query::plan::UniqueCursorPtr cursor_;
     Frame frame_;
     std::vector<Symbol> output_symbols_;
@@ -200,7 +196,8 @@ class Interpreter {
   virtual Results operator()(const std::string &query,
                              database::GraphDbAccessor &db_accessor,
                              const std::map<std::string, PropertyValue> &params,
-                             bool in_explicit_transaction);
+                             bool in_explicit_transaction,
+                             utils::MemoryResource *execution_memory);
 
  protected:
   std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(

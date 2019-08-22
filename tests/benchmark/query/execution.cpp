@@ -10,6 +10,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/planner.hpp"
+#include "query/transaction_engine.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
