@@ -44,11 +44,11 @@ class AllTypesFixture : public testing::Test {
 };
 
 void EXPECT_PROP_FALSE(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.Value<bool>());
+  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool());
 }
 
 void EXPECT_PROP_TRUE(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.Value<bool>());
+  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool());
 }
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
@@ -79,15 +79,15 @@ TEST(TypedValue, CreationTypes) {
 }
 
 TEST(TypedValue, CreationValues) {
-  EXPECT_EQ(TypedValue(true).Value<bool>(), true);
-  EXPECT_EQ(TypedValue(false).Value<bool>(), false);
+  EXPECT_EQ(TypedValue(true).ValueBool(), true);
+  EXPECT_EQ(TypedValue(false).ValueBool(), false);
 
   EXPECT_EQ(TypedValue(std::string("bla")).ValueString(), "bla");
   EXPECT_EQ(TypedValue("bla2").ValueString(), "bla2");
 
-  EXPECT_EQ(TypedValue(55).Value<int64_t>(), 55);
+  EXPECT_EQ(TypedValue(55).ValueInt(), 55);
 
-  EXPECT_FLOAT_EQ(TypedValue(66.6).Value<double>(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(66.6).ValueDouble(), 66.6);
 }
 
 TEST(TypedValue, Equals) {
@@ -238,8 +238,8 @@ TEST(TypedValue, LogicalNot) {
 TEST(TypedValue, UnaryMinus) {
   EXPECT_TRUE((-TypedValue()).type() == TypedValue::Type::Null);
 
-  EXPECT_PROP_EQ(TypedValue(-TypedValue(2).Value<int64_t>()), TypedValue(-2));
-  EXPECT_FLOAT_EQ((-TypedValue(2.0).Value<double>()), -2.0);
+  EXPECT_PROP_EQ(TypedValue(-TypedValue(2).ValueInt()), TypedValue(-2));
+  EXPECT_FLOAT_EQ((-TypedValue(2.0).ValueDouble()), -2.0);
 
   EXPECT_THROW(-TypedValue(true), TypedValueException);
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
@@ -248,8 +248,8 @@ TEST(TypedValue, UnaryMinus) {
 TEST(TypedValue, UnaryPlus) {
   EXPECT_TRUE((+TypedValue()).type() == TypedValue::Type::Null);
 
-  EXPECT_PROP_EQ(TypedValue(+TypedValue(2).Value<int64_t>()), TypedValue(2));
-  EXPECT_FLOAT_EQ((+TypedValue(2.0).Value<double>()), 2.0);
+  EXPECT_PROP_EQ(TypedValue(+TypedValue(2).ValueInt()), TypedValue(2));
+  EXPECT_FLOAT_EQ((+TypedValue(2.0).ValueDouble()), 2.0);
 
   EXPECT_THROW(+TypedValue(true), TypedValueException);
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
@@ -311,8 +311,8 @@ TEST_F(TypedValueArithmeticTest, Sum) {
       true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
 
   // sum of props of the same type
-  EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int64_t>(), 5);
-  EXPECT_FLOAT_EQ((TypedValue(2.5) + TypedValue(1.25)).Value<double>(), 3.75);
+  EXPECT_EQ((TypedValue(2) + TypedValue(3)).ValueInt(), 5);
+  EXPECT_FLOAT_EQ((TypedValue(2.5) + TypedValue(1.25)).ValueDouble(), 3.75);
   EXPECT_EQ((TypedValue("one") + TypedValue("two")).ValueString(), "onetwo");
 
   // sum of string and numbers
@@ -339,12 +339,12 @@ TEST_F(TypedValueArithmeticTest, Difference) {
       false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
 
   // difference of props of the same type
-  EXPECT_EQ((TypedValue(2) - TypedValue(3)).Value<int64_t>(), -1);
-  EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2.25)).Value<double>(), 0.25);
+  EXPECT_EQ((TypedValue(2) - TypedValue(3)).ValueInt(), -1);
+  EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2.25)).ValueDouble(), 0.25);
 
   // implicit casting
-  EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).Value<double>(), 1.5);
-  EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).Value<double>(), 0.5);
+  EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
+  EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
 }
 
 TEST_F(TypedValueArithmeticTest, Divison) {
@@ -356,10 +356,10 @@ TEST_F(TypedValueArithmeticTest, Divison) {
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(4), TypedValue(2));
 
   EXPECT_PROP_EQ(TypedValue(10.0) / TypedValue(2.0), TypedValue(5.0));
-  EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4.0)).Value<double>(), 2.5);
+  EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4.0)).ValueDouble(), 2.5);
 
-  EXPECT_FLOAT_EQ((TypedValue(10) / TypedValue(4.0)).Value<double>(), 2.5);
-  EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4)).Value<double>(), 2.5);
+  EXPECT_FLOAT_EQ((TypedValue(10) / TypedValue(4.0)).ValueDouble(), 2.5);
+  EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4)).ValueDouble(), 2.5);
 }
 
 TEST_F(TypedValueArithmeticTest, Multiplication) {
@@ -367,10 +367,10 @@ TEST_F(TypedValueArithmeticTest, Multiplication) {
       false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
 
   EXPECT_PROP_EQ(TypedValue(10) * TypedValue(2), TypedValue(20));
-  EXPECT_FLOAT_EQ((TypedValue(12.5) * TypedValue(6.6)).Value<double>(),
+  EXPECT_FLOAT_EQ((TypedValue(12.5) * TypedValue(6.6)).ValueDouble(),
                   12.5 * 6.6);
-  EXPECT_FLOAT_EQ((TypedValue(10) * TypedValue(4.5)).Value<double>(), 10 * 4.5);
-  EXPECT_FLOAT_EQ((TypedValue(10.2) * TypedValue(4)).Value<double>(), 10.2 * 4);
+  EXPECT_FLOAT_EQ((TypedValue(10) * TypedValue(4.5)).ValueDouble(), 10 * 4.5);
+  EXPECT_FLOAT_EQ((TypedValue(10.2) * TypedValue(4)).ValueDouble(), 10.2 * 4);
 }
 
 TEST_F(TypedValueArithmeticTest, Modulo) {
@@ -382,10 +382,10 @@ TEST_F(TypedValueArithmeticTest, Modulo) {
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(4), TypedValue(2));
 
   EXPECT_PROP_EQ(TypedValue(10.0) % TypedValue(2.0), TypedValue(0.0));
-  EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(3.25)).Value<double>(), 0.25);
+  EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(3.25)).ValueDouble(), 0.25);
 
-  EXPECT_FLOAT_EQ((TypedValue(10) % TypedValue(4.0)).Value<double>(), 2.0);
-  EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(4)).Value<double>(), 2.0);
+  EXPECT_FLOAT_EQ((TypedValue(10) % TypedValue(4.0)).ValueDouble(), 2.0);
+  EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(4)).ValueDouble(), 2.0);
 }
 
 class TypedValueLogicTest : public AllTypesFixture {

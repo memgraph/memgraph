@@ -3,10 +3,10 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
-#include "query/frontend/stripped.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 using namespace query;
@@ -18,7 +18,7 @@ using testing::Pair;
 using testing::UnorderedElementsAre;
 
 void EXPECT_PROP_TRUE(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.Value<bool>());
+  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool());
 }
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
@@ -39,8 +39,8 @@ TEST(QueryStripper, ZeroInteger) {
   StrippedQuery stripped("RETURN 0");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_EQ(stripped.literals().At(0).first, 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 0);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(1).Value<int64_t>(), 0);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 0);
+  EXPECT_EQ(stripped.literals().AtTokenPosition(1).ValueInt(), 0);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
@@ -48,57 +48,57 @@ TEST(QueryStripper, DecimalInteger) {
   StrippedQuery stripped("RETURN 42");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_EQ(stripped.literals().At(0).first, 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 42);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(1).Value<int64_t>(), 42);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
+  EXPECT_EQ(stripped.literals().AtTokenPosition(1).ValueInt(), 42);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, OctalInteger) {
   StrippedQuery stripped("RETURN 010");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 8);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 8);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, HexInteger) {
   StrippedQuery stripped("RETURN 0xa");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 10);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 10);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, RegularDecimal) {
   StrippedQuery stripped("RETURN 42.3");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.Value<double>(), 42.3);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), 42.3);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal) {
   StrippedQuery stripped("RETURN 4e2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.Value<double>(), 4e2);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), 4e2);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal2) {
   StrippedQuery stripped("RETURN 4e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.Value<double>(), 4e-2);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), 4e-2);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal3) {
   StrippedQuery stripped("RETURN 0.1e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.Value<double>(), 0.1e-2);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), 0.1e-2);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal4) {
   StrippedQuery stripped("RETURN .1e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.Value<double>(), .1e-2);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), .1e-2);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedDoubleToken);
 }
 
@@ -111,28 +111,28 @@ TEST(QueryStripper, SymbolicNameStartingWithE) {
 TEST(QueryStripper, StringLiteral) {
   StrippedQuery stripped("RETURN 'something'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), "something");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "something");
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral2) {
   StrippedQuery stripped("RETURN 'so\\'me'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), "so'me");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "so'me");
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral3) {
   StrippedQuery stripped("RETURN \"so\\\"me'\"");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), "so\"me'");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "so\"me'");
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral4) {
   StrippedQuery stripped("RETURN '\\u1Aa4'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), u8"\u1Aa4");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), u8"\u1Aa4");
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
@@ -147,8 +147,7 @@ TEST(QueryStripper, LowSurrogateAlone) {
 TEST(QueryStripper, Surrogates) {
   StrippedQuery stripped("RETURN '\\ud83d\\udeeb'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(),
-            u8"\U0001f6eb");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), u8"\U0001f6eb");
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
@@ -192,8 +191,8 @@ TEST(QueryStripper, MapLiteral) {
 TEST(QueryStripper, RangeLiteral) {
   StrippedQuery stripped("MATCH (n)-[*2..3]-() RETURN n");
   EXPECT_EQ(stripped.literals().size(), 2);
-  EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 2);
-  EXPECT_EQ(stripped.literals().At(1).second.Value<int64_t>(), 3);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 2);
+  EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 3);
   EXPECT_EQ(stripped.query(), "MATCH ( n ) - [ * " + kStrippedIntToken +
                                   " .. " + kStrippedIntToken +
                                   " ] - ( ) RETURN n");

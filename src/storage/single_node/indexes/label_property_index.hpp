@@ -409,23 +409,23 @@ class LabelPropertyIndex {
           case PropertyValue::Type::Null:
             return false;
           case PropertyValue::Type::String:
-            return a.Value<std::string>() < b.Value<std::string>();
+            return a.ValueString() < b.ValueString();
           case PropertyValue::Type::Bool:
-            return a.Value<bool>() < b.Value<bool>();
+            return a.ValueBool() < b.ValueBool();
           case PropertyValue::Type::Int:
-            return a.Value<int64_t>() < b.Value<int64_t>();
+            return a.ValueInt() < b.ValueInt();
           case PropertyValue::Type::Double:
-            return a.Value<double>() < b.Value<double>();
+            return a.ValueDouble() < b.ValueDouble();
           case PropertyValue::Type::List: {
-            auto va = a.Value<std::vector<PropertyValue>>();
-            auto vb = b.Value<std::vector<PropertyValue>>();
+            auto va = a.ValueList();
+            auto vb = b.ValueList();
             if (va.size() != vb.size()) return va.size() < vb.size();
             return lexicographical_compare(va.begin(), va.end(), vb.begin(),
                                            vb.end(), Less);
           }
           case PropertyValue::Type::Map: {
-            auto ma = a.Value<std::map<std::string, PropertyValue>>();
-            auto mb = b.Value<std::map<std::string, PropertyValue>>();
+            auto ma = a.ValueMap();
+            auto mb = b.ValueMap();
             if (ma.size() != mb.size()) return ma.size() < mb.size();
             const auto cmp = [](const auto &a, const auto &b) {
               if (a.first != b.first)
@@ -445,8 +445,8 @@ class LabelPropertyIndex {
                value.type() == PropertyValue::Type::Double)
             << "Invalid data type.";
         if (value.type() == PropertyValue::Type::Int)
-          return static_cast<double>(value.Value<int64_t>());
-        return value.Value<double>();
+          return static_cast<double>(value.ValueInt());
+        return value.ValueDouble();
       };
 
       // Types are int and double - convert int to double

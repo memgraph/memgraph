@@ -58,10 +58,10 @@ TEST_F(PropertyValueStoreTest, AtMemory) {
   EXPECT_EQ(PropertyValue(At(0, Location::Memory)).type(),
             PropertyValue::Type::Null);
   Set(0, Location::Memory, some_string);
-  EXPECT_EQ(PropertyValue(At(0, Location::Memory)).Value<std::string>(),
+  EXPECT_EQ(PropertyValue(At(0, Location::Memory)).ValueString(),
             some_string);
   Set(120, Location::Memory, 42);
-  EXPECT_EQ(PropertyValue(At(120, Location::Memory)).Value<int64_t>(), 42);
+  EXPECT_EQ(PropertyValue(At(120, Location::Memory)).ValueInt(), 42);
 }
 
 TEST_F(PropertyValueStoreTest, AtDisk) {
@@ -70,10 +70,10 @@ TEST_F(PropertyValueStoreTest, AtDisk) {
   EXPECT_EQ(PropertyValue(At(0, Location::Disk)).type(),
             PropertyValue::Type::Null);
   Set(0, Location::Disk, some_string);
-  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).Value<std::string>(),
+  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).ValueString(),
             some_string);
   Set(120, Location::Disk, 42);
-  EXPECT_EQ(PropertyValue(At(120, Location::Disk)).Value<int64_t>(), 42);
+  EXPECT_EQ(PropertyValue(At(120, Location::Disk)).ValueInt(), 42);
 }
 
 TEST_F(PropertyValueStoreTest, AtNull) {
@@ -155,18 +155,18 @@ TEST_F(PropertyValueStoreTest, ClearDisk) {
 
 TEST_F(PropertyValueStoreTest, ReplaceMemory) {
   Set(10, Location::Memory, 42);
-  EXPECT_EQ(At(10, Location::Memory).Value<int64_t>(), 42);
+  EXPECT_EQ(At(10, Location::Memory).ValueInt(), 42);
   Set(10, Location::Memory, 0.25f);
   EXPECT_EQ(At(10, Location::Memory).type(), PropertyValue::Type::Double);
-  EXPECT_FLOAT_EQ(At(10, Location::Memory).Value<double>(), 0.25);
+  EXPECT_FLOAT_EQ(At(10, Location::Memory).ValueDouble(), 0.25);
 }
 
 TEST_F(PropertyValueStoreTest, ReplaceDisk) {
   Set(10, Location::Disk, 42);
-  EXPECT_EQ(At(10, Location::Disk).Value<int64_t>(), 42);
+  EXPECT_EQ(At(10, Location::Disk).ValueInt(), 42);
   Set(10, Location::Disk, 0.25f);
   EXPECT_EQ(At(10, Location::Disk).type(), PropertyValue::Type::Double);
-  EXPECT_FLOAT_EQ(At(10, Location::Disk).Value<double>(), 0.25);
+  EXPECT_FLOAT_EQ(At(10, Location::Disk).ValueDouble(), 0.25);
 }
 
 TEST_F(PropertyValueStoreTest, SizeMemory) {
@@ -236,16 +236,16 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
   auto p = At(0, Location::Memory);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
-  auto l = p.Value<std::vector<PropertyValue>>();
+  auto l = p.ValueList();
   EXPECT_EQ(l.size(), 5);
   EXPECT_EQ(l[0].type(), PropertyValue::Type::Int);
-  EXPECT_EQ(l[0].Value<int64_t>(), 1);
+  EXPECT_EQ(l[0].ValueInt(), 1);
   EXPECT_EQ(l[1].type(), PropertyValue::Type::Bool);
-  EXPECT_EQ(l[1].Value<bool>(), true);
+  EXPECT_EQ(l[1].ValueBool(), true);
   EXPECT_EQ(l[2].type(), PropertyValue::Type::Double);
-  EXPECT_EQ(l[2].Value<double>(), 2.5);
+  EXPECT_EQ(l[2].ValueDouble(), 2.5);
   EXPECT_EQ(l[3].type(), PropertyValue::Type::String);
-  EXPECT_EQ(l[3].Value<std::string>(), "something");
+  EXPECT_EQ(l[3].ValueString(), "something");
   EXPECT_EQ(l[4].type(), PropertyValue::Type::Null);
 }
 
@@ -256,16 +256,16 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
   auto p = At(0, Location::Disk);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
-  auto l = p.Value<std::vector<PropertyValue>>();
+  auto l = p.ValueList();
   EXPECT_EQ(l.size(), 5);
   EXPECT_EQ(l[0].type(), PropertyValue::Type::Int);
-  EXPECT_EQ(l[0].Value<int64_t>(), 1);
+  EXPECT_EQ(l[0].ValueInt(), 1);
   EXPECT_EQ(l[1].type(), PropertyValue::Type::Bool);
-  EXPECT_EQ(l[1].Value<bool>(), true);
+  EXPECT_EQ(l[1].ValueBool(), true);
   EXPECT_EQ(l[2].type(), PropertyValue::Type::Double);
-  EXPECT_EQ(l[2].Value<double>(), 2.5);
+  EXPECT_EQ(l[2].ValueDouble(), 2.5);
   EXPECT_EQ(l[3].type(), PropertyValue::Type::String);
-  EXPECT_EQ(l[3].Value<std::string>(), "something");
+  EXPECT_EQ(l[3].ValueString(), "something");
   EXPECT_EQ(l[4].type(), PropertyValue::Type::Null);
 }
 
@@ -275,17 +275,17 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveMap) {
 
   auto p = At(0, Location::Memory);
   EXPECT_EQ(p.type(), PropertyValue::Type::Map);
-  auto m = p.Value<std::map<std::string, PropertyValue>>();
+  auto m = p.ValueMap();
   EXPECT_EQ(m.size(), 3);
   auto get = [&m](const std::string &prop_name) {
     return m.find(prop_name)->second;
   };
   EXPECT_EQ(get("a").type(), PropertyValue::Type::Int);
-  EXPECT_EQ(get("a").Value<int64_t>(), 1);
+  EXPECT_EQ(get("a").ValueInt(), 1);
   EXPECT_EQ(get("b").type(), PropertyValue::Type::Bool);
-  EXPECT_EQ(get("b").Value<bool>(), true);
+  EXPECT_EQ(get("b").ValueBool(), true);
   EXPECT_EQ(get("c").type(), PropertyValue::Type::String);
-  EXPECT_EQ(get("c").Value<std::string>(), "something");
+  EXPECT_EQ(get("c").ValueString(), "something");
 }
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveMapDisk) {
@@ -294,17 +294,17 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveMapDisk) {
 
   auto p = At(0, Location::Disk);
   EXPECT_EQ(p.type(), PropertyValue::Type::Map);
-  auto m = p.Value<std::map<std::string, PropertyValue>>();
+  auto m = p.ValueMap();
   EXPECT_EQ(m.size(), 3);
   auto get = [&m](const std::string &prop_name) {
     return m.find(prop_name)->second;
   };
   EXPECT_EQ(get("a").type(), PropertyValue::Type::Int);
-  EXPECT_EQ(get("a").Value<int64_t>(), 1);
+  EXPECT_EQ(get("a").ValueInt(), 1);
   EXPECT_EQ(get("b").type(), PropertyValue::Type::Bool);
-  EXPECT_EQ(get("b").Value<bool>(), true);
+  EXPECT_EQ(get("b").ValueBool(), true);
   EXPECT_EQ(get("c").type(), PropertyValue::Type::String);
-  EXPECT_EQ(get("c").Value<std::string>(), "something");
+  EXPECT_EQ(get("c").ValueString(), "something");
 }
 
 TEST_F(PropertyValueStoreTest, Iterator) {
@@ -316,22 +316,22 @@ TEST_F(PropertyValueStoreTest, Iterator) {
   auto it = Begin();
   ASSERT_TRUE(it != End());
   EXPECT_EQ(it->first.Id(), 0);
-  EXPECT_EQ((*it).second.Value<std::string>(), "a");
+  EXPECT_EQ((*it).second.ValueString(), "a");
 
   ++it;
   ASSERT_TRUE(it != End());
   EXPECT_EQ((*it).first.Id(), 1);
-  EXPECT_EQ(it->second.Value<int64_t>(), 1);
+  EXPECT_EQ(it->second.ValueInt(), 1);
 
   ++it;
   ASSERT_TRUE(it != End());
   EXPECT_EQ(it->first.Id(), 2);
-  EXPECT_EQ((*it).second.Value<std::string>(), "b");
+  EXPECT_EQ((*it).second.ValueString(), "b");
 
   ++it;
   ASSERT_TRUE(it != End());
   EXPECT_EQ((*it).first.Id(), 3);
-  EXPECT_EQ(it->second.Value<int64_t>(), 2);
+  EXPECT_EQ(it->second.ValueInt(), 2);
 
   ++it;
   ASSERT_TRUE(it == End());
@@ -348,30 +348,26 @@ TEST_F(PropertyValueStoreTest, CopyConstructor) {
 
   PropertyValueStore new_props = props;
   for (int i = 1; i <= 3; ++i)
-    EXPECT_EQ(new_props.at(storage::Property(i, Location::Memory))
-                  .Value<std::string>(),
-              "mem_" + std::to_string(i));
-  for (int i = 4; i <= 5; ++i)
     EXPECT_EQ(
-        new_props.at(storage::Property(i, Location::Disk)).Value<std::string>(),
-        "disk_" + std::to_string(i));
+        new_props.at(storage::Property(i, Location::Memory)).ValueString(),
+        "mem_" + std::to_string(i));
+  for (int i = 4; i <= 5; ++i)
+    EXPECT_EQ(new_props.at(storage::Property(i, Location::Disk)).ValueString(),
+              "disk_" + std::to_string(i));
 
   props.set(storage::Property(1, Location::Memory), "mem_1_update");
-  EXPECT_EQ(
-      new_props.at(storage::Property(1, Location::Memory)).Value<std::string>(),
-      "mem_1");
+  EXPECT_EQ(new_props.at(storage::Property(1, Location::Memory)).ValueString(),
+            "mem_1");
 
   new_props.set(storage::Property(2, Location::Memory), "mem_2_update");
-  EXPECT_EQ(
-      props.at(storage::Property(2, Location::Memory)).Value<std::string>(),
-      "mem_2");
+  EXPECT_EQ(props.at(storage::Property(2, Location::Memory)).ValueString(),
+            "mem_2");
 
   props.set(storage::Property(4, Location::Disk), "disk_4_update");
-  EXPECT_EQ(
-      new_props.at(storage::Property(4, Location::Disk)).Value<std::string>(),
-      "disk_4");
+  EXPECT_EQ(new_props.at(storage::Property(4, Location::Disk)).ValueString(),
+            "disk_4");
 
   new_props.set(storage::Property(5, Location::Disk), "disk_5_update");
-  EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).Value<std::string>(),
+  EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).ValueString(),
             "disk_5");
 }

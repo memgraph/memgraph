@@ -10,7 +10,6 @@
 #include "utils/string.hpp"
 
 using namespace query;
-using query::test_common::ToList;
 using query::test_common::ToString;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;

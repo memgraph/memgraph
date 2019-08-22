@@ -217,9 +217,9 @@ TEST(QueryPlan, OrderByMultiple) {
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
     ASSERT_EQ(results[j][0].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[j][0].Value<int64_t>(), j / N);
+    EXPECT_EQ(results[j][0].ValueInt(), j / N);
     ASSERT_EQ(results[j][1].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[j][1].Value<int64_t>(), N - 1 - j % N);
+    EXPECT_EQ(results[j][1].ValueInt(), N - 1 - j % N);
   }
 }
 

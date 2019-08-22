@@ -1,106 +1,5 @@
 #include "storage/common/types/property_value.hpp"
 
-// const value extraction template instantiations
-template <>
-const bool &PropertyValue::Value<bool>() const {
-  if (type_ != Type::Bool) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return bool_v;
-}
-
-template <>
-const int64_t &PropertyValue::Value<int64_t>() const {
-  if (type_ != Type::Int) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return int_v;
-}
-
-template <>
-const double &PropertyValue::Value<double>() const {
-  if (type_ != Type::Double) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return double_v;
-}
-
-template <>
-const std::string &PropertyValue::Value<std::string>() const {
-  if (type_ != Type::String) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return string_v;
-}
-
-template <>
-const std::vector<PropertyValue>
-    &PropertyValue::Value<std::vector<PropertyValue>>() const {
-  if (type_ != Type::List) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return list_v;
-}
-
-template <>
-const std::map<std::string, PropertyValue>
-    &PropertyValue::Value<std::map<std::string, PropertyValue>>() const {
-  if (type_ != Type::Map) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return map_v;
-}
-
-// value extraction template instantiations
-template <>
-bool &PropertyValue::Value<bool>() {
-  if (type_ != Type::Bool) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return bool_v;
-}
-
-template <>
-int64_t &PropertyValue::Value<int64_t>() {
-  if (type_ != Type::Int) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return int_v;
-}
-
-template <>
-double &PropertyValue::Value<double>() {
-  if (type_ != Type::Double) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return double_v;
-}
-
-template <>
-std::string &PropertyValue::Value<std::string>() {
-  if (type_ != Type::String) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return string_v;
-}
-
-template <>
-std::vector<PropertyValue> &PropertyValue::Value<std::vector<PropertyValue>>() {
-  if (type_ != Type::List) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return list_v;
-}
-
-template <>
-std::map<std::string, PropertyValue>
-    &PropertyValue::Value<std::map<std::string, PropertyValue>>() {
-  if (type_ != Type::Map) {
-    throw PropertyValueException("Incompatible template param and type");
-  }
-  return map_v;
-}
-
 // constructors
 PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
   switch (other.type_) {
@@ -273,23 +172,23 @@ std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
     case PropertyValue::Type::Null:
       return os << "Null";
     case PropertyValue::Type::Bool:
-      return os << (value.Value<bool>() ? "true" : "false");
+      return os << (value.ValueBool() ? "true" : "false");
     case PropertyValue::Type::String:
-      return os << value.Value<std::string>();
+      return os << value.ValueString();
     case PropertyValue::Type::Int:
-      return os << value.Value<int64_t>();
+      return os << value.ValueInt();
     case PropertyValue::Type::Double:
-      return os << value.Value<double>();
+      return os << value.ValueDouble();
     case PropertyValue::Type::List:
       os << "[";
-      for (const auto &x : value.Value<std::vector<PropertyValue>>()) {
+      for (const auto &x : value.ValueList()) {
         os << x << ",";
       }
       return os << "]";
     case PropertyValue::Type::Map:
       os << "{";
       for (const auto &kv :
-           value.Value<std::map<std::string, PropertyValue>>()) {
+           value.ValueMap()) {
         os << kv.first << ": " << kv.second << ",";
       }
       return os << "}";
@@ -302,19 +201,17 @@ bool operator==(const PropertyValue &first, const PropertyValue &second) {
     case PropertyValue::Type::Null:
       return true;
     case PropertyValue::Type::Bool:
-      return first.Value<bool>() == second.Value<bool>();
+      return first.ValueBool() == second.ValueBool();
     case PropertyValue::Type::Int:
-      return first.Value<int64_t>() == second.Value<int64_t>();
+      return first.ValueInt() == second.ValueInt();
     case PropertyValue::Type::Double:
-      return first.Value<double>() == second.Value<double>();
+      return first.ValueDouble() == second.ValueDouble();
     case PropertyValue::Type::String:
-      return first.Value<std::string>() == second.Value<std::string>();
+      return first.ValueString() == second.ValueString();
     case PropertyValue::Type::List:
-      return first.Value<std::vector<PropertyValue>>() ==
-             second.Value<std::vector<PropertyValue>>();
+      return first.ValueList() == second.ValueList();
     case PropertyValue::Type::Map:
-      return first.Value<std::map<std::string, PropertyValue>>() ==
-             second.Value<std::map<std::string, PropertyValue>>();
+      return first.ValueMap() == second.ValueMap();
   }
 }
 
@@ -324,18 +221,16 @@ bool operator<(const PropertyValue &first, const PropertyValue &second) {
     case PropertyValue::Type::Null:
       return false;
     case PropertyValue::Type::Bool:
-      return first.Value<bool>() < second.Value<bool>();
+      return first.ValueBool() < second.ValueBool();
     case PropertyValue::Type::Int:
-      return first.Value<int64_t>() < second.Value<int64_t>();
+      return first.ValueInt() < second.ValueInt();
     case PropertyValue::Type::Double:
-      return first.Value<double>() < second.Value<double>();
+      return first.ValueDouble() < second.ValueDouble();
     case PropertyValue::Type::String:
-      return first.Value<std::string>() < second.Value<std::string>();
+      return first.ValueString() < second.ValueString();
     case PropertyValue::Type::List:
-      return first.Value<std::vector<PropertyValue>>() <
-             second.Value<std::vector<PropertyValue>>();
+      return first.ValueList() < second.ValueList();
     case PropertyValue::Type::Map:
-      return first.Value<std::map<std::string, PropertyValue>>() <
-             second.Value<std::map<std::string, PropertyValue>>();
+      return first.ValueMap() < second.ValueMap();
   }
 }

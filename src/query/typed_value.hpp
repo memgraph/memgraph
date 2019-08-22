@@ -48,6 +48,7 @@ class TypedValue {
    * then it implicitly instantiates TypedValue::Value<T> before
    * explicit instantiation in .cpp file. If the implementation is in
    * the .cpp file, it won't link.
+   * TODO: No longer the case as Value<T> was removed.
    */
   struct Hash {
     size_t operator()(const TypedValue &value) const;
@@ -453,19 +454,6 @@ class TypedValue {
   ~TypedValue();
 
   Type type() const { return type_; }
-
-  /**
-   * Returns the value of the property as given type T.
-   * The behavior of this function is undefined if
-   * T does not correspond to this property's type_.
-   *
-   * @tparam T Type to interpret the value as.
-   * @return The value as type T.
-   */
-  template <typename T>
-  T &Value();
-  template <typename T>
-  const T &Value() const;
 
   // TODO consider adding getters for primitives by value (and not by ref)
 

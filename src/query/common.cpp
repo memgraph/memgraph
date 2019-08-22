@@ -54,17 +54,17 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return !a.Value<bool>() && b.Value<bool>();
+      return !a.ValueBool() && b.ValueBool();
     case TypedValue::Type::Int:
       if (b.type() == TypedValue::Type::Double)
-        return a.Value<int64_t>() < b.Value<double>();
+        return a.ValueInt() < b.ValueDouble();
       else
-        return a.Value<int64_t>() < b.Value<int64_t>();
+        return a.ValueInt() < b.ValueInt();
     case TypedValue::Type::Double:
       if (b.type() == TypedValue::Type::Int)
-        return a.Value<double>() < b.Value<int64_t>();
+        return a.ValueDouble() < b.ValueInt();
       else
-        return a.Value<double>() < b.Value<double>();
+        return a.ValueDouble() < b.ValueDouble();
     case TypedValue::Type::String:
       return a.ValueString() < b.ValueString();
     case TypedValue::Type::List:

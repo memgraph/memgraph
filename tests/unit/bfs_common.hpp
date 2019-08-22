@@ -274,8 +274,8 @@ void CheckPath(database::GraphDbAccessor *dba, const VertexAccessor &source,
     ASSERT_TRUE(edge.from() == curr || edge.to() == curr);
     VertexAccessor next = edge.from_is(curr) ? edge.to() : edge.from();
 
-    int from = GetProp(curr, "id", dba).Value<int64_t>();
-    int to = GetProp(next, "id", dba).Value<int64_t>();
+    int from = GetProp(curr, "id", dba).ValueInt();
+    int to = GetProp(next, "id", dba).ValueInt();
     ASSERT_TRUE(utils::Contains(edges, std::make_pair(from, to)));
 
     curr = next;
@@ -295,8 +295,8 @@ std::vector<std::vector<int>> CheckPathsAndExtractDistances(
   for (size_t i = 0; i < kVertexCount; ++i) distances[i][i] = 0;
 
   for (const auto &row : results) {
-    auto source = GetProp(row[0].ValueVertex(), "id", dba).Value<int64_t>();
-    auto sink = GetProp(row[1].ValueVertex(), "id", dba).Value<int64_t>();
+    auto source = GetProp(row[0].ValueVertex(), "id", dba).ValueInt();
+    auto sink = GetProp(row[1].ValueVertex(), "id", dba).ValueInt();
     distances[source][sink] = row[2].ValueList().size();
     CheckPath(dba, row[0].ValueVertex(), row[1].ValueVertex(),
               row[2].ValueList(), edges);
@@ -433,9 +433,9 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
     auto edges = kEdges;
     if (blocked.IsEdge()) {
       int from =
-          GetProp(blocked.ValueEdge(), "from", dba_ptr.get()).Value<int64_t>();
+          GetProp(blocked.ValueEdge(), "from", dba_ptr.get()).ValueInt();
       int to =
-          GetProp(blocked.ValueEdge(), "to", dba_ptr.get()).Value<int64_t>();
+          GetProp(blocked.ValueEdge(), "to", dba_ptr.get()).ValueInt();
       edges.erase(std::remove_if(edges.begin(), edges.end(),
                                  [from, to](const auto &e) {
                                    return std::get<0>(e) == from &&
@@ -450,7 +450,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
     // When a vertex is blocked, we remove all edges that lead into it.
     if (blocked.IsVertex()) {
       int id =
-          GetProp(blocked.ValueVertex(), "id", dba_ptr.get()).Value<int64_t>();
+          GetProp(blocked.ValueVertex(), "id", dba_ptr.get()).ValueInt();
       edges_blocked.erase(
           std::remove_if(edges_blocked.begin(), edges_blocked.end(),
                          [id](const auto &e) { return e.second == id; }),

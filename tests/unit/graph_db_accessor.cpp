@@ -387,8 +387,8 @@ TEST(GraphDbAccessorTest, Transfer) {
   auto dba3 = db.Access();
   // we can transfer accessors even though the GraphDbAccessor they
   // belong to is not alive anymore
-  EXPECT_EQ(dba3.Transfer(v1)->PropsAt(prop).Value<int64_t>(), 1);
-  EXPECT_EQ(dba3.Transfer(e12)->PropsAt(prop).Value<int64_t>(), 12);
+  EXPECT_EQ(dba3.Transfer(v1)->PropsAt(prop).ValueInt(), 1);
+  EXPECT_EQ(dba3.Transfer(e12)->PropsAt(prop).ValueInt(), 12);
 }
 
 int main(int argc, char **argv) {

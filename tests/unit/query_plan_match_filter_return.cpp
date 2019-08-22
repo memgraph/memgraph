@@ -35,12 +35,11 @@ class MatchReturnFixture : public testing::Test {
     for (int i = 0; i < count; i++) dba_.InsertVertex();
   }
 
-  template <typename TResult>
-  std::vector<TResult> Results(std::shared_ptr<Produce> &op) {
-    std::vector<TResult> res;
+  std::vector<Path> PathResults(std::shared_ptr<Produce> &op) {
+    std::vector<Path> res;
     auto context = MakeContext(storage, symbol_table, &dba_);
     for (const auto &row : CollectProduce(*op, &context))
-      res.emplace_back(row[0].Value<TResult>());
+      res.emplace_back(row[0].ValuePath());
     return res;
   }
 };
@@ -81,7 +80,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
       NEXPR("path", IDENT("path")->MapTo(path_sym))
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(make_path, output);
-  auto results = Results<query::Path>(produce);
+  auto results = PathResults(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> expected_paths;
   for (const auto &v : dba_.Vertices(false)) expected_paths.emplace_back(v);
@@ -115,10 +114,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
   EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
   // "n" from the results is the same for the first two rows, while "m" isn't
-  EXPECT_EQ(results[0][0].Value<VertexAccessor>(),
-            results[1][0].Value<VertexAccessor>());
-  EXPECT_NE(results[0][1].Value<VertexAccessor>(),
-            results[1][1].Value<VertexAccessor>());
+  EXPECT_EQ(results[0][0].ValueVertex(), results[1][0].ValueVertex());
+  EXPECT_NE(results[0][1].ValueVertex(), results[1][1].ValueVertex());
 }
 
 TEST(QueryPlan, StandaloneReturn) {
@@ -141,7 +138,7 @@ TEST(QueryPlan, StandaloneReturn) {
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
-  EXPECT_EQ(results[0][0].Value<int64_t>(), 42);
+  EXPECT_EQ(results[0][0].ValueInt(), 42);
 }
 
 TEST(QueryPlan, NodeFilterLabelsAndProperties) {
@@ -288,8 +285,8 @@ TEST(QueryPlan, Cartesian) {
   EXPECT_EQ(results.size(), 9);
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
-      EXPECT_EQ(results[3 * i + j][0].Value<VertexAccessor>(), vertices[j]);
-      EXPECT_EQ(results[3 * i + j][1].Value<VertexAccessor>(), vertices[i]);
+      EXPECT_EQ(results[3 * i + j][0].ValueVertex(), vertices[j]);
+      EXPECT_EQ(results[3 * i + j][1].ValueVertex(), vertices[i]);
     }
   }
 }
@@ -368,9 +365,9 @@ TEST(QueryPlan, CartesianThreeWay) {
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
       for (int k = 0; k < 3; ++k) {
-        EXPECT_EQ(results[id][0].Value<VertexAccessor>(), vertices[k]);
-        EXPECT_EQ(results[id][1].Value<VertexAccessor>(), vertices[j]);
-        EXPECT_EQ(results[id][2].Value<VertexAccessor>(), vertices[i]);
+        EXPECT_EQ(results[id][0].ValueVertex(), vertices[k]);
+        EXPECT_EQ(results[id][1].ValueVertex(), vertices[j]);
+        EXPECT_EQ(results[id][2].ValueVertex(), vertices[i]);
         ++id;
       }
     }
@@ -580,18 +577,27 @@ class QueryPlanExpandVariable : public testing::Test {
 
   /**
    * Pulls from the given input and returns the results under the given symbol.
-   *
-   * @return a vector of values of the given type.
-   * @tparam TResult type of the result that is sought.
    */
-  template <typename TResult>
-  auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
+  auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba_);
-    std::vector<TResult> results;
+    std::vector<utils::AVector<TypedValue>> results;
     while (cursor->Pull(frame, context))
-      results.emplace_back(frame[symbol].Value<TResult>());
+      results.emplace_back(frame[symbol].ValueList());
+    return results;
+  }
+
+  /**
+   * Pulls from the given input and returns the results under the given symbol.
+   */
+  auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
+    Frame frame(symbol_table.max_position());
+    auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
+    auto context = MakeContext(storage, symbol_table, &dba_);
+    std::vector<Path> results;
+    while (cursor->Pull(frame, context))
+      results.emplace_back(frame[symbol].ValuePath());
     return results;
   }
 
@@ -604,9 +610,7 @@ class QueryPlanExpandVariable : public testing::Test {
   auto GetEdgeListSizes(std::shared_ptr<LogicalOperator> input_op,
                         Symbol symbol) {
     map_int count_per_length;
-    for (const auto &edge_list :
-         GetResults<std::vector<TypedValue, utils::Allocator<TypedValue>>>(
-             input_op, symbol)) {
+    for (const auto &edge_list : GetListResults(input_op, symbol)) {
       auto length = edge_list.size();
       auto found = count_per_length.find(length);
       if (found == count_per_length.end())
@@ -772,7 +776,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
         expected_paths.emplace_back(v, e1, e1.to(), e2, e2.to());
   ASSERT_EQ(expected_paths.size(), 8);
 
-  auto results = GetResults<query::Path>(create_path, path_symbol);
+  auto results = GetPathResults(create_path, path_symbol);
   ASSERT_EQ(results.size(), 8);
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(),
                                   expected_paths.begin()));
@@ -890,10 +894,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto context = MakeContext(storage, symbol_table, &dba);
     while (cursor->Pull(frame, context)) {
       results.push_back(ResultType{std::vector<EdgeAccessor>(),
-                                   frame[node_sym].Value<VertexAccessor>(),
-                                   frame[total_weight].Value<double>()});
+                                   frame[node_sym].ValueVertex(),
+                                   frame[total_weight].ValueDouble()});
       for (const TypedValue &edge : frame[edge_list_sym].ValueList())
-        results.back().path.emplace_back(edge.Value<EdgeAccessor>());
+        results.back().path.emplace_back(edge.ValueEdge());
     }
 
     return results;
@@ -901,12 +905,12 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   template <typename TAccessor>
   auto GetProp(const TAccessor &accessor) {
-    return accessor.PropsAt(prop.second).template Value<int64_t>();
+    return accessor.PropsAt(prop.second).ValueInt();
   }
 
   template <typename TAccessor>
   auto GetDoubleProp(const TAccessor &accessor) {
-    return accessor.PropsAt(prop.second).template Value<double>();
+    return accessor.PropsAt(prop.second).ValueDouble();
   }
 
   Expression *PropNe(Symbol symbol, int value) {
@@ -1167,10 +1171,10 @@ TEST(QueryPlan, ExpandOptional) {
   int v1_is_n_count = 0;
   for (auto &row : results) {
     ASSERT_EQ(row[0].type(), TypedValue::Type::Vertex);
-    VertexAccessor &va = row[0].Value<VertexAccessor>();
+    VertexAccessor &va = row[0].ValueVertex();
     auto va_p = va.PropsAt(prop);
     ASSERT_EQ(va_p.type(), PropertyValue::Type::Int);
-    if (va_p.Value<int64_t>() == 1) {
+    if (va_p.ValueInt() == 1) {
       v1_is_n_count++;
       EXPECT_EQ(row[1].type(), TypedValue::Type::Edge);
       EXPECT_EQ(row[2].type(), TypedValue::Type::Vertex);
@@ -1535,8 +1539,7 @@ TEST(QueryPlan, Distinct) {
     for (const auto &row : results) {
       ASSERT_EQ(1, row.size());
       ASSERT_EQ(row[0].type(), output_it->type());
-      if (assume_int_value)
-        EXPECT_EQ(output_it->Value<int64_t>(), row[0].Value<int64_t>());
+      if (assume_int_value) EXPECT_EQ(output_it->ValueInt(), row[0].ValueInt());
       output_it++;
     }
   };
@@ -1581,7 +1584,7 @@ TEST(QueryPlan, ScanAllByLabel) {
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);
-  EXPECT_EQ(result_row[0].Value<VertexAccessor>(), labeled_vertex);
+  EXPECT_EQ(result_row[0].ValueVertex(), labeled_vertex);
 }
 
 TEST(QueryPlan, ScanAllByLabelProperty) {
@@ -1626,10 +1629,9 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
-          TypedValue(results[i][0].Value<VertexAccessor>().PropsAt(prop)) ==
-          expected[i];
+          TypedValue(results[i][0].ValueVertex().PropsAt(prop)) == expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
-      EXPECT_TRUE(equal.Value<bool>());
+      EXPECT_TRUE(equal.ValueBool());
     }
   };
 
@@ -1696,7 +1698,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   ASSERT_EQ(results.size(), 1);
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
-  auto vertex = row[0].Value<VertexAccessor>();
+  auto vertex = row[0].ValueVertex();
   TypedValue value(vertex.PropsAt(prop));
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));

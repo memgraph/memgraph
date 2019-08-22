@@ -93,7 +93,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
-    if (value1.IsBool() && !value1.Value<bool>()) {
+    if (value1.IsBool() && !value1.ValueBool()) {
       // If first expression is false, don't evaluate the second one.
       return value1;
     }
@@ -116,7 +116,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("CASE expected boolean expression, got {}.",
                                   condition.type());
     }
-    if (condition.Value<bool>()) {
+    if (condition.ValueBool()) {
       return if_operator.then_expression_->Accept(*this);
     }
     return if_operator.else_expression_->Accept(*this);
@@ -147,7 +147,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       auto result = literal == element;
       if (result.IsNull()) {
         has_null = true;
-      } else if (result.Value<bool>()) {
+      } else if (result.ValueBool()) {
         return TypedValue(true, ctx_->memory);
       }
     }
@@ -171,7 +171,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsInt())
         throw QueryRuntimeException(
             "Expected an integer as a list index, got {}.", index.type());
-      auto index_int = index.Value<int64_t>();
+      auto index_int = index.ValueInt();
       // NOTE: Take non-const reference to list, so that we can move out the
       // indexed element as the result.
       auto &list = lhs.ValueList();
@@ -203,7 +203,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(lhs.Value<VertexAccessor>().PropsAt(
+      return TypedValue(lhs.ValueVertex().PropsAt(
                             dba_->Property(std::string(index.ValueString()))),
                         ctx_->memory);
     }
@@ -212,7 +212,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(lhs.Value<EdgeAccessor>().PropsAt(
+      return TypedValue(lhs.ValueEdge().PropsAt(
                             dba_->Property(std::string(index.ValueString()))),
                         ctx_->memory);
     }
@@ -262,8 +262,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return std::max(static_cast<int64_t>(0),
                       std::min(bound, static_cast<int64_t>(list.size())));
     };
-    auto lower_bound = normalise_bound(_lower_bound.Value<int64_t>());
-    auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
+    auto lower_bound = normalise_bound(_lower_bound.ValueInt());
+    auto upper_bound = normalise_bound(_upper_bound.ValueInt());
     if (upper_bound <= lower_bound) {
       return TypedValue(TypedValue::TVector(ctx_->memory), ctx_->memory);
     }
@@ -282,11 +282,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(expression_result.Value<VertexAccessor>().PropsAt(
+        return TypedValue(expression_result.ValueVertex().PropsAt(
                               GetProperty(property_lookup.property_)),
                           ctx_->memory);
       case TypedValue::Type::Edge:
-        return TypedValue(expression_result.Value<EdgeAccessor>().PropsAt(
+        return TypedValue(expression_result.ValueEdge().PropsAt(
                               GetProperty(property_lookup.property_)),
                           ctx_->memory);
       case TypedValue::Type::Map: {
@@ -311,7 +311,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
-        const auto &vertex = expression_result.Value<VertexAccessor>();
+        const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           if (!vertex.has_label(GetLabel(label))) {
             return TypedValue(false, ctx_->memory);
@@ -462,7 +462,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             "Predicate of ALL must evaluate to boolean, got {}.",
             result.type());
       }
-      if (result.IsNull() || !result.Value<bool>()) {
+      if (result.IsNull() || !result.ValueBool()) {
         return result;
       }
     }
@@ -489,7 +489,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             "Predicate of SINGLE must evaluate to boolean, got {}.",
             result.type());
       }
-      if (result.IsNull() || !result.Value<bool>()) {
+      if (result.IsNull() || !result.ValueBool()) {
         continue;
       }
       // Return false if more than one element satisfies the predicate.
@@ -549,7 +549,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   void SwitchAccessors(TypedValue &value) {
     switch (value.type()) {
       case TypedValue::Type::Vertex: {
-        auto &vertex = value.Value<VertexAccessor>();
+        auto &vertex = value.ValueVertex();
         switch (graph_view_) {
           case GraphView::NEW:
             vertex.SwitchNew();
@@ -563,7 +563,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         break;
       }
       case TypedValue::Type::Edge: {
-        auto &edge = value.Value<EdgeAccessor>();
+        auto &edge = value.ValueEdge();
         switch (graph_view_) {
           case GraphView::NEW:
             edge.SwitchNew();
@@ -623,7 +623,7 @@ inline int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr,
                            const std::string &what) {
   TypedValue value = expr->Accept(*evaluator);
   try {
-    return value.Value<int64_t>();
+    return value.ValueInt();
   } catch (TypedValueException &e) {
     throw QueryRuntimeException(what + " must be an int");
   }

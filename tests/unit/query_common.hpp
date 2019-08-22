@@ -39,20 +39,26 @@ namespace query {
 
 namespace test_common {
 
-template <typename T>
-auto ToList(const TypedValue &t) {
-  std::vector<T> list;
+auto ToIntList(const TypedValue &t) {
+  std::vector<int64_t> list;
   for (auto x : t.ValueList()) {
-    list.push_back(x.Value<T>());
+    list.push_back(x.ValueInt());
   }
   return list;
 };
 
-template <typename TElement>
-auto ToMap(const TypedValue &t) {
-  std::map<std::string, TElement> map;
+auto ToEdgeList(const TypedValue &t) {
+  std::vector<EdgeAccessor> list;
+  for (auto x : t.ValueList()) {
+    list.push_back(x.ValueEdge());
+  }
+  return list;
+};
+
+auto ToIntMap(const TypedValue &t) {
+  std::map<std::string, int64_t> map;
   for (const auto &kv : t.ValueMap())
-    map.emplace(kv.first, kv.second.Value<TElement>());
+    map.emplace(kv.first, kv.second.ValueInt());
   return map;
 };
 

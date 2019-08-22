@@ -1027,7 +1027,7 @@ TEST_P(CypherMainVisitorTest, NodePattern) {
   for (auto x : node->properties_) {
     TypedValue value = ast_generator.LiteralValue(x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
-    properties[x.first] = value.Value<int64_t>();
+    properties[x.first] = value.ValueInt();
   }
   EXPECT_THAT(properties,
               UnorderedElementsAre(Pair(ast_generator.Prop("a"), 5),
@@ -1153,7 +1153,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
   for (auto x : edge->properties_) {
     TypedValue value = ast_generator.LiteralValue(x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
-    properties[x.first] = value.Value<int64_t>();
+    properties[x.first] = value.ValueInt();
   }
   EXPECT_THAT(properties,
               UnorderedElementsAre(Pair(ast_generator.Prop("a"), 5),

@@ -17,28 +17,27 @@ inline nlohmann::json PropertyValueToJson(const PropertyValue &pv) {
     case PropertyValue::Type::Null:
       break;
     case PropertyValue::Type::Bool:
-      ret = pv.Value<bool>();
+      ret = pv.ValueBool();
       break;
     case PropertyValue::Type::Int:
-      ret = pv.Value<int64_t>();
+      ret = pv.ValueInt();
       break;
     case PropertyValue::Type::Double:
-      ret = pv.Value<double>();
+      ret = pv.ValueDouble();
       break;
     case PropertyValue::Type::String:
-      ret = pv.Value<std::string>();
+      ret = pv.ValueString();
       break;
     case PropertyValue::Type::List: {
       ret = nlohmann::json::array();
-      for (const auto &item : pv.Value<std::vector<PropertyValue>>()) {
+      for (const auto &item : pv.ValueList()) {
         ret.push_back(PropertyValueToJson(item));
       }
       break;
     }
     case PropertyValue::Type::Map: {
       ret = nlohmann::json::object();
-      for (const auto &item :
-           pv.Value<std::map<std::string, PropertyValue>>()) {
+      for (const auto &item : pv.ValueMap()) {
         ret.push_back(nlohmann::json::object_t::value_type(
             item.first, PropertyValueToJson(item.second)));
       }

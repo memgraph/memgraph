@@ -46,7 +46,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     auto prop_eq =
         TypedValue(vertex.PropsAt(property.second)) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
-    EXPECT_TRUE(prop_eq.Value<bool>());
+    EXPECT_TRUE(prop_eq.ValueBool());
   }
   EXPECT_EQ(vertex_count, 1);
 }
@@ -82,10 +82,10 @@ TEST(QueryPlan, CreateReturn) {
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(2, results[0].size());
   EXPECT_EQ(TypedValue::Type::Vertex, results[0][0].type());
-  EXPECT_EQ(1, results[0][0].Value<VertexAccessor>().labels().size());
-  EXPECT_EQ(label, results[0][0].Value<VertexAccessor>().labels()[0]);
+  EXPECT_EQ(1, results[0][0].ValueVertex().labels().size());
+  EXPECT_EQ(label, results[0][0].ValueVertex().labels()[0]);
   EXPECT_EQ(TypedValue::Type::Int, results[0][1].type());
-  EXPECT_EQ(42, results[0][1].Value<int64_t>());
+  EXPECT_EQ(42, results[0][1].ValueInt());
 
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
@@ -146,10 +146,10 @@ TEST(QueryPlan, CreateExpand) {
     storage::Label label = vertex.labels()[0];
     if (label == label_node_1) {
       // node created by first op
-      EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 1);
+      EXPECT_EQ(vertex.PropsAt(property.second).ValueInt(), 1);
     } else if (label == label_node_2) {
       // node create by expansion
-      EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 2);
+      EXPECT_EQ(vertex.PropsAt(property.second).ValueInt(), 2);
     } else {
       // should not happen
       FAIL();
@@ -157,7 +157,7 @@ TEST(QueryPlan, CreateExpand) {
 
     for (EdgeAccessor edge : dba.Edges(false)) {
       EXPECT_EQ(edge.EdgeType(), edge_type);
-      EXPECT_EQ(edge.PropsAt(property.second).Value<int64_t>(), 3);
+      EXPECT_EQ(edge.PropsAt(property.second).ValueInt(), 3);
     }
   }
 }
@@ -487,11 +487,11 @@ TEST(QueryPlan, SetProperty) {
   EXPECT_EQ(CountIterable(dba.Edges(false)), 2);
   for (EdgeAccessor edge : dba.Edges(false)) {
     ASSERT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Int);
-    EXPECT_EQ(edge.PropsAt(prop1).Value<int64_t>(), 42);
+    EXPECT_EQ(edge.PropsAt(prop1).ValueInt(), 42);
     VertexAccessor from = edge.from();
     VertexAccessor to = edge.to();
     ASSERT_EQ(from.PropsAt(prop1).type(), PropertyValue::Type::Int);
-    EXPECT_EQ(from.PropsAt(prop1).Value<int64_t>(), 42);
+    EXPECT_EQ(from.PropsAt(prop1).ValueInt(), 42);
     ASSERT_EQ(to.PropsAt(prop1).type(), PropertyValue::Type::Null);
   }
 }
@@ -542,23 +542,23 @@ TEST(QueryPlan, SetProperties) {
       EXPECT_EQ(from.Properties().size(), update ? 2 : 1);
       if (update) {
         ASSERT_EQ(from.PropsAt(prop_a).type(), PropertyValue::Type::Int);
-        EXPECT_EQ(from.PropsAt(prop_a).Value<int64_t>(), 0);
+        EXPECT_EQ(from.PropsAt(prop_a).ValueInt(), 0);
       }
       ASSERT_EQ(from.PropsAt(prop_b).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(from.PropsAt(prop_b).Value<int64_t>(), 1);
+      EXPECT_EQ(from.PropsAt(prop_b).ValueInt(), 1);
 
       EXPECT_EQ(edge.Properties().size(), update ? 2 : 1);
       if (update) {
         ASSERT_EQ(edge.PropsAt(prop_b).type(), PropertyValue::Type::Int);
-        EXPECT_EQ(edge.PropsAt(prop_b).Value<int64_t>(), 1);
+        EXPECT_EQ(edge.PropsAt(prop_b).ValueInt(), 1);
       }
       ASSERT_EQ(edge.PropsAt(prop_c).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(edge.PropsAt(prop_c).Value<int64_t>(), 2);
+      EXPECT_EQ(edge.PropsAt(prop_c).ValueInt(), 2);
 
       VertexAccessor to = edge.to();
       EXPECT_EQ(to.Properties().size(), 1);
       ASSERT_EQ(to.PropsAt(prop_c).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(to.PropsAt(prop_c).Value<int64_t>(), 2);
+      EXPECT_EQ(to.PropsAt(prop_c).ValueInt(), 2);
     }
   };
 
@@ -719,7 +719,7 @@ TEST(QueryPlan, NodeFilterSet) {
   v1.Reconstruct();
   auto prop_eq = TypedValue(v1.PropsAt(prop.second)) == TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
-  EXPECT_TRUE(prop_eq.Value<bool>());
+  EXPECT_TRUE(prop_eq.ValueBool());
 }
 
 TEST(QueryPlan, FilterRemove) {
@@ -827,11 +827,11 @@ TEST(QueryPlan, Merge) {
   v3.Reconstruct();
 
   ASSERT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v1.PropsAt(prop.second).Value<int64_t>(), 1);
+  ASSERT_EQ(v1.PropsAt(prop.second).ValueInt(), 1);
   ASSERT_EQ(v2.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v2.PropsAt(prop.second).Value<int64_t>(), 1);
+  ASSERT_EQ(v2.PropsAt(prop.second).ValueInt(), 1);
   ASSERT_EQ(v3.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v3.PropsAt(prop.second).Value<int64_t>(), 2);
+  ASSERT_EQ(v3.PropsAt(prop.second).ValueInt(), 2);
 }
 
 TEST(QueryPlan, MergeNoInput) {

@@ -75,7 +75,7 @@ bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
     throw QueryRuntimeException(
         "Filter expression must evaluate to bool or null, got {}.",
         result.type());
-  return result.Value<bool>();
+  return result.ValueBool();
 }
 
 template <typename T>
@@ -218,7 +218,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &v1 = vertex_value.Value<VertexAccessor>();
+  auto &v1 = vertex_value.ValueVertex();
 
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
@@ -262,7 +262,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value,
                TypedValue::Type::Vertex);
-    return dest_node_value.Value<VertexAccessor>();
+    return dest_node_value.ValueVertex();
   } else {
     return CreateLocalVertex(self_.node_info_, &frame, context);
   }
@@ -556,7 +556,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     if (vertex_value.IsNull()) continue;
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.Value<VertexAccessor>();
+    auto &vertex = vertex_value.ValueVertex();
     SwitchAccessor(vertex, self_.graph_view_);
 
     auto direction = self_.common_.direction;
@@ -711,8 +711,7 @@ class ExpandVariableCursor : public Cursor {
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
         if (lower_bound_ == 0) {
-          auto &start_vertex =
-              frame[self_.input_symbol_].Value<VertexAccessor>();
+          auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
           if (!self_.common_.existing_node ||
               CheckExistingNode(start_vertex, self_.common_.node_symbol,
                                 frame)) {
@@ -776,7 +775,7 @@ class ExpandVariableCursor : public Cursor {
       if (vertex_value.IsNull()) continue;
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-      auto &vertex = vertex_value.Value<VertexAccessor>();
+      auto &vertex = vertex_value.ValueVertex();
       SwitchAccessor(vertex, GraphView::OLD);
 
       // Evaluate the upper and lower bounds.
@@ -889,7 +888,7 @@ class ExpandVariableCursor : public Cursor {
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) {
-                        return current_edge.first == edge.Value<EdgeAccessor>();
+                        return current_edge.first == edge.ValueEdge();
                       });
       if (found_existing) continue;
 
@@ -1211,7 +1210,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           case TypedValue::Type::Null:
             return;
           case TypedValue::Type::Bool:
-            if (!result.Value<bool>()) return;
+            if (!result.ValueBool()) return;
             break;
           default:
             throw QueryRuntimeException(
@@ -1265,7 +1264,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
 
-        const auto &vertex = vertex_value.Value<VertexAccessor>();
+        const auto &vertex = vertex_value.ValueVertex();
         processed_.emplace(vertex, std::nullopt);
         expand_from_vertex(vertex);
 
@@ -1284,7 +1283,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       edge_list.emplace_back(expansion.first);
       auto last_vertex = expansion.second;
       while (true) {
-        const EdgeAccessor &last_edge = edge_list.back().Value<EdgeAccessor>();
+        const EdgeAccessor &last_edge = edge_list.back().ValueEdge();
         last_vertex =
             last_edge.from() == last_vertex ? last_edge.to() : last_edge.from();
         // origin_vertex must be in processed
@@ -1389,7 +1388,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         throw QueryRuntimeException(
             "Calculated weight must be numeric, got {}.", typed_weight.type());
       }
-      if ((typed_weight < TypedValue(0, memory)).Value<bool>()) {
+      if ((typed_weight < TypedValue(0, memory)).ValueBool()) {
         throw QueryRuntimeException("Calculated weight must be non-negative!");
       }
 
@@ -1397,10 +1396,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       auto next_weight = TypedValue(weight, memory) + typed_weight;
       auto found_it = total_cost_.find(next_state);
       if (found_it != total_cost_.end() &&
-          found_it->second.Value<double>() <= next_weight.Value<double>())
+          found_it->second.ValueDouble() <= next_weight.ValueDouble())
         return;
 
-      pq_.push({next_weight.Value<double>(), depth + 1, vertex, edge});
+      pq_.push({next_weight.ValueDouble(), depth + 1, vertex, edge});
     };
 
     // Populates the priority queue structure with expansions
@@ -1426,7 +1425,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
         const auto &vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
-        auto vertex = vertex_value.Value<VertexAccessor>();
+        auto vertex = vertex_value.ValueVertex();
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
@@ -1507,7 +1506,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         // Place destination node on the frame, handle existence flag.
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
-          if ((node != TypedValue(current_vertex, pull_memory)).Value<bool>())
+          if ((node != TypedValue(current_vertex, pull_memory)).ValueBool())
             continue;
           else
             // Prevent expanding other paths, because we found the
@@ -1841,7 +1840,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (dba.should_abort()) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge)
-      dba.RemoveEdge(expression_result.Value<EdgeAccessor>());
+      dba.RemoveEdge(expression_result.ValueEdge());
   }
 
   // delete vertices
@@ -1849,7 +1848,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (dba.should_abort()) throw HintedAbortError();
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
-        VertexAccessor &va = expression_result.Value<VertexAccessor>();
+        VertexAccessor &va = expression_result.ValueVertex();
         va.SwitchNew();  //  necessary because an edge deletion could have
                          //  updated
         if (self_.detach_)
@@ -1912,10 +1911,10 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      PropsSetChecked(&lhs.Value<VertexAccessor>(), self_.property_, rhs);
+      PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
       break;
     case TypedValue::Type::Edge:
-      PropsSetChecked(&lhs.Value<EdgeAccessor>(), self_.property_, rhs);
+      PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -1987,10 +1986,10 @@ void SetPropertiesOnRecord(database::GraphDbAccessor *dba,
 
   switch (rhs.type()) {
     case TypedValue::Type::Edge:
-      set_props(rhs.Value<EdgeAccessor>().Properties());
+      set_props(rhs.ValueEdge().Properties());
       break;
     case TypedValue::Type::Vertex:
-      set_props(rhs.Value<VertexAccessor>().Properties());
+      set_props(rhs.ValueVertex().Properties());
       break;
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.ValueMap())
@@ -2023,12 +2022,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.Value<VertexAccessor>(),
-                            rhs, self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs,
+                            self_.op_);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.Value<EdgeAccessor>(),
-                            rhs, self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs,
+                            self_.op_);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2074,7 +2073,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Skip setting labels on Null (can occur in optional match).
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &vertex = vertex_value.Value<VertexAccessor>();
+  auto &vertex = vertex_value.ValueVertex();
   vertex.SwitchNew();
   try {
     for (auto label : self_.labels_) vertex.add_label(label);
@@ -2123,7 +2122,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
       try {
-        lhs.Value<VertexAccessor>().PropsErase(self_.property_);
+        lhs.ValueVertex().PropsErase(self_.property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
             "Trying to remove properties from a deleted node.");
@@ -2131,7 +2130,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
       break;
     case TypedValue::Type::Edge:
       try {
-        lhs.Value<EdgeAccessor>().PropsErase(self_.property_);
+        lhs.ValueEdge().PropsErase(self_.property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
             "Trying to remove properties from a deleted edge.");
@@ -2183,7 +2182,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
   // Skip removing labels on Null (can occur in optional match).
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &vertex = vertex_value.Value<VertexAccessor>();
+  auto &vertex = vertex_value.ValueVertex();
   vertex.SwitchNew();
   try {
     for (auto label : self_.labels_) vertex.remove_label(label);
@@ -2237,7 +2236,7 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::List) return compare_to_list(a, b);
   if (b.type() == TypedValue::Type::List) return compare_to_list(b, a);
 
-  return a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>();
+  return a.ValueEdge() == b.ValueEdge();
 }
 }  // namespace
 
@@ -2275,7 +2274,6 @@ Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
     : input_(input), symbols_(symbols), advance_command_(advance_command) {}
 
 ACCEPT_WITH_INPUT(Accumulate)
-
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const {
   return symbols_;
@@ -2617,7 +2615,7 @@ class AggregateCursor : public Cursor {
             // since we skip nulls we either have a valid comparison, or
             // an exception was just thrown above
             // safe to assume a bool TypedValue
-            if (comparison_result.Value<bool>()) *value_it = input_value;
+            if (comparison_result.ValueBool()) *value_it = input_value;
           } catch (const TypedValueException &) {
             throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.",
                                         input_value.type(), value_it->type());
@@ -2629,7 +2627,7 @@ class AggregateCursor : public Cursor {
           EnsureOkForMinMax(input_value);
           try {
             TypedValue comparison_result = input_value > *value_it;
-            if (comparison_result.Value<bool>()) *value_it = input_value;
+            if (comparison_result.ValueBool()) *value_it = input_value;
           } catch (const TypedValueException &) {
             throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.",
                                         input_value.type(), value_it->type());
@@ -2728,7 +2726,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
         throw QueryRuntimeException(
             "Number of elements to skip must be an integer.");
 
-      to_skip_ = to_skip.Value<int64_t>();
+      to_skip_ = to_skip.ValueInt();
       if (to_skip_ < 0)
         throw QueryRuntimeException(
             "Number of elements to skip must be non-negative.");
@@ -2789,7 +2787,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
       throw QueryRuntimeException(
           "Limit on number of returned elements must be an integer.");
 
-    limit_ = limit.Value<int64_t>();
+    limit_ = limit.ValueInt();
     if (limit_ < 0)
       throw QueryRuntimeException(
           "Limit on number of returned elements must be non-negative.");

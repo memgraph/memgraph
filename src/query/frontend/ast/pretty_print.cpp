@@ -124,27 +124,27 @@ void PrintObject(std::ostream *out, const PropertyValue &value) {
       break;
 
     case PropertyValue::Type::String:
-      PrintObject(out, value.Value<std::string>());
+      PrintObject(out, value.ValueString());
       break;
 
     case PropertyValue::Type::Bool:
-      *out << (value.Value<bool>() ? "true" : "false");
+      *out << (value.ValueBool() ? "true" : "false");
       break;
 
     case PropertyValue::Type::Int:
-      PrintObject(out, value.Value<std::int64_t>());
+      PrintObject(out, value.ValueInt());
       break;
 
     case PropertyValue::Type::Double:
-      PrintObject(out, value.Value<double>());
+      PrintObject(out, value.ValueDouble());
       break;
 
     case PropertyValue::Type::List:
-      PrintObject(out, value.Value<std::vector<PropertyValue>>());
+      PrintObject(out, value.ValueList());
       break;
 
     case PropertyValue::Type::Map:
-      PrintObject(out, value.Value<std::map<std::string, PropertyValue>>());
+      PrintObject(out, value.ValueMap());
       break;
   }
 }

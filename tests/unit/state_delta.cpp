@@ -173,7 +173,7 @@ TEST(StateDelta, SetPropertyVertex) {
     auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
     auto prop = vertex->PropsAt(dba.Property("property"));
-    EXPECT_EQ(prop.Value<int64_t>(), 2212);
+    EXPECT_EQ(prop.ValueInt(), 2212);
   }
 }
 
@@ -203,6 +203,6 @@ TEST(StateDelta, SetPropertyEdge) {
     auto edge = dba.FindEdgeOptional(gid2, false);
     EXPECT_TRUE(edge);
     auto prop = edge->PropsAt(dba.Property("property"));
-    EXPECT_EQ(prop.Value<int64_t>(), 2212);
+    EXPECT_EQ(prop.ValueInt(), 2212);
   }
 }

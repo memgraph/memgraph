@@ -15,8 +15,8 @@
 
 using namespace query;
 using namespace query::plan;
-using query::test_common::ToList;
-using query::test_common::ToMap;
+using query::test_common::ToIntList;
+using query::test_common::ToIntMap;
 using testing::UnorderedElementsAre;
 
 TEST(QueryPlan, Accumulate) {
@@ -70,7 +70,7 @@ TEST(QueryPlan, Accumulate) {
     std::vector<int> results_data;
     for (const auto &row : results)
       for (const auto &column : row)
-        results_data.emplace_back(column.Value<int64_t>());
+        results_data.emplace_back(column.ValueInt());
     if (accumulate)
       EXPECT_THAT(results_data, testing::ElementsAre(2, 2, 2, 2));
     else
@@ -195,28 +195,28 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][0].Value<int64_t>(), 4);
+  EXPECT_EQ(results[0][0].ValueInt(), 4);
   // count
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][1].Value<int64_t>(), 3);
+  EXPECT_EQ(results[0][1].ValueInt(), 3);
   // min
   ASSERT_EQ(results[0][2].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][2].Value<int64_t>(), 5);
+  EXPECT_EQ(results[0][2].ValueInt(), 5);
   // max
   ASSERT_EQ(results[0][3].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][3].Value<int64_t>(), 12);
+  EXPECT_EQ(results[0][3].ValueInt(), 12);
   // sum
   ASSERT_EQ(results[0][4].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][4].Value<int64_t>(), 24);
+  EXPECT_EQ(results[0][4].ValueInt(), 24);
   // avg
   ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
-  EXPECT_FLOAT_EQ(results[0][5].Value<double>(), 24 / 3.0);
+  EXPECT_FLOAT_EQ(results[0][5].ValueDouble(), 24 / 3.0);
   // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_THAT(ToList<int64_t>(results[0][6]), UnorderedElementsAre(5, 7, 12));
+  EXPECT_THAT(ToIntList(results[0][6]), UnorderedElementsAre(5, 7, 12));
   // collect map
   ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
-  auto map = ToMap<int64_t>(results[0][7]);
+  auto map = ToIntMap(results[0][7]);
   ASSERT_EQ(map.size(), 1);
   EXPECT_EQ(map.begin()->first, "key");
   EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
@@ -259,10 +259,10 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][0].Value<int64_t>(), 0);
+  EXPECT_EQ(results[0][0].ValueInt(), 0);
   // count
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][1].Value<int64_t>(), 0);
+  EXPECT_EQ(results[0][1].ValueInt(), 0);
   // min
   EXPECT_TRUE(results[0][2].IsNull());
   // max
@@ -273,10 +273,10 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   EXPECT_TRUE(results[0][5].IsNull());
   // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_EQ(ToList<int64_t>(results[0][6]).size(), 0);
+  EXPECT_EQ(ToIntList(results[0][6]).size(), 0);
   // collect map
   ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
-  EXPECT_EQ(ToMap<int64_t>(results[0][7]).size(), 0);
+  EXPECT_EQ(ToIntMap(results[0][7]).size(), 0);
 }
 
 TEST(QueryPlan, AggregateGroupByValues) {
@@ -392,7 +392,7 @@ TEST(QueryPlan, AggregateNoInput) {
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
   EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
-  EXPECT_EQ(1, results[0][0].Value<int64_t>());
+  EXPECT_EQ(1, results[0][0].ValueInt());
 }
 
 TEST(QueryPlan, AggregateCountEdgeCases) {
@@ -425,7 +425,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
     EXPECT_EQ(1, results.size());
     EXPECT_EQ(1, results[0].size());
     EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
-    return results[0][0].Value<int64_t>();
+    return results[0][0].ValueInt();
   };
 
   // no vertices yet in database

@@ -316,43 +316,37 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
     EXPECT_EQ(property_value.type(), expected_property_value[cnt].type());
     switch (property_value.type()) {
       case PropertyValue::Type::Bool:
-        EXPECT_EQ(property_value.Value<bool>(),
-                  expected_property_value[cnt].Value<bool>());
+        EXPECT_EQ(property_value.ValueBool(),
+                  expected_property_value[cnt].ValueBool());
         break;
       case PropertyValue::Type::Double:
-        EXPECT_EQ(property_value.Value<double>(),
-                  expected_property_value[cnt].Value<double>());
+        EXPECT_EQ(property_value.ValueDouble(),
+                  expected_property_value[cnt].ValueDouble());
         break;
       case PropertyValue::Type::Int:
-        EXPECT_EQ(property_value.Value<int64_t>(),
-                  expected_property_value[cnt].Value<int64_t>());
+        EXPECT_EQ(property_value.ValueInt(),
+                  expected_property_value[cnt].ValueInt());
         break;
       case PropertyValue::Type::String:
-        EXPECT_EQ(property_value.Value<std::string>(),
-                  expected_property_value[cnt].Value<std::string>());
+        EXPECT_EQ(property_value.ValueString(),
+                  expected_property_value[cnt].ValueString());
         break;
       case PropertyValue::Type::List: {
-        auto received_value =
-            property_value.Value<std::vector<PropertyValue>>();
-        auto expected_value =
-            expected_property_value[cnt].Value<std::vector<PropertyValue>>();
+        auto received_value = property_value.ValueList();
+        auto expected_value = expected_property_value[cnt].ValueList();
         EXPECT_EQ(received_value.size(), expected_value.size());
         EXPECT_EQ(received_value.size(), 1);
-        EXPECT_EQ(received_value[0].Value<int64_t>(),
-                  expected_value[0].Value<int64_t>());
+        EXPECT_EQ(received_value[0].ValueInt(), expected_value[0].ValueInt());
         break;
       }
       case PropertyValue::Type::Map: {
-        auto received_value =
-            property_value.Value<std::map<std::string, PropertyValue>>();
-        auto expected_value =
-            expected_property_value[cnt]
-                .Value<std::map<std::string, PropertyValue>>();
+        auto received_value = property_value.ValueMap();
+        auto expected_value = expected_property_value[cnt].ValueMap();
         EXPECT_EQ(received_value.size(), expected_value.size());
         for (const auto &kv : expected_value) {
           auto found = expected_value.find(kv.first);
           EXPECT_NE(found, expected_value.end());
-          EXPECT_EQ(kv.second.Value<int64_t>(), found->second.Value<int64_t>());
+          EXPECT_EQ(kv.second.ValueInt(), found->second.ValueInt());
         }
         break;
       }

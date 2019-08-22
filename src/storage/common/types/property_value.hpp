@@ -89,19 +89,6 @@ class PropertyValue {
 
   bool IsNull() const { return type_ == Type::Null; }
 
-  /**
-   * Returns the value of the property as given type T.
-   * The behavior of this function is undefined if
-   * T does not correspond to this property's type_.
-   *
-   * @tparam T Type to interpret the value as.
-   * @return The value as type T.
-   */
-  template <typename T>
-  const T &Value() const;
-  template <typename T>
-  T &Value();
-
   bool ValueBool() const {
     if (type_ != Type::Bool) {
       throw PropertyValueException("This value isn't a bool!");

@@ -21,7 +21,7 @@
 #include "query_common.hpp"
 
 using namespace query;
-using query::test_common::ToList;
+using query::test_common::ToIntList;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
 
@@ -1240,24 +1240,19 @@ TEST_F(FunctionTest, Range) {
   EXPECT_THROW(EvaluateFunction("RANGE", 1, TypedValue(), 1.3),
                QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("RANGE", 1, 2, 0), QueryRuntimeException);
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 1, 3)),
-              ElementsAre(1, 2, 3));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", -1, 5, 2)),
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 1, 3)), ElementsAre(1, 2, 3));
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", -1, 5, 2)),
               ElementsAre(-1, 1, 3, 5));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 2, 10, 3)),
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 2, 10, 3)),
               ElementsAre(2, 5, 8));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 2, 2, 2)),
-              ElementsAre(2));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 3, 0, 5)),
-              ElementsAre());
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 5, 1, -2)),
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 2, 2, 2)), ElementsAre(2));
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 3, 0, 5)), ElementsAre());
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 5, 1, -2)),
               ElementsAre(5, 3, 1));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 6, 1, -2)),
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 6, 1, -2)),
               ElementsAre(6, 4, 2));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", 2, 2, -3)),
-              ElementsAre(2));
-  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", -2, 4, -1)),
-              ElementsAre());
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 2, 2, -3)), ElementsAre(2));
+  EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", -2, 4, -1)), ElementsAre());
 }
 
 TEST_F(FunctionTest, Keys) {

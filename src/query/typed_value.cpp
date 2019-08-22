@@ -28,23 +28,23 @@ TypedValue::TypedValue(const PropertyValue &value,
       return;
     case PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      bool_v = value.Value<bool>();
+      bool_v = value.ValueBool();
       return;
     case PropertyValue::Type::Int:
       type_ = Type::Int;
-      int_v = value.Value<int64_t>();
+      int_v = value.ValueInt();
       return;
     case PropertyValue::Type::Double:
       type_ = Type::Double;
-      double_v = value.Value<double>();
+      double_v = value.ValueDouble();
       return;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(value.Value<std::string>(), memory_);
+      new (&string_v) TString(value.ValueString(), memory_);
       return;
     case PropertyValue::Type::List: {
       type_ = Type::List;
-      const auto &vec = value.Value<std::vector<PropertyValue>>();
+      const auto &vec = value.ValueList();
       new (&list_v) TVector(memory_);
       list_v.reserve(vec.size());
       for (const auto &v : vec) list_v.emplace_back(v);
@@ -52,7 +52,7 @@ TypedValue::TypedValue(const PropertyValue &value,
     }
     case PropertyValue::Type::Map: {
       type_ = Type::Map;
-      const auto &map = value.Value<std::map<std::string, PropertyValue>>();
+      const auto &map = value.ValueMap();
       new (&map_v) TMap(memory_);
       for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
@@ -73,23 +73,23 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
       break;
     case PropertyValue::Type::Bool:
       type_ = Type::Bool;
-      bool_v = other.Value<bool>();
+      bool_v = other.ValueBool();
       break;
     case PropertyValue::Type::Int:
       type_ = Type::Int;
-      int_v = other.Value<int64_t>();
+      int_v = other.ValueInt();
       break;
     case PropertyValue::Type::Double:
       type_ = Type::Double;
-      double_v = other.Value<double>();
+      double_v = other.ValueDouble();
       break;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(other.Value<std::string>(), memory_);
+      new (&string_v) TString(other.ValueString(), memory_);
       break;
     case PropertyValue::Type::List: {
       type_ = Type::List;
-      auto &vec = other.Value<std::vector<PropertyValue>>();
+      auto &vec = other.ValueList();
       new (&list_v) TVector(memory_);
       list_v.reserve(vec.size());
       for (auto &v : vec) list_v.emplace_back(std::move(v));
@@ -97,7 +97,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
     }
     case PropertyValue::Type::Map: {
       type_ = Type::Map;
-      auto &map = other.Value<std::map<std::string, PropertyValue>>();
+      auto &map = other.ValueMap();
       new (&map_v) TMap(memory_);
       for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
@@ -214,31 +214,21 @@ TypedValue::operator PropertyValue() const {
       "Unsupported conversion from TypedValue to PropertyValue");
 }
 
-#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)          \
-  template <>                                                                \
-  type_param &TypedValue::Value<type_param>() {                              \
-    if (type_ != Type::type_enum)                                            \
-      throw TypedValueException(                                             \
-          "Incompatible template param '{}' and type '{}'", Type::type_enum, \
-          type_);                                                            \
-    return field;                                                            \
-  }                                                                          \
-                                                                             \
-  template <>                                                                \
-  const type_param &TypedValue::Value<type_param>() const {                  \
-    if (type_ != Type::type_enum)                                            \
-      throw TypedValueException(                                             \
-          "Incompatible template param '{}' and type '{}'", Type::type_enum, \
-          type_);                                                            \
-    return field;                                                            \
-  }                                                                          \
-                                                                             \
-  type_param &TypedValue::Value##type_enum() { return Value<type_param>(); } \
-                                                                             \
-  const type_param &TypedValue::Value##type_enum() const {                   \
-    return Value<type_param>();                                              \
-  }                                                                          \
-                                                                             \
+#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)            \
+  type_param &TypedValue::Value##type_enum() {                                 \
+    if (type_ != Type::type_enum)                                              \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, \
+                                Type::type_enum);                              \
+    return field;                                                              \
+  }                                                                            \
+                                                                               \
+  const type_param &TypedValue::Value##type_enum() const {                     \
+    if (type_ != Type::type_enum)                                              \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, \
+                                Type::type_enum);                              \
+    return field;                                                              \
+  }                                                                            \
+                                                                               \
   bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
@@ -303,11 +293,11 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
     case TypedValue::Type::Null:
       return os << "Null";
     case TypedValue::Type::Bool:
-      return os << (value.Value<bool>() ? "true" : "false");
+      return os << (value.ValueBool() ? "true" : "false");
     case TypedValue::Type::Int:
-      return os << value.Value<int64_t>();
+      return os << value.ValueInt();
     case TypedValue::Type::Double:
-      return os << value.Value<double>();
+      return os << value.ValueDouble();
     case TypedValue::Type::String:
       return os << value.ValueString();
     case TypedValue::Type::List:
@@ -322,11 +312,11 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
                            });
       return os << "}";
     case TypedValue::Type::Vertex:
-      return os << value.Value<VertexAccessor>();
+      return os << value.ValueVertex();
     case TypedValue::Type::Edge:
-      return os << value.Value<EdgeAccessor>();
+      return os << value.ValueEdge();
     case TypedValue::Type::Path:
-      return os << value.Value<Path>();
+      return os << value.ValuePath();
   }
   LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
@@ -565,9 +555,9 @@ TypedValue::~TypedValue() {
 double ToDouble(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Int:
-      return (double)value.Value<int64_t>();
+      return (double)value.ValueInt();
     case TypedValue::Type::Double:
-      return value.Value<double>();
+      return value.ValueDouble();
     default:
       throw TypedValueException(
           "Unsupported TypedValue::Type conversion to double");
@@ -606,8 +596,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) < ToDouble(b), a.GetMemoryResource());
   } else {
-    return TypedValue(a.Value<int64_t>() < b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    return TypedValue(a.ValueInt() < b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -621,25 +610,22 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return TypedValue(a.Value<bool>() == b.Value<bool>(),
-                        a.GetMemoryResource());
+      return TypedValue(a.ValueBool() == b.ValueBool(), a.GetMemoryResource());
     case TypedValue::Type::Int:
       if (b.IsDouble())
         return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
       else
-        return TypedValue(a.Value<int64_t>() == b.Value<int64_t>(),
-                          a.GetMemoryResource());
+        return TypedValue(a.ValueInt() == b.ValueInt(), a.GetMemoryResource());
     case TypedValue::Type::Double:
       return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
     case TypedValue::Type::String:
       return TypedValue(a.ValueString() == b.ValueString(),
                         a.GetMemoryResource());
     case TypedValue::Type::Vertex:
-      return TypedValue(a.Value<VertexAccessor>() == b.Value<VertexAccessor>(),
+      return TypedValue(a.ValueVertex() == b.ValueVertex(),
                         a.GetMemoryResource());
     case TypedValue::Type::Edge:
-      return TypedValue(a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>(),
-                        a.GetMemoryResource());
+      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.GetMemoryResource());
     case TypedValue::Type::List: {
       // We are not compatible with neo4j at this point. In neo4j 2 = [2]
       // compares
@@ -672,7 +658,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
         if (found_b_it == map_b.end())
           return TypedValue(false, a.GetMemoryResource());
         TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.Value<bool>())
+        if (comparison.IsNull() || !comparison.ValueBool())
           return TypedValue(false, a.GetMemoryResource());
       }
       return TypedValue(true, a.GetMemoryResource());
@@ -686,7 +672,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
 
 TypedValue operator!(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsBool()) return TypedValue(!a.Value<bool>(), a.GetMemoryResource());
+  if (a.IsBool()) return TypedValue(!a.ValueBool(), a.GetMemoryResource());
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
@@ -699,8 +685,8 @@ TypedValue operator!(const TypedValue &a) {
 std::string ValueToString(const TypedValue &value) {
   // TODO: Should this allocate a string through value.GetMemoryResource()?
   if (value.IsString()) return std::string(value.ValueString());
-  if (value.IsInt()) return std::to_string(value.Value<int64_t>());
-  if (value.IsDouble()) return fmt::format("{}", value.Value<double>());
+  if (value.IsInt()) return std::to_string(value.ValueInt());
+  if (value.IsDouble()) return fmt::format("{}", value.ValueDouble());
   // unsupported situations
   throw TypedValueException(
       "Unsupported TypedValue::Type conversion to string");
@@ -708,17 +694,15 @@ std::string ValueToString(const TypedValue &value) {
 
 TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsInt()) return TypedValue(-a.Value<int64_t>(), a.GetMemoryResource());
-  if (a.IsDouble())
-    return TypedValue(-a.Value<double>(), a.GetMemoryResource());
+  if (a.IsInt()) return TypedValue(-a.ValueInt(), a.GetMemoryResource());
+  if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.GetMemoryResource());
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
 TypedValue operator+(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsInt()) return TypedValue(+a.Value<int64_t>(), a.GetMemoryResource());
-  if (a.IsDouble())
-    return TypedValue(+a.Value<double>(), a.GetMemoryResource());
+  if (a.IsInt()) return TypedValue(+a.ValueInt(), a.GetMemoryResource());
+  if (a.IsDouble()) return TypedValue(+a.ValueDouble(), a.GetMemoryResource());
   throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
@@ -778,8 +762,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) + ToDouble(b), a.GetMemoryResource());
   } else {
-    return TypedValue(a.Value<int64_t>() + b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -791,8 +774,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
   } else {
-    return TypedValue(a.Value<int64_t>() - b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -804,10 +786,8 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) / ToDouble(b), a.GetMemoryResource());
   } else {
-    if (b.Value<int64_t>() == 0LL)
-      throw TypedValueException("Division by zero");
-    return TypedValue(a.Value<int64_t>() / b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    if (b.ValueInt() == 0LL) throw TypedValueException("Division by zero");
+    return TypedValue(a.ValueInt() / b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -819,8 +799,7 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) * ToDouble(b), a.GetMemoryResource());
   } else {
-    return TypedValue(a.Value<int64_t>() * b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    return TypedValue(a.ValueInt() * b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -833,9 +812,8 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
     return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))),
                       a.GetMemoryResource());
   } else {
-    if (b.Value<int64_t>() == 0LL) throw TypedValueException("Mod with zero");
-    return TypedValue(a.Value<int64_t>() % b.Value<int64_t>(),
-                      a.GetMemoryResource());
+    if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
+    return TypedValue(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
   }
 }
 
@@ -850,9 +828,9 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical AND");
   // at this point we only have null and bool
   // if either operand is false, the result is false
-  if (a.IsBool() && !a.Value<bool>())
+  if (a.IsBool() && !a.ValueBool())
     return TypedValue(false, a.GetMemoryResource());
-  if (b.IsBool() && !b.Value<bool>())
+  if (b.IsBool() && !b.ValueBool())
     return TypedValue(false, a.GetMemoryResource());
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   // neither is false, neither is null, thus both are true
@@ -863,9 +841,9 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical OR");
   // at this point we only have null and bool
   // if either operand is true, the result is true
-  if (a.IsBool() && a.Value<bool>())
+  if (a.IsBool() && a.ValueBool())
     return TypedValue(true, a.GetMemoryResource());
-  if (b.IsBool() && b.Value<bool>())
+  if (b.IsBool() && b.ValueBool())
     return TypedValue(true, a.GetMemoryResource());
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
   // neither is true, neither is null, thus both are false
@@ -878,7 +856,7 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull())
     return TypedValue(a.GetMemoryResource());
   else
-    return TypedValue(static_cast<bool>(a.Value<bool>() ^ b.Value<bool>()),
+    return TypedValue(static_cast<bool>(a.ValueBool() ^ b.ValueBool()),
                       a.GetMemoryResource());
 }
 
@@ -888,7 +866,7 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
   TypedValue equality_result = lhs == rhs;
   switch (equality_result.type()) {
     case TypedValue::Type::Bool:
-      return equality_result.Value<bool>();
+      return equality_result.ValueBool();
     case TypedValue::Type::Null:
       return false;
     default:
@@ -903,14 +881,14 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Null:
       return 31;
     case TypedValue::Type::Bool:
-      return std::hash<bool>{}(value.Value<bool>());
+      return std::hash<bool>{}(value.ValueBool());
     case TypedValue::Type::Int:
       // we cast int to double for hashing purposes
       // to be consistent with TypedValue equality
       // in which (2.0 == 2) returns true
-      return std::hash<double>{}((double)value.Value<int64_t>());
+      return std::hash<double>{}((double)value.ValueInt());
     case TypedValue::Type::Double:
-      return std::hash<double>{}(value.Value<double>());
+      return std::hash<double>{}(value.ValueDouble());
     case TypedValue::Type::String:
       return std::hash<std::string_view>{}(value.ValueString());
     case TypedValue::Type::List: {
@@ -926,9 +904,9 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return hash;
     }
     case TypedValue::Type::Vertex:
-      return value.Value<VertexAccessor>().gid();
+      return value.ValueVertex().gid();
     case TypedValue::Type::Edge:
-      return value.Value<EdgeAccessor>().gid();
+      return value.ValueEdge().gid();
     case TypedValue::Type::Path: {
       const auto &vertices = value.ValuePath().vertices();
       const auto &edges = value.ValuePath().edges();

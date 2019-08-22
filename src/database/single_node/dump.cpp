@@ -42,20 +42,20 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
       *os << "Null";
       return;
     case PropertyValue::Type::Bool:
-      *os << (value.Value<bool>() ? "true" : "false");
+      *os << (value.ValueBool() ? "true" : "false");
       return;
     case PropertyValue::Type::String:
-      *os << ::utils::Escape(value.Value<std::string>());
+      *os << ::utils::Escape(value.ValueString());
       return;
     case PropertyValue::Type::Int:
-      *os << value.Value<int64_t>();
+      *os << value.ValueInt();
       return;
     case PropertyValue::Type::Double:
-      DumpPreciseDouble(os, value.Value<double>());
+      DumpPreciseDouble(os, value.ValueDouble());
       return;
     case PropertyValue::Type::List: {
       *os << "[";
-      const auto &list = value.Value<std::vector<PropertyValue>>();
+      const auto &list = value.ValueList();
       utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) {
         DumpPropertyValue(&os, item);
       });
@@ -64,7 +64,7 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
     }
     case PropertyValue::Type::Map: {
       *os << "{";
-      const auto &map = value.Value<std::map<std::string, PropertyValue>>();
+      const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
         os << kv.first << ": ";
         DumpPropertyValue(&os, kv.second);

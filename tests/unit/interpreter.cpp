@@ -38,42 +38,42 @@ TEST_F(InterpreterTest, AstCache) {
     EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
   }
   {
     // Cached ast, different literals.
     auto stream = Interpret("RETURN 5 + 4");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 9);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 9);
   }
   {
     // Different ast (because of different types).
     auto stream = Interpret("RETURN 5.5 + 4");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 9.5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueDouble(), 9.5);
   }
   {
     // Cached ast, same literals.
     auto stream = Interpret("RETURN 2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
   }
   {
     // Cached ast, different literals.
     auto stream = Interpret("RETURN 10.5 + 1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueDouble(), 11.5);
   }
   {
     // Cached ast, same literals, different whitespaces.
     auto stream = Interpret("RETURN  10.5 + 1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueDouble(), 11.5);
   }
   {
     // Cached ast, same literals, different named header.
@@ -82,7 +82,7 @@ TEST_F(InterpreterTest, AstCache) {
     EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueDouble(), 11.5);
   }
 }
 
@@ -94,7 +94,7 @@ TEST_F(InterpreterTest, Parameters) {
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 25);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 25);
   }
   {
     // Not needed parameter.
@@ -104,7 +104,7 @@ TEST_F(InterpreterTest, Parameters) {
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 25);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 25);
   }
   {
     // Cached ast, different parameters.
@@ -119,8 +119,7 @@ TEST_F(InterpreterTest, Parameters) {
         Interpret("RETURN $2", {{"2", std::vector<PropertyValue>{5, 2, 3}}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result =
-        query::test_common::ToList<int64_t>(stream.GetResults()[0][0]);
+    auto result = query::test_common::ToIntList(stream.GetResults()[0][0]);
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
@@ -218,20 +217,20 @@ TEST_F(InterpreterTest, Bfs) {
   std::unordered_set<int64_t> matched_ids;
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges = query::test_common::ToList<EdgeAccessor>(result[0]);
+    const auto &edges = query::test_common::ToEdgeList(result[0]);
     // Check that path is of expected length. Returned paths should be from
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
     EXPECT_EQ(
-        edges[0].from().PropsAt(dba.Property(kId)).template Value<int64_t>(),
+        edges[0].from().PropsAt(dba.Property(kId)).ValueInt(),
         0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
       EXPECT_EQ(edges[i - 1].to(), edges[i].from());
     }
     auto matched_id =
-        edges.back().to().PropsAt(dba.Property(kId)).Value<int64_t>();
+        edges.back().to().PropsAt(dba.Property(kId)).ValueInt();
     // Check that we didn't match that node already.
     EXPECT_TRUE(matched_ids.insert(matched_id).second);
     // Check that shortest path was found.
@@ -283,7 +282,7 @@ TEST_F(InterpreterTest, ShortestPath) {
       {"r1"}, {"r2"}, {"r1", "r2"}};
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges = query::test_common::ToList<EdgeAccessor>(result[0]);
+    const auto &edges = query::test_common::ToEdgeList(result[0]);
 
     std::vector<std::string> datum;
     for (const auto &edge : edges) {

@@ -160,16 +160,16 @@ Value ToBoltValue(const PropertyValue &value) {
     case PropertyValue::Type::Null:
       return Value();
     case PropertyValue::Type::Bool:
-      return Value(value.Value<bool>());
+      return Value(value.ValueBool());
     case PropertyValue::Type::Int:
-      return Value(value.Value<int64_t>());
+      return Value(value.ValueInt());
       break;
     case PropertyValue::Type::Double:
-      return Value(value.Value<double>());
+      return Value(value.ValueDouble());
     case PropertyValue::Type::String:
-      return Value(value.Value<std::string>());
+      return Value(value.ValueString());
     case PropertyValue::Type::List: {
-      const auto &values = value.Value<std::vector<PropertyValue>>();
+      const auto &values = value.ValueList();
       std::vector<Value> vec;
       vec.reserve(values.size());
       for (const auto &v : values) {
@@ -178,7 +178,7 @@ Value ToBoltValue(const PropertyValue &value) {
       return Value(vec);
     }
     case PropertyValue::Type::Map: {
-      const auto &map = value.Value<std::map<std::string, PropertyValue>>();
+      const auto &map = value.ValueMap();
       std::map<std::string, Value> dv_map;
       for (const auto &kv : map) {
         dv_map.emplace(kv.first, ToBoltValue(kv.second));

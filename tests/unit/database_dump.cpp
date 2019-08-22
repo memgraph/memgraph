@@ -139,7 +139,7 @@ class DatabaseEnvironment {
         props.emplace(dba.PropertyName(kv.first), kv.second);
       }
       CHECK(props.count(kPropertyId) == 1);
-      const auto id = props[kPropertyId].Value<int64_t>();
+      const auto id = props[kPropertyId].ValueInt();
       gid_mapping[vertex.gid()] = id;
       vertices.insert({id, labels, props});
     }

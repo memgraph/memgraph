@@ -378,9 +378,9 @@ TypedValue Properties(TypedValue *args, int64_t nargs,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Vertex:
-      return get_properties(args[0].Value<VertexAccessor>());
+      return get_properties(args[0].ValueVertex());
     case TypedValue::Type::Edge:
-      return get_properties(args[0].Value<EdgeAccessor>());
+      return get_properties(args[0].ValueEdge());
     default:
       throw QueryRuntimeException(
           "'properties' argument must be a node or an edge.");
@@ -456,7 +456,7 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Bool:
-      return TypedValue(args[0].Value<bool>(), ctx.memory);
+      return TypedValue(args[0].ValueBool(), ctx.memory);
     case TypedValue::Type::Int:
       return TypedValue(args[0].ValueInt() != 0L, ctx.memory);
     case TypedValue::Type::String: {
@@ -480,7 +480,7 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Int:
-      return TypedValue(static_cast<double>(args[0].Value<int64_t>()),
+      return TypedValue(static_cast<double>(args[0].ValueInt()),
                         ctx.memory);
     case TypedValue::Type::Double:
       return TypedValue(args[0], ctx.memory);
@@ -509,7 +509,7 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs,
     case TypedValue::Type::Int:
       return TypedValue(args[0], ctx.memory);
     case TypedValue::Type::Double:
-      return TypedValue(static_cast<int64_t>(args[0].Value<double>()),
+      return TypedValue(static_cast<int64_t>(args[0].ValueDouble()),
                         ctx.memory);
     case TypedValue::Type::String:
       try {
@@ -549,9 +549,9 @@ TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Vertex:
-      return get_keys(args[0].Value<VertexAccessor>());
+      return get_keys(args[0].ValueVertex());
     case TypedValue::Type::Edge:
-      return get_keys(args[0].Value<EdgeAccessor>());
+      return get_keys(args[0].ValueEdge());
     default:
       throw QueryRuntimeException("'keys' argument must be a node or an edge.");
   }
@@ -597,9 +597,9 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
         Optional<Or<Null, NonZeroInteger>>>("range", args, nargs);
   for (int64_t i = 0; i < nargs; ++i)
     if (args[i].IsNull()) return TypedValue(ctx.memory);
-  auto lbound = args[0].Value<int64_t>();
-  auto rbound = args[1].Value<int64_t>();
-  int64_t step = nargs == 3 ? args[2].Value<int64_t>() : 1;
+  auto lbound = args[0].ValueInt();
+  auto rbound = args[1].ValueInt();
+  int64_t step = nargs == 3 ? args[2].ValueInt() : 1;
   TypedValue::TVector list(ctx.memory);
   if (lbound <= rbound && step > 0) {
     for (auto i = lbound; i <= rbound; i += step) {
@@ -650,9 +650,9 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Int:
-      return TypedValue(std::abs(args[0].Value<int64_t>()), ctx.memory);
+      return TypedValue(std::abs(args[0].ValueInt()), ctx.memory);
     case TypedValue::Type::Double:
-      return TypedValue(std::abs(args[0].Value<double>()), ctx.memory);
+      return TypedValue(std::abs(args[0].ValueDouble()), ctx.memory);
     default:
       throw QueryRuntimeException("'abs' argument should be a number.");
   }
@@ -666,11 +666,9 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
       case TypedValue::Type::Null:                                             \
         return TypedValue(ctx.memory);                                         \
       case TypedValue::Type::Int:                                              \
-        return TypedValue(lowercased_name(args[0].Value<int64_t>()),           \
-                          ctx.memory);                                         \
+        return TypedValue(lowercased_name(args[0].ValueInt()), ctx.memory);    \
       case TypedValue::Type::Double:                                           \
-        return TypedValue(lowercased_name(args[0].Value<double>()),            \
-                          ctx.memory);                                         \
+        return TypedValue(lowercased_name(args[0].ValueDouble()), ctx.memory); \
       default:                                                                 \
         throw QueryRuntimeException(#lowercased_name                           \
                                     " argument must be a number.");            \
@@ -703,9 +701,9 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   auto to_double = [](const TypedValue &t) -> double {
     switch (t.type()) {
       case TypedValue::Type::Int:
-        return t.Value<int64_t>();
+        return t.ValueInt();
       case TypedValue::Type::Double:
-        return t.Value<double>();
+        return t.ValueDouble();
       default:
         throw QueryRuntimeException("Arguments of 'atan2' must be numbers.");
     }
@@ -723,9 +721,9 @@ TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Int:
-      return sign(args[0].Value<int64_t>());
+      return sign(args[0].ValueInt());
     case TypedValue::Type::Double:
-      return sign(args[0].Value<double>());
+      return sign(args[0].ValueDouble());
     default:
       throw QueryRuntimeException("'sign' argument must be a number.");
   }
