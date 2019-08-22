@@ -572,6 +572,53 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() {
   return Iterator(this, index_accessor_.end());
 }
 
+// A helper function for determining the skip list layer used for estimating the
+// number of elements in the label property index. The lower layer we use, the
+// better approximation we get (if we use the lowest layer, we get the exact
+// numbers). However, lower skip list layers contain more elements so we must
+// iterate through more items to get the estimate.
+//
+// Our goal is to achieve balance between execution time and approximation
+// precision. The expected number of elements at the k-th skip list layer is N *
+// (1/2)^(k-1), where N is the skip-list size. We choose to iterate through no
+// more than sqrt(N) items for large N when calculating the estimate, so we need
+// to choose the skip-list layer such that N * (1/2)^(k-1) <= sqrt(N). That is
+// equivalent to k >= 1 + 1/2 * log2(N), so we choose k to be 1 + ceil(log2(N) /
+// 2).
+//
+// For N small enough (arbitrarily chosen to be 500), we will just use the
+// lowest layer to get the exact numbers. Mostly because this makes writing
+// tests easier.
+namespace {
+uint64_t SkipListLayerForEstimation(uint64_t N) {
+  if (N <= 500) return 1;
+  return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
+}
+}  // namespace
+
+int64_t LabelPropertyIndex::ApproximateVertexCount(
+    LabelId label, PropertyId property, const PropertyValue &value) const {
+  auto it = index_.find({label, property});
+  CHECK(it != index_.end())
+      << "Index for label " << label.AsUint() << " and property "
+      << property.AsUint() << " doesn't exist";
+  auto acc = it->second.access();
+  return acc.estimate_count(value, SkipListLayerForEstimation(acc.size()));
+}
+
+int64_t LabelPropertyIndex::ApproximateVertexCount(
+    LabelId label, PropertyId property,
+    const std::optional<utils::Bound<PropertyValue>> &lower,
+    const std::optional<utils::Bound<PropertyValue>> &upper) const {
+  auto it = index_.find({label, property});
+  CHECK(it != index_.end())
+      << "Index for label " << label.AsUint() << " and property "
+      << property.AsUint() << " doesn't exist";
+  auto acc = it->second.access();
+  return acc.estimate_range_count(lower, upper,
+                                  SkipListLayerForEstimation(acc.size()));
+}
+
 void RemoveObsoleteEntries(Indices *indices,
                            uint64_t oldest_active_start_timestamp) {
   indices->label_index.RemoveObsoleteEntries(oldest_active_start_timestamp);

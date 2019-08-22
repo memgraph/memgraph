@@ -92,6 +92,10 @@ class LabelIndex {
                     transaction, indices_);
   }
 
+  int64_t ApproximateVertexCount(LabelId label) {
+    return GetOrCreateStorage(label)->size();
+  }
+
  private:
   utils::SkipList<LabelStorage> index_;
   Indices *indices_;
@@ -192,6 +196,22 @@ class LabelPropertyIndex {
     return Iterable(it->second.access(), label, property, lower_bound,
                     upper_bound, view, transaction, indices_);
   }
+
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
+    auto it = index_.find({label, property});
+    CHECK(it != index_.end())
+        << "Index for label " << label.AsUint() << " and property "
+        << property.AsUint() << " doesn't exist";
+    return it->second.size();
+  }
+
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                 const PropertyValue &value) const;
+
+  int64_t ApproximateVertexCount(
+      LabelId label, PropertyId property,
+      const std::optional<utils::Bound<PropertyValue>> &lower,
+      const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
  private:
   Indices *indices_;

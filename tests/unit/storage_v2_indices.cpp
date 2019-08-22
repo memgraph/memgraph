@@ -207,6 +207,18 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(IndexTest, LabelIndexCountEstimate) {
+  auto acc = storage.Access();
+  for (int i = 0; i < 20; ++i) {
+    auto vertex = CreateVertex(&acc);
+    ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? label1 : label2));
+  }
+
+  EXPECT_EQ(acc.ApproximateVertexCount(label1), 13);
+  EXPECT_EQ(acc.ApproximateVertexCount(label2), 7);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
   EXPECT_TRUE(storage.LabelPropertyIndexExists(label1, prop_id));
@@ -465,4 +477,29 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
             utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
         UnorderedElementsAre(4, 5));
   }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
+  storage.CreateIndex(label1, prop_val);
+
+  auto acc = storage.Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
+    }
+  }
+
+  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val), 55);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, PropertyValue(i)),
+              i);
+  }
+
+  EXPECT_EQ(acc.ApproximateVertexCount(
+                label1, prop_val, utils::MakeBoundInclusive(PropertyValue(2)),
+                utils::MakeBoundInclusive(PropertyValue(6))),
+            2 + 3 + 4 + 5 + 6);
 }

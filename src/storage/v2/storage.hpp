@@ -197,6 +197,45 @@ class Storage final {
         const std::optional<utils::Bound<PropertyValue>> &upper_bound,
         View view);
 
+    /// Return approximate number of all vertices in the database.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount() const {
+      return storage_->vertices_.size();
+    }
+
+    /// Return approximate number of vertices with the given label.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount(LabelId label) const {
+      return storage_->indices_.label_index.ApproximateVertexCount(label);
+    }
+
+    /// Return approximate number of vertices with the given label and property.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
+      return storage_->indices_.label_property_index.ApproximateVertexCount(
+          label, property);
+    }
+
+    /// Return approximate number of vertices with the given label and the given
+    /// value for the given property. Note that this is always an over-estimate
+    /// and never an under-estimate.
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                   const PropertyValue &value) const {
+      return storage_->indices_.label_property_index.ApproximateVertexCount(
+          label, property, value);
+    }
+
+    /// Return approximate number of vertices with the given label and value for
+    /// the given property in the range defined by provided upper and lower
+    /// bounds.
+    int64_t ApproximateVertexCount(
+        LabelId label, PropertyId property,
+        const std::optional<utils::Bound<PropertyValue>> &lower,
+        const std::optional<utils::Bound<PropertyValue>> &upper) const {
+      return storage_->indices_.label_property_index.ApproximateVertexCount(
+          label, property, lower, upper);
+    }
+
     Result<bool> DeleteVertex(VertexAccessor *vertex);
 
     Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
