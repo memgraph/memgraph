@@ -328,12 +328,8 @@ inline MemoryResource *NewDeleteResource() noexcept {
 /// buffer is exhausted, a new one is requested from the upstream memory
 /// resource.
 ///
-/// Note that each buffer of memory is actually a block of `Ceil2(size +
-/// sizeof(Buffer))` due to bookkeeping `Buffer` object being appended at the end.
-/// This means that if you use an `initial_size` of 1024 bytes, you will
-/// actually allocate `Ceil2(1024 + sizeof(Buffer))` which will be 2048 bytes.
-/// Therefore you will have `2048 - sizeof(Buffer)` bytes available before a new
-/// buffer will need to be allocated.
+/// Note that each buffer of memory is actually a larger block of at *least*
+/// `(size + sizeof(Buffer))` bytes due to bookkeeping `Buffer` object.
 class MonotonicBufferResource final : public MemoryResource {
  public:
   /// Construct the resource with the buffer size of at least `initial_size`.
@@ -377,10 +373,23 @@ class MonotonicBufferResource final : public MemoryResource {
     Buffer *next;
     size_t capacity;
     size_t alignment;
+
+    /// Get the size of the area reserved for `this`
+    size_t bytes_for_buffer() const {
+      size_t bytes = std::max(alignment, sizeof(*this));
+      if (bytes > alignment) {
+        size_t multiple = bytes / alignment;
+        if (bytes % alignment != 0) ++multiple;
+        bytes = multiple * alignment;
+      }
+      return bytes;
+    }
+
     /// Get total allocated size.
-    size_t size() const { return sizeof(*this) + capacity; }
-    /// Get the pointer to data which is before the Buffer instance itself.
-    char *data() { return reinterpret_cast<char *>(this) - capacity; }
+    size_t size() const { return bytes_for_buffer() + capacity; }
+
+    /// Get the pointer to data which is after the Buffer instance itself.
+    char *data() { return reinterpret_cast<char *>(this) + bytes_for_buffer(); }
   };
 
   MemoryResource *memory_{NewDeleteResource()};

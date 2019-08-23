@@ -69,11 +69,10 @@ MonotonicBufferResource &MonotonicBufferResource::operator=(
 void MonotonicBufferResource::Release() {
   for (auto *b = current_buffer_; b;) {
     auto *next = b->next;
-    auto *ptr = b->data();
     auto alloc_size = b->size();
     auto alignment = b->alignment;
     b->~Buffer();
-    memory_->Deallocate(ptr, alloc_size, alignment);
+    memory_->Deallocate(b, alloc_size, alignment);
     b = next;
   }
   current_buffer_ = nullptr;
@@ -85,22 +84,31 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
     size_t size = next_size > bytes ? next_size : bytes;
-    // Handle the case when we need to align `Buffer::data` to a greater
-    // `alignment`. We will simply always allocate Ceil2(required_size), so that
-    // we can use the end of the allocated bytes for Buffer instance.
+    // Simplify alignment by always using values greater or equal to max_align
+    size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
+    // Setup the Buffer area before `Buffer::data` such that `Buffer::data` is
+    // correctly aligned. We do this by allocating an additional `multiple` of
+    // `alignment` of bytes. `multiple` is determined by the size of Buffer.
+    // This will ensure that both Buffer fits and is correctly aligned.
+    // `Buffer::data` is also correctly aligned as we use the pointer after this
+    // `multiple` of `alignment` bytes.
     static_assert(IsPow2(alignof(Buffer)),
                   "Buffer should not be a packed struct in order to be placed "
-                  "at the end of an allocation request");
-    size_t bytes = sizeof(Buffer) + size;
-    if (bytes < size) throw BadAlloc("Allocation size overflow");
-    size_t alloc_size = Ceil2(bytes);
-    if (alloc_size < bytes) throw BadAlloc("Allocation size overflow");
-    size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
+                  "at the start of an allocation request");
+    size_t bytes_for_buffer = std::max(alloc_align, sizeof(Buffer));
+    size_t multiple = bytes_for_buffer / alloc_align;
+    if (bytes_for_buffer % alloc_align != 0) ++multiple;
+    bytes_for_buffer = multiple * alloc_align;
+    if (bytes_for_buffer < sizeof(Buffer) ||
+        bytes_for_buffer % alloc_align != 0) {
+      throw BadAlloc("Allocation size overflow");
+    }
+    size_t alloc_size = bytes_for_buffer + size;
+    if (alloc_size < size) throw BadAlloc("Allocation size overflow");
     void *ptr = memory_->Allocate(alloc_size, alloc_align);
-    // Instantiate the Buffer at the end of the allocated block.
-    current_buffer_ =
-        new (reinterpret_cast<char *>(ptr) + alloc_size - sizeof(Buffer))
-            Buffer{current_buffer_, alloc_size - sizeof(Buffer), alloc_align};
+    // Instantiate the Buffer at the start of the allocated block.
+    current_buffer_ = new (ptr)
+        Buffer{current_buffer_, alloc_size - bytes_for_buffer, alloc_align};
     allocated_ = 0;
   };
 
