@@ -220,10 +220,15 @@ void Pool::Deallocate(void *p) {
            ptr < reinterpret_cast<uintptr_t>(chunk.data + data_size);
   };
   auto deallocate_block_from_chunk = [this, p](Chunk *chunk) {
+    // NOTE: This check is not enough to cover all double-free issues.
+    CHECK(chunk->blocks_available < blocks_per_chunk_)
+        << "Deallocating more blocks than a chunk can contain, possibly a "
+           "double-free situation or we have a bug in the allocator.";
     // Link the block into the free-list
     auto *block = reinterpret_cast<unsigned char *>(p);
     *block = chunk->first_available_block_ix;
     chunk->first_available_block_ix = (block - chunk->data) / block_size_;
+    chunk->blocks_available++;
   };
   if (is_in_chunk(*last_dealloc_chunk_)) {
     deallocate_block_from_chunk(last_dealloc_chunk_);

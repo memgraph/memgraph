@@ -303,6 +303,29 @@ TEST(PoolResource, AllocationWithOverflow) {
   }
 }
 
+TEST(PoolResource, BlockDeallocation) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 2U;
+  const size_t max_block_size = 64U;
+  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  auto *ptr = CheckAllocation(&mem, max_block_size);
+  test_mem.new_count_ = 0U;
+  // Do another allocation before deallocating `ptr`, so that we are sure that
+  // the chunk of 2 blocks is still alive and therefore `ptr` may be reused when
+  // it's deallocated. If we deallocate now, the implementation may choose to
+  // free the whole chunk, and we do not want that for the purposes of this
+  // test.
+  CheckAllocation(&mem, max_block_size);
+  EXPECT_EQ(test_mem.new_count_, 0U);
+  EXPECT_EQ(test_mem.delete_count_, 0U);
+  mem.Deallocate(ptr, max_block_size);
+  EXPECT_EQ(test_mem.delete_count_, 0U);
+  // CheckAllocation(&mem, max_block_size) will fail as PoolResource should
+  // reuse free blocks.
+  EXPECT_EQ(ptr, mem.Allocate(max_block_size));
+  EXPECT_EQ(test_mem.new_count_, 0U);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 class ContainerWithAllocatorLast final {
  public:
