@@ -12,10 +12,6 @@
 #include "storage/common/types/property_value.hpp"
 #include "utils/typeinfo.hpp"
 
-namespace database {
-class GraphDbAccessor;
-}
-
 cpp<#
 
 (lcp:namespace query)
@@ -788,7 +784,8 @@ cpp<#
               :slk-save #'slk-save-ast-vector
               :slk-load (slk-load-ast-vector "Expression"))
    (function-name "std::string" :scope :public)
-   (function "std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &, database::GraphDbAccessor *)>"
+   (function "std::function<TypedValue(const TypedValue *, int64_t,
+                                       const FunctionContext &)>"
              :scope :public
              :dont-save t
              :clone :copy

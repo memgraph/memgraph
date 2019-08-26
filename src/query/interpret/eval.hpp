@@ -371,6 +371,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
+    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp,
+                                 &ctx_->counters};
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {
@@ -382,7 +384,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
       auto res = function.function_(arguments, function.arguments_.size(),
-                                    *ctx_, dba_);
+                                    function_ctx);
       CHECK(res.GetMemoryResource() == ctx_->memory);
       return res;
     } else {
@@ -392,7 +394,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         arguments.emplace_back(argument->Accept(*this));
       }
       auto res =
-          function.function_(arguments.data(), arguments.size(), *ctx_, dba_);
+          function.function_(arguments.data(), arguments.size(), function_ctx);
       CHECK(res.GetMemoryResource() == ctx_->memory);
       return res;
     }

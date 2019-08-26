@@ -7,9 +7,9 @@
 #include <functional>
 #include <random>
 
-#include "database/single_node/dump.hpp"
-#include "query/context.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/typed_value.hpp"
 #include "utils/string.hpp"
 
 namespace query {
@@ -332,21 +332,15 @@ void FType(const char *name, const TypedValue *args, int64_t nargs,
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement spatial functions
 
-/////////////////////////// IMPORTANT NOTE! ////////////////////////////////////
-// All of the functions take mutable `TypedValue *` to arguments, but none of
-// the functions should ever need to actually modify the arguments! Let's try to
-// keep our sanity in a good state by treating the arguments as immutable.
-////////////////////////////////////////////////////////////////////////////////
-
-TypedValue EndNode(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue EndNode(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("endNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(args[0].ValueEdge().to(), ctx.memory);
 }
 
-TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Head(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, List>>("head", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &list = args[0].ValueList();
@@ -354,8 +348,8 @@ TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(list[0], ctx.memory);
 }
 
-TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Last(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, List>>("last", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &list = args[0].ValueList();
@@ -363,10 +357,10 @@ TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(list.back(), ctx.memory);
 }
 
-TypedValue Properties(TypedValue *args, int64_t nargs,
-                      const EvaluationContext &ctx,
-                      database::GraphDbAccessor *dba) {
+TypedValue Properties(const TypedValue *args, int64_t nargs,
+                      const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
+  auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
     for (const auto &property : record_accessor.Properties()) {
@@ -387,8 +381,8 @@ TypedValue Properties(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Size(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -413,16 +407,15 @@ TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   }
 }
 
-TypedValue StartNode(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue StartNode(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(args[0].ValueEdge().from(), ctx.memory);
 }
 
-TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                  database::GraphDbAccessor *) {
+TypedValue Degree(const TypedValue *args, int64_t nargs,
+                  const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
@@ -431,26 +424,24 @@ TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
       ctx.memory);
 }
 
-TypedValue InDegree(TypedValue *args, int64_t nargs,
-                    const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue InDegree(const TypedValue *args, int64_t nargs,
+                    const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
   return TypedValue(static_cast<int64_t>(vertex.in_degree()), ctx.memory);
 }
 
-TypedValue OutDegree(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue OutDegree(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
   return TypedValue(static_cast<int64_t>(vertex.out_degree()), ctx.memory);
 }
 
-TypedValue ToBoolean(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue ToBoolean(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -473,15 +464,14 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue ToFloat(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue ToFloat(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   FType<Or<Null, Number, String>>("toFloat", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx.memory);
     case TypedValue::Type::Int:
-      return TypedValue(static_cast<double>(args[0].ValueInt()),
-                        ctx.memory);
+      return TypedValue(static_cast<double>(args[0].ValueInt()), ctx.memory);
     case TypedValue::Type::Double:
       return TypedValue(args[0], ctx.memory);
     case TypedValue::Type::String:
@@ -497,9 +487,8 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue ToInteger(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue ToInteger(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -527,17 +516,19 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Type(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *dba) {
+TypedValue Type(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("type", args, nargs);
+  auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(dba->EdgeTypeName(args[0].ValueEdge().EdgeType()),
                     ctx.memory);
 }
 
-TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *dba) {
+TypedValue Keys(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
+  auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     for (const auto &property : record_accessor.Properties()) {
@@ -557,9 +548,10 @@ TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   }
 }
 
-TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                  database::GraphDbAccessor *dba) {
+TypedValue Labels(const TypedValue *args, int64_t nargs,
+                  const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("labels", args, nargs);
+  auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector labels(ctx.memory);
   for (const auto &label : args[0].ValueVertex().labels()) {
@@ -568,8 +560,8 @@ TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(std::move(labels));
 }
 
-TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *) {
+TypedValue Nodes(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertices = args[0].ValuePath().vertices();
@@ -579,9 +571,8 @@ TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(std::move(values));
 }
 
-TypedValue Relationships(TypedValue *args, int64_t nargs,
-                         const EvaluationContext &ctx,
-                         database::GraphDbAccessor *) {
+TypedValue Relationships(const TypedValue *args, int64_t nargs,
+                         const FunctionContext &ctx) {
   FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &edges = args[0].ValuePath().edges();
@@ -591,8 +582,8 @@ TypedValue Relationships(TypedValue *args, int64_t nargs,
   return TypedValue(std::move(values));
 }
 
-TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *) {
+TypedValue Range(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   FType<Or<Null, Integer>, Or<Null, Integer>,
         Optional<Or<Null, NonZeroInteger>>>("range", args, nargs);
   for (int64_t i = 0; i < nargs; ++i)
@@ -613,8 +604,8 @@ TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(std::move(list));
 }
 
-TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Tail(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, List>>("tail", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector list(args[0].ValueList(), ctx.memory);
@@ -623,9 +614,8 @@ TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(std::move(list));
 }
 
-TypedValue UniformSample(TypedValue *args, int64_t nargs,
-                         const EvaluationContext &ctx,
-                         database::GraphDbAccessor *) {
+TypedValue UniformSample(const TypedValue *args, int64_t nargs,
+                         const FunctionContext &ctx) {
   FType<Or<Null, List>, Or<Null, NonNegativeInteger>>("uniformSample", args,
                                                       nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
@@ -643,8 +633,8 @@ TypedValue UniformSample(TypedValue *args, int64_t nargs,
   return TypedValue(std::move(sampled));
 }
 
-TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-               database::GraphDbAccessor *) {
+TypedValue Abs(const TypedValue *args, int64_t nargs,
+               const FunctionContext &ctx) {
   FType<Or<Null, Number>>("abs", args, nargs);
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -659,8 +649,8 @@ TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 }
 
 #define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                       \
-  TypedValue name(TypedValue *args, int64_t nargs,                             \
-                  const EvaluationContext &ctx, database::GraphDbAccessor *) { \
+  TypedValue name(const TypedValue *args, int64_t nargs,                       \
+                  const FunctionContext &ctx) {                                \
     FType<Or<Null, Number>>(#lowercased_name, args, nargs);                    \
     switch (args[0].type()) {                                                  \
       case TypedValue::Type::Null:                                             \
@@ -693,8 +683,8 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 #undef WRAP_CMATH_FLOAT_FUNCTION
 
-TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *) {
+TypedValue Atan2(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   FType<Or<Null, Number>, Or<Null, Number>>("atan2", args, nargs);
   if (args[0].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
   if (args[1].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
@@ -713,8 +703,8 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(atan2(y, x), ctx.memory);
 }
 
-TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Sign(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, Number>>("sign", args, nargs);
   auto sign = [&](auto x) { return TypedValue((0 < x) - (x < 0), ctx.memory); };
   switch (args[0].type()) {
@@ -729,20 +719,20 @@ TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   }
 }
 
-TypedValue E(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-             database::GraphDbAccessor *) {
+TypedValue E(const TypedValue *args, int64_t nargs,
+             const FunctionContext &ctx) {
   FType<void>("e", args, nargs);
   return TypedValue(M_E, ctx.memory);
 }
 
-TypedValue Pi(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-              database::GraphDbAccessor *) {
+TypedValue Pi(const TypedValue *args, int64_t nargs,
+              const FunctionContext &ctx) {
   FType<void>("pi", args, nargs);
   return TypedValue(M_PI, ctx.memory);
 }
 
-TypedValue Rand(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Rand(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<void>("rand", args, nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
@@ -750,9 +740,8 @@ TypedValue Rand(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 }
 
 template <class TPredicate>
-TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
-                               const EvaluationContext &ctx,
-                               database::GraphDbAccessor *) {
+TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs,
+                               const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
@@ -793,8 +782,8 @@ struct ContainsPredicate {
 };
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
-TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                  database::GraphDbAccessor *) {
+TypedValue Assert(const TypedValue *args, int64_t nargs,
+                  const FunctionContext &ctx) {
   FType<Bool, Optional<String>>("assert", args, nargs);
   if (!args[0].ValueBool()) {
     std::string message("Assertion failed");
@@ -808,9 +797,8 @@ TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(args[0], ctx.memory);
 }
 
-TypedValue Counter(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &context,
-                   database::GraphDbAccessor *) {
+TypedValue Counter(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &context) {
   FType<String, Integer, Optional<NonZeroInteger>>("counter", args, nargs);
   int64_t step = 1;
   if (nargs == 3) {
@@ -818,15 +806,15 @@ TypedValue Counter(TypedValue *args, int64_t nargs,
   }
 
   auto [it, inserted] =
-      context.counters.emplace(args[0].ValueString(), args[1].ValueInt());
+      context.counters->emplace(args[0].ValueString(), args[1].ValueInt());
   auto value = it->second;
   it->second += step;
 
   return TypedValue(value, context.memory);
 }
 
-TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-              database::GraphDbAccessor *dba) {
+TypedValue Id(const TypedValue *args, int64_t nargs,
+              const FunctionContext &ctx) {
   FType<Or<Vertex, Edge>>("id", args, nargs);
   const auto &arg = args[0];
   if (arg.IsVertex())
@@ -835,8 +823,8 @@ TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
 }
 
-TypedValue ToString(TypedValue *args, int64_t nargs,
-                    const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue ToString(const TypedValue *args, int64_t nargs,
+                    const FunctionContext &ctx) {
   FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   switch (arg.type()) {
@@ -858,23 +846,22 @@ TypedValue ToString(TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Timestamp(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue Timestamp(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<void>("timestamp", args, nargs);
   return TypedValue(ctx.timestamp, ctx.memory);
 }
 
-TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *dba) {
+TypedValue Left(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()),
                     ctx.memory);
 }
 
-TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *dba) {
+TypedValue Right(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("right", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
@@ -885,7 +872,7 @@ TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
 }
 
 TypedValue CallStringFunction(
-    TypedValue *args, int64_t nargs, utils::MemoryResource *memory,
+    const TypedValue *args, int64_t nargs, utils::MemoryResource *memory,
     const char *name,
     std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
   FType<Or<Null, String>>(name, args, nargs);
@@ -893,39 +880,39 @@ TypedValue CallStringFunction(
   return TypedValue(fun(args[0].ValueString()), memory);
 }
 
-TypedValue LTrim(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *) {
+TypedValue LTrim(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   return CallStringFunction(
       args, nargs, ctx.memory, "lTrim", [&](const auto &str) {
         return TypedValue::TString(utils::LTrim(str), ctx.memory);
       });
 }
 
-TypedValue RTrim(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *) {
+TypedValue RTrim(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   return CallStringFunction(
       args, nargs, ctx.memory, "rTrim", [&](const auto &str) {
         return TypedValue::TString(utils::RTrim(str), ctx.memory);
       });
 }
 
-TypedValue Trim(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                database::GraphDbAccessor *) {
+TypedValue Trim(const TypedValue *args, int64_t nargs,
+                const FunctionContext &ctx) {
   return CallStringFunction(
       args, nargs, ctx.memory, "trim", [&](const auto &str) {
         return TypedValue::TString(utils::Trim(str), ctx.memory);
       });
 }
 
-TypedValue Reverse(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue Reverse(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   return CallStringFunction(
       args, nargs, ctx.memory, "reverse",
       [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
 }
 
-TypedValue ToLower(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue ToLower(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   return CallStringFunction(args, nargs, ctx.memory, "toLower",
                             [&](const auto &str) {
                               TypedValue::TString res(ctx.memory);
@@ -934,8 +921,8 @@ TypedValue ToLower(TypedValue *args, int64_t nargs,
                             });
 }
 
-TypedValue ToUpper(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx, database::GraphDbAccessor *) {
+TypedValue ToUpper(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   return CallStringFunction(args, nargs, ctx.memory, "toUpper",
                             [&](const auto &str) {
                               TypedValue::TString res(ctx.memory);
@@ -944,9 +931,8 @@ TypedValue ToUpper(TypedValue *args, int64_t nargs,
                             });
 }
 
-TypedValue Replace(TypedValue *args, int64_t nargs,
-                   const EvaluationContext &ctx,
-                   database::GraphDbAccessor *dba) {
+TypedValue Replace(const TypedValue *args, int64_t nargs,
+                   const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>, Or<Null, String>>("replace", args,
                                                               nargs);
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
@@ -958,8 +944,8 @@ TypedValue Replace(TypedValue *args, int64_t nargs,
   return TypedValue(std::move(replaced));
 }
 
-TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
-                 database::GraphDbAccessor *dba) {
+TypedValue Split(const TypedValue *args, int64_t nargs,
+                 const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>>("split", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
@@ -969,9 +955,8 @@ TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &ctx,
   return TypedValue(std::move(result));
 }
 
-TypedValue Substring(TypedValue *args, int64_t nargs,
-                     const EvaluationContext &ctx,
-                     database::GraphDbAccessor *) {
+TypedValue Substring(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
   FType<Or<Null, String>, NonNegativeInteger, Optional<NonNegativeInteger>>(
       "substring", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -984,8 +969,8 @@ TypedValue Substring(TypedValue *args, int64_t nargs,
 
 }  // namespace
 
-std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &ctx,
-                         database::GraphDbAccessor *)>
+std::function<TypedValue(const TypedValue *, int64_t,
+                         const FunctionContext &ctx)>
 NameToFunction(const std::string &function_name) {
   // Scalar functions
   if (function_name == "DEGREE") return Degree;
