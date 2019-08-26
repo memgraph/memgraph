@@ -5,6 +5,7 @@
 
 #include <benchmark/benchmark.h>
 
+#include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -76,6 +77,42 @@ BENCHMARK_DEFINE_F(StdSetInsertFixture, Insert)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(StdSetInsertFixture, Insert)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
+class StdSetWithPoolAllocatorInsertFixture : public benchmark::Fixture {
+ protected:
+  void SetUp(const benchmark::State &state) override {
+    if (state.thread_index == 0) {
+      container.clear();
+    }
+  }
+
+ protected:
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
+                              1024U /* max_block_size */,
+                              utils::NewDeleteResource()};
+  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{
+      &memory_};
+  utils::SpinLock lock;
+};
+
+BENCHMARK_DEFINE_F(StdSetWithPoolAllocatorInsertFixture, Insert)
+(benchmark::State &state) {
+  std::mt19937 gen(state.thread_index);
+  std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
+  uint64_t counter = 0;
+  while (state.KeepRunning()) {
+    std::lock_guard<utils::SpinLock> guard(lock);
+    if (container.insert(dist(gen)).second) {
+      ++counter;
+    }
+  }
+  state.SetItemsProcessed(counter);
+}
+
+BENCHMARK_REGISTER_F(StdSetWithPoolAllocatorInsertFixture, Insert)
     ->ThreadRange(1, kThreadsNum)
     ->Unit(benchmark::kNanosecond)
     ->UseRealTime();
@@ -154,6 +191,44 @@ BENCHMARK_REGISTER_F(StdSetFindFixture, Find)
     ->Unit(benchmark::kNanosecond)
     ->UseRealTime();
 
+class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
+ protected:
+  void SetUp(const benchmark::State &state) override {
+    if (state.thread_index == 0 && container.size() == 0) {
+      for (uint64_t i = 0; i < kMaxNum; ++i) {
+        container.insert(i);
+      }
+    }
+  }
+
+ protected:
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
+                              1024U /* max_block_size */,
+                              utils::NewDeleteResource()};
+  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{
+      &memory_};
+  utils::SpinLock lock;
+};
+
+BENCHMARK_DEFINE_F(StdSetWithPoolAllocatorFindFixture, Find)
+(benchmark::State &state) {
+  std::mt19937 gen(state.thread_index);
+  std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
+  uint64_t counter = 0;
+  while (state.KeepRunning()) {
+    std::lock_guard<utils::SpinLock> guard(lock);
+    if (container.find(dist(gen)) != container.end()) {
+      ++counter;
+    }
+  }
+  state.SetItemsProcessed(counter);
+}
+
+BENCHMARK_REGISTER_F(StdSetWithPoolAllocatorFindFixture, Find)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
 ///////////////////////////////////////////////////////////////////////////////
 // Map tests common
 ///////////////////////////////////////////////////////////////////////////////
@@ -178,7 +253,7 @@ class SkipListMapInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
     if (state.thread_index == 0) {
-      list = utils::SkipList<MapObject>();;
+      list = utils::SkipList<MapObject>();
     }
   }
 
@@ -235,6 +310,43 @@ BENCHMARK_DEFINE_F(StdMapInsertFixture, Insert)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(StdMapInsertFixture, Insert)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
+class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
+ protected:
+  void SetUp(const benchmark::State &state) override {
+    if (state.thread_index == 0) {
+      container = {};
+    }
+  }
+
+ protected:
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
+                              1024U /* max_block_size */,
+                              utils::NewDeleteResource()};
+  std::map<uint64_t, uint64_t, std::less<>,
+           utils::Allocator<std::pair<uint64_t, uint64_t>>>
+      container{&memory_};
+  utils::SpinLock lock;
+};
+
+BENCHMARK_DEFINE_F(StdMapWithPoolAllocatorInsertFixture, Insert)
+(benchmark::State &state) {
+  std::mt19937 gen(state.thread_index);
+  std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
+  uint64_t counter = 0;
+  while (state.KeepRunning()) {
+    std::lock_guard<utils::SpinLock> guard(lock);
+    if (container.insert({dist(gen), 0}).second) {
+      ++counter;
+    }
+  }
+  state.SetItemsProcessed(counter);
+}
+
+BENCHMARK_REGISTER_F(StdMapWithPoolAllocatorInsertFixture, Insert)
     ->ThreadRange(1, kThreadsNum)
     ->Unit(benchmark::kNanosecond)
     ->UseRealTime();
@@ -309,6 +421,45 @@ BENCHMARK_DEFINE_F(StdMapFindFixture, Find)(benchmark::State &state) {
 }
 
 BENCHMARK_REGISTER_F(StdMapFindFixture, Find)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
+class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
+ protected:
+  void SetUp(const benchmark::State &state) override {
+    if (state.thread_index == 0 && container.size() == 0) {
+      for (uint64_t i = 0; i < kMaxNum; ++i) {
+        container.insert({i, 0});
+      }
+    }
+  }
+
+ protected:
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
+                              1024U /* max_block_size */,
+                              utils::NewDeleteResource()};
+  std::map<uint64_t, uint64_t, std::less<>,
+           utils::Allocator<std::pair<uint64_t, uint64_t>>>
+      container{&memory_};
+  utils::SpinLock lock;
+};
+
+BENCHMARK_DEFINE_F(StdMapWithPoolAllocatorFindFixture, Find)
+(benchmark::State &state) {
+  std::mt19937 gen(state.thread_index);
+  std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
+  uint64_t counter = 0;
+  while (state.KeepRunning()) {
+    std::lock_guard<utils::SpinLock> guard(lock);
+    if (container.find(dist(gen)) != container.end()) {
+      ++counter;
+    }
+  }
+  state.SetItemsProcessed(counter);
+}
+
+BENCHMARK_REGISTER_F(StdMapWithPoolAllocatorFindFixture, Find)
     ->ThreadRange(1, kThreadsNum)
     ->Unit(benchmark::kNanosecond)
     ->UseRealTime();

@@ -30,6 +30,15 @@ class NewDeleteResource final {
   void Reset() {}
 };
 
+class PoolResource final {
+  utils::PoolResource memory_{128, 4 * 1024};
+
+ public:
+  utils::MemoryResource *get() { return &memory_; }
+
+  void Reset() { memory_.Release(); }
+};
+
 static void AddVertices(database::GraphDb *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba.InsertVertex();
@@ -123,6 +132,10 @@ BENCHMARK_TEMPLATE(Distinct, MonotonicBufferResource)
     ->Range(1024, 1U << 21U)
     ->Unit(benchmark::kMicrosecond);
 
+BENCHMARK_TEMPLATE(Distinct, PoolResource)
+    ->Range(1024, 1U << 21U)
+    ->Unit(benchmark::kMicrosecond);
+
 static query::plan::ExpandVariable MakeExpandVariable(
     query::EdgeAtom::Type expand_type, query::SymbolTable *symbol_table) {
   auto input_symbol = symbol_table->CreateSymbol("input", false);
@@ -176,6 +189,10 @@ BENCHMARK_TEMPLATE(ExpandVariable, MonotonicBufferResource)
     ->Ranges({{1, 1U << 5U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+BENCHMARK_TEMPLATE(ExpandVariable, PoolResource)
+    ->Ranges({{1, 1U << 5U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void ExpandBfs(benchmark::State &state) {
@@ -209,6 +226,10 @@ BENCHMARK_TEMPLATE(ExpandBfs, NewDeleteResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(ExpandBfs, MonotonicBufferResource)
+    ->Range(512, 1U << 19U)
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(ExpandBfs, PoolResource)
     ->Range(512, 1U << 19U)
     ->Unit(benchmark::kMicrosecond);
 
@@ -250,6 +271,10 @@ BENCHMARK_TEMPLATE(ExpandShortest, NewDeleteResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(ExpandShortest, MonotonicBufferResource)
+    ->Range(512, 1U << 20U)
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(ExpandShortest, PoolResource)
     ->Range(512, 1U << 20U)
     ->Unit(benchmark::kMicrosecond);
 
@@ -298,6 +323,10 @@ BENCHMARK_TEMPLATE(ExpandWeightedShortest, MonotonicBufferResource)
     ->Range(512, 1U << 20U)
     ->Unit(benchmark::kMicrosecond);
 
+BENCHMARK_TEMPLATE(ExpandWeightedShortest, PoolResource)
+    ->Range(512, 1U << 20U)
+    ->Unit(benchmark::kMicrosecond);
+
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void Accumulate(benchmark::State &state) {
@@ -335,6 +364,10 @@ BENCHMARK_TEMPLATE(Accumulate, NewDeleteResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(Accumulate, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Accumulate, PoolResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
@@ -391,6 +424,10 @@ BENCHMARK_TEMPLATE(Aggregate, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+BENCHMARK_TEMPLATE(Aggregate, PoolResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void OrderBy(benchmark::State &state) {
@@ -437,6 +474,10 @@ BENCHMARK_TEMPLATE(OrderBy, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
+BENCHMARK_TEMPLATE(OrderBy, PoolResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void Unwind(benchmark::State &state) {
@@ -473,6 +514,10 @@ BENCHMARK_TEMPLATE(Unwind, NewDeleteResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(Unwind, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Unwind, PoolResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
