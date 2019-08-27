@@ -52,12 +52,12 @@ const nlohmann::json GetSystemInfo() {
   auto mem_data = utils::ReadLines("/proc/meminfo");
   for (auto &row : mem_data) {
     auto tmp = utils::Trim(row);
-    if (utils::StartsWith(row, "MemTotal")) {
-      auto split = utils::Split(row);
+    if (utils::StartsWith(tmp, "MemTotal")) {
+      auto split = utils::Split(tmp);
       if (split.size() < 2) continue;
       memory = std::stoull(split[1]);
-    } else if (utils::StartsWith(row, "SwapTotal")) {
-      auto split = utils::Split(row);
+    } else if (utils::StartsWith(tmp, "SwapTotal")) {
+      auto split = utils::Split(tmp);
       if (split.size() < 2) continue;
       swap = std::stoull(split[1]);
     }

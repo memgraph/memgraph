@@ -29,8 +29,10 @@ BoltSession::BoltSession(SessionData *data,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
       transaction_engine_(data->db, data->interpreter),
+#ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
       audit_log_(data->audit_log),
+#endif
       endpoint_(endpoint) {}
 
 using TEncoder =

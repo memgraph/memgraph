@@ -74,9 +74,11 @@ class BoltSession final
   };
 
   query::TransactionEngine transaction_engine_;
+#ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;
   std::optional<auth::User> user_;
   audit::Log *audit_log_;
+#endif
   io::network::Endpoint endpoint_;
 };
 
