@@ -113,13 +113,12 @@ PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
     }
 
     // reset the type of other
-    other = PropertyValue::Null;
+    other.DestroyValue();
+    other.type_ = Type::Null;
   }
 
   return *this;
 }
-
-const PropertyValue PropertyValue::Null = PropertyValue();
 
 void PropertyValue::DestroyValue() {
   switch (type_) {

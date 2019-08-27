@@ -42,7 +42,7 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
 
   // [1 null "hello"]
   EXPECT_EQ(ToString(LITERAL(
-                (std::vector<PropertyValue>{1, PropertyValue::Null, "hello"}))),
+                (std::vector<PropertyValue>{1, PropertyValue(), "hello"}))),
             "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}

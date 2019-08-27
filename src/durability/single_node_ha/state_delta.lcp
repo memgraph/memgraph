@@ -37,7 +37,7 @@ cpp<#
    (property-name "std::string")
    (properties "std::vector<storage::Property>")
    (property-names "std::vector<std::string>")
-   (value "PropertyValue" :initval "PropertyValue::Null")
+   (value "PropertyValue")
    (label "::storage::Label")
    (label-name "std::string")
    (check-empty :bool))
@@ -61,7 +61,7 @@ in StateDeltas.")
         create-edge   ;; edge_id, from_vertex_id, to_vertex_id, edge_type, edge_type_name
         set-property-vertex ;; vertex_id, property, property_name, property_value
         set-property-edge   ;; edge_id, property, property_name, property_value
-        ;; remove property is done by setting a PropertyValue::Null
+        ;; remove property is done by setting a PropertyValue to Null
         add-label     ;; vertex_id, label, label_name
         remove-label  ;; vertex_id, label, label_name
         remove-vertex ;; vertex_id, check_empty

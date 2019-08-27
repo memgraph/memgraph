@@ -94,10 +94,10 @@ TEST_F(PropertyValueStoreTest, AtNull) {
 }
 
 TEST_F(PropertyValueStoreTest, SetNull) {
-  Set(11, Location::Memory, PropertyValue::Null);
+  Set(11, Location::Memory, PropertyValue());
   EXPECT_EQ(0, props_.size());
 
-  Set(100, Location::Disk, PropertyValue::Null);
+  Set(100, Location::Disk, PropertyValue());
   EXPECT_EQ(0, props_.size());
 }
 
@@ -232,7 +232,7 @@ TEST_F(PropertyValueStoreTest, Size) {
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
   Set(0, Location::Memory, std::vector<PropertyValue>{1, true, 2.5, "something",
-                                                      PropertyValue::Null});
+                                                      PropertyValue()});
   auto p = At(0, Location::Memory);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
@@ -252,7 +252,7 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
 TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
   Set(0, Location::Disk,
       std::vector<PropertyValue>{1, true, 2.5, "something",
-                                 PropertyValue::Null});
+                                 PropertyValue()});
   auto p = At(0, Location::Disk);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);

@@ -358,7 +358,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       input_op =
           YieldEntities(dba_ptr.get(), vertices, edges, blocked_sym, nullptr);
       filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)),
-                       LITERAL(true), LITERAL(PropertyValue::Null));
+                       LITERAL(true), LITERAL(PropertyValue()));
       break;
     case FilterLambdaType::USE_CTX:
       // We only block vertex #5 and run BFS.

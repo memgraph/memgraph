@@ -47,9 +47,9 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   auto delta =
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
-                                 dba.PropertyName(key), PropertyValue::Null);
+                                 dba.PropertyName(key), PropertyValue());
   auto previous_value = PropsAt(key);
-  update().properties_.set(key, PropertyValue::Null);
+  update().properties_.set(key, PropertyValue());
   dba.UpdateOnRemoveProperty(key, previous_value, *this, &update());
   dba.raft()->Emplace(delta);
 }
@@ -59,8 +59,8 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   auto delta =
       StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
-                               dba.PropertyName(key), PropertyValue::Null);
-  update().properties_.set(key, PropertyValue::Null);
+                               dba.PropertyName(key), PropertyValue());
+  update().properties_.set(key, PropertyValue());
   dba.raft()->Emplace(delta);
 }
 

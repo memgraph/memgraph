@@ -59,7 +59,7 @@ PropertyValue PropertyValueStore::at(const Property &key) const {
   auto GetValue = [&key](const auto &props) {
     for (const auto &kv : props)
       if (kv.first == key) return kv.second;
-    return PropertyValue::Null;
+    return PropertyValue();
   };
 
   if (key.Location() == Location::Memory) return GetValue(props_);
@@ -72,7 +72,7 @@ PropertyValue PropertyValueStore::at(const Property &key) const {
       DiskKey(std::to_string(version_key_), std::to_string(key.Id()));
   auto serialized_prop = DiskStorage().Get(disk_key);
   if (serialized_prop) return DeserializeProp(serialized_prop.value());
-  return PropertyValue::Null;
+  return PropertyValue();
 }
 
 void PropertyValueStore::set(const Property &key, const char *value) {
@@ -228,7 +228,7 @@ PropertyValue PropertyValueStore::DeserializeProp(
   Value dv;
   if (!decoder.ReadValue(&dv)) {
     DLOG(WARNING) << "Unable to read property value";
-    return PropertyValue::Null;
+    return PropertyValue();
   }
   return glue::ToPropertyValue(dv);
 }

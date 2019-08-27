@@ -415,11 +415,11 @@ TEST_F(GraphDbAccessorIndexRange, RangeIterationCurrentState) {
 TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
   using std::nullopt;
 
-  // using PropertyValue::Null as a bound fails with an assertion
+  // using PropertyValue set to Null as a bound fails with an assertion
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-  EXPECT_DEATH(Vertices(nullopt, Inclusive(PropertyValue::Null)),
+  EXPECT_DEATH(Vertices(nullopt, Inclusive(PropertyValue())),
                "not a valid index bound");
-  EXPECT_DEATH(Vertices(Inclusive(PropertyValue::Null), nullopt),
+  EXPECT_DEATH(Vertices(Inclusive(PropertyValue()), nullopt),
                "not a valid index bound");
   std::vector<PropertyValue> incompatible_with_int{
       "string", true, std::vector<PropertyValue>{1}};

@@ -124,7 +124,7 @@ communication::bolt::Path ToBoltPath(const query::Path &path) {
 PropertyValue ToPropertyValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return PropertyValue::Null;
+      return PropertyValue();
     case Value::Type::Bool:
       return PropertyValue(value.ValueBool());
     case Value::Type::Int:

@@ -428,7 +428,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
     utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(
-          label_, property_, PropertyValue::Null, false))> {
+          label_, property_, PropertyValue(), false))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,

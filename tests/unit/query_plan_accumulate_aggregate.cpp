@@ -301,7 +301,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
   group_by_vals.emplace_back(std::vector<PropertyValue>{1});
   group_by_vals.emplace_back(std::vector<PropertyValue>{1, 2});
   group_by_vals.emplace_back(std::vector<PropertyValue>{2, 1});
-  group_by_vals.emplace_back(PropertyValue::Null);
+  group_by_vals.emplace_back(PropertyValue());
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group

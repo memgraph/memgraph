@@ -29,9 +29,6 @@ class PropertyValue {
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned { Null, String, Bool, Int, Double, List, Map };
 
-  // single static reference to Null, used whenever Null should be returned
-  static const PropertyValue Null;
-
   /** Checks if the given PropertyValue::Types are comparable */
   static bool AreComparableTypes(Type a, Type b) {
     auto is_numeric = [](const Type t) {

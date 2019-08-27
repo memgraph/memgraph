@@ -104,7 +104,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
     }
   }
 
-  other = PropertyValue::Null;
+  other = PropertyValue();
 }
 
 TypedValue::TypedValue(const TypedValue &other)
@@ -190,7 +190,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
 TypedValue::operator PropertyValue() const {
   switch (type_) {
     case TypedValue::Type::Null:
-      return PropertyValue::Null;
+      return PropertyValue();
     case TypedValue::Type::Bool:
       return PropertyValue(bool_v);
     case TypedValue::Type::Int:

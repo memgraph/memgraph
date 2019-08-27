@@ -51,7 +51,7 @@ void Load(PropertyValue *value, slk::Reader *reader) {
   slk::Load(&type, reader);
   switch (type) {
     case static_cast<uint8_t>(0):
-      *value = PropertyValue::Null;
+      *value = PropertyValue();
       return;
     case static_cast<uint8_t>(1): {
       bool v;

@@ -115,7 +115,7 @@ TEST(QueryPlan, OrderBy) {
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
-  auto Null = PropertyValue::Null;
+  auto Null = PropertyValue();
   std::vector<std::pair<Ordering, std::vector<PropertyValue>>> orderable{
       {Ordering::ASC, {0, 0, 0.5, 1, 2, 12.6, 42, Null, Null}},
       {Ordering::ASC, {false, false, true, true, Null, Null}},
