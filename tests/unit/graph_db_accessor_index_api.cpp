@@ -38,7 +38,7 @@ class GraphDbAccessorIndex : public testing::Test {
   auto AddVertex(int property_value) {
     auto vertex = dba.InsertVertex();
     vertex.add_label(label);
-    vertex.PropsSet(property, property_value);
+    vertex.PropsSet(property, PropertyValue(property_value));
     return vertex;
   }
 
@@ -185,6 +185,16 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
   EXPECT_THAT(                        \
       x, testing::AllOf(testing::Ge(center - 2), testing::Le(center + 2)));
 
+template <class TValue>
+auto Inclusive(TValue value) {
+  return std::make_optional(utils::MakeBoundInclusive(PropertyValue(value)));
+}
+
+template <class TValue>
+auto Exclusive(TValue value) {
+  return std::make_optional(utils::MakeBoundExclusive(PropertyValue(value)));
+}
+
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
   dba.BuildIndex(label, property);
 
@@ -197,19 +207,15 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
   for (int i = 0; i < 1000; i++) AddVertex(30 + i / 100);
 
   // test estimates for exact value count
-  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 10), 10);
-  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 14), 10);
-  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 30), 100);
-  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, 39), 100);
-  EXPECT_EQ(dba.VerticesCount(label, property, 40), 0);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, PropertyValue(10)), 10);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, PropertyValue(14)), 10);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, PropertyValue(30)),
+                     100);
+  EXPECT_WITH_MARGIN(dba.VerticesCount(label, property, PropertyValue(39)),
+                     100);
+  EXPECT_EQ(dba.VerticesCount(label, property, PropertyValue(40)), 0);
 
   // helper functions
-  auto Inclusive = [](int64_t value) {
-    return std::make_optional(utils::MakeBoundInclusive(PropertyValue(value)));
-  };
-  auto Exclusive = [](int64_t value) {
-    return std::make_optional(utils::MakeBoundExclusive(PropertyValue(value)));
-  };
   auto VerticesCount = [this](auto lower, auto upper) {
     return dba.VerticesCount(label, property, lower, upper);
   };
@@ -235,32 +241,31 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
 
   // insert 10 verties and and check visibility
   for (int i = 0; i < 10; i++) AddVertex(12);
-  EXPECT_EQ(Count(dba.Vertices(label, property, 12, false)), 0);
-  EXPECT_EQ(Count(dba.Vertices(label, property, 12, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, PropertyValue(12), false)), 0);
+  EXPECT_EQ(Count(dba.Vertices(label, property, PropertyValue(12), true)), 10);
   Commit();
-  EXPECT_EQ(Count(dba.Vertices(label, property, 12, false)), 10);
-  EXPECT_EQ(Count(dba.Vertices(label, property, 12, true)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, PropertyValue(12), false)), 10);
+  EXPECT_EQ(Count(dba.Vertices(label, property, PropertyValue(12), true)), 10);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
   dba.BuildIndex(label, property);
   Commit();
 
-  std::vector<PropertyValue> expected_property_value(50, 0);
+  std::vector<PropertyValue> expected_property_value(50, PropertyValue(0));
 
   // strings
   for (int i = 0; i < 10; ++i) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property,
-                             static_cast<std::string>(std::to_string(i)));
+    vertex_accessor.PropsSet(property, PropertyValue(std::to_string(i)));
     expected_property_value[i] = vertex_accessor.PropsAt(property);
   }
   // bools - insert in reverse to check for comparison between values.
   for (int i = 9; i >= 0; --i) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property, static_cast<bool>(i / 5));
+    vertex_accessor.PropsSet(property, PropertyValue(static_cast<bool>(i / 5)));
     expected_property_value[10 + i] = vertex_accessor.PropsAt(property);
   }
 
@@ -268,14 +273,15 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
   for (int i = 0; i < 10; ++i) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property, i);
+    vertex_accessor.PropsSet(property, PropertyValue(i));
     expected_property_value[20 + 2 * i] = vertex_accessor.PropsAt(property);
   }
   // doubles
   for (int i = 0; i < 10; ++i) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property, static_cast<double>(i + 0.5));
+    vertex_accessor.PropsSet(property,
+                             PropertyValue(static_cast<double>(i + 0.5)));
     expected_property_value[20 + 2 * i + 1] = vertex_accessor.PropsAt(property);
   }
 
@@ -286,25 +292,24 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
     vertex_accessor.add_label(label);
     std::vector<PropertyValue> value;
     value.push_back(PropertyValue(i));
-    vertex_accessor.PropsSet(property, value);
+    vertex_accessor.PropsSet(property, PropertyValue(value));
     expected_property_value[40 + i] = vertex_accessor.PropsAt(property);
   }
 
   // Maps. Declare a vector in the expected order, then shuffle when setting on
   // vertices.
   std::vector<std::map<std::string, PropertyValue>> maps{
-      {{"b", 12}},
-      {{"b", 12}, {"a", 77}},
-      {{"a", 77}, {"c", 0}},
-      {{"a", 78}, {"b", 12}}};
-  expected_property_value.insert(expected_property_value.end(), maps.begin(),
-                                 maps.end());
+      {{"b", PropertyValue(12)}},
+      {{"b", PropertyValue(12)}, {"a", PropertyValue(77)}},
+      {{"a", PropertyValue(77)}, {"c", PropertyValue(0)}},
+      {{"a", PropertyValue(78)}, {"b", PropertyValue(12)}}};
+  for (const auto &map : maps) expected_property_value.emplace_back(map);
   auto shuffled = maps;
   std::random_shuffle(shuffled.begin(), shuffled.end());
   for (const auto &map : shuffled) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property, map);
+    vertex_accessor.PropsSet(property, PropertyValue(map));
   }
 
   EXPECT_EQ(Count(dba.Vertices(label, property, false)), 0);
@@ -379,14 +384,6 @@ class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
                 bool current_state = false) {
     return dba.Vertices(label, property, lower, upper, current_state);
   }
-
-  auto Inclusive(PropertyValue value) {
-    return std::make_optional(utils::MakeBoundInclusive(PropertyValue(value)));
-  }
-
-  auto Exclusive(int value) {
-    return std::make_optional(utils::MakeBoundExclusive(PropertyValue(value)));
-  }
 };
 
 TEST_F(GraphDbAccessorIndexRange, RangeIteration) {
@@ -422,7 +419,8 @@ TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
   EXPECT_DEATH(Vertices(Inclusive(PropertyValue()), nullopt),
                "not a valid index bound");
   std::vector<PropertyValue> incompatible_with_int{
-      "string", true, std::vector<PropertyValue>{1}};
+      PropertyValue("string"), PropertyValue(true),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})};
 
   // using incompatible upper and lower bounds yields no results
   EXPECT_EQ(Count(Vertices(Inclusive(2), Inclusive("string"))), 0);

@@ -374,7 +374,7 @@ TEST(QueryPlan, DeleteReturn) {
   auto prop = PROPERTY_PAIR("property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
-    va.PropsSet(prop.second, 42);
+    va.PropsSet(prop.second, PropertyValue(42));
   }
 
   dba.AdvanceCommand();
@@ -508,9 +508,9 @@ TEST(QueryPlan, SetProperties) {
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto e = dba.InsertEdge(v1, v2, dba.EdgeType("R"));
-    v1.PropsSet(prop_a, 0);
-    e.PropsSet(prop_b, 1);
-    v2.PropsSet(prop_c, 2);
+    v1.PropsSet(prop_a, PropertyValue(0));
+    e.PropsSet(prop_b, PropertyValue(1));
+    v2.PropsSet(prop_c, PropertyValue(2));
     dba.AdvanceCommand();
 
     AstStorage storage;
@@ -607,14 +607,14 @@ TEST(QueryPlan, RemoveProperty) {
   auto v3 = dba.InsertVertex();
   auto v4 = dba.InsertVertex();
   auto edge_type = dba.EdgeType("edge_type");
-  dba.InsertEdge(v1, v3, edge_type).PropsSet(prop1, 42);
+  dba.InsertEdge(v1, v3, edge_type).PropsSet(prop1, PropertyValue(42));
   dba.InsertEdge(v2, v4, edge_type);
-  v2.PropsSet(prop1, 42);
-  v3.PropsSet(prop1, 42);
-  v4.PropsSet(prop1, 42);
+  v2.PropsSet(prop1, PropertyValue(42));
+  v3.PropsSet(prop1, PropertyValue(42));
+  v4.PropsSet(prop1, PropertyValue(42));
   auto prop2 = dba.Property("prop2");
-  v1.PropsSet(prop2, 0);
-  v2.PropsSet(prop2, 0);
+  v1.PropsSet(prop2, PropertyValue(0));
+  v2.PropsSet(prop2, PropertyValue(0));
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -685,7 +685,7 @@ TEST(QueryPlan, NodeFilterSet) {
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  v1.PropsSet(prop.second, 42);
+  v1.PropsSet(prop.second, PropertyValue(42));
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.EdgeType("Edge");
@@ -728,7 +728,7 @@ TEST(QueryPlan, FilterRemove) {
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  v1.PropsSet(prop.second, 42);
+  v1.PropsSet(prop.second, PropertyValue(42));
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.EdgeType("Edge");
@@ -993,7 +993,7 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
   // Add a single vertex.
   {
     auto v = dba.InsertVertex();
-    v.PropsSet(dba.Property("property"), 1);
+    v.PropsSet(dba.Property("property"), PropertyValue(1));
   }
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));

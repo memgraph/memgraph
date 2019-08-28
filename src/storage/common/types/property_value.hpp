@@ -42,35 +42,38 @@ class PropertyValue {
   PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
-  PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
-  PropertyValue(int value) : type_(Type::Int) { int_v = value; }
-  PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
-  PropertyValue(double value) : type_(Type::Double) { double_v = value; }
+  explicit PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
+  explicit PropertyValue(int value) : type_(Type::Int) { int_v = value; }
+  explicit PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
+  explicit PropertyValue(double value) : type_(Type::Double) {
+    double_v = value;
+  }
 
   // constructors for non-primitive types
-  PropertyValue(const std::string &value) : type_(Type::String) {
+  explicit PropertyValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
-  PropertyValue(const char *value) : type_(Type::String) {
+  explicit PropertyValue(const char *value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
-  PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
+  explicit PropertyValue(const std::vector<PropertyValue> &value)
+      : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(value);
   }
-  PropertyValue(const std::map<std::string, PropertyValue> &value)
+  explicit PropertyValue(const std::map<std::string, PropertyValue> &value)
       : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(value);
   }
 
   // move constructors for non-primitive types
-  PropertyValue(std::string &&value) noexcept : type_(Type::String) {
+  explicit PropertyValue(std::string &&value) noexcept : type_(Type::String) {
     new (&string_v) std::string(std::move(value));
   }
-  PropertyValue(std::vector<PropertyValue> &&value) noexcept
+  explicit PropertyValue(std::vector<PropertyValue> &&value) noexcept
       : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(std::move(value));
   }
-  PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept
+  explicit PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept
       : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
   }

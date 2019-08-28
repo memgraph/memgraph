@@ -90,7 +90,8 @@ TEST_F(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TEST_F(InterpreterTest, Parameters) {
   {
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}});
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue(10)},
+                                                   {"a b", PropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -99,8 +100,9 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream =
-        Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}, {"c", 10}});
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue(10)},
+                                                   {"a b", PropertyValue(15)},
+                                                   {"c", PropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -109,15 +111,19 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", "da"}, {"a b", "ne"}});
+    auto stream =
+        Interpret("RETURN $2 + $`a b`",
+                  {{"2", PropertyValue("da")}, {"a b", PropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
   }
   {
     // Non-primitive literal.
-    auto stream =
-        Interpret("RETURN $2", {{"2", std::vector<PropertyValue>{5, 2, 3}}});
+    auto stream = Interpret(
+        "RETURN $2",
+        {{"2", PropertyValue(std::vector<PropertyValue>{
+                   PropertyValue(5), PropertyValue(2), PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToIntList(stream.GetResults()[0][0]);
@@ -125,7 +131,8 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", "da"}, {"ab", "ne"}}),
+    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue("da")},
+                                                  {"ab", PropertyValue("ne")}}),
                  query::UnprovidedParameterError);
   }
 }
@@ -149,8 +156,8 @@ TEST_F(InterpreterTest, Bfs) {
     auto dba = db_.Access();
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      node.PropsSet(dba.Property(kId), id++);
-      node.PropsSet(dba.Property(kReachable), reachable);
+      node.PropsSet(dba.Property(kId), PropertyValue(id++));
+      node.PropsSet(dba.Property(kReachable), PropertyValue(reachable));
       levels[level].push_back(node);
       return node;
     };
@@ -158,7 +165,7 @@ TEST_F(InterpreterTest, Bfs) {
     auto add_edge = [&](VertexAccessor &v1, VertexAccessor &v2,
                         bool reachable) {
       auto edge = dba.InsertEdge(v1, v2, dba.EdgeType("edge"));
-      edge.PropsSet(dba.Property(kReachable), reachable);
+      edge.PropsSet(dba.Property(kReachable), PropertyValue(reachable));
     };
 
     // Add source node.

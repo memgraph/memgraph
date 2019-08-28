@@ -47,7 +47,7 @@ std::vector<std::string> BoltSession::Interpret(
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifndef MG_SINGLE_NODE_HA
   audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
-                     params_pv);
+                     PropertyValue(params_pv));
 #endif
   try {
     auto result = transaction_engine_.Interpret(query, params_pv);

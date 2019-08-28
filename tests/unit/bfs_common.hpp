@@ -368,7 +368,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
               {query::TypedValue(VertexAccessor(vertices[5], *dba_ptr))}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
-      context.evaluation_context.parameters.Add(0, 5);
+      context.evaluation_context.parameters.Add(0, PropertyValue(5));
       break;
     case FilterLambdaType::ERROR:
       // Evaluate to 42 for vertex #5 which is on worker 1.

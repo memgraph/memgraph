@@ -456,7 +456,7 @@ TEST(DumpTest, UniqueConstraints) {
   DatabaseEnvironment db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label"}, {{"prop", 1}}, false);
+    CreateVertex(&dba, {"Label"}, {{"prop", PropertyValue(1)}}, false);
     Execute(&dba, "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;");
     // Create one with multiple properties.
     Execute(
@@ -489,8 +489,9 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     auto dba = db.Access();
     std::map<std::string, PropertyValue> prop1 = {
         {"nested1", PropertyValue(1337)}, {"nested2", PropertyValue(3.14)}};
-    CreateVertex(&dba, {"Label1", "Label2"},
-                 {{"prop1", prop1}, {"prop2", PropertyValue("$'\t'")}});
+    CreateVertex(
+        &dba, {"Label1", "Label2"},
+        {{"prop1", PropertyValue(prop1)}, {"prop2", PropertyValue("$'\t'")}});
     dba.Commit();
   }
 
@@ -513,18 +514,22 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   DatabaseEnvironment db;
   {
     auto dba = db.Access();
-    auto u = CreateVertex(&dba, {"Person"}, {{"name", "Ivan"}});
-    auto v = CreateVertex(&dba, {"Person"}, {{"name", "Josko"}});
-    auto w = CreateVertex(&dba, {"Person"}, {{"name", "Bosko"}, {"id", 0}});
-    auto z = CreateVertex(&dba, {"Person"}, {{"name", "Buha"}, {"id", 1}});
+    auto u = CreateVertex(&dba, {"Person"}, {{"name", PropertyValue("Ivan")}});
+    auto v = CreateVertex(&dba, {"Person"}, {{"name", PropertyValue("Josko")}});
+    auto w = CreateVertex(
+        &dba, {"Person"},
+        {{"name", PropertyValue("Bosko")}, {"id", PropertyValue(0)}});
+    auto z = CreateVertex(
+        &dba, {"Person"},
+        {{"name", PropertyValue("Buha")}, {"id", PropertyValue(1)}});
     CreateEdge(&dba, u, v, "Knows", {});
-    CreateEdge(&dba, v, w, "Knows", {{"how_long", 5}});
-    CreateEdge(&dba, w, u, "Knows", {{"how", "distant past"}});
+    CreateEdge(&dba, v, w, "Knows", {{"how_long", PropertyValue(5)}});
+    CreateEdge(&dba, w, u, "Knows", {{"how", PropertyValue("distant past")}});
     CreateEdge(&dba, v, u, "Knows", {});
     CreateEdge(&dba, v, u, "Likes", {});
     CreateEdge(&dba, z, u, "Knows", {});
-    CreateEdge(&dba, w, z, "Knows", {{"how", "school"}});
-    CreateEdge(&dba, w, z, "Likes", {{"how", "very much"}});
+    CreateEdge(&dba, w, z, "Knows", {{"how", PropertyValue("school")}});
+    CreateEdge(&dba, w, z, "Likes", {{"how", PropertyValue("very much")}});
     // Create few indices
     Execute(&dba, "CREATE CONSTRAINT ON (u:Person) ASSERT u.name IS UNIQUE;");
     Execute(&dba, "CREATE INDEX ON :Person(id);");

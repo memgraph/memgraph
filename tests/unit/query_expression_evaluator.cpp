@@ -418,8 +418,8 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto prop = dba.Property("prop");
   auto v1 = dba.InsertVertex();
   auto e11 = dba.InsertEdge(v1, v1, edge_type);
-  v1.PropsSet(prop, 42);
-  e11.PropsSet(prop, 43);
+  v1.PropsSet(prop, PropertyValue(42));
+  e11.PropsSet(prop, PropertyValue(43));
 
   auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(v1));
   auto *edge_id = CreateIdentifierWithValue("e11", TypedValue(e11));
@@ -690,7 +690,7 @@ TEST_F(ExpressionEvaluatorTest, ListLiteral) {
 }
 
 TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
-  ctx.parameters.Add(0, 42);
+  ctx.parameters.Add(0, PropertyValue(42));
   auto *param_lookup = storage.Create<ParameterLookup>(0);
   auto value = Eval(param_lookup);
   ASSERT_TRUE(value.IsInt());
@@ -914,7 +914,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(prop_age.second, 10);
+  v1.PropsSet(prop_age.second, PropertyValue(10));
   frame[symbol] = TypedValue(v1);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
@@ -924,7 +924,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("edge_type"));
-  e12.PropsSet(prop_age.second, 10);
+  e12.PropsSet(prop_age.second, PropertyValue(10));
   frame[symbol] = TypedValue(e12);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
@@ -1020,12 +1020,12 @@ TEST_F(FunctionTest, Properties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("PROPERTIES", TypedValue()).IsNull());
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(dba.Property("height"), 5);
-  v1.PropsSet(dba.Property("age"), 10);
+  v1.PropsSet(dba.Property("height"), PropertyValue(5));
+  v1.PropsSet(dba.Property("age"), PropertyValue(10));
   auto v2 = dba.InsertVertex();
   auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
-  e.PropsSet(dba.Property("height"), 3);
-  e.PropsSet(dba.Property("age"), 15);
+  e.PropsSet(dba.Property("height"), PropertyValue(3));
+  e.PropsSet(dba.Property("age"), PropertyValue(15));
 
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
@@ -1259,12 +1259,12 @@ TEST_F(FunctionTest, Keys) {
   ASSERT_THROW(EvaluateFunction("KEYS"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("KEYS", TypedValue()).IsNull());
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(dba.Property("height"), 5);
-  v1.PropsSet(dba.Property("age"), 10);
+  v1.PropsSet(dba.Property("height"), PropertyValue(5));
+  v1.PropsSet(dba.Property("age"), PropertyValue(10));
   auto v2 = dba.InsertVertex();
   auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
-  e.PropsSet(dba.Property("width"), 3);
-  e.PropsSet(dba.Property("age"), 15);
+  e.PropsSet(dba.Property("width"), PropertyValue(3));
+  e.PropsSet(dba.Property("age"), PropertyValue(15));
 
   auto prop_keys_to_string = [](TypedValue t) {
     std::vector<std::string> keys;

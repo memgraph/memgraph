@@ -32,9 +32,9 @@ TEST(QueryPlan, Accumulate) {
     auto prop = dba.Property("x");
 
     auto v1 = dba.InsertVertex();
-    v1.PropsSet(prop, 0);
+    v1.PropsSet(prop, PropertyValue(0));
     auto v2 = dba.InsertVertex();
-    v2.PropsSet(prop, 0);
+    v2.PropsSet(prop, PropertyValue(0));
     dba.InsertEdge(v1, v2, dba.EdgeType("T"));
     dba.AdvanceCommand();
 
@@ -155,9 +155,9 @@ class QueryPlanAggregateOps : public ::testing::Test {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
-    dba.InsertVertex().PropsSet(prop, 5);
-    dba.InsertVertex().PropsSet(prop, 7);
-    dba.InsertVertex().PropsSet(prop, 12);
+    dba.InsertVertex().PropsSet(prop, PropertyValue(5));
+    dba.InsertVertex().PropsSet(prop, PropertyValue(7));
+    dba.InsertVertex().PropsSet(prop, PropertyValue(12));
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
     dba.InsertVertex();
@@ -298,14 +298,17 @@ TEST(QueryPlan, AggregateGroupByValues) {
   group_by_vals.emplace_back("1");
   group_by_vals.emplace_back(true);
   group_by_vals.emplace_back(false);
-  group_by_vals.emplace_back(std::vector<PropertyValue>{1});
-  group_by_vals.emplace_back(std::vector<PropertyValue>{1, 2});
-  group_by_vals.emplace_back(std::vector<PropertyValue>{2, 1});
+  group_by_vals.emplace_back(std::vector<PropertyValue>{PropertyValue(1)});
+  group_by_vals.emplace_back(
+      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)});
+  group_by_vals.emplace_back(
+      std::vector<PropertyValue>{PropertyValue(2), PropertyValue(1)});
   group_by_vals.emplace_back(PropertyValue());
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group
-  group_by_vals.emplace_back(std::vector<PropertyValue>{1, 2.0});
+  group_by_vals.emplace_back(
+      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2.0)});
 
   // generate a lot of vertices and set props on them
   auto prop = dba.Property("prop");
@@ -354,9 +357,9 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   auto prop3 = dba.Property("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    v.PropsSet(prop1, (bool)(i % 2));
-    v.PropsSet(prop2, i % 3);
-    v.PropsSet(prop3, "value" + std::to_string(i % 5));
+    v.PropsSet(prop1, PropertyValue(static_cast<bool>(i % 2)));
+    v.PropsSet(prop2, PropertyValue(i % 3));
+    v.PropsSet(prop3, PropertyValue("value" + std::to_string(i % 5)));
   }
   dba.AdvanceCommand();
 
@@ -437,7 +440,8 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(0, count());
 
   // one vertex, property set
-  for (VertexAccessor va : dba.Vertices(false)) va.PropsSet(prop, 42);
+  for (VertexAccessor va : dba.Vertices(false))
+    va.PropsSet(prop, PropertyValue(42));
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -447,7 +451,8 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(1, count());
 
   // two vertices, both with property set
-  for (VertexAccessor va : dba.Vertices(false)) va.PropsSet(prop, 42);
+  for (VertexAccessor va : dba.Vertices(false))
+    va.PropsSet(prop, PropertyValue(42));
   dba.AdvanceCommand();
   EXPECT_EQ(2, count());
 }
@@ -461,9 +466,9 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.Property("string");
-  v1.PropsSet(prop_string, "johhny");
+  v1.PropsSet(prop_string, PropertyValue("johhny"));
   auto prop_int = dba.Property("int");
-  v1.PropsSet(prop_int, 12);
+  v1.PropsSet(prop_int, PropertyValue(12));
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -516,11 +521,11 @@ TEST(QueryPlan, AggregateTypes) {
   auto dba = db.Access();
 
   auto p1 = dba.Property("p1");  // has only string props
-  dba.InsertVertex().PropsSet(p1, "string");
-  dba.InsertVertex().PropsSet(p1, "str2");
+  dba.InsertVertex().PropsSet(p1, PropertyValue("string"));
+  dba.InsertVertex().PropsSet(p1, PropertyValue("str2"));
   auto p2 = dba.Property("p2");  // combines int and bool
-  dba.InsertVertex().PropsSet(p2, 42);
-  dba.InsertVertex().PropsSet(p2, true);
+  dba.InsertVertex().PropsSet(p2, PropertyValue(42));
+  dba.InsertVertex().PropsSet(p2, PropertyValue(true));
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -574,8 +579,10 @@ TEST(QueryPlan, Unwind) {
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
   auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<PropertyValue>{
-      std::vector<PropertyValue>{1, true, "x"}, std::vector<PropertyValue>{},
-      std::vector<PropertyValue>{"bla"}});
+      PropertyValue(std::vector<PropertyValue>{
+          PropertyValue(1), PropertyValue(true), PropertyValue("x")}),
+      PropertyValue(std::vector<PropertyValue>{}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue("bla")})});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);

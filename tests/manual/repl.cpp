@@ -149,7 +149,8 @@ class RandomGraphGenerator {
     auto dba = db_.Access();
     auto property = dba.Property(prop_name);
     for (VertexAccessor va : dba.Vertices(false))
-      if (predicate(va)) va.PropsSet(property, value_generator());
+      if (predicate(va))
+        va.PropsSet(property, PropertyValue(value_generator()));
     dba.Commit();
   }
 

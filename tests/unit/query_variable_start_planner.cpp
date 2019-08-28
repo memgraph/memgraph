@@ -244,11 +244,11 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, 1);
+  v1.PropsSet(id, PropertyValue(1));
   auto v2 = dba.InsertVertex();
-  v2.PropsSet(id, 2);
+  v2.PropsSet(id, PropertyValue(2));
   auto v3 = dba.InsertVertex();
-  v3.PropsSet(id, 3);
+  v3.PropsSet(id, PropertyValue(3));
   auto r1 = dba.InsertEdge(v1, v2, dba.EdgeType("r1"));
   auto r2 = dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();
@@ -274,7 +274,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, 1);
+  v1.PropsSet(id, PropertyValue(1));
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto r1 = dba.InsertEdge(v1, v2, dba.EdgeType("r1"));
@@ -303,11 +303,11 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, 1);
+  v1.PropsSet(id, PropertyValue(1));
   auto v2 = dba.InsertVertex();
-  v2.PropsSet(id, 2);
+  v2.PropsSet(id, PropertyValue(2));
   auto v3 = dba.InsertVertex();
-  v3.PropsSet(id, 3);
+  v3.PropsSet(id, PropertyValue(3));
   auto r1 = dba.InsertEdge(v1, v2, dba.EdgeType("r1"));
   dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();

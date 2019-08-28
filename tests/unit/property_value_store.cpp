@@ -30,8 +30,9 @@ class PropertyValueStoreTest : public ::testing::Test {
     utils::EnsureDir(fs::path(FLAGS_durability_directory));
   }
 
-  void Set(int key, Location location, PropertyValue value) {
-    props_.set(storage::Property(key, location), value);
+  template <class TValue>
+  void Set(int key, Location location, const TValue &value) {
+    props_.set(storage::Property(key, location), PropertyValue(value));
   }
 
   PropertyValue At(int key, Location location) {
@@ -231,8 +232,10 @@ TEST_F(PropertyValueStoreTest, Size) {
 }
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
-  Set(0, Location::Memory, std::vector<PropertyValue>{1, true, 2.5, "something",
-                                                      PropertyValue()});
+  Set(0, Location::Memory,
+      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(true),
+                                 PropertyValue(2.5), PropertyValue("something"),
+                                 PropertyValue()});
   auto p = At(0, Location::Memory);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
@@ -251,7 +254,8 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
   Set(0, Location::Disk,
-      std::vector<PropertyValue>{1, true, 2.5, "something",
+      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(true),
+                                 PropertyValue(2.5), PropertyValue("something"),
                                  PropertyValue()});
   auto p = At(0, Location::Disk);
 
@@ -270,8 +274,10 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
 }
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveMap) {
-  Set(0, Location::Memory, std::map<std::string, PropertyValue>{
-                               {"a", 1}, {"b", true}, {"c", "something"}});
+  Set(0, Location::Memory,
+      std::map<std::string, PropertyValue>{{"a", PropertyValue(1)},
+                                           {"b", PropertyValue(true)},
+                                           {"c", PropertyValue("something")}});
 
   auto p = At(0, Location::Memory);
   EXPECT_EQ(p.type(), PropertyValue::Type::Map);
@@ -289,8 +295,10 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveMap) {
 }
 
 TEST_F(PropertyValueStoreTest, InsertRetrieveMapDisk) {
-  Set(0, Location::Disk, std::map<std::string, PropertyValue>{
-                             {"a", 1}, {"b", true}, {"c", "something"}});
+  Set(0, Location::Disk,
+      std::map<std::string, PropertyValue>{{"a", PropertyValue(1)},
+                                           {"b", PropertyValue(true)},
+                                           {"c", PropertyValue("something")}});
 
   auto p = At(0, Location::Disk);
   EXPECT_EQ(p.type(), PropertyValue::Type::Map);
@@ -341,10 +349,10 @@ TEST_F(PropertyValueStoreTest, CopyConstructor) {
   PropertyValueStore props;
   for (int i = 1; i <= 3; ++i)
     props.set(storage::Property(i, Location::Memory),
-              "mem_" + std::to_string(i));
+              PropertyValue("mem_" + std::to_string(i)));
   for (int i = 4; i <= 5; ++i)
     props.set(storage::Property(i, Location::Disk),
-              "disk_" + std::to_string(i));
+              PropertyValue("disk_" + std::to_string(i)));
 
   PropertyValueStore new_props = props;
   for (int i = 1; i <= 3; ++i)
@@ -355,19 +363,23 @@ TEST_F(PropertyValueStoreTest, CopyConstructor) {
     EXPECT_EQ(new_props.at(storage::Property(i, Location::Disk)).ValueString(),
               "disk_" + std::to_string(i));
 
-  props.set(storage::Property(1, Location::Memory), "mem_1_update");
+  props.set(storage::Property(1, Location::Memory),
+            PropertyValue("mem_1_update"));
   EXPECT_EQ(new_props.at(storage::Property(1, Location::Memory)).ValueString(),
             "mem_1");
 
-  new_props.set(storage::Property(2, Location::Memory), "mem_2_update");
+  new_props.set(storage::Property(2, Location::Memory),
+                PropertyValue("mem_2_update"));
   EXPECT_EQ(props.at(storage::Property(2, Location::Memory)).ValueString(),
             "mem_2");
 
-  props.set(storage::Property(4, Location::Disk), "disk_4_update");
+  props.set(storage::Property(4, Location::Disk),
+            PropertyValue("disk_4_update"));
   EXPECT_EQ(new_props.at(storage::Property(4, Location::Disk)).ValueString(),
             "disk_4");
 
-  new_props.set(storage::Property(5, Location::Disk), "disk_5_update");
+  new_props.set(storage::Property(5, Location::Disk),
+                PropertyValue("disk_5_update"));
   EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).ValueString(),
             "disk_5");
 }

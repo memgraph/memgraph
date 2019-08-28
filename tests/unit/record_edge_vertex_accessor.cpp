@@ -22,7 +22,7 @@ TEST(RecordAccessor, Properties) {
   auto property_other = dba.Property("Other");
   EXPECT_EQ(vertex.PropsAt(property).type(), PropertyValue::Type::Null);
 
-  vertex.PropsSet(property, 42);
+  vertex.PropsSet(property, PropertyValue(42));
   EXPECT_EQ(vertex.PropsAt(property).ValueInt(), 42);
   EXPECT_EQ(properties.at(property).ValueInt(), 42);
   EXPECT_EQ(vertex.PropsAt(property_other).type(), PropertyValue::Type::Null);

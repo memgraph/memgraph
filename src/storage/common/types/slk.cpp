@@ -56,25 +56,25 @@ void Load(PropertyValue *value, slk::Reader *reader) {
     case static_cast<uint8_t>(1): {
       bool v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = PropertyValue(v);
       return;
     }
     case static_cast<uint8_t>(2): {
       int64_t v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = PropertyValue(v);
       return;
     }
     case static_cast<uint8_t>(3): {
       double v;
       slk::Load(&v, reader);
-      *value = v;
+      *value = PropertyValue(v);
       return;
     }
     case static_cast<uint8_t>(4): {
       std::string v;
       slk::Load(&v, reader);
-      *value = std::move(v);
+      *value = PropertyValue(std::move(v));
       return;
     }
     case static_cast<uint8_t>(5): {
@@ -84,7 +84,7 @@ void Load(PropertyValue *value, slk::Reader *reader) {
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
-      *value = std::move(list);
+      *value = PropertyValue(std::move(list));
       return;
     }
     case static_cast<uint8_t>(6): {
@@ -96,7 +96,7 @@ void Load(PropertyValue *value, slk::Reader *reader) {
         slk::Load(&kv, reader);
         map.insert(kv);
       }
-      *value = std::move(map);
+      *value = PropertyValue(std::move(map));
       return;
     }
     default:

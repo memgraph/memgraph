@@ -41,13 +41,14 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(false)), "false");
 
   // [1 null "hello"]
-  EXPECT_EQ(ToString(LITERAL(
-                (std::vector<PropertyValue>{1, PropertyValue(), "hello"}))),
-            "[1, null, \"hello\"]");
+  std::vector<PropertyValue> values{PropertyValue(1), PropertyValue(),
+                                    PropertyValue("hello")};
+  EXPECT_EQ(ToString(LITERAL(PropertyValue(values))), "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
-  EXPECT_EQ(ToString(LITERAL((std::map<std::string, PropertyValue>{
-                {"hello", 1}, {"there", 2}}))),
+  std::map<std::string, PropertyValue> map{{"hello", PropertyValue(1)},
+                                           {"there", PropertyValue(2)}};
+  EXPECT_EQ(ToString(LITERAL(PropertyValue(map))),
             "{\"hello\": 1, \"there\": 2}");
 }
 

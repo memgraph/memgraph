@@ -112,7 +112,8 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue("str3"), TypedValue("str3"));
   EXPECT_PROP_EQ(TypedValue(std::string("str3")), TypedValue("str3"));
 
-  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{1}), TypedValue(1));
+  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1)}),
+                 TypedValue(1));
   EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{
                      TypedValue(1), TypedValue(true), TypedValue("a")}),
                  TypedValue(std::vector<TypedValue>{

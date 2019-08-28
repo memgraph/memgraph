@@ -39,7 +39,8 @@ class SingleNodeDb : public Database {
 
     for (size_t id = 0; id < vertex_locations.size(); ++id) {
       auto vertex = dba->InsertVertex();
-      vertex.PropsSet(dba->Property("id"), (int64_t)id);
+      vertex.PropsSet(dba->Property("id"),
+                      PropertyValue(static_cast<int64_t>(id)));
       vertex_addr.push_back(vertex.address());
     }
 
@@ -50,8 +51,8 @@ class SingleNodeDb : public Database {
       VertexAccessor from(vertex_addr[u], *dba);
       VertexAccessor to(vertex_addr[v], *dba);
       auto edge = dba->InsertEdge(from, to, dba->EdgeType(type));
-      edge.PropsSet(dba->Property("from"), u);
-      edge.PropsSet(dba->Property("to"), v);
+      edge.PropsSet(dba->Property("from"), PropertyValue(u));
+      edge.PropsSet(dba->Property("to"), PropertyValue(v));
       edge_addr.push_back(edge.address());
     }
 

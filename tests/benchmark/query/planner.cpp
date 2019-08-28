@@ -99,7 +99,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
-      vertex.PropsSet(prop, index);
+      vertex.PropsSet(prop, PropertyValue(index));
     }
   }
   dba.Commit();

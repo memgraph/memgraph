@@ -5,8 +5,9 @@
 #include "slk_common.hpp"
 
 TEST(SlkAdvanced, PropertyValueList) {
-  std::vector<PropertyValue> original{"hello world!", 5, 1.123423, true,
-                                      PropertyValue()};
+  std::vector<PropertyValue> original{PropertyValue("hello world!"),
+                                      PropertyValue(5), PropertyValue(1.123423),
+                                      PropertyValue(true), PropertyValue()};
   ASSERT_EQ(original[0].type(), PropertyValue::Type::String);
   ASSERT_EQ(original[1].type(), PropertyValue::Type::Int);
   ASSERT_EQ(original[2].type(), PropertyValue::Type::Double);
@@ -25,11 +26,12 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
-  std::map<std::string, PropertyValue> original{{"hello", "world"},
-                                                {"number", 5},
-                                                {"real", 1.123423},
-                                                {"truth", true},
-                                                {"nothing", PropertyValue()}};
+  std::map<std::string, PropertyValue> original{
+      {"hello", PropertyValue("world")},
+      {"number", PropertyValue(5)},
+      {"real", PropertyValue(1.123423)},
+      {"truth", PropertyValue(true)},
+      {"nothing", PropertyValue()}};
   ASSERT_EQ(original["hello"].type(), PropertyValue::Type::String);
   ASSERT_EQ(original["number"].type(), PropertyValue::Type::Int);
   ASSERT_EQ(original["real"].type(), PropertyValue::Type::Double);
@@ -48,18 +50,19 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
-  std::vector<PropertyValue> vec_v{"hello world!", 5, 1.123423, true,
-                                   PropertyValue()};
+  std::vector<PropertyValue> vec_v{PropertyValue("hello world!"),
+                                   PropertyValue(5), PropertyValue(1.123423),
+                                   PropertyValue(true), PropertyValue()};
   ASSERT_EQ(vec_v[0].type(), PropertyValue::Type::String);
   ASSERT_EQ(vec_v[1].type(), PropertyValue::Type::Int);
   ASSERT_EQ(vec_v[2].type(), PropertyValue::Type::Double);
   ASSERT_EQ(vec_v[3].type(), PropertyValue::Type::Bool);
   ASSERT_EQ(vec_v[4].type(), PropertyValue::Type::Null);
 
-  std::map<std::string, PropertyValue> map_v{{"hello", "world"},
-                                             {"number", 5},
-                                             {"real", 1.123423},
-                                             {"truth", true},
+  std::map<std::string, PropertyValue> map_v{{"hello", PropertyValue("world")},
+                                             {"number", PropertyValue(5)},
+                                             {"real", PropertyValue(1.123423)},
+                                             {"truth", PropertyValue(true)},
                                              {"nothing", PropertyValue()}};
   ASSERT_EQ(map_v["hello"].type(), PropertyValue::Type::String);
   ASSERT_EQ(map_v["number"].type(), PropertyValue::Type::Int);
@@ -67,7 +70,8 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(map_v["truth"].type(), PropertyValue::Type::Bool);
   ASSERT_EQ(map_v["nothing"].type(), PropertyValue::Type::Null);
 
-  PropertyValue original({vec_v, map_v});
+  PropertyValue original(
+      std::vector<PropertyValue>{PropertyValue(vec_v), PropertyValue(map_v)});
   ASSERT_EQ(original.type(), PropertyValue::Type::List);
 
   slk::Loopback loopback;

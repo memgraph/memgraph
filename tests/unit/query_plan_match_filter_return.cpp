@@ -161,10 +161,10 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   v2.add_label(label);
   v3.add_label(label);
   // v1 and v4 will have the right properties
-  v1.PropsSet(property.second, 42);
-  v2.PropsSet(property.second, 1);
-  v4.PropsSet(property.second, 42);
-  v5.PropsSet(property.second, 1);
+  v1.PropsSet(property.second, PropertyValue(42));
+  v2.PropsSet(property.second, PropertyValue(1));
+  v4.PropsSet(property.second, PropertyValue(42));
+  v5.PropsSet(property.second, PropertyValue(1));
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -504,8 +504,9 @@ class QueryPlanExpandVariable : public testing::Test {
           auto &v_from = layer[v_from_ind];
           auto edge = dba_.InsertEdge(v_from, v_to, edge_type);
           edge.PropsSet(dba_.Property("p"),
-                        fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
-                                    from_layer_ind + 1, v_to_ind));
+                        PropertyValue(fmt::format(
+                            "V{}{}->V{}{}", from_layer_ind, v_from_ind,
+                            from_layer_ind + 1, v_to_ind)));
         }
       }
       layer = new_layer;
@@ -830,12 +831,12 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   void SetUp() {
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
-      v.back().PropsSet(prop.second, i);
+      v.back().PropsSet(prop.second, PropertyValue(i));
     }
 
     auto add_edge = [&](int from, int to, double weight) {
       EdgeAccessor edge = dba.InsertEdge(v[from], v[to], edge_type);
-      edge.PropsSet(prop.second, weight);
+      edge.PropsSet(prop.second, PropertyValue(weight));
       e.emplace(std::make_pair(from, to), edge);
     };
 
@@ -1083,9 +1084,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   }
   {
     auto new_vertex = dba.InsertVertex();
-    new_vertex.PropsSet(prop.second, 5);
+    new_vertex.PropsSet(prop.second, PropertyValue(5));
     auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-    edge.PropsSet(prop.second, 2);
+    edge.PropsSet(prop.second, PropertyValue(2));
     dba.AdvanceCommand();
 
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
@@ -1106,9 +1107,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
   auto new_vertex = dba.InsertVertex();
-  new_vertex.PropsSet(prop.second, 5);
+  new_vertex.PropsSet(prop.second, PropertyValue(5));
   auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-  edge.PropsSet(prop.second, "not a number");
+  edge.PropsSet(prop.second, PropertyValue("not a number"));
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
                QueryRuntimeException);
@@ -1116,9 +1117,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
   auto new_vertex = dba.InsertVertex();
-  new_vertex.PropsSet(prop.second, 5);
+  new_vertex.PropsSet(prop.second, PropertyValue(5));
   auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-  edge.PropsSet(prop.second, -10);  // negative weight
+  edge.PropsSet(prop.second, PropertyValue(-10));  // negative weight
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
                QueryRuntimeException);
@@ -1140,12 +1141,12 @@ TEST(QueryPlan, ExpandOptional) {
   auto prop = dba.Property("p");
   auto edge_type = dba.EdgeType("T");
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(prop, 1);
+  v1.PropsSet(prop, PropertyValue(1));
   auto v2 = dba.InsertVertex();
-  v2.PropsSet(prop, 2);
+  v2.PropsSet(prop, PropertyValue(2));
   dba.InsertEdge(v1, v2, edge_type);
   auto v3 = dba.InsertVertex();
-  v3.PropsSet(prop, 2);
+  v3.PropsSet(prop, PropertyValue(2));
   dba.InsertEdge(v1, v3, edge_type);
   dba.AdvanceCommand();
 
@@ -1363,10 +1364,10 @@ TEST(QueryPlan, EdgeFilter) {
         dba.InsertEdge(vertices[0], vertices[i + 1], edge_types[i % 2]));
     switch (i % 3) {
       case 0:
-        edges.back().PropsSet(prop.second, 42);
+        edges.back().PropsSet(prop.second, PropertyValue(42));
         break;
       case 1:
-        edges.back().PropsSet(prop.second, 100);
+        edges.back().PropsSet(prop.second, PropertyValue(100));
         break;
       default:
         break;
@@ -1406,7 +1407,7 @@ TEST(QueryPlan, EdgeFilter) {
 
   EXPECT_EQ(1, test_filter());
   // test that edge filtering always filters on old state
-  for (auto &edge : edges) edge.PropsSet(prop.second, 42);
+  for (auto &edge : edges) edge.PropsSet(prop.second, PropertyValue(42));
   EXPECT_EQ(1, test_filter());
   dba.AdvanceCommand();
   EXPECT_EQ(3, test_filter());
@@ -1452,7 +1453,7 @@ TEST(QueryPlan, Filter) {
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property = PROPERTY_PAIR("property");
   for (int i = 0; i < 6; ++i)
-    dba.InsertVertex().PropsSet(property.second, i % 3 == 0);
+    dba.InsertVertex().PropsSet(property.second, PropertyValue(i % 3 == 0));
   dba.InsertVertex();  // prop not set, gives NULL
   dba.AdvanceCommand();
 
@@ -1593,12 +1594,21 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   auto label = db.Access().Label("label");
   auto prop = db.Access().Property("prop");
   // vertex property values that will be stored into the DB
-  // clang-format off
   std::vector<PropertyValue> values{
-      true, false, "a", "b", "c", 0, 1, 2, 0.5, 1.5, 2.5,
-      std::vector<PropertyValue>{0}, std::vector<PropertyValue>{1},
-      std::vector<PropertyValue>{2}};
-  // clang-format on
+      PropertyValue(true),
+      PropertyValue(false),
+      PropertyValue("a"),
+      PropertyValue("b"),
+      PropertyValue("c"),
+      PropertyValue(0),
+      PropertyValue(1),
+      PropertyValue(2),
+      PropertyValue(0.5),
+      PropertyValue(1.5),
+      PropertyValue(2.5),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(0)}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(1)}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})};
   {
     auto dba = db.Access();
     for (const auto &value : values) {
@@ -1675,10 +1685,10 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     auto dba = db.Access();
     auto number_vertex = dba.InsertVertex();
     number_vertex.add_label(label);
-    number_vertex.PropsSet(prop, 42);
+    number_vertex.PropsSet(prop, PropertyValue(42));
     auto string_vertex = dba.InsertVertex();
     string_vertex.add_label(label);
-    string_vertex.PropsSet(prop, "string");
+    string_vertex.PropsSet(prop, PropertyValue("string"));
     dba.Commit();
     db.Access().BuildIndex(label, prop);
   }
@@ -1713,7 +1723,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
-      vertex.PropsSet(prop, i);
+      vertex.PropsSet(prop, PropertyValue(i));
     }
     dba.Commit();
   }
@@ -1741,7 +1751,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
-      vertex.PropsSet(prop, i);
+      vertex.PropsSet(prop, PropertyValue(i));
     }
     dba.Commit();
   }
@@ -1794,7 +1804,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     vertex.add_label(label);
     auto vertex_with_prop = dba.InsertVertex();
     vertex_with_prop.add_label(label);
-    vertex_with_prop.PropsSet(prop, 42);
+    vertex_with_prop.PropsSet(prop, PropertyValue(42));
     dba.Commit();
     db.Access().BuildIndex(label, prop);
   }
@@ -1828,7 +1838,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     vertex.add_label(label);
     auto vertex_with_prop = dba.InsertVertex();
     vertex_with_prop.add_label(label);
-    vertex_with_prop.PropsSet(prop, 42);
+    vertex_with_prop.PropsSet(prop, PropertyValue(42));
     dba.Commit();
     db.Access().BuildIndex(label, prop);
   }
@@ -1858,7 +1868,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     auto dba = db.Access();
     auto v = dba.InsertVertex();
     v.add_label(label);
-    v.PropsSet(prop, 2);
+    v.PropsSet(prop, PropertyValue(2));
     dba.Commit();
     db.Access().BuildIndex(label, prop);
   }
@@ -1896,7 +1906,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto dba = db.Access();
     auto v = dba.InsertVertex();
     v.add_label(label);
-    v.PropsSet(prop, i < vertex_prop_count ? prop_value1 : prop_value2);
+    v.PropsSet(
+        prop, PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2));
     dba.Commit();
   }
 

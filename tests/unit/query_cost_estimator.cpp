@@ -55,7 +55,7 @@ class QueryCostEstimator : public ::testing::Test {
     for (int i = 0; i < vertex_count; i++) {
       auto vertex = dba.InsertVertex();
       if (i < labeled_count) vertex.add_label(label);
-      if (i < property_count) vertex.PropsSet(property, i);
+      if (i < property_count) vertex.PropsSet(property, PropertyValue(i));
     }
 
     dba.AdvanceCommand();
@@ -77,9 +77,10 @@ class QueryCostEstimator : public ::testing::Test {
     return storage_.Create<PrimitiveLiteral>(value);
   }
 
-  Expression *Parameter(const PropertyValue &value) {
+  template <typename TValue>
+  Expression *Parameter(TValue value) {
     int token_position = parameters_.size();
-    parameters_.Add(token_position, value);
+    parameters_.Add(token_position, PropertyValue(value));
     return storage_.Create<ParameterLookup>(token_position);
   }
 

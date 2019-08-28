@@ -76,7 +76,7 @@ PropertyValue PropertyValueStore::at(const Property &key) const {
 }
 
 void PropertyValueStore::set(const Property &key, const char *value) {
-  set(key, std::string(value));
+  set(key, PropertyValue(value));
 }
 
 void PropertyValueStore::set(const Property &key, const PropertyValue &value) {

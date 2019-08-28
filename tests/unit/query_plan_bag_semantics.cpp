@@ -117,12 +117,23 @@ TEST(QueryPlan, OrderBy) {
   // each test defines the ordering a vector of values in the desired order
   auto Null = PropertyValue();
   std::vector<std::pair<Ordering, std::vector<PropertyValue>>> orderable{
-      {Ordering::ASC, {0, 0, 0.5, 1, 2, 12.6, 42, Null, Null}},
-      {Ordering::ASC, {false, false, true, true, Null, Null}},
-      {Ordering::ASC, {"A", "B", "a", "a", "aa", "ab", "aba", Null, Null}},
-      {Ordering::DESC, {Null, Null, 33, 33, 32.5, 32, 2.2, 2.1, 0}},
-      {Ordering::DESC, {Null, true, false}},
-      {Ordering::DESC, {Null, "zorro", "borro"}}};
+      {Ordering::ASC,
+       {PropertyValue(0), PropertyValue(0), PropertyValue(0.5),
+        PropertyValue(1), PropertyValue(2), PropertyValue(12.6),
+        PropertyValue(42), Null, Null}},
+      {Ordering::ASC,
+       {PropertyValue(false), PropertyValue(false), PropertyValue(true),
+        PropertyValue(true), Null, Null}},
+      {Ordering::ASC,
+       {PropertyValue("A"), PropertyValue("B"), PropertyValue("a"),
+        PropertyValue("a"), PropertyValue("aa"), PropertyValue("ab"),
+        PropertyValue("aba"), Null, Null}},
+      {Ordering::DESC,
+       {Null, Null, PropertyValue(33), PropertyValue(33), PropertyValue(32.5),
+        PropertyValue(32), PropertyValue(2.2), PropertyValue(2.1),
+        PropertyValue(0)}},
+      {Ordering::DESC, {Null, PropertyValue(true), PropertyValue(false)}},
+      {Ordering::DESC, {Null, PropertyValue("zorro"), PropertyValue("borro")}}};
 
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
@@ -187,8 +198,8 @@ TEST(QueryPlan, OrderByMultiple) {
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
-    v.PropsSet(p1, pair.first);
-    v.PropsSet(p2, pair.second);
+    v.PropsSet(p1, PropertyValue(pair.first));
+    v.PropsSet(p2, PropertyValue(pair.second));
   }
   dba.AdvanceCommand();
 
@@ -233,14 +244,18 @@ TEST(QueryPlan, OrderByExceptions) {
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
   std::vector<std::pair<PropertyValue, PropertyValue>> exception_pairs{
-      {42, true},
-      {42, "bla"},
-      {42, std::vector<PropertyValue>{42}},
-      {true, "bla"},
-      {true, std::vector<PropertyValue>{true}},
-      {"bla", std::vector<PropertyValue>{"bla"}},
+      {PropertyValue(42), PropertyValue(true)},
+      {PropertyValue(42), PropertyValue("bla")},
+      {PropertyValue(42),
+       PropertyValue(std::vector<PropertyValue>{PropertyValue(42)})},
+      {PropertyValue(true), PropertyValue("bla")},
+      {PropertyValue(true),
+       PropertyValue(std::vector<PropertyValue>{PropertyValue(true)})},
+      {PropertyValue("bla"),
+       PropertyValue(std::vector<PropertyValue>{PropertyValue("bla")})},
       // illegal comparisons of same-type values
-      {std::vector<PropertyValue>{42}, std::vector<PropertyValue>{42}}};
+      {PropertyValue(std::vector<PropertyValue>{PropertyValue(42)}),
+       PropertyValue(std::vector<PropertyValue>{PropertyValue(42)})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database

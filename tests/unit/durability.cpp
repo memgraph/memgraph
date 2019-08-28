@@ -153,11 +153,11 @@ class DbGenerator {
   PropertyValue RandomValue() {
     switch (RandomInt(3)) {
       case 0:
-        return rand_(gen_);  // Float
+        return PropertyValue(rand_(gen_));  // Float
       case 1:
-        return RandomInt(1000);
+        return PropertyValue(RandomInt(1000));
       case 2:
-        return rand_(gen_) < 0.5;
+        return PropertyValue(rand_(gen_) < 0.5);
       default:
         LOG(FATAL) << "Unsupported random value";
     }
@@ -368,12 +368,14 @@ TEST_F(Durability, WalEncoding) {
     auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
     v0.add_label(dba.Label("l0"));
-    v0.PropsSet(dba.Property("p0"), 42);
+    v0.PropsSet(dba.Property("p0"), PropertyValue(42));
     auto v1 = dba.InsertVertex();
     ASSERT_EQ(v1.gid(), gid1);
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
-    e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
+    e0.PropsSet(dba.Property("p0"),
+                PropertyValue(std::vector<PropertyValue>{
+                    PropertyValue(1), PropertyValue(2), PropertyValue(3)}));
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.DeleteIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
@@ -452,18 +454,20 @@ TEST_F(Durability, SnapshotEncoding) {
     auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
     v0.add_label(dba.Label("l0"));
-    v0.PropsSet(dba.Property("p0"), 42);
+    v0.PropsSet(dba.Property("p0"), PropertyValue(42));
     auto v1 = dba.InsertVertex();
     ASSERT_EQ(v1.gid(), gid1);
     v1.add_label(dba.Label("l0"));
     v1.add_label(dba.Label("l1"));
     auto v2 = dba.InsertVertex();
     ASSERT_EQ(v2.gid(), gid2);
-    v2.PropsSet(dba.Property("p0"), true);
-    v2.PropsSet(dba.Property("p1"), "Johnny");
+    v2.PropsSet(dba.Property("p0"), PropertyValue(true));
+    v2.PropsSet(dba.Property("p1"), PropertyValue("Johnny"));
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
-    e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
+    e0.PropsSet(dba.Property("p0"),
+                PropertyValue(std::vector<PropertyValue>{
+                    PropertyValue(1), PropertyValue(2), PropertyValue(3)}));
     auto e1 = dba.InsertEdge(v2, v1, dba.EdgeType("et1"));
     ASSERT_EQ(e1.gid(), gid1);
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
@@ -821,7 +825,7 @@ TEST_F(Durability, SequentialRecovery) {
           auto dba = db.Access();
           auto v = dba.FindVertex(random_int(kNumVertices), false);
           try {
-            v.PropsSet(dba.Property("prop"), random_int(100));
+            v.PropsSet(dba.Property("prop"), PropertyValue(random_int(100)));
           } catch (utils::LockTimeoutException &) {
           } catch (mvcc::SerializationError &) {
           }
@@ -943,7 +947,7 @@ TEST_F(Durability, UniqueIndexRecoverySnapshotAndWal) {
 
     auto v0 = dba.InsertVertex();
     v0.add_label(label);
-    v0.PropsSet(property, 5);
+    v0.PropsSet(property, PropertyValue(5));
 
     dba.Commit();
   }
@@ -959,7 +963,7 @@ TEST_F(Durability, UniqueIndexRecoverySnapshotAndWal) {
 
     auto v0 = dba.InsertVertex();
     v0.add_label(label);
-    v0.PropsSet(property, 5);
+    v0.PropsSet(property, PropertyValue(5));
 
     dba.Commit();
   }
@@ -987,13 +991,13 @@ TEST_F(Durability, UniqueIndexRecoveryWal) {
 
     auto v0 = dba.InsertVertex();
     v0.add_label(label);
-    v0.PropsSet(property, 5);
+    v0.PropsSet(property, PropertyValue(5));
 
     dba.DeleteIndex(label, property);
 
     auto v1 = dba.InsertVertex();
     v1.add_label(label);
-    v1.PropsSet(property, 5);
+    v1.PropsSet(property, PropertyValue(5));
 
     dba.Commit();
   }

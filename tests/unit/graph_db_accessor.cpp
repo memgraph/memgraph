@@ -371,11 +371,11 @@ TEST(GraphDbAccessorTest, Transfer) {
   auto dba1 = db.Access();
   auto prop = dba1.Property("property");
   VertexAccessor v1 = dba1.InsertVertex();
-  v1.PropsSet(prop, 1);
+  v1.PropsSet(prop, PropertyValue(1));
   VertexAccessor v2 = dba1.InsertVertex();
-  v2.PropsSet(prop, 2);
+  v2.PropsSet(prop, PropertyValue(2));
   EdgeAccessor e12 = dba1.InsertEdge(v1, v2, dba1.EdgeType("et"));
-  e12.PropsSet(prop, 12);
+  e12.PropsSet(prop, PropertyValue(12));
 
   // make dba2 that has dba1 in it's snapshot, so data isn't visible
   auto dba2 = db.Access();

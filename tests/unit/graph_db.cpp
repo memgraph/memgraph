@@ -24,7 +24,7 @@ TEST(GraphDbTest, GarbageCollectIndices) {
 
   auto vertex = dba.InsertVertex();
   vertex.add_label(label);
-  vertex.PropsSet(property, 42);
+  vertex.PropsSet(property, PropertyValue(42));
   commit();
 
   EXPECT_EQ(dba.VerticesCount(label, property), 1);
