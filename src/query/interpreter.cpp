@@ -831,8 +831,9 @@ Interpreter::Results Interpreter::operator()(
                            .first);
     }
 
-    return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges, execution_memory);
+    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+                   std::move(header), std::move(summary),
+                   parsed_query.required_privileges, execution_memory);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ExplainQuery::kType)) {
@@ -901,8 +902,9 @@ Interpreter::Results Interpreter::operator()(
 
     std::vector<std::string> header{query_plan_symbol.name()};
 
-    return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges, execution_memory);
+    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+                   std::move(header), std::move(summary),
+                   parsed_query.required_privileges, execution_memory);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
@@ -982,8 +984,9 @@ Interpreter::Results Interpreter::operator()(
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
 
-    return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges, execution_memory,
+    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+                   std::move(header), std::move(summary),
+                   parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
@@ -1004,8 +1007,9 @@ Interpreter::Results Interpreter::operator()(
 
     summary["planning_time"] = planning_timer.Elapsed().count();
 
-    return Results(&db_accessor, parameters, plan, output_symbols, header,
-                   summary, parsed_query.required_privileges, execution_memory,
+    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+                   std::move(header), std::move(summary),
+                   parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ false,
                    /* should_abort_query */ false);
 #else
@@ -1077,9 +1081,9 @@ Interpreter::Results Interpreter::operator()(
   summary["planning_time"] = planning_time.count();
   summary["cost_estimate"] = 0.0;
 
-  return Results(&db_accessor, parameters, plan, output_symbols,
-                 callback.header, summary, parsed_query.required_privileges,
-                 execution_memory,
+  return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+                 callback.header, std::move(summary),
+                 parsed_query.required_privileges, execution_memory,
                  /* is_profile_query */ false, callback.should_abort_query);
 }
 

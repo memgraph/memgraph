@@ -26,13 +26,13 @@ query::TypedValue ToTypedValue(const Value &value) {
       std::vector<query::TypedValue> list;
       list.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v));
-      return query::TypedValue(list);
+      return query::TypedValue(std::move(list));
     }
     case Value::Type::Map: {
       std::map<std::string, query::TypedValue> map;
       for (const auto &kv : value.ValueMap())
         map.emplace(kv.first, ToTypedValue(kv.second));
-      return query::TypedValue(map);
+      return query::TypedValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
@@ -61,14 +61,14 @@ Value ToBoltValue(const query::TypedValue &value) {
       for (const auto &v : value.ValueList()) {
         values.push_back(ToBoltValue(v));
       }
-      return Value(values);
+      return Value(std::move(values));
     }
     case query::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
         map.emplace(kv.first, ToBoltValue(kv.second));
       }
-      return Value(map);
+      return Value(std::move(map));
     }
     case query::TypedValue::Type::Vertex:
       return Value(ToBoltVertex(value.ValueVertex()));
@@ -91,7 +91,8 @@ communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
     properties[vertex.db_accessor().PropertyName(prop.first)] =
         ToBoltValue(prop.second);
   }
-  return communication::bolt::Vertex{id, labels, properties};
+  return communication::bolt::Vertex{id, std::move(labels),
+                                     std::move(properties)};
 }
 
 communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
@@ -104,7 +105,7 @@ communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
     properties[edge.db_accessor().PropertyName(prop.first)] =
         ToBoltValue(prop.second);
   }
-  return communication::bolt::Edge{id, from, to, type, properties};
+  return communication::bolt::Edge{id, from, to, type, std::move(properties)};
 }
 
 communication::bolt::Path ToBoltPath(const query::Path &path) {
@@ -175,7 +176,7 @@ Value ToBoltValue(const PropertyValue &value) {
       for (const auto &v : values) {
         vec.push_back(ToBoltValue(v));
       }
-      return Value(vec);
+      return Value(std::move(vec));
     }
     case PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
@@ -183,7 +184,7 @@ Value ToBoltValue(const PropertyValue &value) {
       for (const auto &kv : map) {
         dv_map.emplace(kv.first, ToBoltValue(kv.second));
       }
-      return Value(dv_map);
+      return Value(std::move(dv_map));
     }
   }
 }

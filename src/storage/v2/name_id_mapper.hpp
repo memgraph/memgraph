@@ -52,7 +52,11 @@ class NameIdMapper final {
     // We have to try to insert the ID to name mapping even if we are not the
     // one who assigned the ID because we have to make sure that after this
     // method returns that both mappings exist.
-    id_to_name_acc.insert({id, name});
+    if (id_to_name_acc.find(id) == id_to_name_acc.end()) {
+      // We first try to find the `id` in the map to avoid making an unnecessary
+      // temporary memory allocation when the object already exists.
+      id_to_name_acc.insert({id, name});
+    }
     return id;
   }
 

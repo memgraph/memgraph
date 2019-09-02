@@ -102,8 +102,8 @@ State HandleRun(TSession &session, State state, Marker marker) {
     std::vector<Value> vec;
     std::map<std::string, Value> data;
     vec.reserve(header.size());
-    for (auto &i : header) vec.push_back(Value(i));
-    data.insert(std::make_pair(std::string("fields"), Value(vec)));
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
     // Send the header.
     if (!session.encoder_.MessageSuccess(data)) {
       DLOG(WARNING) << "Couldn't send query header!";
