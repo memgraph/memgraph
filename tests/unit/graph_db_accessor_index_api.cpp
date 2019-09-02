@@ -254,19 +254,12 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
 
   std::vector<PropertyValue> expected_property_value(50, PropertyValue(0));
 
-  // strings
-  for (int i = 0; i < 10; ++i) {
-    auto vertex_accessor = dba.InsertVertex();
-    vertex_accessor.add_label(label);
-    vertex_accessor.PropsSet(property, PropertyValue(std::to_string(i)));
-    expected_property_value[i] = vertex_accessor.PropsAt(property);
-  }
   // bools - insert in reverse to check for comparison between values.
   for (int i = 9; i >= 0; --i) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, PropertyValue(static_cast<bool>(i / 5)));
-    expected_property_value[10 + i] = vertex_accessor.PropsAt(property);
+    expected_property_value[i] = vertex_accessor.PropsAt(property);
   }
 
   // integers
@@ -274,7 +267,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
     auto vertex_accessor = dba.InsertVertex();
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property, PropertyValue(i));
-    expected_property_value[20 + 2 * i] = vertex_accessor.PropsAt(property);
+    expected_property_value[10 + 2 * i] = vertex_accessor.PropsAt(property);
   }
   // doubles
   for (int i = 0; i < 10; ++i) {
@@ -282,7 +275,15 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
     vertex_accessor.add_label(label);
     vertex_accessor.PropsSet(property,
                              PropertyValue(static_cast<double>(i + 0.5)));
-    expected_property_value[20 + 2 * i + 1] = vertex_accessor.PropsAt(property);
+    expected_property_value[10 + 2 * i + 1] = vertex_accessor.PropsAt(property);
+  }
+
+  // strings
+  for (int i = 0; i < 10; ++i) {
+    auto vertex_accessor = dba.InsertVertex();
+    vertex_accessor.add_label(label);
+    vertex_accessor.PropsSet(property, PropertyValue(std::to_string(i)));
+    expected_property_value[30 + i] = vertex_accessor.PropsAt(property);
   }
 
   // lists of ints - insert in reverse to check for comparision between

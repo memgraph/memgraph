@@ -68,7 +68,6 @@ set(mg_single_node_sources
     storage/common/constraints/record.cpp
     storage/common/constraints/unique_constraints.cpp
     storage/common/locking/record_lock.cpp
-    storage/common/types/property_value.cpp
     storage/common/types/property_value_store.cpp
     storage/single_node/edge_accessor.cpp
     storage/single_node/record_accessor.cpp
@@ -148,7 +147,6 @@ set(mg_single_node_ha_sources
     query/typed_value.cpp
     storage/common/constraints/record.cpp
     storage/common/constraints/unique_constraints.cpp
-    storage/common/types/property_value.cpp
     storage/common/types/slk.cpp
     storage/common/types/property_value_store.cpp
     storage/common/locking/record_lock.cpp

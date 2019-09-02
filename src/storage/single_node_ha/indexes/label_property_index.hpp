@@ -259,13 +259,13 @@ class LabelPropertyIndex {
     // upper bound and value type
     std::function<bool(const IndexEntry &entry)> predicate;
     if (lower && upper &&
-        !PropertyValue::AreComparableTypes(type(lower), type(upper)))
+        !AreComparablePropertyValueTypes(type(lower), type(upper)))
       predicate = [](const IndexEntry &) { return false; };
     else if (upper) {
       auto upper_index_entry =
           make_index_bound(upper, upper.value().IsExclusive());
       predicate = [upper_index_entry](const IndexEntry &entry) {
-        return PropertyValue::AreComparableTypes(
+        return AreComparablePropertyValueTypes(
                    entry.value_.type(), upper_index_entry.value_.type()) &&
                entry < upper_index_entry;
       };
@@ -273,8 +273,7 @@ class LabelPropertyIndex {
       auto lower_type = type(lower);
       make_index_bound(lower, lower.value().IsExclusive());
       predicate = [lower_type](const IndexEntry &entry) {
-        return PropertyValue::AreComparableTypes(entry.value_.type(),
-                                                 lower_type);
+        return AreComparablePropertyValueTypes(entry.value_.type(), lower_type);
       };
     }
 
@@ -367,6 +366,15 @@ class LabelPropertyIndex {
   }
 
  private:
+  static bool AreComparablePropertyValueTypes(PropertyValue::Type a,
+                                              PropertyValue::Type b) {
+    auto is_numeric = [](const PropertyValue::Type t) {
+      return t == PropertyValue::Type::Int || t == PropertyValue::Type::Double;
+    };
+
+    return a == b || (is_numeric(a) && is_numeric(b));
+  }
+
   /**
    * @brief - Contains value, vlist and vertex record to distinguish between
    * index entries.
@@ -401,7 +409,7 @@ class LabelPropertyIndex {
      * than the second one
      */
     static bool Less(const PropertyValue &a, const PropertyValue &b) {
-      if (!PropertyValue::AreComparableTypes(a.type(), b.type()))
+      if (!AreComparablePropertyValueTypes(a.type(), b.type()))
         return a.type() < b.type();
 
       if (a.type() == b.type()) {

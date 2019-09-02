@@ -1663,12 +1663,19 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
         Bound::Type::INCLUSIVE,
         {TypedValue(std::vector<TypedValue>{TypedValue(1)})});
 
+  auto are_comparable = [](PropertyValue::Type a, PropertyValue::Type b) {
+    auto is_numeric = [](const PropertyValue::Type t) {
+      return t == PropertyValue::Type::Int || t == PropertyValue::Type::Double;
+    };
+
+    return a == b || (is_numeric(a) && is_numeric(b));
+  };
+
   // when a range contains different types, nothing should get returned
   for (const auto &value_a : values)
     for (const auto &value_b : values) {
-      if (PropertyValue::AreComparableTypes(
-              static_cast<PropertyValue>(value_a).type(),
-              static_cast<PropertyValue>(value_b).type()))
+      if (are_comparable(static_cast<PropertyValue>(value_a).type(),
+                         static_cast<PropertyValue>(value_b).type()))
         continue;
       check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
             Bound::Type::INCLUSIVE, {});

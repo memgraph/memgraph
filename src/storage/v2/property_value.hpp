@@ -24,9 +24,10 @@ class PropertyValueException : public utils::BasicException {
 /// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
 class PropertyValue {
  public:
-  enum class Type : uint8_t { Null, Bool, Int, Double, String, List, Map };
+  /// A value type, each type corresponds to exactly one C++ type.
+  enum class Type : unsigned char { Null, Bool, Int, Double, String, List, Map };
 
-  // default constructor, makes Null
+  /// Make a Null value
   PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
@@ -67,133 +68,16 @@ class PropertyValue {
   }
 
   // copy constructor
-  PropertyValue(const PropertyValue &other) : type_(other.type_) {
-    switch (other.type_) {
-      case Type::Null:
-        return;
-      case Type::Bool:
-        this->bool_v = other.bool_v;
-        return;
-      case Type::Int:
-        this->int_v = other.int_v;
-        return;
-      case Type::Double:
-        this->double_v = other.double_v;
-        return;
-      case Type::String:
-        new (&string_v) std::string(other.string_v);
-        return;
-      case Type::List:
-        new (&list_v) std::vector<PropertyValue>(other.list_v);
-        return;
-      case Type::Map:
-        new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
-        return;
-    }
-  }
+  PropertyValue(const PropertyValue &other);
 
   // move constructor
-  PropertyValue(PropertyValue &&other) noexcept : type_(other.type_) {
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        this->bool_v = other.bool_v;
-        break;
-      case Type::Int:
-        this->int_v = other.int_v;
-        break;
-      case Type::Double:
-        this->double_v = other.double_v;
-        break;
-      case Type::String:
-        new (&string_v) std::string(std::move(other.string_v));
-        break;
-      case Type::List:
-        new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
-        break;
-      case Type::Map:
-        new (&map_v)
-            std::map<std::string, PropertyValue>(std::move(other.map_v));
-        break;
-    }
-
-    // reset the type of other
-    other.DestroyValue();
-    other.type_ = Type::Null;
-  }
+  PropertyValue(PropertyValue &&other) noexcept;
 
   // copy assignment
-  PropertyValue &operator=(const PropertyValue &other) {
-    if (this == &other) return *this;
-
-    DestroyValue();
-    type_ = other.type_;
-
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        this->bool_v = other.bool_v;
-        break;
-      case Type::Int:
-        this->int_v = other.int_v;
-        break;
-      case Type::Double:
-        this->double_v = other.double_v;
-        break;
-      case Type::String:
-        new (&string_v) std::string(other.string_v);
-        break;
-      case Type::List:
-        new (&list_v) std::vector<PropertyValue>(other.list_v);
-        break;
-      case Type::Map:
-        new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
-        break;
-    }
-
-    return *this;
-  }
+  PropertyValue &operator=(const PropertyValue &other);
 
   // move assignment
-  PropertyValue &operator=(PropertyValue &&other) noexcept {
-    if (this == &other) return *this;
-
-    DestroyValue();
-    type_ = other.type_;
-
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        this->bool_v = other.bool_v;
-        break;
-      case Type::Int:
-        this->int_v = other.int_v;
-        break;
-      case Type::Double:
-        this->double_v = other.double_v;
-        break;
-      case Type::String:
-        new (&string_v) std::string(std::move(other.string_v));
-        break;
-      case Type::List:
-        new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
-        break;
-      case Type::Map:
-        new (&map_v)
-            std::map<std::string, PropertyValue>(std::move(other.map_v));
-        break;
-    }
-
-    // reset the type of other
-    other.DestroyValue();
-    other.type_ = Type::Null;
-
-    return *this;
-  }
-
+  PropertyValue &operator=(PropertyValue &&other) noexcept;
   // TODO: Implement copy assignment operators for primitive types.
   // TODO: Implement copy and move assignment operators for non-primitive types.
 
@@ -237,12 +121,14 @@ class PropertyValue {
     }
     return string_v;
   }
+
   const std::vector<PropertyValue> &ValueList() const {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
     }
     return list_v;
   }
+
   const std::map<std::string, PropertyValue> &ValueMap() const {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
@@ -257,12 +143,14 @@ class PropertyValue {
     }
     return string_v;
   }
+
   std::vector<PropertyValue> &ValueList() {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
     }
     return list_v;
   }
+
   std::map<std::string, PropertyValue> &ValueMap() {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
@@ -271,30 +159,7 @@ class PropertyValue {
   }
 
  private:
-  void DestroyValue() {
-    switch (type_) {
-      // destructor for primitive types does nothing
-      case Type::Null:
-      case Type::Bool:
-      case Type::Int:
-      case Type::Double:
-        return;
-
-      // destructor for non primitive types since we used placement new
-      case Type::String:
-        // Clang fails to compile ~std::string. It seems it is a bug in some
-        // versions of clang. Using namespace std statement solves the issue.
-        using namespace std;
-        string_v.~string();
-        return;
-      case Type::List:
-        list_v.~vector();
-        return;
-      case Type::Map:
-        map_v.~map();
-        return;
-    }
-  }
+  void DestroyValue() noexcept;
 
   union {
     bool bool_v;
@@ -392,6 +257,155 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) {
       return first.ValueList() < second.ValueList();
     case PropertyValue::Type::Map:
       return first.ValueMap() < second.ValueMap();
+  }
+}
+
+inline PropertyValue::PropertyValue(const PropertyValue &other)
+    : type_(other.type_) {
+  switch (other.type_) {
+    case Type::Null:
+      return;
+    case Type::Bool:
+      this->bool_v = other.bool_v;
+      return;
+    case Type::Int:
+      this->int_v = other.int_v;
+      return;
+    case Type::Double:
+      this->double_v = other.double_v;
+      return;
+    case Type::String:
+      new (&string_v) std::string(other.string_v);
+      return;
+    case Type::List:
+      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      return;
+    case Type::Map:
+      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      return;
+  }
+}
+
+inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept
+    : type_(other.type_) {
+  switch (other.type_) {
+    case Type::Null:
+      break;
+    case Type::Bool:
+      this->bool_v = other.bool_v;
+      break;
+    case Type::Int:
+      this->int_v = other.int_v;
+      break;
+    case Type::Double:
+      this->double_v = other.double_v;
+      break;
+    case Type::String:
+      new (&string_v) std::string(std::move(other.string_v));
+      break;
+    case Type::List:
+      new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
+      break;
+    case Type::Map:
+      new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
+      break;
+  }
+
+  // reset the type of other
+  other.DestroyValue();
+  other.type_ = Type::Null;
+}
+
+inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
+  if (this == &other) return *this;
+
+  DestroyValue();
+  type_ = other.type_;
+
+  switch (other.type_) {
+    case Type::Null:
+      break;
+    case Type::Bool:
+      this->bool_v = other.bool_v;
+      break;
+    case Type::Int:
+      this->int_v = other.int_v;
+      break;
+    case Type::Double:
+      this->double_v = other.double_v;
+      break;
+    case Type::String:
+      new (&string_v) std::string(other.string_v);
+      break;
+    case Type::List:
+      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      break;
+    case Type::Map:
+      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      break;
+  }
+
+  return *this;
+}
+
+inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
+  if (this == &other) return *this;
+
+  DestroyValue();
+  type_ = other.type_;
+
+  switch (other.type_) {
+    case Type::Null:
+      break;
+    case Type::Bool:
+      this->bool_v = other.bool_v;
+      break;
+    case Type::Int:
+      this->int_v = other.int_v;
+      break;
+    case Type::Double:
+      this->double_v = other.double_v;
+      break;
+    case Type::String:
+      new (&string_v) std::string(std::move(other.string_v));
+      break;
+    case Type::List:
+      new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
+      break;
+    case Type::Map:
+      new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
+      break;
+  }
+
+  // reset the type of other
+  other.DestroyValue();
+  other.type_ = Type::Null;
+
+  return *this;
+}
+
+inline void PropertyValue::DestroyValue() noexcept {
+  switch (type_) {
+    // destructor for primitive types does nothing
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+      return;
+
+    // destructor for non primitive types since we used placement new
+    case Type::String:
+      // Clang fails to compile ~std::string. It seems it is a bug in some
+      // versions of clang. Using namespace std statement solves the issue.
+      using namespace std;
+      string_v.~string();
+      return;
+    case Type::List:
+      list_v.~vector();
+      return;
+    case Type::Map:
+      map_v.~map();
+      return;
   }
 }
 
