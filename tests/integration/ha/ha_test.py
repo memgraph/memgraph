@@ -76,6 +76,13 @@ class HaTestBase:
         self._wait_for_server(7687 + worker_id)
 
 
+    def is_worker_alive(self, worker_id):
+        assert worker_id >= 0 and worker_id < self.cluster_size, \
+                "Invalid worker ID {}".format(worker_id)
+        return self.workers[worker_id] is None or \
+                self.workers[worker_id].poll() is None
+
+
     def execute(self):
         raise NotImplementedError()
 

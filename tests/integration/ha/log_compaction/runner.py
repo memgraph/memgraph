@@ -45,7 +45,7 @@ class HaLogCompactionTest(HaTestBase):
         snapshots = os.listdir(dur)
 
         assert len(snapshots) == 1, \
-                "More than one snapshot on worker {}!".format(worker_id)
+                "More than one snapshot on worker {}!".format(worker_id + 1)
         return os.path.join(dur, snapshots[0])
 
 
@@ -55,7 +55,8 @@ class HaLogCompactionTest(HaTestBase):
             self.start_worker(worker_id)
 
         time.sleep(5)
-        self.execute_step("CREATE (:Node)\n" * 128)
+        assert self.execute_step("CREATE (:Node)\n" * 128) == 0, \
+                "Error while executing create query"
 
         self.start_worker(0)
 
@@ -68,6 +69,11 @@ class HaLogCompactionTest(HaTestBase):
             if shasum(self.get_snapshot_path(worker_id)) == snapshot_shasum:
                 success = True
                 break
+
+        # Check if the cluster is alive
+        for worker_id in range(self.cluster_size):
+            assert self.is_worker_alive(worker_id), \
+                    "Worker {} died prematurely".format(worker_id + 1)
 
         assert success, "Snapshot didn't transfer successfully"
 
