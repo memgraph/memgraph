@@ -205,7 +205,10 @@ void RaftServer::Start() {
       }
     }
 
-    AppendLogEntries(req.leader_commit, req.prev_log_index + 1, req.entries);
+    // No need to call this function for a heartbeat
+    if (!req.entries.empty()) {
+      AppendLogEntries(req.leader_commit, req.prev_log_index + 1, req.entries);
+    }
 
     // [Raft paper 5.3]
     // "Once a follower learns that a log entry is committed, it applies
@@ -1284,6 +1287,7 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
       log_[log_size_] = new_entries[i];
       disk_storage_.Put(LogEntryKey(log_size_),
                         SerializeLogEntry(new_entries[i]));
+      last_entry_term_ = new_entries[i].term;
       SetLogSize(log_size_ + 1);
     }
   }
@@ -1292,8 +1296,6 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
   if (leader_commit_index > commit_index_) {
     commit_index_ = std::min(leader_commit_index, log_size_ - 1);
   }
-
-  last_entry_term_ = GetLogEntry(log_size_ - 1).term;
 }
 
 std::string RaftServer::LogEntryKey(uint64_t index) {
