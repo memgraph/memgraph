@@ -278,7 +278,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 #define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
   bool PostVisit(BinaryOperator &op) override {                            \
-    CHECK(has_aggregation_.size() >= 2U)                                  \
+    CHECK(has_aggregation_.size() >= 2U)                                   \
         << "Expected at least 2 has_aggregation_ flags.";                  \
     /* has_aggregation_ stack is reversed, last result is from the 2nd */  \
     /* expression. */                                                      \
@@ -347,6 +347,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool Visit(ParameterLookup &) override {
     has_aggregation_.emplace_back(false);
+    return true;
+  }
+
+  bool PostVisit(RegexMatch &regex_match) override {
+    CHECK(has_aggregation_.size() >= 2U)
+        << "Expected 2 has_aggregation_ flags for RegexMatch arguments";
+    bool has_aggr = has_aggregation_.back();
+    has_aggregation_.pop_back();
+    has_aggregation_.back() |= has_aggr;
     return true;
   }
 
