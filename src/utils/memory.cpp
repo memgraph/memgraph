@@ -256,6 +256,8 @@ void Pool::Release() {
     GetUpstreamResource()->Deallocate(chunk.data, data_size, alignment);
   }
   chunks_.clear();
+  last_alloc_chunk_ = nullptr;
+  last_dealloc_chunk_ = nullptr;
 }
 
 }  // namespace impl
@@ -363,6 +365,8 @@ void PoolResource::Release() {
     GetUpstreamResource()->Deallocate(big_block.data, big_block.bytes,
                                       big_block.alignment);
   unpooled_.clear();
+  last_alloc_pool_ = nullptr;
+  last_dealloc_pool_ = nullptr;
 }
 
 // PoolResource END
