@@ -583,7 +583,7 @@ class QueryPlanExpandVariable : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba_);
-    std::vector<utils::AVector<TypedValue>> results;
+    std::vector<utils::pmr::vector<TypedValue>> results;
     while (cursor->Pull(frame, context))
       results.emplace_back(frame[symbol].ValueList());
     return results;

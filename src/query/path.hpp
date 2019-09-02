@@ -8,6 +8,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace query {
 
@@ -167,9 +168,9 @@ class Path {
 
  private:
   // Contains all the vertices in the path.
-  std::vector<VertexAccessor, utils::Allocator<VertexAccessor>> vertices_;
+  utils::pmr::vector<VertexAccessor> vertices_;
   // Contains all the edges in the path (one less then there are vertices).
-  std::vector<EdgeAccessor, utils::Allocator<EdgeAccessor>> edges_;
+  utils::pmr::vector<EdgeAccessor> edges_;
 };
 
 }  // namespace query

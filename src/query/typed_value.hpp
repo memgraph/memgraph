@@ -15,6 +15,9 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace query {
 
@@ -68,22 +71,15 @@ class TypedValue {
     Path
   };
 
-  /** Concrete value type of character string */
-  using TString =
-      std::basic_string<char, std::char_traits<char>, utils::Allocator<char>>;
-
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
   // invokes undefined behaviour. The libstdc++-8.3.0 we are using supports
   // std::map with incomplete type, but this is still murky territory. Note that
   // since C++17, std::vector is explicitly said to support incomplete types.
 
-  // Use transparent std::less<void> which forwards to `operator<`, so that it's
-  // possible to use `find` with C-style (null terminated) strings without
-  // actually constructing (and allocating) a key.
-  using TMap = std::map<TString, TypedValue, std::less<void>,
-                        utils::Allocator<std::pair<const TString, TypedValue>>>;
-  using TVector = std::vector<TypedValue, utils::Allocator<TypedValue>>;
+  using TString = utils::pmr::string;
+  using TVector = utils::pmr::vector<TypedValue>;
+  using TMap = utils::pmr::map<utils::pmr::string, TypedValue>;
 
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;

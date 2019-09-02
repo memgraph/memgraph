@@ -262,9 +262,6 @@ bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
   return !(a == b);
 }
 
-template <class T>
-using AVector = std::vector<T, Allocator<T>>;
-
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {
  public:
@@ -410,6 +407,9 @@ class MonotonicBufferResource final : public MemoryResource {
 
 namespace impl {
 
+template <class T>
+using AVector = std::vector<T, Allocator<T>>;
+
 /// Holds a number of Chunks each serving blocks of particular size. When a
 /// Chunk runs out of available blocks, a new Chunk is allocated. The naming is
 /// taken from `libstdc++` implementation, but the implementation details are
@@ -532,11 +532,11 @@ class PoolResource final : public MemoryResource {
   // `impl::Pool` stores a `chunks_` vector.
 
   // Pools are sorted by bound_size_, ascending.
-  AVector<impl::Pool> pools_;
+  impl::AVector<impl::Pool> pools_;
   impl::Pool *last_alloc_pool_{nullptr};
   impl::Pool *last_dealloc_pool_{nullptr};
   // Unpooled BigBlocks are sorted by data pointer.
-  AVector<BigBlock> unpooled_;
+  impl::AVector<BigBlock> unpooled_;
   size_t max_blocks_per_chunk_;
   size_t max_block_size_;
 

@@ -27,6 +27,9 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
+#include "utils/pmr/unordered_map.hpp"
+#include "utils/pmr/unordered_set.hpp"
+#include "utils/pmr/vector.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -667,7 +670,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
   };
 
   // prepare a vector of elements we'll pass to the itertools
-  utils::AVector<decltype(wrapper(direction, vertex.in()))> chain_elements(
+  utils::pmr::vector<decltype(wrapper(direction, vertex.in()))> chain_elements(
       memory);
 
   if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0) {
@@ -752,9 +755,9 @@ class ExpandVariableCursor : public Cursor {
       ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
                        self_.common_.edge_types, utils::NewDeleteResource()));
 
-  utils::AVector<ExpandEdges> edges_;
+  utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
-  utils::AVector<decltype(edges_.begin()->begin())> edges_it_;
+  utils::pmr::vector<decltype(edges_.begin()->begin())> edges_it_;
 
   /**
    * Helper function that Pulls from the input vertex and
@@ -811,9 +814,8 @@ class ExpandVariableCursor : public Cursor {
   }
 
   // Helper function for appending an edge to the list on the frame.
-  void AppendEdge(
-      const EdgeAccessor &new_edge,
-      std::vector<TypedValue, utils::Allocator<TypedValue>> *edges_on_frame) {
+  void AppendEdge(const EdgeAccessor &new_edge,
+                  utils::pmr::vector<TypedValue> *edges_on_frame) {
     // We are placing an edge on the frame. It is possible that there already
     // exists an edge on the frame for this level. If so first remove it.
     DCHECK(edges_.size() > 0) << "Edges are empty";
@@ -987,17 +989,14 @@ class STShortestPathCursor : public query::plan::Cursor {
   const ExpandVariable &self_;
   UniqueCursorPtr input_cursor_;
 
-  using VertexEdgeMapT = std::unordered_map<
-      VertexAccessor, std::optional<EdgeAccessor>, std::hash<VertexAccessor>,
-      std::equal_to<>,
-      utils::Allocator<
-          std::pair<const VertexAccessor, std::optional<EdgeAccessor>>>>;
+  using VertexEdgeMapT =
+      utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
   void ReconstructPath(const VertexAccessor &midpoint,
                        const VertexEdgeMapT &in_edge,
                        const VertexEdgeMapT &out_edge, Frame *frame,
                        utils::MemoryResource *pull_memory) {
-    utils::AVector<TypedValue> result(pull_memory);
+    utils::pmr::vector<TypedValue> result(pull_memory);
     auto last_vertex = midpoint;
     while (true) {
       const auto &last_edge = in_edge.at(last_vertex);
@@ -1049,13 +1048,13 @@ class STShortestPathCursor : public query::plan::Cursor {
     auto *pull_memory = evaluator->GetMemoryResource();
     // Holds vertices at the current level of expansion from the source
     // (sink).
-    utils::AVector<VertexAccessor> source_frontier(pull_memory);
-    utils::AVector<VertexAccessor> sink_frontier(pull_memory);
+    utils::pmr::vector<VertexAccessor> source_frontier(pull_memory);
+    utils::pmr::vector<VertexAccessor> sink_frontier(pull_memory);
 
     // Holds vertices we can expand to from `source_frontier`
     // (`sink_frontier`).
-    utils::AVector<VertexAccessor> source_next(pull_memory);
-    utils::AVector<VertexAccessor> sink_next(pull_memory);
+    utils::pmr::vector<VertexAccessor> source_next(pull_memory);
+    utils::pmr::vector<VertexAccessor> sink_next(pull_memory);
 
     // Maps each vertex we visited expanding from the source (sink) to the
     // edge used. Necessary for path reconstruction.
@@ -1279,7 +1278,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       // create the frame value for the edges
       auto *pull_memory = context.evaluation_context.memory;
-      utils::AVector<TypedValue> edge_list(pull_memory);
+      utils::pmr::vector<TypedValue> edge_list(pull_memory);
       edge_list.emplace_back(expansion.first);
       auto last_vertex = expansion.second;
       while (true) {
@@ -1330,14 +1329,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   // maps vertices to the edge they got expanded from. it is an optional
   // edge because the root does not get expanded from anything.
   // contains visited vertices as well as those scheduled to be visited.
-  std::unordered_map<VertexAccessor, std::optional<EdgeAccessor>,
-                     std::hash<VertexAccessor>, std::equal_to<>,
-                     utils::Allocator<std::pair<const VertexAccessor,
-                                                std::optional<EdgeAccessor>>>>
+  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>
       processed_;
   // edge/vertex pairs we have yet to visit, for current and next depth
-  utils::AVector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
-  utils::AVector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
+  utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
+  utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
@@ -1490,7 +1486,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         auto last_vertex = current_vertex;
         auto last_depth = current_depth;
         auto *pull_memory = context.evaluation_context.memory;
-        utils::AVector<TypedValue> edge_list(pull_memory);
+        utils::pmr::vector<TypedValue> edge_list(pull_memory);
         while (true) {
           // Origin_vertex must be in previous.
           const auto &previous_edge =
@@ -1553,23 +1549,17 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   };
 
   // Maps vertices to weights they got in expansion.
-  std::unordered_map<
-      std::pair<VertexAccessor, int>, TypedValue, WspStateHash, std::equal_to<>,
-      utils::Allocator<
-          std::pair<const std::pair<VertexAccessor, int>, TypedValue>>>
+  utils::pmr::unordered_map<std::pair<VertexAccessor, int>, TypedValue,
+                            WspStateHash>
       total_cost_;
 
   // Maps vertices to edges used to reach them.
-  std::unordered_map<std::pair<VertexAccessor, int>,
-                     std::optional<EdgeAccessor>, WspStateHash, std::equal_to<>,
-                     utils::Allocator<std::pair<
-                         const std::pair<VertexAccessor, int>, TypedValue>>>
+  utils::pmr::unordered_map<std::pair<VertexAccessor, int>,
+                            std::optional<EdgeAccessor>, WspStateHash>
       previous_;
 
   // Keeps track of vertices for which we yielded a path already.
-  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<>,
-                     utils::Allocator<VertexAccessor>>
-      yielded_vertices_;
+  utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
 
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
@@ -1584,7 +1574,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
   std::priority_queue<
       std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>,
-      utils::AVector<
+      utils::pmr::vector<
           std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>>,
       PriorityQueueComparator>
       pq_;
@@ -1829,7 +1819,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   // collect expressions results so edges can get deleted before vertices
   // this is necessary because an edge that gets deleted could block vertex
   // deletion
-  utils::AVector<TypedValue> expression_results(pull_memory);
+  utils::pmr::vector<TypedValue> expression_results(pull_memory);
   expression_results.reserve(self_.expressions_.size());
   for (Expression *expression : self_.expressions_) {
     expression_results.emplace_back(expression->Accept(evaluator));
@@ -2291,7 +2281,7 @@ class AccumulateCursor : public Cursor {
     // cache all the input
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
-        std::vector<TypedValue, utils::Allocator<TypedValue>> row(
+        utils::pmr::vector<TypedValue> row(
             cache_.get_allocator().GetMemoryResource());
         row.reserve(self_.symbols_.size());
         for (const Symbol &symbol : self_.symbols_)
@@ -2327,10 +2317,7 @@ class AccumulateCursor : public Cursor {
  private:
   const Accumulate &self_;
   const UniqueCursorPtr input_cursor_;
-  std::vector<
-      std::vector<TypedValue, utils::Allocator<TypedValue>>,
-      utils::Allocator<std::vector<TypedValue, utils::Allocator<TypedValue>>>>
-      cache_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
 };
@@ -2444,12 +2431,12 @@ class AggregateCursor : public Cursor {
 
     // how many input rows have been aggregated in respective values_ element so
     // far
-    std::vector<int, utils::Allocator<int>> counts_;
+    utils::pmr::vector<int> counts_;
     // aggregated values. Initially Null (until at least one input row with a
     // valid value gets processed)
-    std::vector<TypedValue, utils::Allocator<TypedValue>> values_;
+    utils::pmr::vector<TypedValue> values_;
     // remember values.
-    std::vector<TypedValue, utils::Allocator<TypedValue>> remember_;
+    utils::pmr::vector<TypedValue> remember_;
   };
 
   const Aggregate &self_;
@@ -2457,17 +2444,13 @@ class AggregateCursor : public Cursor {
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
-  std::unordered_map<
-      std::vector<TypedValue, utils::Allocator<TypedValue>>, AggregationValue,
-      // use FNV collection hashing specialized for a vector of TypedValues
-      utils::FnvCollection<
-          std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
-          TypedValue::Hash>,
-      // custom equality
-      TypedValueVectorEqual,
-      utils::Allocator<
-          std::pair<const std::vector<TypedValue, utils::Allocator<TypedValue>>,
-                    AggregationValue>>>
+  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, AggregationValue,
+                            // use FNV collection hashing specialized for a
+                            // vector of TypedValues
+                            utils::FnvCollection<utils::pmr::vector<TypedValue>,
+                                                 TypedValue, TypedValue::Hash>,
+                            // custom equality
+                            TypedValueVectorEqual>
       aggregation_;
   // iterator over the accumulated cache
   decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
@@ -2513,7 +2496,7 @@ class AggregateCursor : public Cursor {
    */
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
     auto *mem = aggregation_.get_allocator().GetMemoryResource();
-    std::vector<TypedValue, utils::Allocator<TypedValue>> group_by(mem);
+    utils::pmr::vector<TypedValue> group_by(mem);
     group_by.reserve(self_.group_by_.size());
     for (Expression *expression : self_.group_by_) {
       group_by.emplace_back(expression->Accept(*evaluator));
@@ -2851,14 +2834,14 @@ class OrderByCursor : public Cursor {
       auto *mem = cache_.get_allocator().GetMemoryResource();
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
-        std::vector<TypedValue, utils::Allocator<TypedValue>> order_by(mem);
+        utils::pmr::vector<TypedValue> order_by(mem);
         order_by.reserve(self_.order_by_.size());
         for (auto expression_ptr : self_.order_by_) {
           order_by.emplace_back(expression_ptr->Accept(evaluator));
         }
 
         // collect the output elements
-        std::vector<TypedValue, utils::Allocator<TypedValue>> output(mem);
+        utils::pmr::vector<TypedValue> output(mem);
         output.reserve(self_.output_symbols_.size());
         for (const Symbol &output_sym : self_.output_symbols_)
           output.emplace_back(frame[output_sym]);
@@ -2901,8 +2884,8 @@ class OrderByCursor : public Cursor {
 
  private:
   struct Element {
-    std::vector<TypedValue, utils::Allocator<TypedValue>> order_by;
-    std::vector<TypedValue, utils::Allocator<TypedValue>> remember;
+    utils::pmr::vector<TypedValue> order_by;
+    utils::pmr::vector<TypedValue> remember;
   };
 
   const OrderBy &self_;
@@ -2910,7 +2893,7 @@ class OrderByCursor : public Cursor {
   bool did_pull_all_{false};
   // a cache of elements pulled from the input
   // the cache is filled and sorted (only on first elem) on first Pull
-  std::vector<Element, utils::Allocator<Element>> cache_;
+  utils::pmr::vector<Element> cache_;
   // iterator over the cache_, maintains state between Pulls
   decltype(cache_.begin()) cache_it_ = cache_.begin();
 };
@@ -3150,7 +3133,7 @@ class UnwindCursor : public Cursor {
   const Unwind &self_;
   const UniqueCursorPtr input_cursor_;
   // typed values we are unwinding and yielding
-  std::vector<TypedValue, utils::Allocator<TypedValue>> input_value_;
+  utils::pmr::vector<TypedValue> input_value_;
   // current position in input_value_
   decltype(input_value_)::iterator input_value_it_ = input_value_.end();
 };
@@ -3172,7 +3155,7 @@ class DistinctCursor : public Cursor {
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      std::vector<TypedValue, utils::Allocator<TypedValue>> row(
+      utils::pmr::vector<TypedValue> row(
           seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
       for (const auto &symbol : self_.value_symbols_)
@@ -3192,14 +3175,12 @@ class DistinctCursor : public Cursor {
   const Distinct &self_;
   const UniqueCursorPtr input_cursor_;
   // a set of already seen rows
-  std::unordered_set<
-      std::vector<TypedValue, utils::Allocator<TypedValue>>,
-      // use FNV collection hashing specialized for a vector of TypedValue
-      utils::FnvCollection<
-          std::vector<TypedValue, utils::Allocator<TypedValue>>, TypedValue,
-          TypedValue::Hash>,
-      TypedValueVectorEqual,
-      utils::Allocator<std::vector<TypedValue, utils::Allocator<TypedValue>>>>
+  utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                            // use FNV collection hashing specialized for a
+                            // vector of TypedValue
+                            utils::FnvCollection<utils::pmr::vector<TypedValue>,
+                                                 TypedValue, TypedValue::Hash>,
+                            TypedValueVectorEqual>
       seen_rows_;
 };
 
@@ -3266,10 +3247,8 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Union");
 
-  std::unordered_map<std::string, TypedValue, std::hash<std::string>,
-                     std::equal_to<>,
-                     utils::Allocator<std::pair<const std::string, TypedValue>>>
-      results(context.evaluation_context.memory);
+  utils::pmr::unordered_map<std::string, TypedValue> results(
+      context.evaluation_context.memory);
   if (left_cursor_->Pull(frame, context)) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
@@ -3395,11 +3374,12 @@ class CartesianCursor : public Cursor {
 
  private:
   const Cartesian &self_;
-  utils::AVector<utils::AVector<TypedValue>> left_op_frames_;
-  utils::AVector<TypedValue> right_op_frame_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> left_op_frames_;
+  utils::pmr::vector<TypedValue> right_op_frame_;
   const UniqueCursorPtr left_op_cursor_;
   const UniqueCursorPtr right_op_cursor_;
-  utils::AVector<utils::AVector<TypedValue>>::iterator left_op_frames_it_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator
+      left_op_frames_it_;
   bool cartesian_pull_initialized_{false};
 };
 

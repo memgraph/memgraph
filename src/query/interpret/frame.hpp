@@ -7,6 +7,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace query {
 
@@ -43,7 +44,7 @@ class Frame {
 
  private:
   int64_t size_;
-  utils::AVector<TypedValue> elems_;
+  utils::pmr::vector<TypedValue> elems_;
 };
 
 }  // namespace query
