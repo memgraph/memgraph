@@ -83,7 +83,7 @@ class TransactionEngine final {
       results_.emplace((*interpreter_)(query, *db_accessor_, params,
                                        in_explicit_transaction_,
                                        &execution_memory_));
-      return results_->header();
+      return std::move(results_->header());
     } catch (const utils::BasicException &) {
       AbortCommand();
       throw;

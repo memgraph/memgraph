@@ -84,9 +84,9 @@ class Interpreter {
           plan_(plan),
           cursor_(plan_->plan().MakeCursor(execution_memory)),
           frame_(plan_->symbol_table().max_position(), execution_memory),
-          output_symbols_(output_symbols),
-          header_(header),
-          summary_(summary),
+          output_symbols_(std::move(output_symbols)),
+          header_(std::move(header)),
+          summary_(std::move(summary)),
           should_abort_query_(should_abort_query) {
       ctx_.is_profile_query = is_profile_query;
       ctx_.symbol_table = plan_->symbol_table();
@@ -161,8 +161,14 @@ class Interpreter {
       while (Pull(stream)) continue;
     }
 
-    const std::vector<std::string> &header() { return header_; }
-    const std::map<std::string, TypedValue> &summary() { return summary_; }
+    const std::vector<std::string> &header() const & { return header_; }
+    std::vector<std::string> &&header() && { return std::move(header_); }
+    const std::map<std::string, TypedValue> &summary() const & {
+      return summary_;
+    }
+    std::map<std::string, TypedValue> &&summary() && {
+      return std::move(summary_);
+    }
 
     bool ShouldAbortQuery() const { return should_abort_query_; }
 
