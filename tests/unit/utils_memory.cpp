@@ -219,6 +219,7 @@ TEST(PoolResource, SingleSmallBlockAllocations) {
   EXPECT_EQ(test_mem.delete_count_, 0U);
   mem.Release();
   EXPECT_GE(test_mem.delete_count_, 2U);
+  CheckAllocation(&mem, 64U, 1U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -241,6 +242,7 @@ TEST(PoolResource, MultipleSmallBlockAllocations) {
   EXPECT_TRUE(test_mem.new_count_ >= 3U && test_mem.new_count_ <= 6U);
   mem.Release();
   EXPECT_GE(test_mem.delete_count_, 6U);
+  CheckAllocation(&mem, 64U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -260,6 +262,7 @@ TEST(PoolResource, BigBlockAllocations) {
   EXPECT_GE(test_mem.delete_count_, 1U);
   mem.Release();
   EXPECT_GE(test_mem.delete_count_, 3U);
+  CheckAllocation(&mem, max_block_size + 1, 1U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
