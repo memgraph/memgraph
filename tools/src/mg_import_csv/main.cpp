@@ -158,7 +158,7 @@ class MemgraphNodeIdMap {
   }
 
  private:
-  gid::Generator generator_;
+  storage::GidGenerator generator_;
   std::unordered_map<NodeId, int64_t> node_id_to_mg_;
 };
 
@@ -274,7 +274,7 @@ void WriteNodeRow(
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const std::vector<std::string> &additional_labels,
     MemgraphNodeIdMap &node_id_map) {
-  std::optional<gid::Gid> id;
+  std::optional<storage::Gid> id;
   std::vector<std::string> labels;
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
@@ -333,7 +333,7 @@ auto PassNodes(
 void WriteRelationshipsRow(
     communication::bolt::BaseEncoder<HashedFileWriter> *encoder,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
-    const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id) {
+    const MemgraphNodeIdMap &node_id_map, storage::Gid relationship_id) {
   std::optional<int64_t> start_id;
   std::optional<int64_t> end_id;
   std::optional<std::string> relationship_type;
@@ -379,7 +379,7 @@ void WriteRelationshipsRow(
 int PassRelationships(
     communication::bolt::BaseEncoder<HashedFileWriter> *encoder,
     const std::string &relationships_path, const MemgraphNodeIdMap &node_id_map,
-    gid::Generator &relationship_id_generator) {
+    storage::GidGenerator &relationship_id_generator) {
   std::ifstream relationships_file(relationships_path);
   CHECK(relationships_file)
       << fmt::format("Unable to open '{}'", relationships_path);
@@ -406,7 +406,7 @@ void Convert(const std::vector<std::string> &nodes,
     communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t node_count = 0;
     int64_t edge_count = 0;
-    gid::Generator relationship_id_generator;
+    storage::GidGenerator relationship_id_generator;
     MemgraphNodeIdMap node_id_map;
     // Snapshot file has the following contents in order:
     //   1) Magic number.

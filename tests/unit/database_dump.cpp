@@ -126,7 +126,7 @@ class DatabaseEnvironment {
 
   DatabaseState GetState() {
     // Capture all vertices
-    std::map<gid::Gid, int64_t> gid_mapping;
+    std::map<storage::Gid, int64_t> gid_mapping;
     std::set<DatabaseState::Vertex> vertices;
     auto dba = db_.Access();
     for (const auto &vertex : dba.Vertices(false)) {

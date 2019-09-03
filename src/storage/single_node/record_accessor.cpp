@@ -91,7 +91,7 @@ database::GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 }
 
 template <typename TRecord>
-gid::Gid RecordAccessor<TRecord>::gid() const {
+storage::Gid RecordAccessor<TRecord>::gid() const {
   return address_->gid_;
 }
 

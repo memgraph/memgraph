@@ -93,7 +93,7 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_->wal(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::optional<gid::Gid> requested_gid) {
+    std::optional<storage::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   auto gid = db_->storage().vertex_generator_.Next(requested_gid);
@@ -110,7 +110,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 }
 
 std::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
-    gid::Gid gid, bool current_state) {
+    storage::Gid gid, bool current_state) {
   VertexAccessor record_accessor(db_->storage().LocalAddress<Vertex>(gid),
                                  *this);
   if (!record_accessor.Visible(transaction(), current_state))
@@ -118,21 +118,22 @@ std::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
   return record_accessor;
 }
 
-VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
+VertexAccessor GraphDbAccessor::FindVertex(storage::Gid gid,
+                                           bool current_state) {
   auto found = FindVertexOptional(gid, current_state);
   CHECK(found) << "Unable to find vertex for id: " << gid;
   return *found;
 }
 
 std::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
-    gid::Gid gid, bool current_state) {
+    storage::Gid gid, bool current_state) {
   EdgeAccessor record_accessor(db_->storage().LocalAddress<Edge>(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::nullopt;
   return record_accessor;
 }
 
-EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {
+EdgeAccessor GraphDbAccessor::FindEdge(storage::Gid gid, bool current_state) {
   auto found = FindEdgeOptional(gid, current_state);
   CHECK(found) << "Unable to find edge for id: " << gid;
   return *found;
@@ -450,7 +451,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
-    std::optional<gid::Gid> requested_gid) {
+    std::optional<storage::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto gid = db_->storage().edge_generator_.Next(requested_gid);
   auto edge_vlist = new mvcc::VersionList<Edge>(

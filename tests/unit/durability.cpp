@@ -357,7 +357,7 @@ class Durability : public ::testing::Test {
 // Tests wal encoder to encode correctly non-CRUD deltas, and that all deltas
 // are written in the correct order
 TEST_F(Durability, WalEncoding) {
-  gid::Generator generator;
+  storage::GidGenerator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   {
@@ -444,7 +444,7 @@ TEST_F(Durability, WalEncoding) {
 }
 
 TEST_F(Durability, SnapshotEncoding) {
-  gid::Generator generator;
+  storage::GidGenerator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();
@@ -511,7 +511,7 @@ TEST_F(Durability, SnapshotEncoding) {
   ASSERT_TRUE(dv.IsList());
   ASSERT_EQ(dv.ValueList().size(), 0);
 
-  std::map<gid::Gid, communication::bolt::Vertex> decoded_vertices;
+  std::map<storage::Gid, communication::bolt::Vertex> decoded_vertices;
 
   // Decode vertices.
   for (int i = 0; i < vertex_count; ++i) {
@@ -530,7 +530,7 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(decoded_vertices[gid2].labels.size(), 0);
   EXPECT_EQ(decoded_vertices[gid2].properties.size(), 2);
 
-  std::map<gid::Gid, communication::bolt::Edge> decoded_edges;
+  std::map<storage::Gid, communication::bolt::Edge> decoded_edges;
 
   // Decode edges.
   for (int i = 0; i < edge_count; ++i) {

@@ -2,7 +2,7 @@
 
 #include "storage/common/locking/record_lock.hpp"
 #include "storage/common/mvcc/exceptions.hpp"
-#include "storage/single_node_ha/gid.hpp"
+#include "storage/common/types/types.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
@@ -22,7 +22,7 @@ class VersionList {
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(const tx::Transaction &t, gid::Gid gid, Args &&... args)
+  VersionList(const tx::Transaction &t, storage::Gid gid, Args &&... args)
       : gid_(gid) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
@@ -215,7 +215,7 @@ class VersionList {
     record->mark_expired(t);
   }
 
-  const gid::Gid gid_;
+  const storage::Gid gid_;
 
   int64_t cypher_id() { return utils::MemcpyCast<int64_t>(gid_); }
 

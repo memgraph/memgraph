@@ -21,7 +21,7 @@ class RecordAccessor;
 namespace storage::constraints {
 namespace impl {
 struct LabelPropertyPair {
-  LabelPropertyPair(gid::Gid gid, const std::vector<PropertyValue> &v,
+  LabelPropertyPair(storage::Gid gid, const std::vector<PropertyValue> &v,
                     const tx::Transaction &t)
       : values(v), record(gid, t) {}
 

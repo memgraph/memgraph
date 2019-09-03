@@ -39,13 +39,13 @@ class Storage {
   Storage &operator=(const Storage &) = delete;
   Storage &operator=(Storage &&) = delete;
 
-  gid::Generator &VertexGenerator() { return vertex_generator_; }
-  gid::Generator &EdgeGenerator() { return edge_generator_; }
+  storage::GidGenerator &VertexGenerator() { return vertex_generator_; }
+  storage::GidGenerator &EdgeGenerator() { return edge_generator_; }
   LabelPropertyIndex &label_property_index() { return label_property_index_; }
 
   /// Gets the local address for the given gid. Fails if not present.
   template <typename TRecord>
-  mvcc::VersionList<TRecord> *LocalAddress(gid::Gid gid) const {
+  mvcc::VersionList<TRecord> *LocalAddress(storage::Gid gid) const {
     const auto &map = GetMap<TRecord>();
     auto access = map.access();
     auto found = access.find(gid);
@@ -65,35 +65,36 @@ class Storage {
   friend class GraphDb;
   friend class StorageGc;
 
-  gid::Generator vertex_generator_;
-  gid::Generator edge_generator_;
+  storage::GidGenerator vertex_generator_;
+  storage::GidGenerator edge_generator_;
 
   // main storage for the graph
-  ConcurrentMap<gid::Gid, mvcc::VersionList<Vertex> *> vertices_;
-  ConcurrentMap<gid::Gid, mvcc::VersionList<Edge> *> edges_;
+  ConcurrentMap<storage::Gid, mvcc::VersionList<Vertex> *> vertices_;
+  ConcurrentMap<storage::Gid, mvcc::VersionList<Edge> *> edges_;
 
   // indexes
   KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
 
   // unique constraints
-	storage::constraints::UniqueConstraints unique_constraints_;
+  storage::constraints::UniqueConstraints unique_constraints_;
 
   std::vector<std::string> properties_on_disk_;
 
   /// Gets the Vertex/Edge main storage map.
   template <typename TRecord>
-  const ConcurrentMap<gid::Gid, mvcc::VersionList<TRecord> *> &GetMap() const;
+  const ConcurrentMap<storage::Gid, mvcc::VersionList<TRecord> *> &GetMap()
+      const;
 };
 
 template <>
-inline const ConcurrentMap<gid::Gid, mvcc::VersionList<Vertex> *>
+inline const ConcurrentMap<storage::Gid, mvcc::VersionList<Vertex> *>
     &Storage::GetMap() const {
   return vertices_;
 }
 
 template <>
-inline const ConcurrentMap<gid::Gid, mvcc::VersionList<Edge> *>
+inline const ConcurrentMap<storage::Gid, mvcc::VersionList<Edge> *>
     &Storage::GetMap() const {
   return edges_;
 }

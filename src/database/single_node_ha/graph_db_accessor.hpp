@@ -95,7 +95,7 @@ class GraphDbAccessor {
    * @return See above.
    */
   VertexAccessor InsertVertex(
-      std::optional<gid::Gid> requested_gid = std::nullopt);
+      std::optional<storage::Gid> requested_gid = std::nullopt);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -131,7 +131,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::optional<VertexAccessor> FindVertexOptional(gid::Gid gid,
+  std::optional<VertexAccessor> FindVertexOptional(storage::Gid gid,
                                                    bool current_state);
 
   /**
@@ -145,7 +145,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  VertexAccessor FindVertex(gid::Gid gid, bool current_state);
+  VertexAccessor FindVertex(storage::Gid gid, bool current_state);
 
   /**
    * Returns iterable over accessors to all the vertices in the graph
@@ -305,9 +305,9 @@ class GraphDbAccessor {
    *
    * @return  An accessor to the edge.
    */
-  EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
-                          storage::EdgeType type,
-                          std::optional<gid::Gid> requested_gid = std::nullopt);
+  EdgeAccessor InsertEdge(
+      VertexAccessor & from, VertexAccessor & to, storage::EdgeType type,
+      std::optional<storage::Gid> requested_gid = std::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -335,7 +335,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::optional<EdgeAccessor> FindEdgeOptional(gid::Gid gid,
+  std::optional<EdgeAccessor> FindEdgeOptional(storage::Gid gid,
                                                bool current_state);
 
   /**
@@ -349,7 +349,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  EdgeAccessor FindEdge(gid::Gid gid, bool current_state);
+  EdgeAccessor FindEdge(storage::Gid gid, bool current_state);
 
   /**
    * Returns iterable over accessors to all the edges in the graph

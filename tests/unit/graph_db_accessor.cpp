@@ -19,7 +19,7 @@ auto Count(TIterable iterable) {
 TEST(GraphDbAccessorTest, InsertVertex) {
   GraphDb db;
   auto accessor = db.Access();
-  gid::Generator generator;
+  storage::GidGenerator generator;
 
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
 

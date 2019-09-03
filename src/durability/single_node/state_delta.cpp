@@ -21,15 +21,15 @@ StateDelta StateDelta::TxAbort(tx::TransactionId tx_id) {
 }
 
 StateDelta StateDelta::CreateVertex(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id) {
+                                    storage::Gid vertex_id) {
   StateDelta op(StateDelta::Type::CREATE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
   return op;
 }
 
-StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
-                                  gid::Gid vertex_from_id,
-                                  gid::Gid vertex_to_id,
+StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, storage::Gid edge_id,
+                                  storage::Gid vertex_from_id,
+                                  storage::Gid vertex_to_id,
                                   storage::EdgeType edge_type,
                                   const std::string &edge_type_name) {
   StateDelta op(StateDelta::Type::CREATE_EDGE, tx_id);
@@ -42,7 +42,7 @@ StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
 }
 
 StateDelta StateDelta::PropsSetVertex(tx::TransactionId tx_id,
-                                      gid::Gid vertex_id,
+                                      storage::Gid vertex_id,
                                       storage::Property property,
                                       const std::string &property_name,
                                       const PropertyValue &value) {
@@ -54,7 +54,8 @@ StateDelta StateDelta::PropsSetVertex(tx::TransactionId tx_id,
   return op;
 }
 
-StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id, gid::Gid edge_id,
+StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id,
+                                    storage::Gid edge_id,
                                     storage::Property property,
                                     const std::string &property_name,
                                     const PropertyValue &value) {
@@ -66,7 +67,7 @@ StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id, gid::Gid edge_id,
   return op;
 }
 
-StateDelta StateDelta::AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
+StateDelta StateDelta::AddLabel(tx::TransactionId tx_id, storage::Gid vertex_id,
                                 storage::Label label,
                                 const std::string &label_name) {
   StateDelta op(StateDelta::Type::ADD_LABEL, tx_id);
@@ -76,8 +77,8 @@ StateDelta StateDelta::AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
-                                   storage::Label label,
+StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id,
+                                   storage::Gid vertex_id, storage::Label label,
                                    const std::string &label_name) {
   StateDelta op(StateDelta::Type::REMOVE_LABEL, tx_id);
   op.vertex_id = vertex_id;
@@ -86,15 +87,16 @@ StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveVertex(tx::TransactionId tx_id, gid::Gid vertex_id,
-                                    bool check_empty) {
+StateDelta StateDelta::RemoveVertex(tx::TransactionId tx_id,
+                                    storage::Gid vertex_id, bool check_empty) {
   StateDelta op(StateDelta::Type::REMOVE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
   op.check_empty = check_empty;
   return op;
 }
 
-StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id, gid::Gid edge_id) {
+StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id,
+                                  storage::Gid edge_id) {
   StateDelta op(StateDelta::Type::REMOVE_EDGE, tx_id);
   op.edge_id = edge_id;
   return op;

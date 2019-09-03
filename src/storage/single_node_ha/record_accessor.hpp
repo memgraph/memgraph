@@ -7,7 +7,6 @@
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/property_value_store.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/single_node_ha/gid.hpp"
 
 namespace database {
 class GraphDbAccessor;
@@ -80,7 +79,7 @@ class RecordAccessor {
    * and edges have separate ID domains, there can be a vertex with ID X and an
    * edge with the same id.
    */
-  gid::Gid gid() const;
+  storage::Gid gid() const;
 
   mvcc::VersionList<TRecord> *address() const;
 

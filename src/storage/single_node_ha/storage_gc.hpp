@@ -5,10 +5,10 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "raft/raft_server.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/deferred_deleter.hpp"
 #include "storage/single_node_ha/edge.hpp"
 #include "storage/single_node_ha/garbage_collector.hpp"
-#include "storage/single_node_ha/gid.hpp"
 #include "storage/single_node_ha/mvcc/version_list.hpp"
 #include "storage/single_node_ha/storage.hpp"
 #include "storage/single_node_ha/vertex.hpp"
@@ -30,11 +30,11 @@ class StorageGc {
     using VlistT = mvcc::VersionList<TRecord>;
 
    public:
-    explicit MvccDeleter(ConcurrentMap<gid::Gid, VlistT *> &collection)
+    explicit MvccDeleter(ConcurrentMap<storage::Gid, VlistT *> &collection)
         : gc_(collection, record_deleter_, version_list_deleter_) {}
     DeferredDeleter<TRecord> record_deleter_;
     DeferredDeleter<mvcc::VersionList<TRecord>> version_list_deleter_;
-    GarbageCollector<ConcurrentMap<gid::Gid, VlistT *>, TRecord> gc_;
+    GarbageCollector<ConcurrentMap<storage::Gid, VlistT *>, TRecord> gc_;
   };
 
  public:

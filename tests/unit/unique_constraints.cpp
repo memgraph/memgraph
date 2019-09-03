@@ -154,7 +154,7 @@ TEST_F(UniqueConstraintsTest, InsertAbortInsert) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(UniqueConstraintsTest, InsertRemoveAbortInsert) {
-  gid::Gid gid = 0;
+  storage::Gid gid = 0;
   {
     auto dba = db_.Access();
     auto v = dba.InsertVertex();
@@ -224,7 +224,7 @@ TEST_F(UniqueConstraintsTest, InsertInsertReversed) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(UniqueConstraintsTest, InsertRemoveInsert) {
-  gid::Gid gid = 0;
+  storage::Gid gid = 0;
   {
     auto dba = db_.Access();
     auto v = dba.InsertVertex();

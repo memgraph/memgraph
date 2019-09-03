@@ -12,7 +12,6 @@
 #include "durability/single_node/state_delta.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/single_node/gid.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
 

@@ -6,10 +6,10 @@
 #include "transactions/transaction.hpp"
 
 namespace storage::constraints::impl {
-Record::Record(gid::Gid gid, const tx::Transaction &t)
+Record::Record(storage::Gid gid, const tx::Transaction &t)
     : curr_gid(gid), tx_id_cre(t.id_) {}
 
-void Record::Insert(gid::Gid gid, const tx::Transaction &t) {
+void Record::Insert(storage::Gid gid, const tx::Transaction &t) {
   // Insert
   //   - delete before or in this transaction and not aborted
   //   - insert before and aborted
@@ -40,7 +40,7 @@ void Record::Insert(gid::Gid gid, const tx::Transaction &t) {
   tx_id_exp = 0;
 }
 
-void Record::Remove(gid::Gid gid, const tx::Transaction &t) {
+void Record::Remove(storage::Gid gid, const tx::Transaction &t) {
   // Remove
   //   - insert before or in this transaction and not aborted
   //   - remove before and aborted

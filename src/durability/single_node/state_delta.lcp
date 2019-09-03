@@ -8,7 +8,6 @@
 #include "storage/single_node/mvcc/version_list.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
-#include "storage/single_node/gid.hpp"
 #include "utils/typeinfo.hpp"
 
 class Vertex;
@@ -29,12 +28,12 @@ cpp<#
    ;; Members valid only for some deltas, see StateDelta::Type comments above.
    ;; TODO: when preparing the WAL for distributed, most likely remove Gids and
    ;; only keep addresses.
-   (vertex-id "::gid::Gid")
-   (edge-id "::gid::Gid")
+   (vertex-id "::storage::Gid")
+   (edge-id "::storage::Gid")
    (edge-address "::mvcc::VersionList<Edge> *")
-   (vertex-from-id "::gid::Gid")
+   (vertex-from-id "::storage::Gid")
    (vertex-from-address "::mvcc::VersionList<Vertex> *")
-   (vertex-to-id "::gid::Gid")
+   (vertex-to-id "::storage::Gid")
    (vertex-to-address "::mvcc::VersionList<Vertex> *")
    (edge-type "::storage::EdgeType")
    (edge-type-name "std::string")
@@ -100,30 +99,30 @@ omitted in the comment."))
      static StateDelta TxCommit(tx::TransactionId tx_id);
      static StateDelta TxAbort(tx::TransactionId tx_id);
      static StateDelta CreateVertex(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id);
-     static StateDelta CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
-                                  gid::Gid vertex_from_id,
-                                  gid::Gid vertex_to_id,
+                                    storage::Gid vertex_id);
+     static StateDelta CreateEdge(tx::TransactionId tx_id, storage::Gid edge_id,
+                                  storage::Gid vertex_from_id,
+                                  storage::Gid vertex_to_id,
                                   storage::EdgeType edge_type,
                                   const std::string &edge_type_name);
      static StateDelta PropsSetVertex(tx::TransactionId tx_id,
-                                      gid::Gid vertex_id,
+                                      storage::Gid vertex_id,
                                       storage::Property property,
                                       const std::string &property_name,
                                       const PropertyValue &value);
-     static StateDelta PropsSetEdge(tx::TransactionId tx_id, gid::Gid edge_id,
+     static StateDelta PropsSetEdge(tx::TransactionId tx_id, storage::Gid edge_id,
                                     storage::Property property,
                                     const std::string &property_name,
                                     const PropertyValue &value);
-     static StateDelta AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
+     static StateDelta AddLabel(tx::TransactionId tx_id, storage::Gid vertex_id,
                                 storage::Label label,
                                 const std::string &label_name);
-     static StateDelta RemoveLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
+     static StateDelta RemoveLabel(tx::TransactionId tx_id, storage::Gid vertex_id,
                                    storage::Label label,
                                    const std::string &label_name);
-     static StateDelta RemoveVertex(tx::TransactionId tx_id, gid::Gid vertex_id,
+     static StateDelta RemoveVertex(tx::TransactionId tx_id, storage::Gid vertex_id,
                                     bool check_empty);
-     static StateDelta RemoveEdge(tx::TransactionId tx_id, gid::Gid edge_id);
+     static StateDelta RemoveEdge(tx::TransactionId tx_id, storage::Gid edge_id);
      static StateDelta BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,
