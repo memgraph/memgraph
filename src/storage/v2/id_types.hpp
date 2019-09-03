@@ -6,41 +6,44 @@
 
 namespace storage {
 
-#define STORAGE_DEFINE_ID_TYPE(name)                                  \
-  class name final {                                                  \
-   private:                                                           \
-    explicit name(uint64_t id) : id_(id) {}                           \
-                                                                      \
-   public:                                                            \
-    static name FromUint(uint64_t id) { return name{id}; }            \
-    static name FromInt(int64_t id) {                                 \
-      return name{utils::MemcpyCast<uint64_t>(id)};                   \
-    }                                                                 \
-    uint64_t AsUint() const { return id_; }                           \
-    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); } \
-                                                                      \
-   private:                                                           \
-    uint64_t id_;                                                     \
-  };                                                                  \
-  static_assert(std::is_trivially_copyable<name>::value,              \
-                "storage::" #name " must be trivially copyable!");    \
-  inline bool operator==(const name &first, const name &second) {     \
-    return first.AsUint() == second.AsUint();                         \
-  }                                                                   \
-  inline bool operator!=(const name &first, const name &second) {     \
-    return first.AsUint() != second.AsUint();                         \
-  }                                                                   \
-  inline bool operator<(const name &first, const name &second) {      \
-    return first.AsUint() < second.AsUint();                          \
-  }                                                                   \
-  inline bool operator>(const name &first, const name &second) {      \
-    return first.AsUint() > second.AsUint();                          \
-  }                                                                   \
-  inline bool operator<=(const name &first, const name &second) {     \
-    return first.AsUint() <= second.AsUint();                         \
-  }                                                                   \
-  inline bool operator>=(const name &first, const name &second) {     \
-    return first.AsUint() >= second.AsUint();                         \
+#define STORAGE_DEFINE_ID_TYPE(name)                                   \
+  class name final {                                                   \
+   private:                                                            \
+    explicit name(uint64_t id) : id_(id) {}                            \
+                                                                       \
+   public:                                                             \
+    /* Default constructor to allow serialization or preallocation. */ \
+    name() = default;                                                  \
+                                                                       \
+    static name FromUint(uint64_t id) { return name{id}; }             \
+    static name FromInt(int64_t id) {                                  \
+      return name{utils::MemcpyCast<uint64_t>(id)};                    \
+    }                                                                  \
+    uint64_t AsUint() const { return id_; }                            \
+    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }  \
+                                                                       \
+   private:                                                            \
+    uint64_t id_;                                                      \
+  };                                                                   \
+  static_assert(std::is_trivially_copyable<name>::value,               \
+                "storage::" #name " must be trivially copyable!");     \
+  inline bool operator==(const name &first, const name &second) {      \
+    return first.AsUint() == second.AsUint();                          \
+  }                                                                    \
+  inline bool operator!=(const name &first, const name &second) {      \
+    return first.AsUint() != second.AsUint();                          \
+  }                                                                    \
+  inline bool operator<(const name &first, const name &second) {       \
+    return first.AsUint() < second.AsUint();                           \
+  }                                                                    \
+  inline bool operator>(const name &first, const name &second) {       \
+    return first.AsUint() > second.AsUint();                           \
+  }                                                                    \
+  inline bool operator<=(const name &first, const name &second) {      \
+    return first.AsUint() <= second.AsUint();                          \
+  }                                                                    \
+  inline bool operator>=(const name &first, const name &second) {      \
+    return first.AsUint() >= second.AsUint();                          \
   }
 
 STORAGE_DEFINE_ID_TYPE(Gid);
@@ -51,3 +54,35 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId);
 #undef STORAGE_DEFINE_ID_TYPE
 
 }  // namespace storage
+
+namespace std {
+
+template <>
+struct hash<storage::Gid> {
+  size_t operator()(const storage::Gid &id) const noexcept {
+    return id.AsUint();
+  }
+};
+
+template <>
+struct hash<storage::LabelId> {
+  size_t operator()(const storage::LabelId &id) const noexcept {
+    return id.AsUint();
+  }
+};
+
+template <>
+struct hash<storage::PropertyId> {
+  size_t operator()(const storage::PropertyId &id) const noexcept {
+    return id.AsUint();
+  }
+};
+
+template <>
+struct hash<storage::EdgeTypeId> {
+  size_t operator()(const storage::EdgeTypeId &id) const noexcept {
+    return id.AsUint();
+  }
+};
+
+}  // namespace std
