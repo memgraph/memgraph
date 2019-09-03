@@ -145,13 +145,13 @@ struct hash<NodeId> {
 
 class MemgraphNodeIdMap {
  public:
-  std::optional<int64_t> Get(const NodeId &node_id) const {
+  std::optional<storage::Gid> Get(const NodeId &node_id) const {
     auto found_it = node_id_to_mg_.find(node_id);
     if (found_it == node_id_to_mg_.end()) return std::nullopt;
     return found_it->second;
   }
 
-  uint64_t Insert(const NodeId &node_id) {
+  storage::Gid Insert(const NodeId &node_id) {
     auto gid = generator_.Next();
     node_id_to_mg_[node_id] = gid;
     return gid;
@@ -159,7 +159,7 @@ class MemgraphNodeIdMap {
 
  private:
   storage::GidGenerator generator_;
-  std::unordered_map<NodeId, int64_t> node_id_to_mg_;
+  std::unordered_map<NodeId, storage::Gid> node_id_to_mg_;
 };
 
 std::vector<std::string> ReadRow(std::istream &stream) {
@@ -307,7 +307,7 @@ void WriteNodeRow(
                 additional_labels.end());
   CHECK(id) << "Node ID must be specified";
   encoder->WriteVertex(
-      {communication::bolt::Id::FromUint(*id), labels, properties});
+      {communication::bolt::Id::FromUint(id->AsUint()), labels, properties});
 }
 
 auto PassNodes(
@@ -334,8 +334,8 @@ void WriteRelationshipsRow(
     communication::bolt::BaseEncoder<HashedFileWriter> *encoder,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const MemgraphNodeIdMap &node_id_map, storage::Gid relationship_id) {
-  std::optional<int64_t> start_id;
-  std::optional<int64_t> end_id;
+  std::optional<storage::Gid> start_id;
+  std::optional<storage::Gid> end_id;
   std::optional<std::string> relationship_type;
   std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
@@ -369,9 +369,9 @@ void WriteRelationshipsRow(
   CHECK(end_id) << "END_ID must be set";
   CHECK(relationship_type) << "Relationship TYPE must be set";
 
-  auto bolt_id = communication::bolt::Id::FromUint(relationship_id);
-  auto bolt_start_id = communication::bolt::Id::FromUint(*start_id);
-  auto bolt_end_id = communication::bolt::Id::FromUint(*end_id);
+  auto bolt_id = communication::bolt::Id::FromUint(relationship_id.AsUint());
+  auto bolt_start_id = communication::bolt::Id::FromUint(start_id->AsUint());
+  auto bolt_end_id = communication::bolt::Id::FromUint(end_id->AsUint());
   encoder->WriteEdge(
       {bolt_id, bolt_start_id, bolt_end_id, *relationship_type, properties});
 }

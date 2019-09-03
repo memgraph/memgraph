@@ -80,7 +80,7 @@ Value ToBoltValue(const query::TypedValue &value) {
 }
 
 communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
-  auto id = communication::bolt::Id::FromUint(vertex.gid());
+  auto id = communication::bolt::Id::FromUint(vertex.gid().AsUint());
   std::vector<std::string> labels;
   labels.reserve(vertex.labels().size());
   for (const auto &label : vertex.labels()) {
@@ -96,9 +96,9 @@ communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
 }
 
 communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
-  auto id = communication::bolt::Id::FromUint(edge.gid());
-  auto from = communication::bolt::Id::FromUint(edge.from().gid());
-  auto to = communication::bolt::Id::FromUint(edge.to().gid());
+  auto id = communication::bolt::Id::FromUint(edge.gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(edge.from().gid().AsUint());
+  auto to = communication::bolt::Id::FromUint(edge.to().gid().AsUint());
   auto type = edge.db_accessor().EdgeTypeName(edge.EdgeType());
   std::map<std::string, Value> properties;
   for (const auto &prop : edge.Properties()) {

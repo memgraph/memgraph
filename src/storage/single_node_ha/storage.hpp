@@ -52,7 +52,7 @@ class Storage {
     CHECK(found != access.end())
         << "Failed to find "
         << (std::is_same<TRecord, Vertex>::value ? "vertex" : "edge")
-        << " for gid: " << gid;
+        << " for gid: " << gid.AsUint();
     return found->second;
   }
 

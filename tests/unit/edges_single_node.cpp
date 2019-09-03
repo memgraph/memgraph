@@ -15,31 +15,37 @@ TEST(Edges, Filtering) {
   auto tx = tx_engine.Begin();
 
   int64_t vertex_gid = 0;
-  mvcc::VersionList<Vertex> v0(*tx, vertex_gid++);
-  mvcc::VersionList<Vertex> v1(*tx, vertex_gid++);
-  mvcc::VersionList<Vertex> v2(*tx, vertex_gid++);
-  mvcc::VersionList<Vertex> v3(*tx, vertex_gid++);
+  mvcc::VersionList<Vertex> v0(*tx, storage::Gid::FromInt(vertex_gid++));
+  mvcc::VersionList<Vertex> v1(*tx, storage::Gid::FromInt(vertex_gid++));
+  mvcc::VersionList<Vertex> v2(*tx, storage::Gid::FromInt(vertex_gid++));
+  mvcc::VersionList<Vertex> v3(*tx, storage::Gid::FromInt(vertex_gid++));
 
   storage::EdgeType t1{1};
   storage::EdgeType t2{2};
 
   int64_t edge_gid = 0;
-  mvcc::VersionList<Edge> e1(*tx, edge_gid++, &v0, &v1, t1);
+  mvcc::VersionList<Edge> e1(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v1,
+                             t1);
   edges.emplace(&v1, &e1, t1);
 
-  mvcc::VersionList<Edge> e2(*tx, edge_gid++, &v0, &v2, t2);
+  mvcc::VersionList<Edge> e2(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v2,
+                             t2);
   edges.emplace(&v2, &e2, t2);
 
-  mvcc::VersionList<Edge> e3(*tx, edge_gid++, &v0, &v3, t1);
+  mvcc::VersionList<Edge> e3(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v3,
+                             t1);
   edges.emplace(&v3, &e3, t1);
 
-  mvcc::VersionList<Edge> e4(*tx, edge_gid++, &v0, &v1, t2);
+  mvcc::VersionList<Edge> e4(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v1,
+                             t2);
   edges.emplace(&v1, &e4, t2);
 
-  mvcc::VersionList<Edge> e5(*tx, edge_gid++, &v0, &v2, t1);
+  mvcc::VersionList<Edge> e5(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v2,
+                             t1);
   edges.emplace(&v2, &e5, t1);
 
-  mvcc::VersionList<Edge> e6(*tx, edge_gid++, &v0, &v3, t2);
+  mvcc::VersionList<Edge> e6(*tx, storage::Gid::FromInt(edge_gid++), &v0, &v3,
+                             t2);
   edges.emplace(&v3, &e6, t2);
 
   auto edge_addresses = [edges](mvcc::VersionList<Vertex> *dest,

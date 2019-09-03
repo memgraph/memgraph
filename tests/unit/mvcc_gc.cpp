@@ -24,7 +24,7 @@ class MvccGcTest : public ::testing::Test {
 
  protected:
   std::atomic<int> record_destruction_count{0};
-  mvcc::VersionList<DestrCountRec> version_list{*t0, 0,
+  mvcc::VersionList<DestrCountRec> version_list{*t0, storage::Gid::FromInt(0),
                                                 record_destruction_count};
   std::vector<tx::Transaction *> transactions{t0};
 
@@ -124,8 +124,8 @@ TEST(GarbageCollector, GcClean) {
   // create a version list in transaction t1
   auto t1 = engine.Begin();
   std::atomic<int> record_destruction_count{0};
-  auto vl =
-      new mvcc::VersionList<DestrCountRec>(*t1, 0, record_destruction_count);
+  auto vl = new mvcc::VersionList<DestrCountRec>(*t1, storage::Gid::FromInt(0),
+                                                 record_destruction_count);
   auto access = collection.access();
   access.insert(0, vl);
   engine.Commit(*t1);

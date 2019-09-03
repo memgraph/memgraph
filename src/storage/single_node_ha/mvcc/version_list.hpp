@@ -4,7 +4,6 @@
 #include "storage/common/mvcc/exceptions.hpp"
 #include "storage/common/types/types.hpp"
 #include "transactions/transaction.hpp"
-#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 
 namespace mvcc {
@@ -217,7 +216,7 @@ class VersionList {
 
   const storage::Gid gid_;
 
-  int64_t cypher_id() { return utils::MemcpyCast<int64_t>(gid_); }
+  int64_t cypher_id() { return gid_.AsInt(); }
 
  private:
   void lock_and_validate(T *record, const tx::Transaction &t) {

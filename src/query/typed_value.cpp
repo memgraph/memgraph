@@ -904,9 +904,9 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return hash;
     }
     case TypedValue::Type::Vertex:
-      return value.ValueVertex().gid();
+      return value.ValueVertex().gid().AsUint();
     case TypedValue::Type::Edge:
-      return value.ValueEdge().gid();
+      return value.ValueEdge().gid().AsUint();
     case TypedValue::Type::Path: {
       const auto &vertices = value.ValuePath().vertices();
       const auto &edges = value.ValuePath().edges();

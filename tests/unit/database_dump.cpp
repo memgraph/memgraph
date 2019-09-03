@@ -202,7 +202,7 @@ VertexAccessor CreateVertex(GraphDbAccessor *dba,
   }
   if (add_property_id) {
     vertex.PropsSet(dba->Property(kPropertyId),
-                    PropertyValue(static_cast<int64_t>(vertex.gid())));
+                    PropertyValue(vertex.gid().AsInt()));
   }
   return vertex;
 }
@@ -218,7 +218,7 @@ EdgeAccessor CreateEdge(GraphDbAccessor *dba, VertexAccessor from,
   }
   if (add_property_id) {
     edge.PropsSet(dba->Property(kPropertyId),
-                  PropertyValue(static_cast<int64_t>(edge.gid())));
+                  PropertyValue(edge.gid().AsInt()));
   }
   return edge;
 }

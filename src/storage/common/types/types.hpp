@@ -9,6 +9,7 @@
 #include <glog/logging.h>
 
 #include "utils/atomic.hpp"
+#include "utils/cast.hpp"
 
 namespace storage {
 
@@ -151,7 +152,47 @@ class Property final {
 };
 
 /** Global ID of a record in the database. */
-using Gid = uint64_t;
+class Gid final {
+ private:
+  explicit Gid(uint64_t id) : id_(id) {}
+
+ public:
+  Gid() = default;
+
+  static Gid FromUint(uint64_t id) { return Gid{id}; }
+  static Gid FromInt(int64_t id) {
+    return Gid{utils::MemcpyCast<uint64_t>(id)};
+  }
+  uint64_t AsUint() const { return id_; }
+  int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }
+
+ private:
+  uint64_t id_;
+};
+
+inline bool operator==(const Gid &first, const Gid &second) {
+  return first.AsUint() == second.AsUint();
+}
+
+inline bool operator!=(const Gid &first, const Gid &second) {
+  return first.AsUint() != second.AsUint();
+}
+
+inline bool operator<(const Gid &first, const Gid &second) {
+  return first.AsUint() < second.AsUint();
+}
+
+inline bool operator>(const Gid &first, const Gid &second) {
+  return first.AsUint() > second.AsUint();
+}
+
+inline bool operator<=(const Gid &first, const Gid &second) {
+  return first.AsUint() <= second.AsUint();
+}
+
+inline bool operator>=(const Gid &first, const Gid &second) {
+  return first.AsUint() >= second.AsUint();
+}
 
 /** Threadsafe generation of new global IDs. */
 class GidGenerator {
@@ -164,10 +205,10 @@ class GidGenerator {
    */
   Gid Next(std::optional<Gid> requested_gid = std::nullopt) {
     if (requested_gid) {
-      utils::EnsureAtomicGe(next_local_id_, *requested_gid + 1);
+      utils::EnsureAtomicGe(next_local_id_, requested_gid->AsUint() + 1U);
       return *requested_gid;
     } else {
-      return next_local_id_++;
+      return Gid::FromUint(next_local_id_++);
     }
   }
 
@@ -196,6 +237,13 @@ template <>
 struct hash<storage::Property> {
   size_t operator()(const storage::Property &k) const {
     return hash<storage::IdT>()(k.Id());
+  }
+};
+
+template <>
+struct hash<storage::Gid> {
+  size_t operator()(const storage::Gid &gid) const {
+    return hash<uint64_t>()(gid.AsUint());
   }
 };
 }  // namespace std

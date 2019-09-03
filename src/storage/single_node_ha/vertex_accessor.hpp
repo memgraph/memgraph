@@ -153,6 +153,6 @@ std::ostream &operator<<(std::ostream &, const VertexAccessor &);
 namespace std {
 template <>
 struct hash<VertexAccessor> {
-  size_t operator()(const VertexAccessor &v) const { return v.gid(); };
+  size_t operator()(const VertexAccessor &v) const { return v.gid().AsUint(); };
 };
 }  // namespace std

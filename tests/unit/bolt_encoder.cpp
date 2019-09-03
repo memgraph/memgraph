@@ -198,13 +198,13 @@ TEST(BoltEncoder, VertexAndEdge) {
   // and Memgraph now encodes IDs so we need to check the output
   // part by part.
   CheckOutput(output, vertexedge_encoded, 5, false);
-  CheckInt(output, va1.gid());
+  CheckInt(output, va1.gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 6, 34, false);
-  CheckInt(output, va2.gid());
+  CheckInt(output, va2.gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 41, 4, false);
-  CheckInt(output, ea.gid());
-  CheckInt(output, va1.gid());
-  CheckInt(output, va2.gid());
+  CheckInt(output, ea.gid().AsInt());
+  CheckInt(output, va1.gid().AsInt());
+  CheckInt(output, va2.gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 48, 26);
 }
 

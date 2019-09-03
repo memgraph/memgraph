@@ -72,6 +72,6 @@ std::ostream &operator<<(std::ostream &, const EdgeAccessor &);
 namespace std {
 template <>
 struct hash<EdgeAccessor> {
-  size_t operator()(const EdgeAccessor &e) const { return e.gid(); };
+  size_t operator()(const EdgeAccessor &e) const { return e.gid().AsUint(); };
 };
 }  // namespace std

@@ -170,38 +170,38 @@ void StateDelta::Encode(
     case Type::NO_OP:
       break;
     case Type::CREATE_VERTEX:
-      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_id.AsInt());
       break;
     case Type::CREATE_EDGE:
-      encoder.WriteInt(edge_id);
-      encoder.WriteInt(vertex_from_id);
-      encoder.WriteInt(vertex_to_id);
+      encoder.WriteInt(edge_id.AsInt());
+      encoder.WriteInt(vertex_from_id.AsInt());
+      encoder.WriteInt(vertex_to_id.AsInt());
       encoder.WriteInt(edge_type.Id());
       encoder.WriteString(edge_type_name);
       break;
     case Type::SET_PROPERTY_VERTEX:
-      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_id.AsInt());
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       encoder.WriteValue(glue::ToBoltValue(value));
       break;
     case Type::SET_PROPERTY_EDGE:
-      encoder.WriteInt(edge_id);
+      encoder.WriteInt(edge_id.AsInt());
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       encoder.WriteValue(glue::ToBoltValue(value));
       break;
     case Type::ADD_LABEL:
     case Type::REMOVE_LABEL:
-      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_id.AsInt());
       encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
       break;
     case Type::REMOVE_VERTEX:
-      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_id.AsInt());
       break;
     case Type::REMOVE_EDGE:
-      encoder.WriteInt(edge_id);
+      encoder.WriteInt(edge_id.AsInt());
       break;
     case Type::BUILD_INDEX:
       encoder.WriteInt(label.Id());
@@ -246,6 +246,10 @@ void StateDelta::Encode(
   if (!decoder.ReadValue(&dv)) return nullopt; \
   r_val.member = dv.value_f();
 
+#define DECODE_GID_MEMBER(member)              \
+  if (!decoder.ReadValue(&dv)) return nullopt; \
+  r_val.member = storage::Gid::FromInt(dv.ValueInt());
+
 #define DECODE_MEMBER_CAST(member, value_f, type) \
   if (!decoder.ReadValue(&dv)) return nullopt;    \
   r_val.member = static_cast<type>(dv.value_f());
@@ -271,24 +275,24 @@ std::optional<StateDelta> StateDelta::Decode(
       case Type::NO_OP:
         break;
       case Type::CREATE_VERTEX:
-        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_GID_MEMBER(vertex_id)
         break;
       case Type::CREATE_EDGE:
-        DECODE_MEMBER(edge_id, ValueInt)
-        DECODE_MEMBER(vertex_from_id, ValueInt)
-        DECODE_MEMBER(vertex_to_id, ValueInt)
+        DECODE_GID_MEMBER(edge_id)
+        DECODE_GID_MEMBER(vertex_from_id)
+        DECODE_GID_MEMBER(vertex_to_id)
         DECODE_MEMBER_CAST(edge_type, ValueInt, storage::EdgeType)
         DECODE_MEMBER(edge_type_name, ValueString)
         break;
       case Type::SET_PROPERTY_VERTEX:
-        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_GID_MEMBER(vertex_id)
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
         r_val.value = glue::ToPropertyValue(dv);
         break;
       case Type::SET_PROPERTY_EDGE:
-        DECODE_MEMBER(edge_id, ValueInt)
+        DECODE_GID_MEMBER(edge_id)
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
@@ -296,15 +300,15 @@ std::optional<StateDelta> StateDelta::Decode(
         break;
       case Type::ADD_LABEL:
       case Type::REMOVE_LABEL:
-        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_GID_MEMBER(vertex_id)
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
         DECODE_MEMBER(label_name, ValueString)
         break;
       case Type::REMOVE_VERTEX:
-        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_GID_MEMBER(vertex_id)
         break;
       case Type::REMOVE_EDGE:
-        DECODE_MEMBER(edge_id, ValueInt)
+        DECODE_GID_MEMBER(edge_id)
         break;
       case Type::BUILD_INDEX:
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)

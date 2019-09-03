@@ -102,7 +102,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
   bool success =
       db_->storage().vertices_.access().insert(gid, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing GID: "
-                 << gid;
+                 << gid.AsUint();
   wal().Emplace(
       database::StateDelta::CreateVertex(transaction_->id_, vertex_vlist->gid_));
   auto va = VertexAccessor(vertex_vlist, *this);
@@ -121,7 +121,7 @@ std::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
 VertexAccessor GraphDbAccessor::FindVertex(storage::Gid gid,
                                            bool current_state) {
   auto found = FindVertexOptional(gid, current_state);
-  CHECK(found) << "Unable to find vertex for id: " << gid;
+  CHECK(found) << "Unable to find vertex for id: " << gid.AsUint();
   return *found;
 }
 
@@ -135,7 +135,7 @@ std::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
 
 EdgeAccessor GraphDbAccessor::FindEdge(storage::Gid gid, bool current_state) {
   auto found = FindEdgeOptional(gid, current_state);
-  CHECK(found) << "Unable to find edge for id: " << gid;
+  CHECK(found) << "Unable to find edge for id: " << gid.AsUint();
   return *found;
 }
 
@@ -461,7 +461,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   // edges_ skiplist.
   bool success = db_->storage().edges_.access().insert(gid, edge_vlist).second;
   CHECK(success) << "Attempting to insert an edge with an existing GID: "
-                 << gid;
+                 << gid.AsUint();
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();

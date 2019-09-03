@@ -22,12 +22,23 @@ inline void Save(const storage::EdgeType &common, slk::Builder *builder) {
 inline void Load(storage::EdgeType *common, slk::Reader *reader) {
   slk::Load(&common->id_, reader);
 }
+
 inline void Save(const storage::Property &common, slk::Builder *builder) {
   slk::Save(common.id_, builder);
 }
 
 inline void Load(storage::Property *common, slk::Reader *reader) {
   slk::Load(&common->id_, reader);
+}
+
+inline void Save(const storage::Gid &gid, slk::Builder *builder) {
+  slk::Save(gid.AsUint(), builder);
+}
+
+inline void Load(storage::Gid *gid, slk::Reader *reader) {
+  uint64_t id;
+  slk::Load(&id, reader);
+  *gid = storage::Gid::FromUint(id);
 }
 
 void Save(const PropertyValue &value, slk::Builder *builder);

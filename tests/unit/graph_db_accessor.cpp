@@ -38,7 +38,7 @@ TEST(GraphDbAccessorTest, InsertVertex) {
 
 TEST(GraphDbAccessorTest, UniqueVertexId) {
   GraphDb db;
-  SkipList<int64_t> ids;
+  SkipList<storage::Gid> ids;
 
   std::vector<std::thread> threads;
   for (int i = 0; i < 50; i++) {
@@ -140,7 +140,7 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 
 TEST(GraphDbAccessorTest, UniqueEdgeId) {
   GraphDb db;
-  SkipList<int64_t> ids;
+  SkipList<storage::Gid> ids;
 
   std::vector<std::thread> threads;
   for (int i = 0; i < 50; i++) {

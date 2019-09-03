@@ -54,16 +54,19 @@ class DbGenerator {
   }
 
   EdgeAccessor RandomEdge(bool remove_from_ids = false) {
-    return dba_.FindEdge(RandomElement(edge_ids_, remove_from_ids), true);
+    return dba_.FindEdge(
+        storage::Gid::FromInt(RandomElement(edge_ids_, remove_from_ids)), true);
   }
 
   VertexAccessor RandomVertex(bool remove_from_ids = false) {
-    return dba_.FindVertex(RandomElement(vertex_ids_, remove_from_ids), true);
+    return dba_.FindVertex(
+        storage::Gid::FromInt(RandomElement(vertex_ids_, remove_from_ids)),
+        true);
   }
 
   VertexAccessor InsertVertex() {
     auto vertex = dba_.InsertVertex();
-    vertex_ids_.emplace_back(vertex.gid());
+    vertex_ids_.emplace_back(vertex.gid().AsInt());
     return vertex;
   }
 
@@ -76,7 +79,7 @@ class DbGenerator {
     auto from = RandomVertex();
     auto to = RandomVertex();
     auto edge = dba_.InsertEdge(from, to, EdgeType(RandomInt(kEdgeTypeCount)));
-    edge_ids_.emplace_back(edge.gid());
+    edge_ids_.emplace_back(edge.gid().AsInt());
     return edge;
   }
 
@@ -84,7 +87,7 @@ class DbGenerator {
     auto vertex = RandomVertex();
     auto edge =
         dba_.InsertEdge(vertex, vertex, EdgeType(RandomInt(kEdgeTypeCount)));
-    edge_ids_.emplace_back(edge.gid());
+    edge_ids_.emplace_back(edge.gid().AsInt());
     return edge;
   }
 
@@ -226,7 +229,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
     for (auto v_a : dba_a.Vertices(false)) {
       vertices_a_count++;
       auto v_b = dba_b.FindVertexOptional(v_a.gid(), false);
-      ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.gid();
+      ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.gid().AsUint();
       ASSERT_EQ(v_a.labels().size(), v_b->labels().size());
       std::vector<std::string> v_a_labels;
       std::vector<std::string> v_b_labels;
@@ -246,7 +249,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
       edges_a_count++;
       auto e_b = dba_b.FindEdgeOptional(e_a.gid(), false);
       ASSERT_TRUE(e_b);
-      ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.gid();
+      ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.gid().AsUint();
       EXPECT_EQ(dba_a.EdgeTypeName(e_a.EdgeType()),
                 dba_b.EdgeTypeName(e_b->EdgeType()));
       EXPECT_EQ(e_a.from().gid(), e_b->from().gid());
@@ -518,7 +521,8 @@ TEST_F(Durability, SnapshotEncoding) {
     ASSERT_TRUE(
         decoder.ReadValue(&dv, communication::bolt::Value::Type::Vertex));
     auto &vertex = dv.ValueVertex();
-    decoded_vertices.emplace(vertex.id.AsUint(), vertex);
+    decoded_vertices.emplace(storage::Gid::FromUint(vertex.id.AsUint()),
+                             vertex);
   }
   ASSERT_EQ(decoded_vertices.size(), 3);
   ASSERT_EQ(decoded_vertices[gid0].labels.size(), 1);
@@ -536,15 +540,15 @@ TEST_F(Durability, SnapshotEncoding) {
   for (int i = 0; i < edge_count; ++i) {
     ASSERT_TRUE(decoder.ReadValue(&dv, communication::bolt::Value::Type::Edge));
     auto &edge = dv.ValueEdge();
-    decoded_edges.emplace(edge.id.AsUint(), edge);
+    decoded_edges.emplace(storage::Gid::FromUint(edge.id.AsUint()), edge);
   }
   EXPECT_EQ(decoded_edges.size(), 2);
-  EXPECT_EQ(decoded_edges[gid0].from.AsUint(), gid0);
-  EXPECT_EQ(decoded_edges[gid0].to.AsUint(), gid1);
+  EXPECT_EQ(decoded_edges[gid0].from.AsUint(), gid0.AsUint());
+  EXPECT_EQ(decoded_edges[gid0].to.AsUint(), gid1.AsUint());
   EXPECT_EQ(decoded_edges[gid0].type, "et0");
   EXPECT_EQ(decoded_edges[gid0].properties.size(), 1);
-  EXPECT_EQ(decoded_edges[gid1].from.AsUint(), gid2);
-  EXPECT_EQ(decoded_edges[gid1].to.AsUint(), gid1);
+  EXPECT_EQ(decoded_edges[gid1].from.AsUint(), gid2.AsUint());
+  EXPECT_EQ(decoded_edges[gid1].to.AsUint(), gid1.AsUint());
   EXPECT_EQ(decoded_edges[gid1].type, "et1");
   EXPECT_EQ(decoded_edges[gid1].properties.size(), 0);
 
@@ -812,7 +816,8 @@ TEST_F(Durability, SequentialRecovery) {
 
   auto init_db = [](database::GraphDb &db) {
     auto dba = db.Access();
-    for (int i = 0; i < kNumVertices; ++i) dba.InsertVertex(i);
+    for (int i = 0; i < kNumVertices; ++i)
+      dba.InsertVertex(storage::Gid::FromInt(i));
     dba.Commit();
   };
 
@@ -823,7 +828,8 @@ TEST_F(Durability, SequentialRecovery) {
       threads.emplace_back([&random_int, &db, &keep_running]() {
         while (keep_running) {
           auto dba = db.Access();
-          auto v = dba.FindVertex(random_int(kNumVertices), false);
+          auto v = dba.FindVertex(
+              storage::Gid::FromInt(random_int(kNumVertices)), false);
           try {
             v.PropsSet(dba.Property("prop"), PropertyValue(random_int(100)));
           } catch (utils::LockTimeoutException &) {

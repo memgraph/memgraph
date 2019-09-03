@@ -179,7 +179,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     Value vertex_dv;
     RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, Value::Type::Vertex));
     auto &vertex = vertex_dv.ValueVertex();
-    auto vertex_accessor = dba.InsertVertex(vertex.id.AsUint());
+    auto vertex_accessor =
+        dba.InsertVertex(storage::Gid::FromUint(vertex.id.AsUint()));
 
     for (const auto &label : vertex.labels) {
       vertex_accessor.add_label(dba.Label(label));
@@ -199,8 +200,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     auto it_to = vertices.find(edge.to.AsUint());
     RETURN_IF_NOT(it_from != vertices.end() && it_to != vertices.end());
     auto edge_accessor =
-        dba.InsertEdge(it_from->second, it_to->second,
-                        dba.EdgeType(edge.type), edge.id.AsUint());
+        dba.InsertEdge(it_from->second, it_to->second, dba.EdgeType(edge.type),
+                       storage::Gid::FromUint(edge.id.AsUint()));
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba.Property(property_pair.first),
