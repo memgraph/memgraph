@@ -10,6 +10,7 @@
 #include "durability/single_node/paths.hpp"
 #include "durability/single_node/version.hpp"
 #include "glue/communication.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::filesystem;
@@ -69,11 +70,11 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     }
 
     for (const auto &vertex : dba.Vertices(false)) {
-      encoder.WriteVertex(glue::ToBoltVertex(vertex));
+      encoder.WriteVertex(glue::ToBoltVertex(vertex, storage::View::OLD));
       vertex_num++;
     }
     for (const auto &edge : dba.Edges(false)) {
-      encoder.WriteEdge(glue::ToBoltEdge(edge));
+      encoder.WriteEdge(glue::ToBoltEdge(edge, storage::View::OLD));
       edge_num++;
     }
     buffer.WriteValue(vertex_num);

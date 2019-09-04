@@ -43,7 +43,7 @@ query::TypedValue ToTypedValue(const Value &value) {
   }
 }
 
-Value ToBoltValue(const query::TypedValue &value) {
+Value ToBoltValue(const query::TypedValue &value, storage::View view) {
   switch (value.type()) {
     case query::TypedValue::Type::Null:
       return Value();
@@ -59,27 +59,37 @@ Value ToBoltValue(const query::TypedValue &value) {
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        values.push_back(ToBoltValue(v));
+        values.push_back(ToBoltValue(v, view));
       }
       return Value(std::move(values));
     }
     case query::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
-        map.emplace(kv.first, ToBoltValue(kv.second));
+        map.emplace(kv.first, ToBoltValue(kv.second, view));
       }
       return Value(std::move(map));
     }
     case query::TypedValue::Type::Vertex:
-      return Value(ToBoltVertex(value.ValueVertex()));
+      return Value(ToBoltVertex(value.ValueVertex(), view));
     case query::TypedValue::Type::Edge:
-      return Value(ToBoltEdge(value.ValueEdge()));
+      return Value(ToBoltEdge(value.ValueEdge(), view));
     case query::TypedValue::Type::Path:
-      return Value(ToBoltPath(value.ValuePath()));
+      return Value(ToBoltPath(value.ValuePath(), view));
   }
 }
 
-communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
+communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex,
+                                         storage::View view) {
+  // NOTE: This hack will be removed when we switch to storage v2 API.
+  switch (view) {
+    case storage::View::OLD:
+      const_cast<VertexAccessor &>(vertex).SwitchOld();
+      break;
+    case storage::View::NEW:
+      const_cast<VertexAccessor &>(vertex).SwitchNew();
+      break;
+  }
   auto id = communication::bolt::Id::FromUint(vertex.gid().AsUint());
   std::vector<std::string> labels;
   labels.reserve(vertex.labels().size());
@@ -95,7 +105,17 @@ communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
                                      std::move(properties)};
 }
 
-communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
+communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge,
+                                     storage::View view) {
+  // NOTE: This hack will be removed when we switch to storage v2 API.
+  switch (view) {
+    case storage::View::OLD:
+      const_cast<EdgeAccessor &>(edge).SwitchOld();
+      break;
+    case storage::View::NEW:
+      const_cast<EdgeAccessor &>(edge).SwitchNew();
+      break;
+  }
   auto id = communication::bolt::Id::FromUint(edge.gid().AsUint());
   auto from = communication::bolt::Id::FromUint(edge.from().gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.to().gid().AsUint());
@@ -108,16 +128,17 @@ communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
   return communication::bolt::Edge{id, from, to, type, std::move(properties)};
 }
 
-communication::bolt::Path ToBoltPath(const query::Path &path) {
+communication::bolt::Path ToBoltPath(const query::Path &path,
+                                     storage::View view) {
   std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
-    vertices.push_back(ToBoltVertex(v));
+    vertices.push_back(ToBoltVertex(v, view));
   }
   std::vector<communication::bolt::Edge> edges;
   edges.reserve(path.edges().size());
   for (const auto &e : path.edges()) {
-    edges.push_back(ToBoltEdge(e));
+    edges.push_back(ToBoltEdge(e, view));
   }
   return communication::bolt::Path(vertices, edges);
 }

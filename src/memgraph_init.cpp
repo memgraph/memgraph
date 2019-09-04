@@ -7,6 +7,7 @@
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
@@ -81,7 +82,8 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
     const auto &summary = transaction_engine_.PullAll(&stream);
     std::map<std::string, communication::bolt::Value> decoded_summary;
     for (const auto &kv : summary) {
-      decoded_summary.emplace(kv.first, glue::ToBoltValue(kv.second));
+      decoded_summary.emplace(kv.first,
+                              glue::ToBoltValue(kv.second, storage::View::NEW));
     }
     return decoded_summary;
   } catch (const query::QueryException &e) {
@@ -112,7 +114,7 @@ void BoltSession::TypedValueResultStream::Result(
   std::vector<communication::bolt::Value> decoded_values;
   decoded_values.reserve(values.size());
   for (const auto &v : values) {
-    decoded_values.push_back(glue::ToBoltValue(v));
+    decoded_values.push_back(glue::ToBoltValue(v, storage::View::NEW));
   }
   encoder_->MessageRecord(decoded_values);
 }
