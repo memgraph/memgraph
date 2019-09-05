@@ -242,7 +242,7 @@ TEST_F(PrintToJsonTest, Expand) {
       EdgeAtom::Direction::BOTH,
       std::vector<storage::EdgeType>{dba.EdgeType("EdgeType1"),
                                      dba.EdgeType("EdgeType2")},
-      false, GraphView::OLD);
+      false, storage::View::OLD);
 
   Check(last_op.get(), R"(
           {
@@ -348,10 +348,10 @@ TEST_F(PrintToJsonTest, ConstructNamedPath) {
       std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, GraphView::OLD);
+      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
   last_op = std::make_shared<Expand>(
       last_op, node2_sym, node3_sym, edge2_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, GraphView::OLD);
+      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
   last_op = std::make_shared<ConstructNamedPath>(
       last_op, GetSymbol("path"),
       std::vector<Symbol>{node1_sym, edge1_sym, node2_sym, edge2_sym,
@@ -436,7 +436,7 @@ TEST_F(PrintToJsonTest, Delete) {
   last_op = std::make_shared<Expand>(
       last_op, node_sym, GetSymbol("node2"), GetSymbol("edge"),
       EdgeAtom::Direction::BOTH, std::vector<storage::EdgeType>{}, false,
-      GraphView::OLD);
+      storage::View::OLD);
   last_op = std::make_shared<plan::Delete>(
       last_op, std::vector<Expression *>{IDENT("node2")}, true);
 
@@ -585,11 +585,11 @@ TEST_F(PrintToJsonTest, EdgeUniquenessFilter) {
       std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
-      std::vector<storage::EdgeType>{}, false, GraphView::OLD);
+      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
   last_op = std::make_shared<Expand>(
       last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, GraphView::OLD);
+      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(
       last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
@@ -816,7 +816,7 @@ TEST_F(PrintToJsonTest, Optional) {
 
   std::shared_ptr<LogicalOperator> expand = std::make_shared<Expand>(
       nullptr, node1_sym, node2_sym, edge_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, GraphView::OLD);
+      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Optional>(
       input, expand, std::vector<Symbol>{node2_sym, edge_sym});

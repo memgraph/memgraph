@@ -82,18 +82,18 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
 }  // namespace impl
 
 template <typename TAccessor>
-void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
-  switch (graph_view) {
-    case GraphView::NEW:
+void SwitchAccessor(TAccessor &accessor, storage::View view) {
+  switch (view) {
+    case storage::View::NEW:
       accessor.SwitchNew();
       break;
-    case GraphView::OLD:
+    case storage::View::OLD:
       accessor.SwitchOld();
       break;
   }
 }
 
-template void SwitchAccessor<>(VertexAccessor &accessor, GraphView graph_view);
-template void SwitchAccessor<>(EdgeAccessor &accessor, GraphView graph_view);
+template void SwitchAccessor<>(VertexAccessor &accessor, storage::View view);
+template void SwitchAccessor<>(EdgeAccessor &accessor, storage::View view);
 
 }  // namespace query

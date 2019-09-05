@@ -38,7 +38,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   SymbolTable symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, GraphView::OLD};
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, storage::View::OLD};
 
   Identifier *CreateIdentifierWithValue(std::string name,
                                         const TypedValue &value) {

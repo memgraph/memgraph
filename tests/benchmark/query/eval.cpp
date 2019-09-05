@@ -37,7 +37,7 @@ static void MapLiteral(benchmark::State &state) {
   evaluation_context.properties =
       query::NamesToProperties(ast.properties_, &dba);
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &dba, query::GraphView::NEW);
+                                       &dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -68,7 +68,7 @@ static void AdditionOperator(benchmark::State &state) {
   }
   query::EvaluationContext evaluation_context{memory.get()};
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &dba, query::GraphView::NEW);
+                                       &dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

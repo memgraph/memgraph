@@ -135,7 +135,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
           .count();
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                db_accessor, GraphView::OLD);
+                                db_accessor, storage::View::OLD);
 
   AuthQuery::Action action = auth_query->action_;
   std::string username = auth_query->user_;
@@ -431,7 +431,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
           .count();
   evaluation_context.parameters = parameters;
   ExpressionEvaluator eval(&frame, symbol_table, evaluation_context,
-                           db_accessor, GraphView::OLD);
+                           db_accessor, storage::View::OLD);
 
   std::string stream_name = stream_query->stream_name_;
   auto stream_uri =

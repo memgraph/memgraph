@@ -290,9 +290,9 @@ TEST(QueryPlan, Delete) {
   // delete all remaining edges
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::OUT, {}, "m", false, GraphView::NEW);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::OUT, {}, "m", false,
+                          storage::View::NEW);
     auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{r_get}, false);
@@ -344,9 +344,9 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::BOTH, {}, "m", false,
+                          storage::View::OLD);
 
     // getter expressions for deletion
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
@@ -467,7 +467,7 @@ TEST(QueryPlan, SetProperty) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m =
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
+                 EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
 
   // set prop1 to 42 on n and r
   auto prop1 = dba.Property("prop1");
@@ -518,9 +518,9 @@ TEST(QueryPlan, SetProperties) {
 
     // scan (n)-[r]->(m)
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::OUT, {}, "m", false,
+                          storage::View::OLD);
 
     auto op = update ? plan::SetProperties::Op::UPDATE
                      : plan::SetProperties::Op::REPLACE;
@@ -624,7 +624,7 @@ TEST(QueryPlan, RemoveProperty) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m =
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
+                 EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
 
   auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
   auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, prop1, n_p);
@@ -702,7 +702,7 @@ TEST(QueryPlan, NodeFilterSet) {
   scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
-                 EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+                 EdgeAtom::Direction::BOTH, {}, "m", false, storage::View::OLD);
   auto *filter_expr =
       EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_,
                                         storage.GetPropertyIx(prop.first)),
@@ -744,7 +744,7 @@ TEST(QueryPlan, FilterRemove) {
   scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
-                 EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+                 EdgeAtom::Direction::BOTH, {}, "m", false, storage::View::OLD);
   auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto filter =
       std::make_shared<Filter>(expand.op_, LESS(filter_prop, LITERAL(43)));
@@ -808,7 +808,7 @@ TEST(QueryPlan, Merge) {
   // merge_match branch
   auto r_m =
       MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_, "r",
-                 EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+                 EdgeAtom::Direction::BOTH, {}, "m", false, storage::View::OLD);
   auto m_p = PROPERTY_LOOKUP(IDENT("m")->MapTo(r_m.node_sym_), prop);
   auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p,
                                                    LITERAL(1));

@@ -12,13 +12,9 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
 #include "storage/common/types/types.hpp"
+#include "storage/v2/view.hpp"
 
 namespace query {
-
-/// Indicates that some part of query execution should see the OLD graph state
-/// (the latest state before the current transaction+command), or NEW (state as
-/// changed by the current transaction+command).
-enum class GraphView { OLD, NEW };
 
 /// Recursively reconstruct all the accessors in the given TypedValue.
 ///
@@ -72,7 +68,7 @@ class TypedValueVectorCompare final {
 
 /// Switch the given [Vertex/Edge]Accessor to the desired state.
 template <class TAccessor>
-void SwitchAccessor(TAccessor &accessor, GraphView graph_view);
+void SwitchAccessor(TAccessor &accessor, storage::View view);
 
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
 inline void ExpectType(const Symbol &symbol, const TypedValue &value,

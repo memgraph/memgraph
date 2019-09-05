@@ -85,12 +85,12 @@ clause. In the query `CREATE (n)` only one node is created, while in the query
 `CreateNode` logical operator the input is either a `ScanAll` operator, or a
 `Once` operator.
 
-### GraphView
+### storage::View
 
 In the previous section, [Cypher Execution
 Semantics](#cypher-execution-semantics), we mentioned how the preceding
 clauses should not see changes made in subsequent ones. For that reason, some
-operators take a `GraphView` enum value. This value determines which state of
+operators take a `storage::View` enum value. This value determines which state of
 the graph an operator sees.
 
 Consider the query `MATCH (n)--(m) WHERE n.x = 0 SET m.x = 1`. Naive streaming
@@ -101,9 +101,9 @@ is not how Cypher works. To handle this issue properly, Memgraph designed the
 `VertexAccessor` class that tracks two versions of data: one that was visible
 before the current transaction+command, and the optional other that was
 created in the current transaction+command. The `MATCH` clause will be planned
-as `ScanAll` and `Expand` operations using `GraphView::OLD` value. This will
-ensure modifications performed in the same query do not affect it. The same
-applies to edges and the `EdgeAccessor` class.
+as `ScanAll` and `Expand` operations using `storage::View::OLD` value. This
+will ensure modifications performed in the same query do not affect it. The
+same applies to edges and the `EdgeAccessor` class.
 
 ### Existing Record Detection
 

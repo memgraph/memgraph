@@ -23,12 +23,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
                       const EvaluationContext &ctx,
-                      database::GraphDbAccessor *dba, GraphView graph_view)
+                      database::GraphDbAccessor *dba, storage::View view)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
-        graph_view_(graph_view) {}
+        view_(view) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -552,29 +552,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     switch (value.type()) {
       case TypedValue::Type::Vertex: {
         auto &vertex = value.ValueVertex();
-        switch (graph_view_) {
-          case GraphView::NEW:
+        switch (view_) {
+          case storage::View::NEW:
             vertex.SwitchNew();
             break;
-          case GraphView::OLD:
+          case storage::View::OLD:
             vertex.SwitchOld();
             break;
-          default:
-            LOG(FATAL) << "Unhandled GraphView enum";
         }
         break;
       }
       case TypedValue::Type::Edge: {
         auto &edge = value.ValueEdge();
-        switch (graph_view_) {
-          case GraphView::NEW:
+        switch (view_) {
+          case storage::View::NEW:
             edge.SwitchNew();
             break;
-          case GraphView::OLD:
+          case storage::View::OLD:
             edge.SwitchOld();
             break;
-          default:
-            LOG(FATAL) << "Unhandled GraphView enum";
         }
         break;
       }
@@ -589,15 +585,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         break;
       }
       case TypedValue::Type::Path:
-        switch (graph_view_) {
-          case GraphView::NEW:
+        switch (view_) {
+          case storage::View::NEW:
             value.ValuePath().SwitchNew();
             break;
-          case GraphView::OLD:
+          case storage::View::OLD:
             value.ValuePath().SwitchOld();
             break;
-          default:
-            LOG(FATAL) << "Unhandled GraphView enum";
         }
       case TypedValue::Type::Null:
       case TypedValue::Type::Bool:
@@ -613,7 +607,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const EvaluationContext *ctx_;
   database::GraphDbAccessor *dba_;
   // which switching approach should be used when evaluating
-  const GraphView graph_view_;
+  storage::View view_;
 };
 
 /// A helper function for evaluating an expression that's an int.

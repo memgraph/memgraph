@@ -51,7 +51,7 @@ struct MatchContext {
   // to during generation.
   std::unordered_set<Symbol> &bound_symbols;
   // Determines whether the match should see the new graph state or not.
-  GraphView graph_view = GraphView::OLD;
+  storage::View view = storage::View::OLD;
   // All the newly established symbols in match.
   std::vector<Symbol> new_symbols{};
 };
@@ -388,7 +388,7 @@ class RuleBasedPlanner {
       if (bound_symbols.insert(node1_symbol).second) {
         // We have just bound this symbol, so generate ScanAll which fills it.
         last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol,
-                                            match_context.graph_view);
+                                            match_context.view);
         match_context.new_symbols.emplace_back(node1_symbol);
         last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters,
                                    storage);
@@ -470,8 +470,9 @@ class RuleBasedPlanner {
           }
 
           // TODO: Pass weight lambda.
-          CHECK(match_context.graph_view == GraphView::OLD)
-              << "ExpandVariable should only be planned with GraphView::OLD";
+          CHECK(match_context.view == storage::View::OLD)
+              << "ExpandVariable should only be planned with "
+                 "storage::View::OLD";
           last_op = std::make_unique<ExpandVariable>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
               edge->type_, expansion.direction, edge_types,
@@ -481,7 +482,7 @@ class RuleBasedPlanner {
           last_op = std::make_unique<Expand>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
               expansion.direction, edge_types, existing_node,
-              match_context.graph_view);
+              match_context.view);
         }
 
         // Bind the expanded edge and node.
@@ -535,7 +536,7 @@ class RuleBasedPlanner {
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
     MatchContext match_ctx{matching, *context_->symbol_table,
-                           bound_symbols_copy, GraphView::NEW};
+                           bound_symbols_copy, storage::View::NEW};
     auto on_match = PlanMatching(match_ctx, nullptr);
     // Use the original bound_symbols, so we fill it with new symbols.
     auto on_create =

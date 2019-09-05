@@ -90,8 +90,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol,
-                     expand.graph_view_);
+    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
     auto indexed_scan =
         GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
@@ -499,7 +498,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
-    const auto &graph_view = scan.graph_view_;
+    const auto &view = scan.view_;
     const auto labels = filters_.FilteredLabels(node_symbol);
     if (labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
@@ -532,7 +531,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
-            prop_filter.lower_bound_, prop_filter.upper_bound_, graph_view);
+            prop_filter.lower_bound_, prop_filter.upper_bound_, view);
       } else if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
         // Generate index scan using the empty string as a lower bound.
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
@@ -540,14 +539,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
-            std::make_optional(lower_bound), std::nullopt, graph_view);
+            std::make_optional(lower_bound), std::nullopt, view);
       } else {
         CHECK(prop_filter.value_) << "Property filter should either have "
                                      "bounds or a value expression.";
         return std::make_unique<ScanAllByLabelPropertyValue>(
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
-            prop_filter.value_, graph_view);
+            prop_filter.value_, view);
       }
     }
     auto label = FindBestLabelIndex(labels);
@@ -562,7 +561,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     filter_exprs_for_removal_.insert(removed_expressions.begin(),
                                      removed_expressions.end());
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label),
-                                            graph_view);
+                                            view);
   }
 };
 

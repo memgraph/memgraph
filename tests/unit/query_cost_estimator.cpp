@@ -167,7 +167,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
                  EdgeAtom::Direction::IN, std::vector<storage::EdgeType>{},
-                 false, GraphView::OLD);
+                 false, storage::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
