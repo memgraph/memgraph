@@ -59,7 +59,7 @@ TEST_F(ConstraintsTest, CreateFailure1) {
     auto acc = storage.Access();
     auto vertex = acc.CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
@@ -72,7 +72,7 @@ TEST_F(ConstraintsTest, CreateFailure1) {
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(acc.DeleteVertex(&vertex));
     }
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
@@ -86,7 +86,7 @@ TEST_F(ConstraintsTest, CreateFailure2) {
     auto acc = storage.Access();
     auto vertex = acc.CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
@@ -99,7 +99,7 @@ TEST_F(ConstraintsTest, CreateFailure2) {
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     }
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
@@ -120,8 +120,9 @@ TEST_F(ConstraintsTest, ViolationOnCommit) {
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
 
     auto res = acc.Commit();
-    EXPECT_TRUE(res.has_value() &&
-                (*res == ExistenceConstraintViolation{label1, prop1}));
+    EXPECT_TRUE(
+        res.HasError() &&
+        (res.GetError() == ExistenceConstraintViolation{label1, prop1}));
   }
 
   {
@@ -129,7 +130,7 @@ TEST_F(ConstraintsTest, ViolationOnCommit) {
     auto vertex = acc.CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
     ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
-    EXPECT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
 
   {
@@ -139,8 +140,9 @@ TEST_F(ConstraintsTest, ViolationOnCommit) {
     }
 
     auto res = acc.Commit();
-    EXPECT_TRUE(res.has_value() &&
-                (*res == ExistenceConstraintViolation{label1, prop1}));
+    EXPECT_TRUE(
+        res.HasError() &&
+        (res.GetError() == ExistenceConstraintViolation{label1, prop1}));
   }
 
   {
@@ -152,7 +154,7 @@ TEST_F(ConstraintsTest, ViolationOnCommit) {
       ASSERT_NO_ERROR(acc.DeleteVertex(&vertex));
     }
 
-    EXPECT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
 
   ASSERT_TRUE(storage.DropExistenceConstraint(label1, prop1));
@@ -161,6 +163,6 @@ TEST_F(ConstraintsTest, ViolationOnCommit) {
     auto acc = storage.Access();
     auto vertex = acc.CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
-    EXPECT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
 }

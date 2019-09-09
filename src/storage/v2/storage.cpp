@@ -580,7 +580,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-[[nodiscard]] std::optional<ExistenceConstraintViolation>
+utils::BasicResult<ExistenceConstraintViolation, void>
 Storage::Accessor::Commit() {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
   CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
@@ -641,7 +641,7 @@ Storage::Accessor::Commit() {
     storage_->CollectGarbage();
   }
 
-  return std::nullopt;
+  return {};
 }
 
 void Storage::Accessor::Abort() {

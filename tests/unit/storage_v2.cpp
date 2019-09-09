@@ -25,7 +25,7 @@ TEST(StorageV2, Commit) {
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -45,7 +45,7 @@ TEST(StorageV2, Commit) {
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -111,7 +111,7 @@ TEST(StorageV2, AdvanceCommandCommit) {
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -185,7 +185,7 @@ TEST(StorageV2, SnapshotIsolation) {
   EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 1U);
   EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 0U);
 
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
 
   ASSERT_FALSE(acc2.FindVertex(gid, storage::View::OLD).has_value());
   EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
@@ -224,7 +224,7 @@ TEST(StorageV2, AccessorMove) {
     ASSERT_TRUE(moved.FindVertex(gid, storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(&moved, storage::View::NEW), 1U);
 
-    ASSERT_EQ(moved.Commit(), std::nullopt);
+    ASSERT_FALSE(moved.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -253,7 +253,7 @@ TEST(StorageV2, VertexDeleteCommit) {
     EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(gid, storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
-    ASSERT_EQ(acc2.Commit(), std::nullopt);
+    ASSERT_FALSE(acc2.Commit().HasError());
   }
 
   auto acc3 = store.Access();  // read transaction
@@ -283,7 +283,7 @@ TEST(StorageV2, VertexDeleteCommit) {
     EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
 
-    ASSERT_EQ(acc4.Commit(), std::nullopt);
+    ASSERT_FALSE(acc4.Commit().HasError());
   }
 
   auto acc5 = store.Access();  // read transaction
@@ -324,7 +324,7 @@ TEST(StorageV2, VertexDeleteAbort) {
     EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(gid, storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
-    ASSERT_EQ(acc2.Commit(), std::nullopt);
+    ASSERT_FALSE(acc2.Commit().HasError());
   }
 
   auto acc3 = store.Access();  // read transaction
@@ -390,7 +390,7 @@ TEST(StorageV2, VertexDeleteAbort) {
     EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 0U);
 
-    ASSERT_EQ(acc6.Commit(), std::nullopt);
+    ASSERT_FALSE(acc6.Commit().HasError());
   }
 
   auto acc7 = store.Access();  // read transaction
@@ -420,10 +420,10 @@ TEST(StorageV2, VertexDeleteAbort) {
   EXPECT_EQ(CountVertices(&acc7, storage::View::NEW), 0U);
 
   // Commit all accessors
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
-  ASSERT_EQ(acc3.Commit(), std::nullopt);
-  ASSERT_EQ(acc5.Commit(), std::nullopt);
-  ASSERT_EQ(acc7.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
+  ASSERT_FALSE(acc3.Commit().HasError());
+  ASSERT_FALSE(acc5.Commit().HasError());
+  ASSERT_FALSE(acc7.Commit().HasError());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -437,7 +437,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   auto acc1 = store.Access();
@@ -481,7 +481,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
   }
 
   // Finalize both accessors
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
   acc2.Abort();
 
   // Check whether the vertex exists
@@ -491,7 +491,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     ASSERT_FALSE(vertex);
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -535,7 +535,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     ASSERT_TRUE(res.GetValue());
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the vertices exist
@@ -564,7 +564,7 @@ TEST(StorageV2, VertexDeleteLabel) {
     gid = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Add label, delete the vertex and check the label API (same command)
@@ -725,7 +725,7 @@ TEST(StorageV2, VertexDeleteProperty) {
     gid = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Set property, delete the vertex and check the property API (same command)
@@ -903,7 +903,7 @@ TEST(StorageV2, VertexLabelCommit) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -962,7 +962,7 @@ TEST(StorageV2, VertexLabelCommit) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -996,7 +996,7 @@ TEST(StorageV2, VertexLabelAbort) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Add label 5, but abort the transaction.
@@ -1083,7 +1083,7 @@ TEST(StorageV2, VertexLabelAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that label 5 exists.
@@ -1209,7 +1209,7 @@ TEST(StorageV2, VertexLabelAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that label 5 doesn't exist.
@@ -1243,7 +1243,7 @@ TEST(StorageV2, VertexLabelSerializationError) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   auto acc1 = store.Access();
@@ -1311,7 +1311,7 @@ TEST(StorageV2, VertexLabelSerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
   acc2.Abort();
 
   // Check which labels exist.
@@ -1388,7 +1388,7 @@ TEST(StorageV2, VertexPropertyCommit) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -1452,7 +1452,7 @@ TEST(StorageV2, VertexPropertyCommit) {
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -1488,7 +1488,7 @@ TEST(StorageV2, VertexPropertyAbort) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Set property 5 to "nandare", but abort the transaction.
@@ -1599,7 +1599,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that property 5 is "nandare".
@@ -1755,7 +1755,7 @@ TEST(StorageV2, VertexPropertyAbort) {
     ASSERT_TRUE(vertex->GetProperty(property, storage::View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that property 5 is null.
@@ -1791,7 +1791,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   auto acc1 = store.Access();
@@ -1855,7 +1855,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
   acc2.Abort();
 
   // Check which properties exist.
@@ -2141,5 +2141,5 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_EQ(vertex.Properties(storage::View::OLD)->size(), 0);
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
 
-  ASSERT_EQ(acc.Commit(), std::nullopt);
+  ASSERT_FALSE(acc.Commit().HasError());
 }

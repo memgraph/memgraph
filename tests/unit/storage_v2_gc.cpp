@@ -47,7 +47,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Verify existing vertices and add labels to some of them.
@@ -90,7 +90,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Add and remove some edges.
@@ -150,7 +150,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -173,7 +173,7 @@ TEST(StorageV2Gc, Indices) {
       auto vertex = acc0.CreateVertex();
       ASSERT_TRUE(*vertex.AddLabel(acc0.NameToLabel("label")));
     }
-    ASSERT_EQ(acc0.Commit(), std::nullopt);
+    ASSERT_FALSE(acc0.Commit().HasError());
   }
   {
     auto acc1 = storage.Access();
@@ -182,7 +182,7 @@ TEST(StorageV2Gc, Indices) {
     for (auto vertex : acc2.Vertices(storage::View::OLD)) {
       ASSERT_TRUE(*vertex.RemoveLabel(acc2.NameToLabel("label")));
     }
-    ASSERT_EQ(acc2.Commit(), std::nullopt);
+    ASSERT_FALSE(acc2.Commit().HasError());
 
     // Wait for GC.
     std::this_thread::sleep_for(std::chrono::milliseconds(300));

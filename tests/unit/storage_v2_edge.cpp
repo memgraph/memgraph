@@ -19,7 +19,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     auto vertex_to = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -85,7 +85,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -168,7 +168,7 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -187,7 +187,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     auto vertex_from = acc.CreateVertex();
     gid_to = vertex_to.Gid();
     gid_from = vertex_from.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -253,7 +253,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -336,7 +336,7 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -351,7 +351,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -405,7 +405,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->InEdges({other_et}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(vertex->InEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -474,7 +474,7 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -493,7 +493,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge, but abort the transaction
@@ -588,7 +588,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -654,7 +654,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -737,7 +737,7 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -756,7 +756,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     auto vertex_from = acc.CreateVertex();
     gid_to = vertex_to.Gid();
     gid_from = vertex_from.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge, but abort the transaction
@@ -851,7 +851,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -917,7 +917,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1000,7 +1000,7 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -1015,7 +1015,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge, but abort the transaction
@@ -1088,7 +1088,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -1142,7 +1142,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->InEdges({other_et}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(vertex->InEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1211,7 +1211,7 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -1230,7 +1230,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -1296,7 +1296,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1379,7 +1379,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete edge
@@ -1444,7 +1444,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::OLD)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1473,7 +1473,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -1492,7 +1492,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     auto vertex_from = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -1558,7 +1558,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1641,7 +1641,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete edge
@@ -1706,7 +1706,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::OLD)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1735,7 +1735,7 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -1750,7 +1750,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -1804,7 +1804,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->InEdges({other_et}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(vertex->InEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1873,7 +1873,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete edge
@@ -1926,7 +1926,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges({other_et}, storage::View::OLD)->size(), 0);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -1945,7 +1945,7 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -1964,7 +1964,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -2030,7 +2030,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -2113,7 +2113,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -2261,7 +2261,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge
@@ -2326,7 +2326,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::OLD)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -2355,7 +2355,7 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -2374,7 +2374,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc.CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -2440,7 +2440,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -2523,7 +2523,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -2672,7 +2672,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::NEW)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge
@@ -2737,7 +2737,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges({et, other_et}, storage::View::OLD)->size(),
               1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -2766,7 +2766,7 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -2781,7 +2781,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Create edge
@@ -2835,7 +2835,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges({other_et}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(vertex->InEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -2904,7 +2904,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -3026,7 +3026,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::NEW)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Delete the edge
@@ -3079,7 +3079,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({other_et}, storage::View::OLD)->size(), 0);
     ASSERT_EQ(vertex->OutEdges({et, other_et}, storage::View::OLD)->size(), 1);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check whether the edge exists
@@ -3098,7 +3098,7 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
 
@@ -3156,7 +3156,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex
@@ -3223,7 +3223,7 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check dataset
@@ -3386,7 +3386,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       }
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex
@@ -3536,7 +3536,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check dataset
@@ -3651,7 +3651,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to.OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex, but abort the transaction
@@ -3759,7 +3759,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex
@@ -3826,7 +3826,7 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to->OutEdges({}, storage::View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(storage::View::NEW), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check dataset
@@ -3989,7 +3989,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       }
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex, but abort the transaction
@@ -4333,7 +4333,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       }
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Detach delete vertex
@@ -4483,7 +4483,7 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check dataset
@@ -4593,7 +4593,7 @@ TEST(StorageV2, EdgePropertyCommit) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -4657,7 +4657,7 @@ TEST(StorageV2, EdgePropertyCommit) {
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
@@ -4697,7 +4697,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Set property 5 to "nandare", but abort the transaction.
@@ -4807,7 +4807,7 @@ TEST(StorageV2, EdgePropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that property 5 is "nandare".
@@ -4963,7 +4963,7 @@ TEST(StorageV2, EdgePropertyAbort) {
     ASSERT_TRUE(edge.GetProperty(property, storage::View::NEW)->IsNull());
     ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Check that property 5 is null.
@@ -5003,7 +5003,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 
   auto acc1 = store.Access();
@@ -5067,7 +5067,7 @@ TEST(StorageV2, EdgePropertySerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_EQ(acc1.Commit(), std::nullopt);
+  ASSERT_FALSE(acc1.Commit().HasError());
   acc2.Abort();
 
   // Check which properties exist.

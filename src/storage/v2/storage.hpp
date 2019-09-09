@@ -275,9 +275,9 @@ class Storage final {
 
     /// Commit returns `ExistenceConstraintViolation` if the changes made by
     /// this transaction violate an existence constraint. In that case the
-    /// transaction is automatically aborted. Otherwise, nullopt is returned.
+    /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    [[nodiscard]] std::optional<ExistenceConstraintViolation> Commit();
+    utils::BasicResult<ExistenceConstraintViolation, void> Commit();
 
     /// @throw std::bad_alloc
     void Abort();

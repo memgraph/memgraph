@@ -149,7 +149,7 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
 
   {
@@ -194,7 +194,7 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW),
               IsEmpty());
 
-  ASSERT_EQ(acc.Commit(), std::nullopt);
+  ASSERT_NO_ERROR(acc.Commit());
 
   auto acc_after_commit = storage.Access();
 
@@ -336,7 +336,7 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
 
   {
@@ -386,7 +386,7 @@ TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
       GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW),
       IsEmpty());
 
-  ASSERT_EQ(acc.Commit(), std::nullopt);
+  ASSERT_NO_ERROR(acc.Commit());
 
   auto acc_after_commit = storage.Access();
 
@@ -420,7 +420,7 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
       ASSERT_NO_ERROR(vertex.SetProperty(
           prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
-    ASSERT_EQ(acc.Commit(), std::nullopt);
+    ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto acc = storage.Access();
