@@ -93,4 +93,37 @@ class [[nodiscard]] BasicResult final {
   std::optional<TError> error_;
 };
 
+template <class TError>
+class [[nodiscard]] BasicResult<TError, void> final {
+ public:
+  BasicResult() = default;
+  BasicResult(const TError &error) : error_(error) {}
+  BasicResult(TError &&error) noexcept : error_(std::move(error)) {}
+
+  bool HasError() const { return error_.has_value(); }
+
+  TError &GetError() & {
+    CHECK(error_) << "The storage result is a value!";
+    return *error_;
+  }
+
+  TError &&GetError() && {
+    CHECK(error_) << "The storage result is a value!";
+    return std::move(*error_);
+  }
+
+  const TError &GetError() const & {
+    CHECK(error_) << "The storage result is a value!";
+    return *error_;
+  }
+
+  const TError &&GetError() const && {
+    CHECK(error_) << "The storage result is a value!";
+    return std::move(*error_);
+  }
+
+ private:
+  std::optional<TError> error_;
+};
+
 }  // namespace utils
