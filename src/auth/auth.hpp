@@ -6,6 +6,7 @@
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/module.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 
 namespace auth {
@@ -23,6 +24,8 @@ void Init();
  * It provides functions for managing Users, Roles and Permissions.
  * NOTE: The functions in this class aren't thread safe. Use the `WithLock` lock
  * if you want to have safe modifications of the storage.
+ * TODO (mferencevic): Disable user/role modification functions when they are
+ * being managed by the auth module.
  */
 class Auth final {
  public:
@@ -150,6 +153,7 @@ class Auth final {
 
  private:
   storage::KVStore storage_;
+  auth::Module module_;
   // Even though the `storage::KVStore` class is guaranteed to be thread-safe we
   // use a mutex to lock all operations on the `User` and `Role` storage because
   // some operations on the users and/or roles may require more than one

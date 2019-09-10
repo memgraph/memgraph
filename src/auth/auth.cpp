@@ -1,6 +1,7 @@
 #include "auth/auth.hpp"
 
 #include <cstring>
+#include <iostream>
 #include <limits>
 #include <utility>
 
@@ -33,6 +34,31 @@ DEFINE_bool(auth_ldap_create_role, true,
             "Set to false to disable creation of missing roles.");
 DEFINE_string(auth_ldap_role_mapping_root_dn, "",
               "Set this value to the DN that contains all role mappings.");
+
+DEFINE_VALIDATED_string(
+    auth_module_executable, "",
+    "Absolute path to the auth module executable that should be used.", {
+      if (value.empty()) return true;
+      // Check the file status, following symlinks.
+      auto status = std::filesystem::status(value);
+      if (!std::filesystem::is_regular_file(status)) {
+        std::cerr << "The auth module path doesn't exist or isn't a file!"
+                  << std::endl;
+        return false;
+      }
+      return true;
+    });
+DEFINE_bool(auth_module_create_missing_user, true,
+            "Set to false to disable creation of missing users.");
+DEFINE_bool(auth_module_create_missing_role, true,
+            "Set to false to disable creation of missing roles.");
+DEFINE_bool(
+    auth_module_manage_roles, true,
+    "Set to false to disable management of roles through the auth module.");
+DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
+                       "Timeout (in milliseconds) used when waiting for a "
+                       "response from the auth module.",
+                       FLAG_IN_RANGE(100, 1800000));
 
 namespace auth {
 
@@ -83,7 +109,7 @@ void Init() {
 }
 
 Auth::Auth(const std::string &storage_directory)
-    : storage_(storage_directory) {}
+    : storage_(storage_directory), module_(FLAGS_auth_module_executable) {}
 
 /// Converts a `std::string` to a `struct berval`.
 std::pair<std::unique_ptr<char[]>, struct berval> LdapConvertString(
@@ -197,7 +223,78 @@ std::optional<std::string> LdapFindRole(LDAP *ld,
 
 std::optional<User> Auth::Authenticate(const std::string &username,
                                        const std::string &password) {
-  if (FLAGS_auth_ldap_enabled) {
+  if (module_.IsUsed()) {
+    nlohmann::json params = nlohmann::json::object();
+    params["username"] = username;
+    params["password"] = password;
+
+    auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
+
+    // Verify response integrity.
+    if (!ret.is_object() || ret.find("authenticated") == ret.end() ||
+        ret.find("role") == ret.end()) {
+      return std::nullopt;
+    }
+    const auto &ret_authenticated = ret.at("authenticated");
+    const auto &ret_role = ret.at("role");
+    if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
+      return std::nullopt;
+    }
+    auto is_authenticated = ret_authenticated.get<bool>();
+    const auto &rolename = ret_role.get<std::string>();
+
+    // Authenticate the user.
+    if (!is_authenticated) return std::nullopt;
+
+    // Find or create the user and return it.
+    auto user = GetUser(username);
+    if (!user) {
+      if (FLAGS_auth_module_create_missing_user) {
+        user = AddUser(username, password);
+        if (!user) {
+          LOG(WARNING) << "Couldn't authenticate user '" << username
+                       << "' using the auth module because the user already "
+                          "exists as a role!";
+          return std::nullopt;
+        }
+      } else {
+        LOG(WARNING)
+            << "Couldn't authenticate user '" << username
+            << "' using the auth module because the user doesn't exist!";
+        return std::nullopt;
+      }
+    } else {
+      user->UpdatePassword(password);
+    }
+    if (FLAGS_auth_module_manage_roles) {
+      if (!rolename.empty()) {
+        auto role = GetRole(rolename);
+        if (!role) {
+          if (FLAGS_auth_module_create_missing_role) {
+            role = AddRole(rolename);
+            if (!role) {
+              LOG(WARNING)
+                  << "Couldn't authenticate user '" << username
+                  << "' using the auth module because the user's role '"
+                  << rolename << "' already exists as a user!";
+              return std::nullopt;
+            }
+            SaveRole(*role);
+          } else {
+            LOG(WARNING) << "Couldn't authenticate user '" << username
+                         << "' using the auth module because the user's role '"
+                         << rolename << "' doesn't exist!";
+            return std::nullopt;
+          }
+        }
+        user->SetRole(*role);
+      } else {
+        user->ClearRole();
+      }
+    }
+    SaveUser(*user);
+    return user;
+  } else if (FLAGS_auth_ldap_enabled) {
     LDAP *ld = nullptr;
 
     // Initialize the LDAP struct.
