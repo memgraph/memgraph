@@ -2,10 +2,8 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <mutex>
-#include <unordered_map>
-
-#include "transactions/type.hpp"
 
 namespace raft {
 
@@ -34,23 +32,23 @@ class ReplicationTimeoutMap final {
   }
 
   /// Remove a single entry from the map.
-  void Remove(const tx::TransactionId &tx_id) {
+  void Remove(const uint64_t term_id, const uint64_t log_index) {
     std::lock_guard<std::mutex> guard(lock_);
-    timeout_.erase(tx_id);
+    timeout_.erase({term_id, log_index});
   }
 
   /// Inserts and entry in the map by setting a point in time until it needs to
   /// replicated.
-  void Insert(const tx::TransactionId &tx_id) {
+  void Insert(const uint64_t term_id, const uint64_t log_index) {
     std::lock_guard<std::mutex> guard(lock_);
-    timeout_.emplace(tx_id, replication_timeout_ + Clock::now());
+    timeout_[{term_id, log_index}] = replication_timeout_ + Clock::now();
   }
 
   /// Checks if the given entry has timed out.
   /// @returns bool True if it exceeded timeout, false otherwise.
-  bool CheckTimeout(const tx::TransactionId &tx_id) {
+  bool CheckTimeout(const uint64_t term_id, const uint64_t log_index) {
     std::lock_guard<std::mutex> guard(lock_);
-    auto found = timeout_.find(tx_id);
+    auto found = timeout_.find({term_id, log_index});
     // If we didn't set the timeout yet, or we already deleted it, we didn't
     // time out.
     if (found == timeout_.end()) return false;
@@ -65,7 +63,9 @@ class ReplicationTimeoutMap final {
   std::chrono::milliseconds replication_timeout_;
 
   mutable std::mutex lock_;
-  std::unordered_map<tx::TransactionId, TimePoint> timeout_;
+  // TODO(ipaljak): Consider using unordered_map if we encounter any performance
+  //                issues.
+  std::map<std::pair<uint64_t, uint64_t>, TimePoint> timeout_;
 };
 
 }  // namespace raft

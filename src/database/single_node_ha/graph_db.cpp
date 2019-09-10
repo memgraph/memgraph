@@ -71,6 +71,8 @@ raft::StorageInfo *GraphDb::storage_info() { return &storage_info_; }
 
 tx::Engine &GraphDb::tx_engine() { return tx_engine_; }
 
+storage::StateDeltaBuffer *GraphDb::sd_buffer() { return &sd_buffer_; }
+
 storage::ConcurrentIdMapper<storage::Label> &GraphDb::label_mapper() {
   return label_mapper_;
 }

@@ -41,7 +41,6 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
     : config_(config),
       coordination_(coordination),
       db_(db),
-      rlog_(std::make_unique<ReplicationLog>()),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
       durability_dir_(fs::path(durability_dir)),
@@ -432,22 +431,13 @@ void RaftServer::PersistSnapshotMetadata(
   snapshot_metadata_.emplace(snapshot_metadata);
 }
 
-std::pair<std::optional<uint64_t>, std::optional<uint64_t>>
-RaftServer::AppendToLog(const tx::TransactionId &tx_id,
-                        const std::vector<database::StateDelta> &deltas) {
+std::optional<LogEntryStatus> RaftServer::Emplace(
+    const std::vector<database::StateDelta> &deltas) {
   std::unique_lock<std::mutex> lock(lock_);
-  DCHECK(mode_ == Mode::LEADER)
-      << "`AppendToLog` should only be called in LEADER mode";
-  if (deltas.size() == 2) {
-    DCHECK(deltas[0].type == database::StateDelta::Type::TRANSACTION_BEGIN &&
-           deltas[1].type == database::StateDelta::Type::TRANSACTION_COMMIT)
-        << "Transactions with two state deltas must be reads (start with BEGIN "
-           "and end with COMMIT)";
-    rlog_->set_replicated(tx_id);
-    return {std::nullopt, std::nullopt};
+  if (mode_ != Mode::LEADER) {
+    return std::nullopt;
   }
 
-  rlog_->set_active(tx_id);
   LogEntry new_entry(current_term_, deltas);
 
   log_[log_size_] = new_entry;
@@ -460,136 +450,55 @@ RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   for (auto &peer_replication : next_replication_) peer_replication = now;
 
   // From this point on, we can say that the replication of a LogEntry started.
-  replication_timeout_.Insert(tx_id);
+  replication_timeout_.Insert(new_entry.term, log_size_ - 1);
 
   state_changed_.notify_all();
-  return std::make_pair(current_term_.load(), log_size_ - 1);
-}
-
-DeltaStatus RaftServer::Emplace(const database::StateDelta &delta) {
-  return log_entry_buffer_.Emplace(delta);
-}
-
-bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
-  switch (mode_) {
-    case Mode::CANDIDATE:
-      // When Memgraph first starts, the Raft is initialized in candidate
-      // mode and we try to perform recovery. Since everything for recovery
-      // needs to be able to commit, we return true.
-      return true;
-    case Mode::FOLLOWER:
-      // When in follower mode, we will only try to apply a Raft Log when we
-      // receive a commit index greater or equal from the Log index from the
-      // leader. At that moment we don't have to check the replication log
-      // because the leader won't commit the Log locally if it's not replicated
-      // on the majority of the peers in the cluster. This is why we can short
-      // circuit the check to always return true if in follower mode.
-      return true;
-    case Mode::LEADER:
-      // We are taking copies of the rlog_ status here so we avoid the case
-      // where the call to `set_replicated` shadows the `active` bit that is
-      // checked after the `replicated` bit. It is possible that both `active`
-      // and `replicated` are `true` but  since we check `replicated` first this
-      // shouldn't be a problem.
-      bool active = rlog_->is_active(tx_id);
-      bool replicated = rlog_->is_replicated(tx_id);
-
-      // If we are shutting down, but we know that the Raft Log replicated
-      // successfully, we return true. This will eventually commit since we
-      // replicate NoOp on leader election.
-      if (replicated) return true;
-
-      // Only if the transaction isn't replicated, thrown an exception to inform
-      // the client.
-      if (exiting_) throw RaftShutdownException();
-
-      if (active) {
-        if (replication_timeout_.CheckTimeout(tx_id)) {
-          throw ReplicationTimeoutException();
-        }
-        return false;
-      }
-
-      // The only possibility left is that our ReplicationLog doesn't contain
-      // information about that tx.
-      throw InvalidReplicationLogLookup();
-      break;
-  }
-}
-
-void RaftServer::GarbageCollectReplicationLog(const tx::TransactionId &tx_id) {
-  rlog_->garbage_collect_older(tx_id);
+  return {{new_entry.term, log_size_ - 1}};
 }
 
 bool RaftServer::IsLeader() { return !exiting_ && mode_ == Mode::LEADER; }
 
 uint64_t RaftServer::TermId() { return current_term_; }
 
-TxStatus RaftServer::TransactionStatus(uint64_t term_id, uint64_t log_index) {
+ReplicationStatus RaftServer::GetReplicationStatus(uint64_t term_id,
+                                                   uint64_t log_index) {
   std::unique_lock<std::mutex> lock(lock_);
   if (term_id > current_term_ || log_index >= log_size_)
-    return TxStatus::INVALID;
+    return ReplicationStatus::INVALID;
 
   auto log_entry = GetLogEntry(log_index);
 
   // This is correct because the leader can only append to the log and no two
   // workers can be leaders in the same term.
-  if (log_entry.term != term_id) return TxStatus::ABORTED;
+  if (log_entry.term != term_id) return ReplicationStatus::ABORTED;
 
-  if (last_applied_ < log_index) return TxStatus::WAITING;
-  return TxStatus::REPLICATED;
+  if (last_applied_ < log_index) return ReplicationStatus::WAITING;
+  return ReplicationStatus::REPLICATED;
 }
 
-RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
-    : raft_server_(raft_server) {
-  CHECK(raft_server_) << "RaftServer can't be nullptr";
-}
+bool RaftServer::SafeToCommit(uint64_t term_id, uint64_t log_index) {
+  auto replication_status = GetReplicationStatus(term_id, log_index);
 
-void RaftServer::LogEntryBuffer::Enable() {
-  std::lock_guard<std::mutex> guard(buffer_lock_);
-  enabled_ = true;
-}
+  // If we are shutting down, but we know that the Raft Log replicated
+  // successfully, we return true. This will eventually commit since we
+  // replicate NoOp on leader election.
+  if (replication_status == ReplicationStatus::REPLICATED) return true;
 
-void RaftServer::LogEntryBuffer::Disable() {
-  std::lock_guard<std::mutex> guard(buffer_lock_);
-  enabled_ = false;
-  // Clear all existing logs from buffers.
-  logs_.clear();
-}
+  // Only if the log entry isn't replicated, throw an exception to inform
+  // the client.
+  if (exiting_) throw RaftShutdownException();
 
-DeltaStatus RaftServer::LogEntryBuffer::Emplace(
-    const database::StateDelta &delta) {
-  std::unique_lock<std::mutex> lock(buffer_lock_);
-  if (!enabled_) return {false, std::nullopt, std::nullopt};
-
-  tx::TransactionId tx_id = delta.transaction_id;
-
-  std::optional<uint64_t> term_id = std::nullopt;
-  std::optional<uint64_t> log_index = std::nullopt;
-
-  if (delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
-    auto it = logs_.find(tx_id);
-    CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
-
-    std::vector<database::StateDelta> log(std::move(it->second));
-    log.emplace_back(std::move(delta));
-    logs_.erase(it);
-
-    lock.unlock();
-    auto metadata = raft_server_->AppendToLog(tx_id, log);
-    term_id = metadata.first;
-    log_index = metadata.second;
-
-  } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
-    auto it = logs_.find(tx_id);
-    // Sometimes it's possible that we're aborting a transaction that was meant
-    // to be commited and thus we don't have the StateDeltas anymore.
-    if (it != logs_.end()) logs_.erase(it);
-  } else {
-    logs_[tx_id].emplace_back(std::move(delta));
+  if (replication_status == ReplicationStatus::WAITING) {
+    if (replication_timeout_.CheckTimeout(term_id, log_index)) {
+      throw ReplicationTimeoutException();
+    }
+    return false;
   }
 
-  return {true, term_id, log_index};
+  // TODO(ipaljak): Fix the old naming.
+  // The only possibility left is that our ReplicationLog doesn't contain
+  // information about that tx.
+  throw InvalidReplicationLogLookup();
 }
 
 void RaftServer::RecoverPersistentData() {
@@ -624,7 +533,6 @@ void RaftServer::Transition(const Mode &new_mode) {
       bool reset = mode_ == Mode::LEADER;
       issue_hb_ = false;
       mode_ = Mode::FOLLOWER;
-      log_entry_buffer_.Disable();
 
       if (reset) {
         VLOG(40) << "Resetting internal state";
@@ -632,7 +540,6 @@ void RaftServer::Transition(const Mode &new_mode) {
         next_election_ = TimePoint::max();
 
         db_->Reset();
-        ResetReplicationLog();
         replication_timeout_.Clear();
 
         // Re-apply raft log.
@@ -718,7 +625,6 @@ void RaftServer::Transition(const Mode &new_mode) {
       last_applied_ = log_size_ - 1;
 
       mode_ = Mode::LEADER;
-      log_entry_buffer_.Enable();
 
       leader_changed_.notify_all();
       break;
@@ -763,12 +669,10 @@ void RaftServer::AdvanceCommitIndex() {
   VLOG(40) << "Begin applying commited transactions";
 
   for (int i = commit_index_ + 1; i <= new_commit_index; ++i) {
-    auto deltas = GetLogEntry(i).deltas;
-    DCHECK(deltas.size() > 2)
-        << "Log entry should consist of at least two state deltas.";
-    auto tx_id = deltas[0].transaction_id;
-    rlog_->set_replicated(tx_id);
-    replication_timeout_.Remove(tx_id);
+    auto log_entry = GetLogEntry(i);
+    DCHECK(log_entry.deltas.size() > 2)
+        << "Log entry should consist of at least three state deltas.";
+    replication_timeout_.Remove(log_entry.term, i);
   }
 
   commit_index_ = new_commit_index;
@@ -1331,11 +1235,6 @@ LogEntry RaftServer::DeserializeLogEntry(
   return deserialized;
 }
 
-void RaftServer::ResetReplicationLog() {
-  rlog_ = nullptr;
-  rlog_ = std::make_unique<ReplicationLog>();
-}
-
 void RaftServer::RecoverSnapshot(const std::string &snapshot_filename) {
   durability::RecoveryData recovery_data;
   bool recovery = durability::RecoverSnapshot(
@@ -1346,8 +1245,9 @@ void RaftServer::RecoverSnapshot(const std::string &snapshot_filename) {
 }
 
 void RaftServer::NoOpCreate() {
+  // TODO(ipaljak): Review this after implementing RaftDelta object.
   auto dba = db_->Access();
-  Emplace(database::StateDelta::NoOp(dba.transaction_id()));
+  db_->sd_buffer()->Emplace(database::StateDelta::NoOp(dba.transaction_id()));
   try {
     dba.Commit();
   } catch (const RaftException &) {
@@ -1361,6 +1261,8 @@ void RaftServer::ApplyStateDeltas(
   std::optional<database::GraphDbAccessor> dba;
   for (auto &delta : deltas) {
     switch (delta.type) {
+      case database::StateDelta::Type::NO_OP:
+        break;
       case database::StateDelta::Type::TRANSACTION_BEGIN:
         CHECK(!dba) << "Double transaction start";
         dba = db_->Access();

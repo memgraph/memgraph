@@ -9,50 +9,50 @@
 
 namespace raft {
 
-enum class TxStatus { REPLICATED, WAITING, ABORTED, INVALID };
+enum class ReplicationStatus { REPLICATED, WAITING, ABORTED, INVALID };
 
-inline std::string TxStatusToString(const TxStatus &tx_status) {
-  switch (tx_status) {
-    case TxStatus::REPLICATED:
+inline std::string ReplicationStatusToString(
+    const ReplicationStatus &replication_status) {
+  switch (replication_status) {
+    case ReplicationStatus::REPLICATED:
       return "REPLICATED";
-    case TxStatus::WAITING:
+    case ReplicationStatus::WAITING:
       return "WAITING";
-    case TxStatus::ABORTED:
+    case ReplicationStatus::ABORTED:
       return "ABORTED";
-    case TxStatus::INVALID:
+    case ReplicationStatus::INVALID:
       return "INVALID";
   }
 }
 
-/// Structure which describes the StateDelta status after the execution of
-/// RaftServer's Emplace method.
+/// Structure which describes the status of a newly created LogEntry after the
+/// execution of RaftServer's Emplace method.
 ///
-/// It consists of two fields:
-///   1) A boolean flag `emplaced` which signals whether the delta has
-///      successfully been emplaced in the raft log buffer.
-///   2) Two optional unsigned 64-bit integers which denote the term
-///      when the corresponding LogEntry was emplaced and its log_index in
-///      the Raft log. These values are contained in the optional metadata only
-///      if the emplaced StateDelta signifies the COMMIT of a non-read-only
-///      transaction.
-struct DeltaStatus {
-  bool emplaced;
-  std::optional<uint64_t> term_id;
-  std::optional<uint64_t> log_index;
+/// It consists of two unsigned 64-bit integers which uniquely describe
+/// the emplaced LogEntry:
+///   1) Term when the LogEntry was emplaced to the Raft log.
+///   2) Index of the entry within the Raft log.
+///
+/// In the case an entry was not successfully emplaced (e.g. unexpected
+/// leadership change), the values will have a std::nullopt value instead.
+struct LogEntryStatus {
+  uint64_t term_id;
+  uint64_t log_index;
 };
 
-/// Exposes only functionality that other parts of Memgraph can interact with,
-/// emplacing a state delta into the appropriate Raft log entry.
+/// Exposes only functionality that other parts of Memgraph can interact with.
 class RaftInterface {
  public:
-  /// Add StateDelta to the appropriate Raft log entry.
+  /// Emplace a new LogEntry in the raft log and start its replication. This
+  /// entry is created from a given batched set of StateDelta objects.
   ///
-  /// @returns DeltaStatus object as a result.
-  virtual DeltaStatus Emplace(const database::StateDelta &) = 0;
-
-  /// Checks if the transaction with the given transaction id can safely be
-  /// committed in local storage.
-  virtual bool SafeToCommit(const tx::TransactionId &) = 0;
+  /// It is possible that the entry was not successfully emplaced. In that case,
+  /// the method returns std::nullopt and the caller is responsible for handling
+  /// situation correctly (e.g. aborting the corresponding transaction).
+  ///
+  /// @returns an optional LogEntryStatus object as result.
+  virtual std::optional<LogEntryStatus> Emplace(
+      const std::vector<database::StateDelta> &) = 0;
 
   /// Returns true if the current servers mode is LEADER. False otherwise.
   virtual bool IsLeader() = 0;
@@ -60,18 +60,32 @@ class RaftInterface {
   /// Returns the term ID of the current leader.
   virtual uint64_t TermId() = 0;
 
-  /// Returns the status of the transaction which began its replication in
+  /// Returns the replication status of LogEntry which began its replication in
   /// a given term ID and was emplaced in the raft log at the given index.
   ///
-  /// Transaction status can be one of the following:
-  ///   1) REPLICATED -- transaction was successfully replicated accross
+  /// Replication status can be one of the following
+  ///   1) REPLICATED -- LogEntry was successfully replicated across
   ///                    the Raft cluster
-  ///   2) WAITING    -- transaction was successfully emplaced in the Raft
+  ///   2) WAITING    -- LogEntry was successfully emplaced in the Raft
   ///                    log and is currently being replicated.
-  ///   3) ABORTED    -- transaction was aborted.
-  ///   4) INVALID    -- the request for the transaction was invalid, most
+  ///   3) ABORTED    -- LogEntry will not be replicated.
+  ///   4) INVALID    -- the request for the LogEntry was invalid, most
   ///                    likely either term_id or log_index were out of range.
-  virtual TxStatus TransactionStatus(uint64_t term_id, uint64_t log_index) = 0;
+  virtual ReplicationStatus GetReplicationStatus(uint64_t term_id,
+                                                 uint64_t log_index) = 0;
+
+  /// Checks if the LogEntry with the give term id and log index can safely be
+  /// committed in local storage.
+  ///
+  /// @param term_id term when the LogEntry was created
+  /// @param log_index index of the LogEntry in the Raft log
+  ///
+  /// @return bool True if the transaction is safe to commit, false otherwise.
+  ///
+  /// @throws ReplicationTimeoutException
+  /// @throws RaftShutdownException
+  /// @throws InvalidReplicationLogLookup
+  virtual bool SafeToCommit(uint64_t term_id, uint64_t log_index) = 0;
 
   virtual std::mutex &WithLock() = 0;
 

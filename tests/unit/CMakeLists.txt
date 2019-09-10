@@ -202,9 +202,6 @@ target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
 add_unit_test(transaction_engine_single_node.cpp)
 target_link_libraries(${test_prefix}transaction_engine_single_node mg-single-node kvstore_dummy_lib)
 
-add_unit_test(transaction_engine_single_node_ha.cpp)
-target_link_libraries(${test_prefix}transaction_engine_single_node_ha mg-single-node-ha kvstore_dummy_lib)
-
 add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value mg-single-node kvstore_dummy_lib)
 

@@ -15,6 +15,7 @@
 #include "raft/raft_interface.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge_accessor.hpp"
+#include "storage/single_node_ha/state_delta_buffer.hpp"
 #include "storage/single_node_ha/vertex_accessor.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
@@ -596,6 +597,7 @@ class GraphDbAccessor {
 
   const tx::Transaction &transaction() const { return *transaction_; }
   raft::RaftInterface *raft();
+  storage::StateDeltaBuffer *sd_buffer();
   auto &db() { return db_; }
   const auto &db() const { return db_; }
 

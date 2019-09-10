@@ -92,35 +92,16 @@ class RaftServer final : public RaftInterface {
   /// Persists snapshot metadata.
   void PersistSnapshotMetadata(const SnapshotMetadata &snapshot_metadata);
 
-  /// Append to the log a list of batched state deltas that are ready to be
-  /// replicated.
+  /// Emplace a new LogEntry in the raft log and start its replication. This
+  /// entry is created from a given batched set of StateDelta objects.
   ///
-  /// @returns metadata about the emplaced log entry. More precisely, an
-  ///                   ordered pair (term_id, log_id) of the newly emplaced
-  ///                   log entry. If the entry was not emplaced, the method
-  ///                   returns std::nullopt (e.g. read-only transactions).
-  std::pair<std::optional<uint64_t>, std::optional<uint64_t>> AppendToLog(
-      const tx::TransactionId &tx_id,
-      const std::vector<database::StateDelta> &deltas);
-
-  /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
-  /// marks the transaction end, it will replicate the log accorss the cluster.
+  /// It is possible that the entry was not successfully emplaced. In that case,
+  /// the method returns std::nullopt and the caller is responsible for handling
+  /// situation correctly (e.g. aborting the corresponding transaction).
   ///
-  /// @returns DeltaStatus object as a result.
-  DeltaStatus Emplace(const database::StateDelta &delta) override;
-
-  /// Checks if the transaction with the given transaction id can safely be
-  /// Returns the current state of the replication known by this machine.
-
-  /// Checks if the transaction with the given transaction id can safely be
-  /// committed in local storage.
-  ///
-  /// @param tx_id Transaction id which needs to be checked.
-  /// @return bool True if the transaction is safe to commit, false otherwise.
-  /// @throws ReplicationTimeoutException
-  /// @throws RaftShutdownException
-  /// @throws InvalidReplicationLogLookup
-  bool SafeToCommit(const tx::TransactionId &tx_id) override;
+  /// @returns an optional LogEntryStatus object as result.
+  std::optional<LogEntryStatus> Emplace(
+      const std::vector<database::StateDelta> &deltas) override;
 
   /// Returns true if the current servers mode is LEADER. False otherwise.
   bool IsLeader() override;
@@ -128,51 +109,34 @@ class RaftServer final : public RaftInterface {
   /// Returns the term ID of the current leader.
   uint64_t TermId() override;
 
-  /// Returns the status of the transaction which began its replication in
+  /// Returns the replication status of LogEntry which began its replication in
   /// a given term ID and was emplaced in the raft log at the given index.
-  TxStatus TransactionStatus(uint64_t term_id, uint64_t log_index) override;
+  ///
+  /// Replication status can be one of the following
+  ///   1) REPLICATED -- LogEntry was successfully replicated across
+  ///                    the Raft cluster
+  ///   2) WAITING    -- LogEntry was successfully emplaced in the Raft
+  ///                    log and is currently being replicated.
+  ///   3) ABORTED    -- LogEntry will not be replicated.
+  ///   4) INVALID    -- the request for the LogEntry was invalid, most
+  ///                    likely either term_id or log_index were out of range.
+  ReplicationStatus GetReplicationStatus(uint64_t term_id,
+                                         uint64_t log_index) override;
 
-  void GarbageCollectReplicationLog(const tx::TransactionId &tx_id);
+  /// Checks if the LogEntry with the give term id and log index can safely be
+  /// committed in local storage.
+  ///
+  /// @param term_id term when the LogEntry was created
+  /// @param log_index index of the LogEntry in the Raft log
+  ///
+  /// @return bool True if the transaction is safe to commit, false otherwise.
+  ///
+  /// @throws ReplicationTimeoutException
+  /// @throws RaftShutdownException
+  /// @throws InvalidReplicationLogLookup
+  bool SafeToCommit(uint64_t term_id, uint64_t log_index) override;
 
  private:
-  /// Buffers incomplete Raft logs.
-  ///
-  /// A Raft log is considered to be complete if it ends with a StateDelta
-  /// that represents transaction commit.
-  /// LogEntryBuffer will be used instead of WriteAheadLog. We don't need to
-  /// persist logs until we receive a majority vote from the Raft cluster, and
-  /// apply the to our local state machine(storage).
-  class LogEntryBuffer final {
-   public:
-    LogEntryBuffer() = delete;
-
-    explicit LogEntryBuffer(RaftServer *raft_server);
-
-    void Enable();
-
-    /// Disable all future insertions in the buffer.
-    ///
-    /// Note: this will also clear all existing logs from buffers.
-    void Disable();
-
-    /// Insert a new StateDelta in logs.
-    ///
-    /// If the StateDelta type is `TRANSACTION_COMMIT` it will start
-    /// replicating, and if the type is `TRANSACTION_ABORT` it will delete the
-    /// log from buffer.
-    ///
-    /// @returns DeltaStatus object as a result.
-    DeltaStatus Emplace(const database::StateDelta &delta);
-
-   private:
-    bool enabled_{false};
-    mutable std::mutex buffer_lock_;
-    std::unordered_map<tx::TransactionId, std::vector<database::StateDelta>>
-        logs_;
-
-    RaftServer *raft_server_{nullptr};
-  };
-
   mutable std::mutex lock_;           ///< Guards all internal state.
   mutable std::mutex snapshot_lock_;  ///< Guards snapshot creation and removal.
   mutable std::mutex heartbeat_lock_; ///< Guards HB issuing
@@ -184,7 +148,6 @@ class RaftServer final : public RaftInterface {
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
   database::GraphDb *db_{nullptr};
-  std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
   std::atomic<Mode> mode_;                ///< Server's current mode.
   uint16_t server_id_;                    ///< ID of the current server.
@@ -197,13 +160,6 @@ class RaftServer final : public RaftInterface {
 
   std::atomic<bool> issue_hb_; ///< Flag which signalizes if the current server
                                ///< should send HBs to the rest of the cluster.
-
-  /// Raft log entry buffer.
-  ///
-  /// LogEntryBuffer buffers Raft logs until a log is complete and ready for
-  /// replication. This doesn't have to persist, if something fails before a
-  /// log is ready for replication it will be discarded anyway.
-  LogEntryBuffer log_entry_buffer_{this};
 
   std::vector<std::thread> peer_threads_;  ///< One thread per peer which
                                            ///< handles outgoing RPCs.
@@ -449,9 +405,6 @@ class RaftServer final : public RaftInterface {
 
   /// Deserialized Raft log entry from `std::string`
   LogEntry DeserializeLogEntry(const std::string &serialized_log_entry);
-
-  /// Resets the replication log used to indicate the replication status.
-  void ResetReplicationLog();
 
   /// Recovers the given snapshot if it exists in the durability directory.
   void RecoverSnapshot(const std::string &snapshot_filename);

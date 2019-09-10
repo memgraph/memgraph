@@ -90,7 +90,13 @@ bool GraphDbAccessor::should_abort() const {
   return transaction_->should_abort();
 }
 
-raft::RaftInterface *GraphDbAccessor::raft() { return db_->raft(); }
+raft::RaftInterface *GraphDbAccessor::raft() {
+  return db_->raft();
+}
+
+storage::StateDeltaBuffer *GraphDbAccessor::sd_buffer() {
+  return db_->sd_buffer();
+}
 
 VertexAccessor GraphDbAccessor::InsertVertex(
     std::optional<storage::Gid> requested_gid) {
@@ -103,7 +109,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
       db_->storage().vertices_.access().insert(gid, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing GID: "
                  << gid.AsUint();
-  raft()->Emplace(
+  sd_buffer()->Emplace(
       database::StateDelta::CreateVertex(transaction_->id_, vertex_vlist->gid_));
   auto va = VertexAccessor(vertex_vlist, *this);
   return va;
@@ -165,9 +171,10 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
 
 void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // Commit transaction as we finished applying method on newest visible
-  // records. Write that transaction's ID to the RaftServer as the index has been
-  // built at this point even if this DBA's transaction aborts for some reason.
-  raft()->Emplace(database::StateDelta::BuildIndex(
+  // records. Write that transaction's ID to the RaftServer as the index has
+  // been built at this point even if this DBA's transaction aborts for some
+  // reason.
+  sd_buffer()->Emplace(database::StateDelta::BuildIndex(
       transaction_id(), key.label_, LabelName(key.label_), key.property_,
       PropertyName(key.property_)));
 }
@@ -190,7 +197,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
     auto dba = db_->AccessBlocking(std::make_optional(transaction_->id_));
 
     db_->storage().label_property_index_.DeleteIndex(key);
-    dba.raft()->Emplace(database::StateDelta::DropIndex(
+    dba.sd_buffer()->Emplace(database::StateDelta::DropIndex(
         dba.transaction_id(), key.label_, LabelName(key.label_), key.property_,
         PropertyName(key.property_)));
 
@@ -226,7 +233,7 @@ void GraphDbAccessor::BuildUniqueConstraint(
                      return dba.PropertyName(property);
                    });
 
-    dba.raft()->Emplace(database::StateDelta::BuildUniqueConstraint(
+    dba.sd_buffer()->Emplace(database::StateDelta::BuildUniqueConstraint(
         dba.transaction().id_, label, dba.LabelName(label), properties,
         property_names));
 
@@ -264,7 +271,7 @@ void GraphDbAccessor::DeleteUniqueConstraint(
                      return dba.PropertyName(property);
                    });
 
-    dba.raft()->Emplace(database::StateDelta::DropUniqueConstraint(
+    dba.sd_buffer()->Emplace(database::StateDelta::DropUniqueConstraint(
         dba.transaction().id_, label, dba.LabelName(label), properties,
         property_names));
 
@@ -420,7 +427,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
     return false;
 
   auto *vlist_ptr = vertex_accessor.address();
-  raft()->Emplace(database::StateDelta::RemoveVertex(
+  sd_buffer()->Emplace(database::StateDelta::RemoveVertex(
       transaction_->id_, vlist_ptr->gid_, check_empty));
   vlist_ptr->remove(vertex_accessor.current_, *transaction_);
   return true;
@@ -467,7 +474,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   to.SwitchNew();
   to.update().in_.emplace(from.address(), edge_vlist, edge_type);
 
-  raft()->Emplace(database::StateDelta::CreateEdge(
+  sd_buffer()->Emplace(database::StateDelta::CreateEdge(
       transaction_->id_, edge_vlist->gid_, from.gid(), to.gid(), edge_type,
       EdgeTypeName(edge_type)));
 
@@ -492,7 +499,8 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
   if (remove_in_edge) edge.to().RemoveInEdge(edge.address());
 
   edge.address()->remove(edge.current_, *transaction_);
-  raft()->Emplace(database::StateDelta::RemoveEdge(transaction_->id_, edge.gid()));
+  sd_buffer()->Emplace(
+      database::StateDelta::RemoveEdge(transaction_->id_, edge.gid()));
 }
 
 storage::Label GraphDbAccessor::Label(const std::string &label_name) {

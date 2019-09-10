@@ -81,7 +81,6 @@ class StorageGc {
     auto safe_to_delete = GetClogSafeTransaction(oldest_active);
     if (safe_to_delete) {
       tx_engine_.GarbageCollectCommitLog(*safe_to_delete);
-      raft_server_->GarbageCollectReplicationLog(*safe_to_delete);
     }
   }
 

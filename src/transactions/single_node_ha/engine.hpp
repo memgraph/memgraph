@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "raft/raft_interface.hpp"
+#include "storage/single_node_ha/state_delta_buffer.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/spin_lock.hpp"
@@ -24,7 +25,7 @@ class TransactionEngineError : public utils::BasicException {
 /// information needed for raft followers when replicating logs.
 class Engine final {
  public:
-  explicit Engine(raft::RaftInterface *raft);
+  Engine(raft::RaftInterface *raft, storage::StateDeltaBuffer *delta_buffer);
 
   Engine(const Engine &) = delete;
   Engine(Engine &&) = delete;
@@ -72,6 +73,7 @@ class Engine final {
   Snapshot active_;
   mutable utils::SpinLock lock_;
   raft::RaftInterface *raft_{nullptr};
+  storage::StateDeltaBuffer *delta_buffer_{nullptr};
   std::atomic<bool> accepting_transactions_{true};
   std::atomic<bool> reset_active_{false};
 

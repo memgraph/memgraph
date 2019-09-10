@@ -13,6 +13,7 @@
 #include "raft/storage_info.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
+#include "storage/single_node_ha/state_delta_buffer.hpp"
 #include "storage/single_node_ha/storage.hpp"
 #include "storage/single_node_ha/storage_gc.hpp"
 #include "transactions/single_node_ha/engine.hpp"
@@ -84,6 +85,7 @@ class GraphDb {
   raft::RaftInterface *raft();
   raft::StorageInfo *storage_info();
   tx::Engine &tx_engine();
+  storage::StateDeltaBuffer *sd_buffer();
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
   storage::ConcurrentIdMapper<storage::Property> &property_mapper();
@@ -138,8 +140,9 @@ class GraphDb {
       &coordination_,
       this};
   raft::StorageInfo storage_info_{this, &coordination_, config_.server_id};
+  storage::StateDeltaBuffer sd_buffer_;
 
-  tx::Engine tx_engine_{&raft_server_};
+  tx::Engine tx_engine_{&raft_server_, &sd_buffer_};
   std::unique_ptr<StorageGc> storage_gc_ = std::make_unique<StorageGc>(
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
   storage::ConcurrentIdMapper<storage::Label> label_mapper_{
