@@ -45,6 +45,8 @@ class LabelIndex {
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
+  std::vector<LabelId> ListIndices() const;
+
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   class Iterable {
@@ -141,6 +143,8 @@ class LabelPropertyIndex {
   bool IndexExists(LabelId label, PropertyId property) {
     return index_.find({label, property}) != index_.end();
   }
+
+  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
 
   /// @throw std::bad_alloc if unable to copy a PropertyValue
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);

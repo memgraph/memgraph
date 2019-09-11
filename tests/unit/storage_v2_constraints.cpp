@@ -6,6 +6,8 @@
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace storage;
 
+using testing::UnorderedElementsAre;
+
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
 
@@ -31,26 +33,39 @@ class ConstraintsTest : public testing::Test {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(ConstraintsTest, CreateAndDrop) {
+  EXPECT_EQ(storage.ListAllConstraints().existence.size(), 0);
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     EXPECT_TRUE(res.HasValue() && res.GetValue());
   }
+  EXPECT_THAT(storage.ListAllConstraints().existence,
+              UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     EXPECT_TRUE(res.HasValue() && !res.GetValue());
   }
+  EXPECT_THAT(storage.ListAllConstraints().existence,
+              UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
     auto res = storage.CreateExistenceConstraint(label2, prop1);
     EXPECT_TRUE(res.HasValue() && res.GetValue());
   }
+  EXPECT_THAT(storage.ListAllConstraints().existence,
+              UnorderedElementsAre(std::make_pair(label1, prop1),
+                                   std::make_pair(label2, prop1)));
   EXPECT_TRUE(storage.DropExistenceConstraint(label1, prop1));
   EXPECT_FALSE(storage.DropExistenceConstraint(label1, prop1));
+  EXPECT_THAT(storage.ListAllConstraints().existence,
+              UnorderedElementsAre(std::make_pair(label2, prop1)));
   EXPECT_TRUE(storage.DropExistenceConstraint(label2, prop1));
   EXPECT_FALSE(storage.DropExistenceConstraint(label2, prop2));
+  EXPECT_EQ(storage.ListAllConstraints().existence.size(), 0);
   {
     auto res = storage.CreateExistenceConstraint(label2, prop1);
     EXPECT_TRUE(res.HasValue() && res.GetValue());
   }
+  EXPECT_THAT(storage.ListAllConstraints().existence,
+              UnorderedElementsAre(std::make_pair(label2, prop1)));
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

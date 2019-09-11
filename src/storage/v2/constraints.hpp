@@ -72,4 +72,10 @@ ValidateExistenceConstraints(Vertex *vertex, Constraints *constraints) {
   return std::nullopt;
 }
 
+/// Returns a list of all created existence constraints.
+inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(
+    const Constraints &constraints) {
+  return constraints.existence_constraints;
+}
+
 }  // namespace storage

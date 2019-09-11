@@ -298,6 +298,16 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
   GetOrCreateStorage(label)->access().insert(Entry{vertex, tx.start_timestamp});
 }
 
+std::vector<LabelId> LabelIndex::ListIndices() const {
+  std::vector<LabelId> ret;
+  ret.reserve(index_.size());
+  auto acc = index_.access();
+  for (const auto &item : acc) {
+    ret.push_back(item.label);
+  }
+  return ret;
+}
+
 void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
   auto index_acc = index_.access();
   for (auto &label_storage : index_acc) {
@@ -461,6 +471,16 @@ bool LabelPropertyIndex::CreateIndex(
     acc.insert(Entry{it->second, &vertex, 0});
   }
   return true;
+}
+
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices()
+    const {
+  std::vector<std::pair<LabelId, PropertyId>> ret;
+  ret.reserve(index_.size());
+  for (const auto &item : index_) {
+    ret.push_back(item.first);
+  }
+  return ret;
 }
 
 void LabelPropertyIndex::RemoveObsoleteEntries(

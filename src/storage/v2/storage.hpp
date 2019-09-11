@@ -152,6 +152,18 @@ class VerticesIterable final {
   Iterator end();
 };
 
+/// Structure used to return information about existing indices in the storage.
+struct IndicesInfo {
+  std::vector<LabelId> label;
+  std::vector<std::pair<LabelId, PropertyId>> label_property;
+};
+
+/// Structure used to return information about existing constraints in the
+/// storage.
+struct ConstraintsInfo {
+  std::vector<std::pair<LabelId, PropertyId>> existence;
+};
+
 class Storage final {
  public:
   /// @throw std::system_error
@@ -321,6 +333,11 @@ class Storage final {
     return indices_.label_property_index.IndexExists(label, property);
   }
 
+  IndicesInfo ListAllIndices() const {
+    return {indices_.label_index.ListIndices(),
+            indices_.label_property_index.ListIndices()};
+  }
+
   /// Creates a unique constraint`. Returns true if the constraint was
   /// successfuly added, false if it already exists and an
   /// `ExistenceConstraintViolation` if there is an existing vertex violating
@@ -340,6 +357,10 @@ class Storage final {
   bool DropExistenceConstraint(LabelId label, PropertyId property) {
     std::unique_lock<utils::RWLock> storage_guard(main_lock_);
     return ::storage::DropExistenceConstraint(&constraints_, label, property);
+  }
+
+  ConstraintsInfo ListAllConstraints() const {
+    return {ListExistenceConstraints(constraints_)};
   }
 
  private:

@@ -6,9 +6,6 @@
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace storage;
 
-LabelId nil_label = LabelId::FromUint(0);
-PropertyId nil_property = PropertyId::FromUint(0);
-
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
 
@@ -17,12 +14,6 @@ using testing::UnorderedElementsAre;
 
 class IndexTest : public testing::Test {
  protected:
-  IndexTest()
-      : prop_id(nil_property),
-        prop_val(nil_property),
-        label1(nil_label),
-        label2(nil_label) {}
-
   void SetUp() override {
     auto acc = storage.Access();
     prop_id = acc.NameToProperty("id");
@@ -67,10 +58,13 @@ TEST_F(IndexTest, LabelIndexBasic) {
   //    vertices.
   // 4. Delete even numbered vertices.
   auto acc = storage.Access();
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(storage.ListAllIndices().label,
+              UnorderedElementsAre(label1, label2));
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = CreateVertex(&acc);
@@ -220,20 +214,31 @@ TEST_F(IndexTest, LabelIndexCountEstimate) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
   EXPECT_TRUE(storage.LabelPropertyIndexExists(label1, prop_id));
+  EXPECT_THAT(storage.ListAllIndices().label_property,
+              UnorderedElementsAre(std::make_pair(label1, prop_id)));
   EXPECT_FALSE(storage.LabelPropertyIndexExists(label2, prop_id));
   EXPECT_FALSE(storage.CreateIndex(label1, prop_id));
+  EXPECT_THAT(storage.ListAllIndices().label_property,
+              UnorderedElementsAre(std::make_pair(label1, prop_id)));
 
   EXPECT_TRUE(storage.CreateIndex(label2, prop_id));
   EXPECT_TRUE(storage.LabelPropertyIndexExists(label2, prop_id));
+  EXPECT_THAT(storage.ListAllIndices().label_property,
+              UnorderedElementsAre(std::make_pair(label1, prop_id),
+                                   std::make_pair(label2, prop_id)));
 
   EXPECT_TRUE(storage.DropIndex(label1, prop_id));
   EXPECT_FALSE(storage.LabelPropertyIndexExists(label1, prop_id));
+  EXPECT_THAT(storage.ListAllIndices().label_property,
+              UnorderedElementsAre(std::make_pair(label2, prop_id)));
   EXPECT_FALSE(storage.DropIndex(label1, prop_id));
 
   EXPECT_TRUE(storage.DropIndex(label2, prop_id));
   EXPECT_FALSE(storage.LabelPropertyIndexExists(label2, prop_id));
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
 }
 
 // The following three tests are almost an exact copy-paste of the corresponding
