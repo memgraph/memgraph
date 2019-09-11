@@ -38,7 +38,9 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   SymbolTable symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, storage::View::OLD};
+  query::DbAccessor execution_dba{&dba};
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, &execution_dba,
+                           storage::View::OLD};
 
   Identifier *CreateIdentifierWithValue(std::string name,
                                         const TypedValue &value) {
@@ -51,8 +53,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   template <class TExpression>
   auto Eval(TExpression *expr) {
-    ctx.properties = NamesToProperties(storage.properties_, &dba);
-    ctx.labels = NamesToLabels(storage.labels_, &dba);
+    ctx.properties = NamesToProperties(storage.properties_, &execution_dba);
+    ctx.labels = NamesToLabels(storage.labels_, &execution_dba);
     auto value = expr->Accept(eval);
     EXPECT_EQ(value.GetMemoryResource(), &mem)
         << "ExpressionEvaluator must use the MemoryResource from "
@@ -421,8 +423,10 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   v1.PropsSet(prop, PropertyValue(42));
   e11.PropsSet(prop, PropertyValue(43));
 
-  auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(v1));
-  auto *edge_id = CreateIdentifierWithValue("e11", TypedValue(e11));
+  auto *vertex_id =
+      CreateIdentifierWithValue("v1", TypedValue(query::VertexAccessor(v1)));
+  auto *edge_id =
+      CreateIdentifierWithValue("e11", TypedValue(query::EdgeAccessor(e11)));
   {
     // Legal indexing.
     auto *op1 = storage.Create<SubscriptOperator>(
@@ -635,7 +639,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  frame[node_symbol] = TypedValue(v1);
+  frame[node_symbol] = TypedValue(query::VertexAccessor(v1));
   {
     auto *op = storage.Create<LabelsTest>(
         identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
@@ -915,7 +919,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = dba.InsertVertex();
   v1.PropsSet(prop_age.second, PropertyValue(10));
-  frame[symbol] = TypedValue(v1);
+  frame[symbol] = TypedValue(query::VertexAccessor(v1));
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
@@ -925,7 +929,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v2 = dba.InsertVertex();
   auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("edge_type"));
   e12.PropsSet(prop_age.second, PropertyValue(10));
-  frame[symbol] = TypedValue(e12);
+  frame[symbol] = TypedValue(query::EdgeAccessor(e12));
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
@@ -999,10 +1003,10 @@ TEST_F(FunctionTest, EndNode) {
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
   v2.add_label(dba.Label("label2"));
-  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
-  ASSERT_TRUE(EvaluateFunction("ENDNODE", e)
-                  .ValueVertex()
-                  .has_label(dba.Label("label2")));
+  query::EdgeAccessor e(dba.InsertEdge(v1, v2, dba.EdgeType("t")));
+  ASSERT_TRUE(*EvaluateFunction("ENDNODE", e)
+                   .ValueVertex()
+                   .HasLabel(storage::View::NEW, dba.Label("label2")));
   ASSERT_THROW(EvaluateFunction("ENDNODE", 2), QueryRuntimeException);
 }
 
@@ -1035,10 +1039,12 @@ TEST_F(FunctionTest, Properties) {
     return properties;
   };
 
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", v1)),
+  ASSERT_THAT(prop_values_to_int(
+                  EvaluateFunction("PROPERTIES", query::VertexAccessor(v1))),
               UnorderedElementsAre(testing::Pair("height", 5),
                                    testing::Pair("age", 10)));
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", e)),
+  ASSERT_THAT(prop_values_to_int(
+                  EvaluateFunction("PROPERTIES", query::EdgeAccessor(e))),
               UnorderedElementsAre(testing::Pair("height", 3),
                                    testing::Pair("age", 15)));
   ASSERT_THROW(EvaluateFunction("PROPERTIES", 2), QueryRuntimeException);
@@ -1069,11 +1075,12 @@ TEST_F(FunctionTest, Size) {
       3);
   ASSERT_THROW(EvaluateFunction("SIZE", 5), QueryRuntimeException);
 
-  auto v0 = dba.InsertVertex();
+  query::VertexAccessor v0(dba.InsertVertex());
   query::Path path(v0);
   EXPECT_EQ(EvaluateFunction("SIZE", path).ValueInt(), 0);
-  auto v1 = dba.InsertVertex();
-  path.Expand(dba.InsertEdge(v0, v1, dba.EdgeType("type")));
+  query::VertexAccessor v1(dba.InsertVertex());
+  path.Expand(query::EdgeAccessor(
+      dba.InsertEdge(v0.impl_, v1.impl_, dba.EdgeType("type"))));
   path.Expand(v1);
   EXPECT_EQ(EvaluateFunction("SIZE", path).ValueInt(), 1);
 }
@@ -1086,9 +1093,9 @@ TEST_F(FunctionTest, StartNode) {
   auto v2 = dba.InsertVertex();
   v2.add_label(dba.Label("label2"));
   auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
-  ASSERT_TRUE(EvaluateFunction("STARTNODE", e)
-                  .ValueVertex()
-                  .has_label(dba.Label("label1")));
+  ASSERT_TRUE(*EvaluateFunction("STARTNODE", query::EdgeAccessor(e))
+                   .ValueVertex()
+                   .HasLabel(storage::View::NEW, dba.Label("label1")));
   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), QueryRuntimeException);
 }
 
@@ -1100,21 +1107,25 @@ TEST_F(FunctionTest, Degree) {
   auto v3 = dba.InsertVertex();
   auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
   dba.InsertEdge(v3, v2, dba.EdgeType("t"));
-  ASSERT_EQ(EvaluateFunction("DEGREE", v1).ValueInt(), 1);
-  ASSERT_EQ(EvaluateFunction("DEGREE", v2).ValueInt(), 2);
-  ASSERT_EQ(EvaluateFunction("DEGREE", v3).ValueInt(), 1);
+  ASSERT_EQ(EvaluateFunction("DEGREE", query::VertexAccessor(v1)).ValueInt(),
+            1);
+  ASSERT_EQ(EvaluateFunction("DEGREE", query::VertexAccessor(v2)).ValueInt(),
+            2);
+  ASSERT_EQ(EvaluateFunction("DEGREE", query::VertexAccessor(v3)).ValueInt(),
+            1);
   ASSERT_THROW(EvaluateFunction("DEGREE", 2), QueryRuntimeException);
-  ASSERT_THROW(EvaluateFunction("DEGREE", e12), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("DEGREE", query::EdgeAccessor(e12)),
+               QueryRuntimeException);
 }
 
 TEST_F(FunctionTest, InDegree) {
   ASSERT_THROW(EvaluateFunction("INDEGREE"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("INDEGREE", TypedValue()).IsNull());
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto v3 = dba.InsertVertex();
-  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
-  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
+  query::VertexAccessor v1(dba.InsertVertex());
+  query::VertexAccessor v2(dba.InsertVertex());
+  query::VertexAccessor v3(dba.InsertVertex());
+  query::EdgeAccessor e12(dba.InsertEdge(v1.impl_, v2.impl_, dba.EdgeType("t")));
+  dba.InsertEdge(v3.impl_, v2.impl_, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("INDEGREE", v1).ValueInt(), 0);
   ASSERT_EQ(EvaluateFunction("INDEGREE", v2).ValueInt(), 2);
   ASSERT_EQ(EvaluateFunction("INDEGREE", v3).ValueInt(), 0);
@@ -1125,11 +1136,12 @@ TEST_F(FunctionTest, InDegree) {
 TEST_F(FunctionTest, OutDegree) {
   ASSERT_THROW(EvaluateFunction("OUTDEGREE"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("OUTDEGREE", TypedValue()).IsNull());
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto v3 = dba.InsertVertex();
-  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
-  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
+  query::VertexAccessor v1(dba.InsertVertex());
+  query::VertexAccessor v2(dba.InsertVertex());
+  query::VertexAccessor v3(dba.InsertVertex());
+  query::EdgeAccessor e12(
+      dba.InsertEdge(v1.impl_, v2.impl_, dba.EdgeType("t")));
+  dba.InsertEdge(v3.impl_, v2.impl_, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v1).ValueInt(), 1);
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v2).ValueInt(), 0);
   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v3).ValueInt(), 1);
@@ -1180,7 +1192,7 @@ TEST_F(FunctionTest, Type) {
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
   v2.add_label(dba.Label("label2"));
-  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
+  query::EdgeAccessor e(dba.InsertEdge(v1, v2, dba.EdgeType("type1")));
   ASSERT_EQ(EvaluateFunction("TYPE", e).ValueString(), "type1");
   ASSERT_THROW(EvaluateFunction("TYPE", 2), QueryRuntimeException);
 }
@@ -1192,7 +1204,8 @@ TEST_F(FunctionTest, Labels) {
   v.add_label(dba.Label("label1"));
   v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
-  auto _labels = EvaluateFunction("LABELS", v).ValueList();
+  auto _labels =
+      EvaluateFunction("LABELS", query::VertexAccessor(v)).ValueList();
   labels.reserve(_labels.size());
   for (auto label : _labels) {
     labels.emplace_back(label.ValueString());
@@ -1213,19 +1226,21 @@ TEST_F(FunctionTest, NodesRelationships) {
     auto v3 = dba.InsertVertex();
     auto e1 = dba.InsertEdge(v1, v2, dba.EdgeType("Type"));
     auto e2 = dba.InsertEdge(v2, v3, dba.EdgeType("Type"));
-    query::Path path(v1, e1, v2, e2, v3);
+    query::Path path{query::VertexAccessor(v1), query::EdgeAccessor(e1),
+                     query::VertexAccessor(v2), query::EdgeAccessor(e2),
+                     query::VertexAccessor(v3)};
 
     auto _nodes = EvaluateFunction("NODES", path).ValueList();
-    std::vector<VertexAccessor> nodes;
+    std::vector<::VertexAccessor> nodes;
     for (const auto &node : _nodes) {
-      nodes.push_back(node.ValueVertex());
+      nodes.push_back(node.ValueVertex().impl_);
     }
     EXPECT_THAT(nodes, ElementsAre(v1, v2, v3));
 
     auto _edges = EvaluateFunction("RELATIONSHIPS", path).ValueList();
-    std::vector<EdgeAccessor> edges;
+    std::vector<::EdgeAccessor> edges;
     for (const auto &edge : _edges) {
-      edges.push_back(edge.ValueEdge());
+      edges.push_back(edge.ValueEdge().impl_);
     }
     EXPECT_THAT(edges, ElementsAre(e1, e2));
   }
@@ -1273,10 +1288,12 @@ TEST_F(FunctionTest, Keys) {
     }
     return keys;
   };
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", v1)),
-              UnorderedElementsAre("height", "age"));
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", e)),
-              UnorderedElementsAre("width", "age"));
+  ASSERT_THAT(
+      prop_keys_to_string(EvaluateFunction("KEYS", query::VertexAccessor(v1))),
+      UnorderedElementsAre("height", "age"));
+  ASSERT_THAT(
+      prop_keys_to_string(EvaluateFunction("KEYS", query::EdgeAccessor(e))),
+      UnorderedElementsAre("width", "age"));
   ASSERT_THROW(EvaluateFunction("KEYS", 2), QueryRuntimeException);
 }
 
@@ -1494,9 +1511,10 @@ TEST_F(FunctionTest, Counter) {
 }
 
 TEST_F(FunctionTest, Id) {
-  auto va = dba.InsertVertex();
-  auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  auto vb = dba.InsertVertex();
+  query::VertexAccessor va(dba.InsertVertex());
+  query::EdgeAccessor ea(
+      dba.InsertEdge(va.impl_, va.impl_, dba.EdgeType("edge")));
+  query::VertexAccessor vb(dba.InsertVertex());
   EXPECT_EQ(EvaluateFunction("ID", va).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", ea).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", vb).ValueInt(), 1);

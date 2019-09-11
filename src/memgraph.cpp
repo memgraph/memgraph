@@ -10,7 +10,11 @@
 #include <glog/logging.h>
 
 #include "communication/server.hpp"
+#ifdef MG_SINGLE_NODE_V2
+#include "storage/v2/storage.hpp"
+#else
 #include "database/single_node/graph_db.hpp"
+#endif
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
@@ -88,7 +92,11 @@ void SingleNodeMain() {
 
   // Main storage and execution engines initialization
 
+#ifdef MG_SINGLE_NODE_V2
+  storage::Storage db;
+#else
   database::GraphDb db;
+#endif
   query::Interpreter interpreter;
   SessionData session_data{&db, &interpreter, &auth, &audit_log};
 
@@ -123,6 +131,7 @@ void SingleNodeMain() {
 
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
+#ifndef MG_SINGLE_NODE_V2
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
@@ -132,6 +141,7 @@ void SingleNodeMain() {
       return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
     });
   }
+#endif
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

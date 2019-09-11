@@ -5,8 +5,7 @@
 
 #include "glog/logging.h"
 
-#include "storage/edge_accessor.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "query/db_accessor.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -144,7 +143,7 @@ class Path {
         << "Attempting to stream out an invalid path";
     os << path.vertices_[0];
     for (int i = 0; i < static_cast<int>(path.edges_.size()); i++) {
-      bool arrow_to_left = path.vertices_[i] == path.edges_[i].to();
+      bool arrow_to_left = path.vertices_[i] == path.edges_[i].To();
       if (arrow_to_left) os << "<";
       os << "-" << path.edges_[i] << "-";
       if (!arrow_to_left) os << ">";
@@ -152,18 +151,6 @@ class Path {
     }
 
     return os;
-  }
-
-  /// Calls SwitchNew on all the elements of the path.
-  void SwitchNew() {
-    for (auto &v : vertices_) v.SwitchNew();
-    for (auto &e : edges_) e.SwitchNew();
-  }
-
-  /// Calls SwitchNew on all the elements of the path.
-  void SwitchOld() {
-    for (auto &v : vertices_) v.SwitchOld();
-    for (auto &e : edges_) e.SwitchOld();
   }
 
  private:

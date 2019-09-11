@@ -2,9 +2,14 @@
 
 #include <memory>
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include "storage/v2/mvcc.hpp"
+
+DEFINE_string(
+    durability_directory, "durability",
+    "Path to directory in which to save snapshots and write-ahead log files.");
 
 namespace storage {
 

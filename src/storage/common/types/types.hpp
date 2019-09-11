@@ -1,5 +1,14 @@
 #pragma once
 
+#ifdef MG_SINGLE_NODE_V2
+#include "storage/v2/id_types.hpp"
+namespace storage {
+using EdgeType = EdgeTypeId;
+using Label = LabelId;
+using Property = PropertyId;
+}
+#else
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -247,3 +256,5 @@ struct hash<storage::Gid> {
   }
 };
 }  // namespace std
+
+#endif

@@ -16,7 +16,6 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -123,7 +122,21 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
                                   const ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
-  for (auto label : node_info.labels) new_node.add_label(label);
+  for (auto label : node_info.labels) {
+    auto maybe_error = new_node.AddLabel(label);
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to set a label on a deleted node.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException("Unexpected error when setting a label.");
+      }
+    }
+  }
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, context.symbol_table,
@@ -200,14 +213,27 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self,
 
 namespace {
 
-void CreateEdge(const EdgeCreationInfo &edge_info,
-                database::GraphDbAccessor *dba, VertexAccessor *from,
-                VertexAccessor *to, Frame *frame,
+void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba,
+                VertexAccessor *from, VertexAccessor *to, Frame *frame,
                 ExpressionEvaluator *evaluator) {
-  EdgeAccessor edge = dba->InsertEdge(*from, *to, edge_info.edge_type);
-  for (auto kv : edge_info.properties)
-    PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
-  (*frame)[edge_info.symbol] = edge;
+  auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
+  if (maybe_edge.HasValue()) {
+    auto &edge = *maybe_edge;
+    for (auto kv : edge_info.properties)
+      PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+    (*frame)[edge_info.symbol] = edge;
+  } else {
+    switch (maybe_edge.GetError()) {
+      case storage::Error::SERIALIZATION_ERROR:
+        throw QueryRuntimeException(
+            "Can't serialize due to concurrent operations.");
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException(
+            "Trying to create an edge on a deleted node.");
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw QueryRuntimeException("Unexpected error when creating an edge.");
+    }
+  }
 }
 
 }  // namespace
@@ -224,16 +250,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   auto &v1 = vertex_value.ValueVertex();
 
   // Similarly to CreateNode, newly created edges and nodes should use the
-  // latest accesors.
+  // storage::View::NEW.
+  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
   ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                 context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
-  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
-  v1.SwitchNew();
 
   // get the destination vertex (possibly an existing node)
   auto &v2 = OtherVertex(frame, context);
-  v2.SwitchNew();
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
@@ -274,8 +298,8 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr &&input_cursor,
-                         TVerticesFun &&get_vertices)
+  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor,
+                         TVerticesFun get_vertices)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         get_vertices_(std::move(get_vertices)) {}
@@ -283,7 +307,7 @@ class ScanAllCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ScanAll");
 
-    if (context.db_accessor->should_abort()) throw HintedAbortError();
+    if (context.db_accessor->MustAbort()) throw HintedAbortError();
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -298,7 +322,8 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
-    frame[output_symbol_] = *vertices_it_.value()++;
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
     return true;
   }
 
@@ -331,7 +356,7 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_ == storage::View::NEW));
+    return std::make_optional(db->Vertices(view_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
@@ -353,8 +378,7 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return std::make_optional(
-        db->Vertices(label_, view_ == storage::View::NEW));
+    return std::make_optional(db->Vertices(view_, label_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
@@ -380,7 +404,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
     utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(
-          label_, property_, std::nullopt, std::nullopt, false))> {
+          view_, label_, property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
@@ -404,9 +428,8 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
     // is treated as not satisfying the filter, so return no vertices.
     if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
     if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
-    return std::make_optional(db->Vertices(label_, property_, maybe_lower,
-                                           maybe_upper,
-                                           view_ == storage::View::NEW));
+    return std::make_optional(
+        db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
@@ -431,7 +454,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
     utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(
-          label_, property_, PropertyValue(), false))> {
+          view_, label_, property_, PropertyValue()))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
@@ -442,9 +465,8 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
       throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                   value.type());
     }
-    return std::make_optional(db->Vertices(label_, property_,
-                                           PropertyValue(value),
-                                           view_ == storage::View::NEW));
+    return std::make_optional(
+        db->Vertices(view_, label_, property_, PropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
@@ -458,6 +480,23 @@ bool CheckExistingNode(const VertexAccessor &new_node,
   ExpectType(existing_node_sym, existing_node, TypedValue::Type::Vertex);
   return existing_node.ValueVertex() != new_node;
 }
+
+template <class TEdges>
+auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
+  if (result.HasError()) {
+    switch (result.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException(
+            "Trying to get relationships of a deleted node.");
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+        throw QueryRuntimeException(
+            "Unexpected error when accessing relationships.");
+    }
+  }
+  return std::move(*result);
+}
+
 }  // namespace
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input,
@@ -496,10 +535,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (self_.common_.existing_node) return;
     switch (direction) {
       case EdgeAtom::Direction::IN:
-        frame[self_.common_.node_symbol] = new_edge.from();
+        frame[self_.common_.node_symbol] = new_edge.From();
         break;
       case EdgeAtom::Direction::OUT:
-        frame[self_.common_.node_symbol] = new_edge.to();
+        frame[self_.common_.node_symbol] = new_edge.To();
         break;
       case EdgeAtom::Direction::BOTH:
         LOG(FATAL) << "Must indicate exact expansion direction here";
@@ -507,7 +546,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   };
 
   while (true) {
-    if (context.db_accessor->should_abort()) throw HintedAbortError();
+    if (context.db_accessor->MustAbort()) throw HintedAbortError();
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -523,7 +562,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH &&
-          edge.is_cycle())
+          edge.IsCycle())
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
@@ -560,7 +599,6 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.ValueVertex();
-    SwitchAccessor(vertex, self_.view_);
 
     auto direction = self_.common_.direction;
     if (direction == EdgeAtom::Direction::IN ||
@@ -571,11 +609,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node,
                      TypedValue::Type::Vertex);
-          in_edges_.emplace(vertex.in(existing_node.ValueVertex(),
-                                      &self_.common_.edge_types));
+          in_edges_.emplace(UnwrapEdgesResult(
+              vertex.InEdges(self_.view_, self_.common_.edge_types,
+                             existing_node.ValueVertex())));
         }
       } else {
-        in_edges_.emplace(vertex.in(&self_.common_.edge_types));
+        in_edges_.emplace(UnwrapEdgesResult(
+            vertex.InEdges(self_.view_, self_.common_.edge_types)));
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
@@ -590,11 +630,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node,
                      TypedValue::Type::Vertex);
-          out_edges_.emplace(vertex.out(existing_node.ValueVertex(),
-                                        &self_.common_.edge_types));
+          out_edges_.emplace(UnwrapEdgesResult(
+              vertex.OutEdges(self_.view_, self_.common_.edge_types,
+                              existing_node.ValueVertex())));
         }
       } else {
-        out_edges_.emplace(vertex.out(&self_.common_.edge_types));
+        out_edges_.emplace(UnwrapEdgesResult(
+            vertex.OutEdges(self_.view_, self_.common_.edge_types)));
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
@@ -645,6 +687,21 @@ std::vector<Symbol> ExpandVariable::ModifiedSymbols(
 }
 
 namespace {
+
+size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
+  if (maybe_degree.HasError()) {
+    switch (maybe_degree.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get degree of a deleted node.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw QueryRuntimeException(
+            "Unexpected error when getting node degree.");
+    }
+  }
+  return *maybe_degree;
+}
+
 /**
  * Helper function that returns an iterable over
  * <EdgeAtom::Direction, EdgeAccessor> pairs
@@ -661,27 +718,30 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
                       const std::vector<storage::EdgeType> &edge_types,
                       utils::MemoryResource *memory) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
-  auto wrapper = [](EdgeAtom::Direction direction, auto &&vertices) {
+  auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap(
-        [direction](const EdgeAccessor &edge) {
+        [direction](const auto &edge) {
           return std::make_pair(edge, direction);
         },
-        std::forward<decltype(vertices)>(vertices));
+        std::forward<decltype(edges)>(edges));
   };
 
-  // prepare a vector of elements we'll pass to the itertools
-  utils::pmr::vector<decltype(wrapper(direction, vertex.in()))> chain_elements(
-      memory);
+  storage::View view = storage::View::OLD;
+  utils::pmr::vector<decltype(
+      wrapper(direction, *vertex.InEdges(view, edge_types)))>
+      chain_elements(memory);
 
-  if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0) {
-    auto edges = vertex.in(&edge_types);
+  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(view));
+  if (direction != EdgeAtom::Direction::OUT && in_degree > 0) {
+    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
           wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
-  if (direction != EdgeAtom::Direction::IN && vertex.out_degree() > 0) {
-    auto edges = vertex.out(&edge_types);
+  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(view));
+  if (direction != EdgeAtom::Direction::IN && out_degree > 0) {
+    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
           wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
@@ -770,7 +830,7 @@ class ExpandVariableCursor : public Cursor {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
-      if (context.db_accessor->should_abort()) throw HintedAbortError();
+      if (context.db_accessor->MustAbort()) throw HintedAbortError();
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -779,7 +839,6 @@ class ExpandVariableCursor : public Cursor {
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.ValueVertex();
-      SwitchAccessor(vertex, storage::View::OLD);
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(&frame, context.symbol_table,
@@ -798,7 +857,6 @@ class ExpandVariableCursor : public Cursor {
                                         : std::numeric_limits<int64_t>::max();
 
       if (upper_bound_ > 0) {
-        SwitchAccessor(vertex, storage::View::OLD);
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction,
                                              self_.common_.edge_types, memory));
@@ -852,7 +910,7 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
-      if (context.db_accessor->should_abort()) throw HintedAbortError();
+      if (context.db_accessor->MustAbort()) throw HintedAbortError();
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -883,8 +941,7 @@ class ExpandVariableCursor : public Cursor {
 
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator
-      std::pair<EdgeAccessor, EdgeAtom::Direction> current_edge =
-          *edges_it_.back()++;
+      auto current_edge = *edges_it_.back()++;
 
       // Check edge-uniqueness.
       bool found_existing =
@@ -897,8 +954,8 @@ class ExpandVariableCursor : public Cursor {
       AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN
-              ? current_edge.first.from()
-              : current_edge.first.to();
+              ? current_edge.first.From()
+              : current_edge.first.To();
 
       if (self_.common_.existing_node &&
           !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
@@ -916,7 +973,6 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
-        SwitchAccessor(current_vertex, storage::View::OLD);
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(ExpandFromVertex(current_vertex,
                                              self_.common_.direction,
@@ -1001,8 +1057,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     while (true) {
       const auto &last_edge = in_edge.at(last_vertex);
       if (!last_edge) break;
-      last_vertex =
-          last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
+      last_vertex = last_edge->From() == last_vertex ? last_edge->To()
+                                                     : last_edge->From();
       result.emplace_back(*last_edge);
     }
     std::reverse(result.begin(), result.end());
@@ -1010,8 +1066,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     while (true) {
       const auto &last_edge = out_edge.at(last_vertex);
       if (!last_edge) break;
-      last_vertex =
-          last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
+      last_vertex = last_edge->From() == last_vertex ? last_edge->To()
+                                                     : last_edge->From();
       result.emplace_back(*last_edge);
     }
     frame->at(self_.common_.edge_symbol) = std::move(result);
@@ -1032,9 +1088,9 @@ class STShortestPathCursor : public query::plan::Cursor {
         "Expansion condition must evaluate to boolean or null");
   }
 
-  bool FindPath(const database::GraphDbAccessor &dba,
-                const VertexAccessor &source, const VertexAccessor &sink,
-                int64_t lower_bound, int64_t upper_bound, Frame *frame,
+  bool FindPath(const DbAccessor &dba, const VertexAccessor &source,
+                const VertexAccessor &sink, int64_t lower_bound,
+                int64_t upper_bound, Frame *frame,
                 ExpressionEvaluator *evaluator) {
     using utils::Contains;
 
@@ -1069,45 +1125,49 @@ class STShortestPathCursor : public query::plan::Cursor {
     out_edge[sink] = std::nullopt;
 
     while (true) {
-      if (dba.should_abort()) throw HintedAbortError();
+      if (dba.MustAbort()) throw HintedAbortError();
       // Top-down step (expansion from the source).
       ++current_length;
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.out(&self_.common_.edge_types)) {
-            if (ShouldExpand(edge.to(), edge, frame, evaluator) &&
-                !Contains(in_edge, edge.to())) {
-              in_edge.emplace(edge.to(), edge);
-              if (Contains(out_edge, edge.to())) {
+          auto out_edges = UnwrapEdgesResult(
+              vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          for (const auto &edge : out_edges) {
+            if (ShouldExpand(edge.To(), edge, frame, evaluator) &&
+                !Contains(in_edge, edge.To())) {
+              in_edge.emplace(edge.To(), edge);
+              if (Contains(out_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.to(), in_edge, out_edge, frame,
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame,
                                   pull_memory);
                   return true;
                 } else {
                   return false;
                 }
               }
-              source_next.push_back(edge.to());
+              source_next.push_back(edge.To());
             }
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.in(&self_.common_.edge_types)) {
-            if (ShouldExpand(edge.from(), edge, frame, evaluator) &&
-                !Contains(in_edge, edge.from())) {
-              in_edge.emplace(edge.from(), edge);
-              if (Contains(out_edge, edge.from())) {
+          auto in_edges = UnwrapEdgesResult(
+              vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          for (const auto &edge : in_edges) {
+            if (ShouldExpand(edge.From(), edge, frame, evaluator) &&
+                !Contains(in_edge, edge.From())) {
+              in_edge.emplace(edge.From(), edge);
+              if (Contains(out_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.from(), in_edge, out_edge, frame,
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame,
                                   pull_memory);
                   return true;
                 } else {
                   return false;
                 }
               }
-              source_next.push_back(edge.from());
+              source_next.push_back(edge.From());
             }
           }
         }
@@ -1126,38 +1186,42 @@ class STShortestPathCursor : public query::plan::Cursor {
       // reversed.
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.out(&self_.common_.edge_types)) {
+          auto out_edges = UnwrapEdgesResult(
+              vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          for (const auto &edge : out_edges) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
-                !Contains(out_edge, edge.to())) {
-              out_edge.emplace(edge.to(), edge);
-              if (Contains(in_edge, edge.to())) {
+                !Contains(out_edge, edge.To())) {
+              out_edge.emplace(edge.To(), edge);
+              if (Contains(in_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.to(), in_edge, out_edge, frame,
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame,
                                   pull_memory);
                   return true;
                 } else {
                   return false;
                 }
               }
-              sink_next.push_back(edge.to());
+              sink_next.push_back(edge.To());
             }
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.in(&self_.common_.edge_types)) {
+          auto in_edges = UnwrapEdgesResult(
+              vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          for (const auto &edge : in_edges) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
-                !Contains(out_edge, edge.from())) {
-              out_edge.emplace(edge.from(), edge);
-              if (Contains(in_edge, edge.from())) {
+                !Contains(out_edge, edge.From())) {
+              out_edge.emplace(edge.From(), edge);
+              if (Contains(in_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.from(), in_edge, out_edge, frame,
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame,
                                   pull_memory);
                   return true;
                 } else {
                   return false;
                 }
               }
-              sink_next.push_back(edge.from());
+              sink_next.push_back(edge.From());
             }
           }
         }
@@ -1225,18 +1289,20 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.common_.edge_types))
-          expand_pair(edge, edge.to());
+        auto out_edges = UnwrapEdgesResult(
+            vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.common_.edge_types))
-          expand_pair(edge, edge.from());
+        auto in_edges = UnwrapEdgesResult(
+            vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
     };
 
     // do it all in a loop because we skip some elements
     while (true) {
-      if (context.db_accessor->should_abort()) throw HintedAbortError();
+      if (context.db_accessor->MustAbort()) throw HintedAbortError();
       // if we have nothing to visit on the current depth, switch to next
       if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -1272,8 +1338,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
 
       // take the next expansion from the queue
-      std::pair<EdgeAccessor, VertexAccessor> expansion =
-          to_visit_current_.back();
+      auto expansion = to_visit_current_.back();
       to_visit_current_.pop_back();
 
       // create the frame value for the edges
@@ -1284,7 +1349,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       while (true) {
         const EdgeAccessor &last_edge = edge_list.back().ValueEdge();
         last_vertex =
-            last_edge.from() == last_vertex ? last_edge.to() : last_edge.from();
+            last_edge.From() == last_vertex ? last_edge.To() : last_edge.From();
         // origin_vertex must be in processed
         const auto &previous_edge = processed_.find(last_vertex)->second;
         if (!previous_edge) break;
@@ -1363,9 +1428,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_pair = [this, &evaluator, &frame, &create_state](
                            EdgeAccessor edge, VertexAccessor vertex,
                            double weight, int depth) {
-      SwitchAccessor(edge, storage::View::OLD);
-      SwitchAccessor(vertex, storage::View::OLD);
-
       auto *memory = evaluator.GetMemoryResource();
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1404,19 +1466,23 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex,
                                                    double weight, int depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.common_.edge_types)) {
-          expand_pair(edge, edge.to(), weight, depth);
+        auto out_edges = UnwrapEdgesResult(
+            vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : out_edges) {
+          expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.common_.edge_types)) {
-          expand_pair(edge, edge.from(), weight, depth);
+        auto in_edges = UnwrapEdgesResult(
+            vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : in_edges) {
+          expand_pair(edge, edge.From(), weight, depth);
         }
       }
     };
 
     while (true) {
-      if (context.db_accessor->should_abort()) throw HintedAbortError();
+      if (context.db_accessor->MustAbort()) throw HintedAbortError();
       if (pq_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         const auto &vertex_value = frame[self_.input_symbol_];
@@ -1428,7 +1494,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
         }
-        SwitchAccessor(vertex, storage::View::OLD);
         if (self_.upper_bound_) {
           upper_bound_ =
               EvaluateInt(&evaluator, self_.upper_bound_,
@@ -1456,7 +1521,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       }
 
       while (!pq_.empty()) {
-        if (context.db_accessor->should_abort()) throw HintedAbortError();
+        if (context.db_accessor->MustAbort()) throw HintedAbortError();
         auto current = pq_.top();
         double current_weight = std::get<0>(current);
         int current_depth = std::get<1>(current);
@@ -1492,9 +1557,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           const auto &previous_edge =
               previous_.find(create_state(last_vertex, last_depth))->second;
           if (!previous_edge) break;
-          last_vertex = previous_edge->from() == last_vertex
-                            ? previous_edge->to()
-                            : previous_edge->from();
+          last_vertex = previous_edge->From() == last_vertex
+                            ? previous_edge->To()
+                            : previous_edge->From();
           last_depth--;
           edge_list.emplace_back(previous_edge.value());
         }
@@ -1658,10 +1723,10 @@ class ConstructNamedPathCursor : public Cursor {
           // vertices.
           const auto &edges = expansion.ValueList();
           for (const auto &edge_value : edges) {
-            const EdgeAccessor &edge = edge_value.ValueEdge();
-            const VertexAccessor &from = edge.from();
+            const auto &edge = edge_value.ValueEdge();
+            const auto &from = edge.From();
             if (path.vertices().back() == from)
-              path.Expand(edge, edge.to());
+              path.Expand(edge, edge.To());
             else
               path.Expand(edge, from);
           }
@@ -1828,23 +1893,57 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   // delete edges first
   for (TypedValue &expression_result : expression_results) {
-    if (dba.should_abort()) throw HintedAbortError();
-    if (expression_result.type() == TypedValue::Type::Edge)
-      dba.RemoveEdge(expression_result.ValueEdge());
+    if (dba.MustAbort()) throw HintedAbortError();
+    if (expression_result.type() == TypedValue::Type::Edge) {
+      auto maybe_error = dba.RemoveEdge(&expression_result.ValueEdge());
+      if (maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case storage::Error::SERIALIZATION_ERROR:
+            throw QueryRuntimeException(
+                "Can't serialize due to concurrent operations.");
+          case storage::Error::DELETED_OBJECT:
+          case storage::Error::VERTEX_HAS_EDGES:
+            throw QueryRuntimeException(
+                "Unexpected error when deleting an edge.");
+        }
+      }
+    }
   }
 
   // delete vertices
   for (TypedValue &expression_result : expression_results) {
-    if (dba.should_abort()) throw HintedAbortError();
+    if (dba.MustAbort()) throw HintedAbortError();
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
-        VertexAccessor &va = expression_result.ValueVertex();
-        va.SwitchNew();  //  necessary because an edge deletion could have
-                         //  updated
-        if (self_.detach_)
-          dba.DetachRemoveVertex(va);
-        else if (!dba.RemoveVertex(va))
-          throw RemoveAttachedVertexException();
+        auto &va = expression_result.ValueVertex();
+        if (self_.detach_) {
+          auto maybe_error = dba.DetachRemoveVertex(&va);
+          if (maybe_error.HasError()) {
+            switch (maybe_error.GetError()) {
+              case storage::Error::SERIALIZATION_ERROR:
+                throw QueryRuntimeException(
+                    "Can't serialize due to concurrent operations.");
+              case storage::Error::DELETED_OBJECT:
+              case storage::Error::VERTEX_HAS_EDGES:
+                throw QueryRuntimeException(
+                    "Unexpected error when deleting a node.");
+            }
+          }
+        } else {
+          auto res = dba.RemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::Error::SERIALIZATION_ERROR:
+                throw QueryRuntimeException(
+                    "Can't serialize due to concurrent operations.");
+              case storage::Error::VERTEX_HAS_EDGES:
+                throw RemoveAttachedVertexException();
+              case storage::Error::DELETED_OBJECT:
+                throw QueryRuntimeException(
+                    "Unexpected error when deleting a node.");
+            }
+          }
+        }
         break;
       }
 
@@ -1952,39 +2051,70 @@ namespace {
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
 template <typename TRecordAccessor>
-void SetPropertiesOnRecord(database::GraphDbAccessor *dba,
-                           TRecordAccessor *record, const TypedValue &rhs,
-                           SetProperties::Op op) {
-  record->SwitchNew();
+void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
+                           const TypedValue &rhs, SetProperties::Op op) {
   if (op == SetProperties::Op::REPLACE) {
-    try {
-      record->PropsClear();
-    } catch (const RecordDeletedError &) {
-      throw QueryRuntimeException(
-          "Trying to set properties on a deleted graph element.");
+    auto maybe_error = record->ClearProperties();
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to set properties on a deleted graph element.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when setting properties.");
+      }
     }
   }
 
+  auto get_props = [](const auto &record) {
+    auto maybe_props = record.Properties(storage::View::NEW);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to get properties from a deleted object.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when getting properties.");
+      }
+    }
+    return *maybe_props;
+  };
+
   auto set_props = [record](const auto &properties) {
-    try {
-      for (const auto &kv : properties) record->PropsSet(kv.first, kv.second);
-    } catch (const RecordDeletedError &) {
-      throw QueryRuntimeException(
-          "Trying to set properties on a deleted graph element.");
+    for (const auto &kv : properties) {
+      auto maybe_error = record->SetProperty(kv.first, kv.second);
+      if (maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case storage::Error::DELETED_OBJECT:
+            throw QueryRuntimeException(
+                "Trying to set properties on a deleted graph element.");
+          case storage::Error::SERIALIZATION_ERROR:
+            throw QueryRuntimeException(
+                "Can't serialize due to concurrent operations.");
+          case storage::Error::VERTEX_HAS_EDGES:
+            throw QueryRuntimeException(
+                "Unexpected error when setting properties.");
+        }
+      }
     }
   };
 
   switch (rhs.type()) {
     case TypedValue::Type::Edge:
-      set_props(rhs.ValueEdge().Properties());
+      set_props(get_props(rhs.ValueEdge()));
       break;
     case TypedValue::Type::Vertex:
-      set_props(rhs.ValueVertex().Properties());
+      set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.ValueMap())
-        PropsSetChecked(record, dba->Property(std::string(kv.first)),
-                        kv.second);
+        PropsSetChecked(record, dba->NameToProperty(kv.first), kv.second);
       break;
     }
     default:
@@ -2012,12 +2142,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs,
-                            self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(),
+                            rhs, self_.op_);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs,
-                            self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(),
+                            rhs, self_.op_);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2064,11 +2194,20 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
-  vertex.SwitchNew();
-  try {
-    for (auto label : self_.labels_) vertex.add_label(label);
-  } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException("Trying to set labels on a deleted node.");
+  for (auto label : self_.labels_) {
+    auto maybe_error = vertex.AddLabel(label);
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to set a label on a deleted node.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException("Unexpected error when setting a label.");
+      }
+    }
   }
 
   return true;
@@ -2109,22 +2248,29 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
+  auto remove_prop = [property = self_.property_](auto *record) {
+    auto maybe_error = record->RemoveProperty(property);
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to remove a property on a deleted graph element.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when removing property.");
+      }
+    }
+  };
+
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      try {
-        lhs.ValueVertex().PropsErase(self_.property_);
-      } catch (const RecordDeletedError &) {
-        throw QueryRuntimeException(
-            "Trying to remove properties from a deleted node.");
-      }
+      remove_prop(&lhs.ValueVertex());
       break;
     case TypedValue::Type::Edge:
-      try {
-        lhs.ValueEdge().PropsErase(self_.property_);
-      } catch (const RecordDeletedError &) {
-        throw QueryRuntimeException(
-            "Trying to remove properties from a deleted edge.");
-      }
+      remove_prop(&lhs.ValueEdge());
       break;
     case TypedValue::Type::Null:
       // Skip removing properties on Null (can occur in optional match).
@@ -2173,11 +2319,21 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
-  vertex.SwitchNew();
-  try {
-    for (auto label : self_.labels_) vertex.remove_label(label);
-  } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException("Trying to remove labels from a deleted node.");
+  for (auto label : self_.labels_) {
+    auto maybe_error = vertex.RemoveLabel(label);
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to remove labels from a deleted node.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when removing labels from a node.");
+      }
+    }
   }
 
   return true;
@@ -2291,14 +2447,10 @@ class AccumulateCursor : public Cursor {
       pulled_all_input_ = true;
       cache_it_ = cache_.begin();
 
-      if (self_.advance_command_) {
-        dba.AdvanceCommand();
-        for (auto &row : cache_)
-          for (auto &col : row) query::ReconstructTypedValue(col);
-      }
+      if (self_.advance_command_) dba.AdvanceCommand();
     }
 
-    if (dba.should_abort()) throw HintedAbortError();
+    if (dba.MustAbort()) throw HintedAbortError();
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
@@ -2860,7 +3012,7 @@ class OrderByCursor : public Cursor {
 
     if (cache_it_ == cache_.end()) return false;
 
-    if (context.db_accessor->should_abort()) throw HintedAbortError();
+    if (context.db_accessor->MustAbort()) throw HintedAbortError();
 
     // place the output values on the frame
     DCHECK(self_.output_symbols_.size() == cache_it_->remember.size())
@@ -3091,9 +3243,8 @@ class UnwindCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Unwind");
-
     while (true) {
-      if (context.db_accessor->should_abort()) throw HintedAbortError();
+      if (context.db_accessor->MustAbort()) throw HintedAbortError();
       // if we reached the end of our list of values
       // pull from the input
       if (input_value_it_ == input_value_.end()) {
@@ -3351,7 +3502,7 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    if (context.db_accessor->should_abort()) throw HintedAbortError();
+    if (context.db_accessor->MustAbort()) throw HintedAbortError();
 
     restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;

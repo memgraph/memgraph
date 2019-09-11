@@ -1,5 +1,6 @@
 #include <benchmark/benchmark.h>
 
+#include "query/db_accessor.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/transaction_engine.hpp"
 
@@ -27,6 +28,7 @@ static void MapLiteral(benchmark::State &state) {
   query::Frame frame(symbol_table.max_position(), memory.get());
   database::GraphDb db;
   auto dba = db.Access();
+  query::DbAccessor execution_dba(&dba);
   std::unordered_map<query::PropertyIx, query::Expression *> elements;
   for (int64_t i = 0; i < state.range(0); ++i) {
     elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)),
@@ -35,9 +37,9 @@ static void MapLiteral(benchmark::State &state) {
   auto *expr = ast.Create<query::MapLiteral>(elements);
   query::EvaluationContext evaluation_context{memory.get()};
   evaluation_context.properties =
-      query::NamesToProperties(ast.properties_, &dba);
+      query::NamesToProperties(ast.properties_, &execution_dba);
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &dba, storage::View::NEW);
+                                       &execution_dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -67,8 +69,9 @@ static void AdditionOperator(benchmark::State &state) {
         expr, ast.Create<query::PrimitiveLiteral>(i));
   }
   query::EvaluationContext evaluation_context{memory.get()};
+  query::DbAccessor execution_dba(&dba);
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &dba, storage::View::NEW);
+                                       &execution_dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

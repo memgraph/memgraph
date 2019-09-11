@@ -39,8 +39,9 @@ class QueryExecution : public testing::Test {
   /** Executes the query and returns the results.
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
+    query::DbAccessor query_dba(&*dba_);
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = query::Interpreter()(query, *dba_, {}, false,
+    auto results = query::Interpreter()(query, &query_dba, {}, false,
                                         utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);

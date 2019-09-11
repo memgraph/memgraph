@@ -39,7 +39,8 @@ class PrintToJsonTest : public ::testing::Test {
   }
 
   void Check(LogicalOperator *root, std::string expected) {
-    EXPECT_EQ(PlanToJson(dba, root), json::parse(expected));
+    query::DbAccessor query_dba(&dba);
+    EXPECT_EQ(PlanToJson(query_dba, root), json::parse(expected));
   }
 };
 

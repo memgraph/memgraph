@@ -6,7 +6,7 @@
 
 #include <glog/logging.h>
 
-#include "database/graph_db_accessor.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -15,11 +15,6 @@
 #include "storage/v2/view.hpp"
 
 namespace query {
-
-/// Recursively reconstruct all the accessors in the given TypedValue.
-///
-/// @throw ReconstructionException if any reconstruction failed.
-void ReconstructTypedValue(TypedValue &value);
 
 namespace impl {
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
@@ -66,10 +61,6 @@ class TypedValueVectorCompare final {
   std::vector<Ordering> ordering_;
 };
 
-/// Switch the given [Vertex/Edge]Accessor to the desired state.
-template <class TAccessor>
-void SwitchAccessor(TAccessor &accessor, storage::View view);
-
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
 inline void ExpectType(const Symbol &symbol, const TypedValue &value,
                        TypedValue::Type expected) {
@@ -85,15 +76,23 @@ template <class TRecordAccessor>
 void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
                      const TypedValue &value) {
   try {
-    record->PropsSet(key, PropertyValue(value));
+    auto maybe_error = record->SetProperty(key, PropertyValue(value));
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw QueryRuntimeException(
+              "Can't serialize due to concurrent operations.");
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to set properties on a deleted object.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when setting a property.");
+      }
+    }
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                 value.type());
-  } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException(
-        "Trying to set properties on a deleted graph element.");
-  } catch (const database::ConstraintViolationException &e) {
-    throw QueryRuntimeException(e.what());
   }
 }
 

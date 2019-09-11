@@ -20,9 +20,10 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(const std::string &query,
                  const std::map<std::string, PropertyValue> &params = {}) {
     auto dba = db_.Access();
+    query::DbAccessor query_dba(&dba);
     ResultStreamFaker<query::TypedValue> stream;
-    auto results =
-        interpreter_(query, dba, params, false, utils::NewDeleteResource());
+    auto results = interpreter_(query, &query_dba, params, false,
+                                utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());
@@ -207,11 +208,12 @@ TEST_F(InterpreterTest, Bfs) {
   }
 
   auto dba = db_.Access();
+  query::DbAccessor query_dba(&dba);
   ResultStreamFaker<query::TypedValue> stream;
   auto results = interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
       "e.reachable)]->(m) RETURN r",
-      dba, {}, false, utils::NewDeleteResource());
+      &query_dba, {}, false, utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -231,14 +233,14 @@ TEST_F(InterpreterTest, Bfs) {
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
     EXPECT_EQ(
-        edges[0].from().PropsAt(dba.Property(kId)).ValueInt(),
+        edges[0].impl_.from().PropsAt(dba.Property(kId)).ValueInt(),
         0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
-      EXPECT_EQ(edges[i - 1].to(), edges[i].from());
+      EXPECT_EQ(edges[i - 1].To(), edges[i].From());
     }
     auto matched_id =
-        edges.back().to().PropsAt(dba.Property(kId)).ValueInt();
+        edges.back().impl_.to().PropsAt(dba.Property(kId)).ValueInt();
     // Check that we didn't match that node already.
     EXPECT_TRUE(matched_ids.insert(matched_id).second);
     // Check that shortest path was found.
@@ -254,7 +256,8 @@ TEST_F(InterpreterTest, Bfs) {
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
   ResultStreamFaker<query::TypedValue> stream;
   auto dba = db_.Access();
-  ASSERT_THROW(interpreter_("CREATE INDEX ON :X(y)", dba, {}, true,
+  query::DbAccessor query_dba(&dba);
+  ASSERT_THROW(interpreter_("CREATE INDEX ON :X(y)", &query_dba, {}, true,
                             utils::NewDeleteResource())
                    .PullAll(stream),
                query::IndexInMulticommandTxException);
@@ -265,10 +268,11 @@ TEST_F(InterpreterTest, ShortestPath) {
   {
     ResultStreamFaker<query::TypedValue> stream;
     auto dba = db_.Access();
+    query::DbAccessor query_dba(&dba);
     interpreter_(
         "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
         "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)",
-        dba, {}, true, utils::NewDeleteResource())
+        &query_dba, {}, true, utils::NewDeleteResource())
         .PullAll(stream);
 
     dba.Commit();
@@ -276,9 +280,10 @@ TEST_F(InterpreterTest, ShortestPath) {
 
   ResultStreamFaker<query::TypedValue> stream;
   auto dba = db_.Access();
+  query::DbAccessor query_dba(&dba);
   auto results =
       interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e",
-                   dba, {}, false, utils::NewDeleteResource());
+                   &query_dba, {}, false, utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());
@@ -315,15 +320,17 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   ResultStreamFaker<query::TypedValue> stream;
   {
     auto dba = db_.Access();
-    interpreter_("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;", dba,
-                 {}, true, utils::NewDeleteResource())
+    query::DbAccessor query_dba(&dba);
+    interpreter_("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;",
+                 &query_dba, {}, true, utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();
   }
 
   {
     auto dba = db_.Access();
-    interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true,
+    query::DbAccessor query_dba(&dba);
+    interpreter_("CREATE (:A{a:1, b:1})", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();
@@ -331,7 +338,8 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 
   {
     auto dba = db_.Access();
-    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true,
+    query::DbAccessor query_dba(&dba);
+    interpreter_("CREATE (:A{a:2, b:2})", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();
@@ -339,7 +347,8 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 
   {
     auto dba = db_.Access();
-    ASSERT_THROW(interpreter_("CREATE (:A{a:1, b:1})", dba, {}, true,
+    query::DbAccessor query_dba(&dba);
+    ASSERT_THROW(interpreter_("CREATE (:A{a:1, b:1})", &query_dba, {}, true,
                               utils::NewDeleteResource())
                      .PullAll(stream),
                  query::QueryRuntimeException);
@@ -348,10 +357,11 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 
   {
     auto dba = db_.Access();
-    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", dba, {}, true,
+    query::DbAccessor query_dba(&dba);
+    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
-    interpreter_("CREATE (:A{a:2, b:2})", dba, {}, true,
+    interpreter_("CREATE (:A{a:2, b:2})", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();
@@ -359,10 +369,11 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 
   {
     auto dba = db_.Access();
-    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", dba, {}, true,
+    query::DbAccessor query_dba(&dba);
+    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
-    interpreter_("CREATE (n:A{a:2, b:2})", dba, {}, true,
+    interpreter_("CREATE (n:A{a:2, b:2})", &query_dba, {}, true,
                  utils::NewDeleteResource())
         .PullAll(stream);
     dba.Commit();

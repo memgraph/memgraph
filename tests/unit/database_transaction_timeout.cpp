@@ -12,8 +12,9 @@ TEST(TransactionTimeout, TransactionTimeout) {
   database::GraphDb db;
   query::Interpreter interpreter;
   auto interpret = [&](auto &dba, const std::string &query) {
+    query::DbAccessor query_dba(&dba);
     ResultStreamFaker<query::TypedValue> stream;
-    interpreter(query, dba, {}, false, utils::NewDeleteResource())
+    interpreter(query, &query_dba, {}, false, utils::NewDeleteResource())
         .PullAll(stream);
   };
   {
@@ -23,8 +24,7 @@ TEST(TransactionTimeout, TransactionTimeout) {
   {
     auto dba = db.Access();
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"),
-                 query::HintedAbortError);
+    ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"), query::HintedAbortError);
   }
   {
     auto dba = db.Access();

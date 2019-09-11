@@ -109,6 +109,59 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 # ----------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------
+# Memgraph Single Node v2
+# ----------------------------------------------------------------------------
+set(mg_single_node_v2_sources
+    ${lcp_common_cpp_files}
+    audit/log.cpp
+    database/single_node/dump.cpp
+    glue/auth.cpp
+    glue/communication.cpp
+    query/common.cpp
+    query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/ast/pretty_print.cpp
+    query/frontend/parsing.cpp
+    query/frontend/semantic/required_privileges.cpp
+    query/frontend/semantic/symbol_generator.cpp
+    query/frontend/stripped.cpp
+    query/interpret/awesome_memgraph_functions.cpp
+    query/interpreter.cpp
+    query/plan/operator.cpp
+    query/plan/preprocess.cpp
+    query/plan/pretty_print.cpp
+    query/plan/profile.cpp
+    query/plan/rewrite/index_lookup.cpp
+    query/plan/rule_based_planner.cpp
+    query/plan/variable_start_planner.cpp
+    query/typed_value.cpp
+    memgraph_init.cpp
+)
+
+set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads fmt cppitertools
+    antlr_opencypher_parser_lib dl glog gflags mg-storage-v2
+    mg-utils mg-io mg-requests mg-communication)
+# These are enterprise subsystems
+set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-integrations-kafka mg-auth)
+
+if (USE_LTALLOC)
+  list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
+  # TODO(mferencevic): Enable this when clang is updated on apollo.
+  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+endif()
+
+add_library(mg-single-node-v2 STATIC ${mg_single_node_v2_sources})
+target_link_libraries(mg-single-node-v2 ${MG_SINGLE_NODE_V2_LIBS})
+add_dependencies(mg-single-node-v2 generate_opencypher_parser)
+add_dependencies(mg-single-node-v2 generate_lcp_common)
+target_compile_definitions(mg-single-node-v2 PUBLIC MG_SINGLE_NODE_V2)
+add_executable(memgraph-v2 memgraph.cpp)
+target_link_libraries(memgraph-v2 mg-single-node-v2 kvstore_lib telemetry_lib)
+
+# ----------------------------------------------------------------------------
+# END Memgraph Single Node v2
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources

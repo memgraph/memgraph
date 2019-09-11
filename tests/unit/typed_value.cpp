@@ -37,9 +37,11 @@ class AllTypesFixture : public testing::Test {
                                           {"d", TypedValue(0.5)},
                                           {"e", TypedValue()}});
     auto vertex = dba_.InsertVertex();
-    values_.emplace_back(vertex);
-    values_.emplace_back(dba_.InsertEdge(vertex, vertex, dba_.EdgeType("et")));
-    values_.emplace_back(query::Path(dba_.InsertVertex()));
+    values_.emplace_back(query::VertexAccessor(vertex));
+    values_.emplace_back(query::EdgeAccessor(
+        dba_.InsertEdge(vertex, vertex, dba_.EdgeType("et"))));
+    values_.emplace_back(
+        query::Path(query::VertexAccessor(dba_.InsertVertex())));
   }
 };
 

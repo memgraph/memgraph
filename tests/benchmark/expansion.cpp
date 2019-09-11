@@ -44,9 +44,10 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
   auto dba = db_->Access();
+  query::DbAccessor query_dba(&dba);
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false, utils::NewDeleteResource())
+    interpreter()(query, &query_dba, {}, false, utils::NewDeleteResource())
         .PullAll(results);
   }
 }
@@ -59,9 +60,10 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
   auto dba = db_->Access();
+  query::DbAccessor query_dba(&dba);
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false, utils::NewDeleteResource())
+    interpreter()(query, &query_dba, {}, false, utils::NewDeleteResource())
         .PullAll(results);
   }
 }

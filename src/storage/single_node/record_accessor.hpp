@@ -64,6 +64,7 @@ class RecordAccessor {
 
   /**
    * Erases the property for the given key.
+   * @throw RecordDeletedError
    * @throw utils::LockTimeoutException
    * @throw SerializationError
    */
@@ -71,6 +72,7 @@ class RecordAccessor {
 
   /**
    * Removes all the properties from this record.
+   * @throw RecordDeletedError
    * @throw utils::LockTimeoutException
    * @throw SerializationError
    */

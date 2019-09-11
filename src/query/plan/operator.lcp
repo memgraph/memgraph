@@ -808,11 +808,12 @@ pulled.")
      void Reset() override;
 
     private:
-     using InEdgeT = decltype(std::declval<VertexAccessor>().in());
-     using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
-     using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
-     using OutEdgeIteratorT =
-         decltype(std::declval<VertexAccessor>().out().begin());
+     using InEdgeT = std::remove_reference_t<decltype(
+         *std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
+     using OutEdgeT = std::remove_reference_t<decltype(
+         *std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
      const Expand &self_;
      const UniqueCursorPtr input_cursor_;

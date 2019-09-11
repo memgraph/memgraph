@@ -18,9 +18,13 @@ class VertexCountCache {
  public:
   VertexCountCache(TDbAccessor *db) : db_(db) {}
 
-  auto Label(const std::string &name) { return db_->Label(name); }
-  auto Property(const std::string &name) { return db_->Property(name); }
-  auto EdgeType(const std::string &name) { return db_->EdgeType(name); }
+  auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
+  auto NameToProperty(const std::string &name) {
+    return db_->NameToProperty(name);
+  }
+  auto NameToEdgeType(const std::string &name) {
+    return db_->NameToEdgeType(name);
+  }
 
   int64_t VerticesCount() {
     if (!vertices_count_) vertices_count_ = db_->VerticesCount();

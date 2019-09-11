@@ -221,15 +221,15 @@ class RuleBasedPlanner {
   TPlanningContext *context_;
 
   storage::Label GetLabel(LabelIx label) {
-    return context_->db->Label(label.name);
+    return context_->db->NameToLabel(label.name);
   }
 
   storage::Property GetProperty(PropertyIx prop) {
-    return context_->db->Property(prop.name);
+    return context_->db->NameToProperty(prop.name);
   }
 
   storage::EdgeType GetEdgeType(EdgeTypeIx edge_type) {
-    return context_->db->EdgeType(edge_type.name);
+    return context_->db->NameToEdgeType(edge_type.name);
   }
 
   std::unique_ptr<LogicalOperator> GenCreate(

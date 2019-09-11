@@ -63,8 +63,9 @@ void query::Repl(database::GraphDb *db, query::Interpreter *interpreter) {
     try {
       auto dba = db->Access();
       ResultStreamFaker<query::TypedValue> stream;
-      auto results =
-          (*interpreter)(command, dba, {}, false, utils::NewDeleteResource());
+      DbAccessor execution_dba(&dba);
+      auto results = (*interpreter)(command, &execution_dba, {}, false,
+                                    utils::NewDeleteResource());
       stream.Header(results.header());
       results.PullAll(stream);
       stream.Summary(results.summary());

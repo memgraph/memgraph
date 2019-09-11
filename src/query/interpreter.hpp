@@ -2,9 +2,8 @@
 
 #include <gflags/gflags.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/stripped.hpp"
@@ -82,8 +81,7 @@ class Interpreter {
    */
   class Results {
     friend Interpreter;
-    Results(database::GraphDbAccessor *db_accessor,
-            const query::Parameters &parameters,
+    Results(DbAccessor *db_accessor, const query::Parameters &parameters,
             std::shared_ptr<CachedPlan> plan,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
@@ -216,8 +214,7 @@ class Interpreter {
    * Generates an Results object for the parameters. The resulting object
    * can be Pulled with its results written to an arbitrary stream.
    */
-  virtual Results operator()(const std::string &query,
-                             database::GraphDbAccessor &db_accessor,
+  virtual Results operator()(const std::string &query, DbAccessor *db_accessor,
                              const std::map<std::string, PropertyValue> &params,
                              bool in_explicit_transaction,
                              utils::MemoryResource *execution_memory);
@@ -228,20 +225,20 @@ class Interpreter {
  protected:
   std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(
       const std::string &, Parameters *, AstStorage *ast_storage,
-      database::GraphDbAccessor *,
       const std::map<std::string, PropertyValue> &);
 
   // high level tree -> logical plan
   // AstStorage and SymbolTable may be modified during planning. The created
   // LogicalPlan must take ownership of AstStorage and SymbolTable.
-  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(
-      CypherQuery *, AstStorage, const Parameters &,
-      database::GraphDbAccessor *);
+  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(CypherQuery *,
+                                                       AstStorage,
+                                                       const Parameters &,
+                                                       DbAccessor *);
 
-  virtual void PrettyPrintPlan(const database::GraphDbAccessor &,
+  virtual void PrettyPrintPlan(const DbAccessor &,
                                const plan::LogicalOperator *, std::ostream *);
 
-  virtual std::string PlanToJson(const database::GraphDbAccessor &,
+  virtual std::string PlanToJson(const DbAccessor &,
                                  const plan::LogicalOperator *);
 
  private:
@@ -290,16 +287,17 @@ class Interpreter {
   bool is_tsc_available_;
 
   // high level tree -> CachedPlan
-  std::shared_ptr<CachedPlan> CypherQueryToPlan(
-      HashType query_hash, CypherQuery *query, AstStorage ast_storage,
-      const Parameters &parameters, database::GraphDbAccessor *db_accessor);
+  std::shared_ptr<CachedPlan> CypherQueryToPlan(HashType query_hash,
+                                                CypherQuery *query,
+                                                AstStorage ast_storage,
+                                                const Parameters &parameters,
+                                                DbAccessor *db_accessor);
 
   // stripped query -> high level tree
   ParsedQuery ParseQuery(const std::string &stripped_query,
                          const std::string &original_query,
                          const frontend::ParsingContext &context,
-                         AstStorage *ast_storage,
-                         database::GraphDbAccessor *db_accessor);
+                         AstStorage *ast_storage);
 };
 
 }  // namespace query

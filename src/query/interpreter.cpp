@@ -5,7 +5,7 @@
 #include <glog/logging.h>
 
 #include "auth/auth.hpp"
-#ifdef MG_SINGLE_NODE
+#ifndef MG_SINGLE_NODE_HA
 #include "database/single_node/dump.hpp"
 #endif
 #include "glue/auth.hpp"
@@ -37,12 +37,12 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
 
 namespace query {
 
-#ifdef MG_SINGLE_NODE
+#ifndef MG_SINGLE_NODE_HA
 namespace {
 
 class DumpClosure final {
  public:
-  explicit DumpClosure(database::GraphDbAccessor *dba) : dump_generator_(dba) {}
+  explicit DumpClosure(DbAccessor *dba) : dump_generator_(dba) {}
 
   // Please note that this copy constructor actually moves the other object. We
   // want this because lambdas are not movable, i.e. its move constructor
@@ -96,13 +96,13 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 Interpreter::CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan)
     : plan_(std::move(plan)) {}
 
-void Interpreter::PrettyPrintPlan(const database::GraphDbAccessor &dba,
+void Interpreter::PrettyPrintPlan(const DbAccessor &dba,
                                   const plan::LogicalOperator *plan_root,
                                   std::ostream *out) {
   plan::PrettyPrint(dba, plan_root, out);
 }
 
-std::string Interpreter::PlanToJson(const database::GraphDbAccessor &dba,
+std::string Interpreter::PlanToJson(const DbAccessor &dba,
                                     const plan::LogicalOperator *plan_root) {
   return plan::PlanToJson(dba, plan_root).dump();
 }
@@ -120,7 +120,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
 
 Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
                          const Parameters &parameters,
-                         database::GraphDbAccessor *db_accessor) {
+                         DbAccessor *db_accessor) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -417,7 +417,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
 Callback HandleStreamQuery(StreamQuery *stream_query,
                            integrations::kafka::Streams *streams,
                            const Parameters &parameters,
-                           database::GraphDbAccessor *db_accessor) {
+                           DbAccessor *db_accessor) {
   // Empty frame and symbol table for evaluation of expressions. This is OK
   // since all expressions should be literals or parameter lookups.
   Frame frame(0);
@@ -580,12 +580,12 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
 
 Callback HandleIndexQuery(IndexQuery *index_query,
                           std::function<void()> invalidate_plan_cache,
-                          database::GraphDbAccessor *db_accessor) {
-  auto label = db_accessor->Label(index_query->label_.name);
+                          DbAccessor *db_accessor) {
+  auto label = db_accessor->NameToLabel(index_query->label_.name);
   std::vector<storage::Property> properties;
   properties.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(db_accessor->Property(prop.name));
+    properties.push_back(db_accessor->NameToProperty(prop.name));
   }
 
   if (properties.size() > 1) {
@@ -595,11 +595,15 @@ Callback HandleIndexQuery(IndexQuery *index_query,
   Callback callback;
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE:
-      callback.fn = [label, properties, db_accessor,
-                     invalidate_plan_cache] {
+      callback.fn = [label, properties, db_accessor, invalidate_plan_cache] {
+#ifdef MG_SINGLE_NODE_V2
+        CHECK(properties.size() == 1);
+        db_accessor->CreateIndex(label, properties[0]);
+        invalidate_plan_cache();
+#else
         try {
           CHECK(properties.size() == 1);
-          db_accessor->BuildIndex(label, properties[0]);
+          db_accessor->CreateIndex(label, properties[0]);
           invalidate_plan_cache();
         } catch (const database::ConstraintViolationException &e) {
           throw QueryRuntimeException(e.what());
@@ -608,26 +612,32 @@ Callback HandleIndexQuery(IndexQuery *index_query,
         } catch (const database::TransactionException &e) {
           throw QueryRuntimeException(e.what());
         }
+#endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case IndexQuery::Action::DROP:
       callback.fn = [label, properties, db_accessor, invalidate_plan_cache] {
+#ifdef MG_SINGLE_NODE_V2
+        CHECK(properties.size() == 1);
+        db_accessor->DropIndex(label, properties[0]);
+        invalidate_plan_cache();
+#else
         try {
           CHECK(properties.size() == 1);
-          db_accessor->DeleteIndex(label, properties[0]);
+          db_accessor->DropIndex(label, properties[0]);
           invalidate_plan_cache();
         } catch (const database::TransactionException &e) {
           throw QueryRuntimeException(e.what());
         }
+#endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
   }
 }
 
-Callback HandleInfoQuery(InfoQuery *info_query,
-                         database::GraphDbAccessor *db_accessor) {
+Callback HandleInfoQuery(InfoQuery *info_query, DbAccessor *db_accessor) {
   Callback callback;
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
@@ -662,6 +672,9 @@ Callback HandleInfoQuery(InfoQuery *info_query,
 #endif
       break;
     case InfoQuery::InfoType::INDEX:
+#ifdef MG_SINGLE_NODE_V2
+      throw utils::NotYetImplemented("IndexInfo");
+#else
       callback.header = {"created index"};
       callback.fn = [db_accessor] {
         auto info = db_accessor->IndexInfo();
@@ -673,7 +686,11 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         return results;
       };
       break;
+#endif
     case InfoQuery::InfoType::CONSTRAINT:
+#ifdef MG_SINGLE_NODE_V2
+      throw utils::NotYetImplemented("ConstraintInfo");
+#else
       callback.header = {"constraint type", "label", "properties"};
       callback.fn = [db_accessor] {
         std::vector<std::vector<TypedValue>> results;
@@ -681,11 +698,12 @@ Callback HandleInfoQuery(InfoQuery *info_query,
           std::vector<std::string> property_names(e.properties.size());
           std::transform(e.properties.begin(), e.properties.end(),
                          property_names.begin(), [&db_accessor](const auto &p) {
-                           return db_accessor->PropertyName(p);
+                           return db_accessor->PropertyToName(p);
                          });
 
           std::vector<TypedValue> constraint{
-              TypedValue("unique"), TypedValue(db_accessor->LabelName(e.label)),
+              TypedValue("unique"),
+              TypedValue(db_accessor->LabelToName(e.label)),
               TypedValue(utils::Join(property_names, ","))};
 
           results.emplace_back(constraint);
@@ -693,6 +711,7 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         return results;
       };
       break;
+#endif
     case InfoQuery::InfoType::RAFT:
 #if defined(MG_SINGLE_NODE_HA)
       callback.header = {"info", "value"};
@@ -700,8 +719,9 @@ Callback HandleInfoQuery(InfoQuery *info_query,
         std::vector<std::vector<TypedValue>> results(
             {{TypedValue("is_leader"),
               TypedValue(db_accessor->raft()->IsLeader())},
-             {TypedValue("term_id"), TypedValue(static_cast<int64_t>(
-                                         db_accessor->raft()->TermId()))}});
+             {TypedValue("term_id"),
+              TypedValue(static_cast<int64_t>(
+                  db_accessor->raft()->TermId()))}});
         return results;
       };
       // It is critical to abort this query because it can be executed on
@@ -716,12 +736,13 @@ Callback HandleInfoQuery(InfoQuery *info_query,
 }
 
 Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
-                               database::GraphDbAccessor *db_accessor) {
+                               DbAccessor *db_accessor) {
   std::vector<storage::Property> properties;
-  auto label = db_accessor->Label(constraint_query->constraint_.label.name);
+  auto label =
+      db_accessor->NameToLabel(constraint_query->constraint_.label.name);
   properties.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(db_accessor->Property(prop.name));
+    properties.push_back(db_accessor->NameToProperty(prop.name));
   }
 
   Callback callback;
@@ -731,8 +752,34 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
         case Constraint::Type::EXISTS:
+#ifdef MG_SINGLE_NODE_V2
+          if (properties.empty() || properties.size() > 1) {
+            throw SyntaxException(
+                "Exactly one property must be used for existence constraints.");
+          }
+          callback.fn = [label, properties, db_accessor] {
+            auto res =
+                db_accessor->CreateExistenceConstraint(label, properties[0]);
+            if (res.HasError()) {
+              auto violation = res.GetError();
+              auto label_name = db_accessor->LabelToName(violation.label);
+              auto property_name =
+                  db_accessor->PropertyToName(violation.property);
+              throw QueryRuntimeException(
+                  "Unable to create a constraint :{}({}), because an existing "
+                  "node violates it.",
+                  label_name, property_name);
+            }
+            return std::vector<std::vector<TypedValue>>();
+          };
+          break;
+#else
           throw utils::NotYetImplemented("Existence constraints");
+#endif
         case Constraint::Type::UNIQUE:
+#ifdef MG_SINGLE_NODE_V2
+          throw utils::NotYetImplemented("Unique constraints");
+#else
           callback.fn = [label, properties, db_accessor] {
             try {
               db_accessor->BuildUniqueConstraint(label, properties);
@@ -746,6 +793,7 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
             }
           };
           break;
+#endif
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
@@ -753,8 +801,23 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
         case Constraint::Type::EXISTS:
+#ifdef MG_SINGLE_NODE_V2
+          if (properties.empty() || properties.size() > 1) {
+            throw SyntaxException(
+                "Exactly one property must be used for existence constraints.");
+          }
+          callback.fn = [label, properties, db_accessor] {
+            db_accessor->DropExistenceConstraint(label, properties[0]);
+            return std::vector<std::vector<TypedValue>>();
+          };
+          break;
+#else
           throw utils::NotYetImplemented("Existence constraints");
+#endif
         case Constraint::Type::UNIQUE:
+#ifdef MG_SINGLE_NODE_V2
+          throw utils::NotYetImplemented("Unique constraints");
+#else
           callback.fn = [label, properties, db_accessor] {
             try {
               db_accessor->DeleteUniqueConstraint(label, properties);
@@ -764,6 +827,7 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
             }
           };
           break;
+#endif
       }
     } break;
   }
@@ -773,7 +837,7 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
 
 Interpreter::Results Interpreter::operator()(
-    const std::string &query_string, database::GraphDbAccessor &db_accessor,
+    const std::string &query_string, DbAccessor *db_accessor,
     const std::map<std::string, PropertyValue> &params,
     bool in_explicit_transaction, utils::MemoryResource *execution_memory) {
   AstStorage ast_storage;
@@ -781,8 +845,8 @@ Interpreter::Results Interpreter::operator()(
   std::map<std::string, TypedValue> summary;
 
   utils::Timer parsing_timer;
-  auto queries = StripAndParseQuery(query_string, &parameters, &ast_storage,
-                                    &db_accessor, params);
+  auto queries =
+      StripAndParseQuery(query_string, &parameters, &ast_storage, params);
   frontend::StrippedQuery &stripped_query = queries.first;
   ParsedQuery &parsed_query = queries.second;
   auto parsing_time = parsing_timer.Elapsed();
@@ -804,7 +868,7 @@ Interpreter::Results Interpreter::operator()(
 #ifdef MG_SINGLE_NODE_HA
   {
     InfoQuery *info_query = nullptr;
-    if (!db_accessor.raft()->IsLeader() &&
+    if (!db_accessor->raft()->IsLeader() &&
         (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
          info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
       throw raft::CantExecuteQueries();
@@ -814,7 +878,7 @@ Interpreter::Results Interpreter::operator()(
 
   if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
     plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                             std::move(ast_storage), parameters, &db_accessor);
+                             std::move(ast_storage), parameters, db_accessor);
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
     summary["cost_estimate"] = plan->cost();
@@ -831,7 +895,7 @@ Interpreter::Results Interpreter::operator()(
                            .first);
     }
 
-    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+    return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
                    parsed_query.required_privileges, execution_memory);
   }
@@ -866,7 +930,7 @@ Interpreter::Results Interpreter::operator()(
     // and the one that's executed when the query is ran standalone.
     auto queries =
         StripAndParseQuery(query_string.substr(kExplainQueryStart.size()),
-                           &parameters, &ast_storage, &db_accessor, params);
+                           &parameters, &ast_storage, params);
     frontend::StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -874,10 +938,10 @@ Interpreter::Results Interpreter::operator()(
         << "Cypher grammar should not allow other queries in EXPLAIN";
     std::shared_ptr<CachedPlan> cypher_query_plan =
         CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                          std::move(ast_storage), parameters, &db_accessor);
+                          std::move(ast_storage), parameters, db_accessor);
 
     std::stringstream printed_plan;
-    PrettyPrintPlan(db_accessor, &cypher_query_plan->plan(), &printed_plan);
+    PrettyPrintPlan(*db_accessor, &cypher_query_plan->plan(), &printed_plan);
 
     std::vector<std::vector<TypedValue>> printed_plan_rows;
     for (const auto &row :
@@ -885,7 +949,7 @@ Interpreter::Results Interpreter::operator()(
       printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
     }
 
-    summary["explain"] = PlanToJson(db_accessor, &cypher_query_plan->plan());
+    summary["explain"] = PlanToJson(*db_accessor, &cypher_query_plan->plan());
 
     SymbolTable symbol_table;
     auto query_plan_symbol = symbol_table.CreateSymbol("QUERY PLAN", false);
@@ -902,7 +966,7 @@ Interpreter::Results Interpreter::operator()(
 
     std::vector<std::string> header{query_plan_symbol.name()};
 
-    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+    return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
                    parsed_query.required_privileges, execution_memory);
   }
@@ -926,7 +990,7 @@ Interpreter::Results Interpreter::operator()(
     // "metaqueries" for explain queries
     auto queries =
         StripAndParseQuery(query_string.substr(kProfileQueryStart.size()),
-                           &parameters, &ast_storage, &db_accessor, params);
+                           &parameters, &ast_storage, params);
     frontend::StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -934,7 +998,7 @@ Interpreter::Results Interpreter::operator()(
         << "Cypher grammar should not allow other queries in PROFILE";
     auto cypher_query_plan =
         CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                          std::move(ast_storage), parameters, &db_accessor);
+                          std::move(ast_storage), parameters, db_accessor);
 
     // Copy the symbol table and add our own symbols (used by the `OutputTable`
     // operator below)
@@ -984,16 +1048,14 @@ Interpreter::Results Interpreter::operator()(
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
 
-    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+    return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
                    parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
   if (auto *dump_query = utils::Downcast<DumpQuery>(parsed_query.query)) {
-#ifdef MG_SINGLE_NODE
-    database::CypherDumpGenerator dump(&db_accessor);
-
+#ifndef MG_SINGLE_NODE_HA
     SymbolTable symbol_table;
     auto query_symbol = symbol_table.CreateSymbol("QUERY", false);
 
@@ -1001,13 +1063,13 @@ Interpreter::Results Interpreter::operator()(
     std::vector<std::string> header = {query_symbol.name()};
 
     auto output_plan = std::make_unique<plan::OutputTableStream>(
-        output_symbols, DumpClosure(&db_accessor));
+        output_symbols, DumpClosure(db_accessor));
     plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
         std::move(output_plan), 0.0, AstStorage{}, symbol_table));
 
     summary["planning_time"] = planning_timer.Elapsed().count();
 
-    return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+    return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
                    parsed_query.required_privileges, execution_memory,
                    /* is_profile_query */ false,
@@ -1030,7 +1092,7 @@ Interpreter::Results Interpreter::operator()(
       }
     };
     callback =
-        HandleIndexQuery(index_query, invalidate_plan_cache, &db_accessor);
+        HandleIndexQuery(index_query, invalidate_plan_cache, db_accessor);
   } else if (auto *auth_query =
                  utils::Downcast<AuthQuery>(parsed_query.query)) {
 #ifdef MG_SINGLE_NODE_HA
@@ -1041,7 +1103,7 @@ Interpreter::Results Interpreter::operator()(
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
-    callback = HandleAuthQuery(auth_query, auth_, parameters, &db_accessor);
+    callback = HandleAuthQuery(auth_query, auth_, parameters, db_accessor);
 #endif
   } else if (auto *stream_query =
                  utils::Downcast<StreamQuery>(parsed_query.query)) {
@@ -1053,14 +1115,14 @@ Interpreter::Results Interpreter::operator()(
       throw StreamClauseInMulticommandTxException();
     }
     callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
-                                 &db_accessor);
+                                 db_accessor);
 #endif
   } else if (auto *info_query =
                  utils::Downcast<InfoQuery>(parsed_query.query)) {
-    callback = HandleInfoQuery(info_query, &db_accessor);
+    callback = HandleInfoQuery(info_query, db_accessor);
   } else if (auto *constraint_query =
                  utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-    callback = HandleConstraintQuery(constraint_query, &db_accessor);
+    callback = HandleConstraintQuery(constraint_query, db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }
@@ -1081,7 +1143,7 @@ Interpreter::Results Interpreter::operator()(
   summary["planning_time"] = planning_time.count();
   summary["cost_estimate"] = 0.0;
 
-  return Results(&db_accessor, parameters, plan, std::move(output_symbols),
+  return Results(db_accessor, parameters, plan, std::move(output_symbols),
                  callback.header, std::move(summary),
                  parsed_query.required_privileges, execution_memory,
                  /* is_profile_query */ false, callback.should_abort_query);
@@ -1089,7 +1151,7 @@ Interpreter::Results Interpreter::operator()(
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
     HashType query_hash, CypherQuery *query, AstStorage ast_storage,
-    const Parameters &parameters, database::GraphDbAccessor *db_accessor) {
+    const Parameters &parameters, DbAccessor *db_accessor) {
   auto plan_cache_access = plan_cache_.access();
   auto it = plan_cache_access.find(query_hash);
   if (it != plan_cache_access.end()) {
@@ -1108,8 +1170,7 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
 
 Interpreter::ParsedQuery Interpreter::ParseQuery(
     const std::string &stripped_query, const std::string &original_query,
-    const frontend::ParsingContext &context, AstStorage *ast_storage,
-    database::GraphDbAccessor *db_accessor) {
+    const frontend::ParsingContext &context, AstStorage *ast_storage) {
   if (!context.is_query_cached) {
     // Parse original query into antlr4 AST.
     auto parser = [&] {
@@ -1167,7 +1228,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
 std::pair<frontend::StrippedQuery, Interpreter::ParsedQuery>
 Interpreter::StripAndParseQuery(
     const std::string &query_string, Parameters *parameters,
-    AstStorage *ast_storage, database::GraphDbAccessor *db_accessor,
+    AstStorage *ast_storage,
     const std::map<std::string, PropertyValue> &params) {
   frontend::StrippedQuery stripped_query(query_string);
 
@@ -1185,14 +1246,14 @@ Interpreter::StripAndParseQuery(
   parsing_context.is_query_cached = true;
 
   auto parsed_query = ParseQuery(stripped_query.query(), query_string,
-                                 parsing_context, ast_storage, db_accessor);
+                                 parsing_context, ast_storage);
 
   return {std::move(stripped_query), std::move(parsed_query)};
 }
 
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
     CypherQuery *query, AstStorage ast_storage, const Parameters &parameters,
-    database::GraphDbAccessor *db_accessor) {
+    DbAccessor *db_accessor) {
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
 
   auto symbol_table = MakeSymbolTable(query);

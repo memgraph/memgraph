@@ -29,6 +29,9 @@ BoltSession::BoltSession(SessionData *data,
     : communication::bolt::Session<communication::InputStream,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
+#ifdef MG_SINGLE_NODE_V2
+      db_(data->db),
+#endif
       transaction_engine_(data->db, data->interpreter),
 #ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
@@ -78,12 +81,30 @@ std::vector<std::string> BoltSession::Interpret(
 std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
     TEncoder *encoder) {
   try {
+#ifdef MG_SINGLE_NODE_V2
+    TypedValueResultStream stream(encoder, db_);
+#else
     TypedValueResultStream stream(encoder);
+#endif
     const auto &summary = transaction_engine_.PullAll(&stream);
     std::map<std::string, communication::bolt::Value> decoded_summary;
     for (const auto &kv : summary) {
+#ifdef MG_SINGLE_NODE_V2
+      auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
+          case storage::Error::DELETED_OBJECT:
+          case storage::Error::SERIALIZATION_ERROR:
+          case storage::Error::VERTEX_HAS_EDGES:
+            throw communication::bolt::ClientError(
+                "Unexpected storage error when streaming summary.");
+        }
+      }
+      decoded_summary.emplace(kv.first, std::move(*maybe_value));
+#else
       decoded_summary.emplace(kv.first,
                               glue::ToBoltValue(kv.second, storage::View::NEW));
+#endif
     }
     return decoded_summary;
   } catch (const query::QueryException &e) {
@@ -106,15 +127,37 @@ bool BoltSession::Authenticate(const std::string &username,
 #endif
 }
 
+#ifdef MG_SINGLE_NODE_V2
+BoltSession::TypedValueResultStream::TypedValueResultStream(
+    TEncoder *encoder, const storage::Storage *db)
+    : encoder_(encoder), db_(db) {}
+#else
 BoltSession::TypedValueResultStream::TypedValueResultStream(TEncoder *encoder)
     : encoder_(encoder) {}
+#endif
 
 void BoltSession::TypedValueResultStream::Result(
     const std::vector<query::TypedValue> &values) {
   std::vector<communication::bolt::Value> decoded_values;
   decoded_values.reserve(values.size());
   for (const auto &v : values) {
+#ifdef MG_SINGLE_NODE_V2
+    auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw communication::bolt::ClientError(
+              "Returning a deleted object as a result.");
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          throw communication::bolt::ClientError(
+              "Unexpected storage error when streaming results.");
+      }
+    }
+    decoded_values.emplace_back(std::move(*maybe_value));
+#else
     decoded_values.push_back(glue::ToBoltValue(v, storage::View::NEW));
+#endif
   }
   encoder_->MessageRecord(decoded_values);
 }
@@ -123,15 +166,29 @@ void KafkaStreamWriter(
     SessionData &session_data, const std::string &query,
     const std::map<std::string, communication::bolt::Value> &params) {
   auto dba = session_data.db->Access();
+  query::DbAccessor execution_dba(&dba);
   KafkaResultStream stream;
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    (*session_data.interpreter)(query, dba, params_pv, false,
+    (*session_data.interpreter)(query, &execution_dba, params_pv, false,
                                 utils::NewDeleteResource())
         .PullAll(stream);
+#ifdef MG_SINGLE_NODE_V2
+    auto maybe_constraint_violation = dba.Commit();
+    if (maybe_constraint_violation.HasError()) {
+      const auto &constraint_violation = maybe_constraint_violation.GetError();
+      auto label_name = dba.LabelToName(constraint_violation.label);
+      auto property_name = dba.PropertyToName(constraint_violation.property);
+      LOG(WARNING) << fmt::format(
+          "[Kafka] query execution failed with an exception: "
+          "Unable to commit due to constraint violation on :{}({}).",
+          label_name, property_name);
+    }
+#else
     dba.Commit();
+#endif
   } catch (const utils::BasicException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "
                  << e.what();

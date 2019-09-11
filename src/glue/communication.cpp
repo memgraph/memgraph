@@ -50,6 +50,30 @@ query::TypedValue ToTypedValue(const Value &value) {
 }
 
 #ifdef MG_SINGLE_NODE_V2
+storage::Result<communication::bolt::Vertex> ToBoltVertex(
+    const query::VertexAccessor &vertex, const storage::Storage &db,
+    storage::View view) {
+  return ToBoltVertex(vertex.impl_, db, view);
+}
+
+storage::Result<communication::bolt::Edge> ToBoltEdge(
+    const query::EdgeAccessor &edge, const storage::Storage &db,
+    storage::View view) {
+  return ToBoltEdge(edge.impl_, db, view);
+}
+#else
+communication::bolt::Vertex ToBoltVertex(const query::VertexAccessor &vertex,
+                                         storage::View view) {
+  return ToBoltVertex(vertex.impl_, view);
+}
+
+communication::bolt::Edge ToBoltEdge(const query::EdgeAccessor &edge,
+                                     storage::View view) {
+  return ToBoltEdge(edge.impl_, view);
+}
+#endif
+
+#ifdef MG_SINGLE_NODE_V2
 storage::Result<Value> ToBoltValue(const query::TypedValue &value,
                                    const storage::Storage &db,
                                    storage::View view) {

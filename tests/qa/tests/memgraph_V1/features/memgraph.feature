@@ -31,7 +31,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH()-[r:T]->() RETURN r
+            CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH(a)-[r:T]->() RETURN r
             """
         Then an error should be raised
 

@@ -14,7 +14,11 @@ static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
 class TransactionEngine final {
  public:
+#ifdef MG_SINGLE_NODE_V2
+  TransactionEngine(storage::Storage *db, Interpreter *interpreter)
+#else
   TransactionEngine(database::GraphDb *db, Interpreter *interpreter)
+#endif
       : db_(db),
         interpreter_(interpreter),
         execution_memory_(&initial_memory_block_[0],
@@ -72,7 +76,10 @@ class TransactionEngine final {
     if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
 
     // Create a DB accessor if we don't yet have one.
-    if (!db_accessor_) db_accessor_.emplace(db_->Access());
+    if (!db_accessor_) {
+      db_accessor_.emplace(db_->Access());
+      execution_db_accessor_.emplace(&*db_accessor_);
+    }
 
     // Clear leftover results.
     results_ = std::nullopt;
@@ -80,7 +87,7 @@ class TransactionEngine final {
 
     // Interpret the query and return the headers.
     try {
-      results_.emplace((*interpreter_)(query, *db_accessor_, params,
+      results_.emplace((*interpreter_)(query, &*execution_db_accessor_, params,
                                        in_explicit_transaction_,
                                        &execution_memory_));
       return {std::move(results_->header()), std::move(results_->privileges())};
@@ -129,13 +136,20 @@ class TransactionEngine final {
     in_explicit_transaction_ = false;
     if (!db_accessor_) return;
     db_accessor_->Abort();
+    execution_db_accessor_ = std::nullopt;
     db_accessor_ = std::nullopt;
   }
 
  private:
+#ifdef MG_SINGLE_NODE_V2
+  storage::Storage *db_{nullptr};
+  std::optional<storage::Storage::Accessor> db_accessor_;
+#else
   database::GraphDb *db_{nullptr};
-  Interpreter *interpreter_{nullptr};
   std::optional<database::GraphDbAccessor> db_accessor_;
+#endif
+  std::optional<DbAccessor> execution_db_accessor_;
+  Interpreter *interpreter_{nullptr};
   // The `query::Interpreter::Results` object MUST be destroyed before the
   // `database::GraphDbAccessor` is destroyed because the `Results` object holds
   // references to the `GraphDb` object and will crash the database when
@@ -151,7 +165,24 @@ class TransactionEngine final {
     results_ = std::nullopt;
     execution_memory_.Release();
     if (!db_accessor_) return;
+#ifdef MG_SINGLE_NODE_V2
+    auto maybe_constraint_violation = db_accessor_->Commit();
+    if (maybe_constraint_violation.HasError()) {
+      const auto &constraint_violation = maybe_constraint_violation.GetError();
+      auto label_name = execution_db_accessor_->LabelToName(
+          constraint_violation.label);
+      auto property_name = execution_db_accessor_->PropertyToName(
+          constraint_violation.property);
+      execution_db_accessor_ = std::nullopt;
+      db_accessor_ = std::nullopt;
+      throw QueryException(
+          "Unable to commit due to existence constraint violation on :{}({}).",
+          label_name, property_name);
+    }
+#else
     db_accessor_->Commit();
+#endif
+    execution_db_accessor_ = std::nullopt;
     db_accessor_ = std::nullopt;
   }
 

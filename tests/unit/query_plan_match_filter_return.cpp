@@ -37,7 +37,8 @@ class MatchReturnFixture : public testing::Test {
 
   std::vector<Path> PathResults(std::shared_ptr<Produce> &op) {
     std::vector<Path> res;
-    auto context = MakeContext(storage, symbol_table, &dba_);
+    query::DbAccessor execution_dba(&dba_);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     for (const auto &row : CollectProduce(*op, &context))
       res.emplace_back(row[0].ValuePath());
     return res;
@@ -55,7 +56,8 @@ TEST_F(MatchReturnFixture, MatchReturn) {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba_);
+    query::DbAccessor execution_dba(&dba_);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     return PullAll(*produce, &context);
   };
 
@@ -83,7 +85,8 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   auto results = PathResults(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> expected_paths;
-  for (const auto &v : dba_.Vertices(false)) expected_paths.emplace_back(v);
+  for (const auto &v : dba_.Vertices(false))
+    expected_paths.emplace_back(query::VertexAccessor(v));
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
                                   results.begin()));
@@ -109,7 +112,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
       NEXPR("m", IDENT("m")->MapTo(m.sym_))
           ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce = MakeProduce(m.op_, return_n, return_m);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
@@ -134,7 +138,8 @@ TEST(QueryPlan, StandaloneReturn) {
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
   output->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
@@ -187,7 +192,8 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(1, PullAll(*produce, &context));
 
   //  test that filtering works with old records
@@ -242,7 +248,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
@@ -257,8 +264,8 @@ TEST(QueryPlan, Cartesian) {
     return vertex;
   };
 
-  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
-                                       add_vertex("v3")};
+  std::vector<::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
+                                         add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -280,13 +287,14 @@ TEST(QueryPlan, Cartesian) {
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 9);
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
-      EXPECT_EQ(results[3 * i + j][0].ValueVertex(), vertices[j]);
-      EXPECT_EQ(results[3 * i + j][1].ValueVertex(), vertices[i]);
+      EXPECT_EQ(results[3 * i + j][0].ValueVertex().impl_, vertices[j]);
+      EXPECT_EQ(results[3 * i + j][1].ValueVertex().impl_, vertices[i]);
     }
   }
 }
@@ -313,7 +321,8 @@ TEST(QueryPlan, CartesianEmptySet) {
       std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -327,8 +336,8 @@ TEST(QueryPlan, CartesianThreeWay) {
     return vertex;
   };
 
-  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
-                                       add_vertex("v3")};
+  std::vector<::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
+                                         add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -358,16 +367,17 @@ TEST(QueryPlan, CartesianThreeWay) {
                                                     l.op_, l_symbols);
 
   auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 27);
   int id = 0;
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
       for (int k = 0; k < 3; ++k) {
-        EXPECT_EQ(results[id][0].ValueVertex(), vertices[k]);
-        EXPECT_EQ(results[id][1].ValueVertex(), vertices[j]);
-        EXPECT_EQ(results[id][2].ValueVertex(), vertices[i]);
+        EXPECT_EQ(results[id][0].ValueVertex().impl_, vertices[k]);
+        EXPECT_EQ(results[id][1].ValueVertex().impl_, vertices[j]);
+        EXPECT_EQ(results[id][2].ValueVertex().impl_, vertices[i]);
         ++id;
       }
     }
@@ -382,12 +392,12 @@ class ExpandFixture : public testing::Test {
   SymbolTable symbol_table;
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  VertexAccessor v1 = dba_.InsertVertex();
-  VertexAccessor v2 = dba_.InsertVertex();
-  VertexAccessor v3 = dba_.InsertVertex();
+  ::VertexAccessor v1 = dba_.InsertVertex();
+  ::VertexAccessor v2 = dba_.InsertVertex();
+  ::VertexAccessor v3 = dba_.InsertVertex();
   storage::EdgeType edge_type = dba_.EdgeType("Edge");
-  EdgeAccessor r1 = dba_.InsertEdge(v1, v2, edge_type);
-  EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
+  ::EdgeAccessor r1 = dba_.InsertEdge(v1, v2, edge_type);
+  ::EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
 
   void SetUp() override {
     v1.add_label(dba_.Label("l1"));
@@ -409,7 +419,8 @@ TEST_F(ExpandFixture, Expand) {
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba_);
+    query::DbAccessor execution_dba(&dba_);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     return PullAll(*produce, &context);
   };
 
@@ -445,9 +456,13 @@ TEST_F(ExpandFixture, ExpandPath) {
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
-  std::vector<query::Path> expected_paths{query::Path(v1, r2, v3),
-                                          query::Path(v1, r1, v2)};
-  auto context = MakeContext(storage, symbol_table, &dba_);
+  std::vector<query::Path> expected_paths{
+      query::Path(query::VertexAccessor(v1), query::EdgeAccessor(r2),
+                  query::VertexAccessor(v3)),
+      query::Path(query::VertexAccessor(v1), query::EdgeAccessor(r1),
+                  query::VertexAccessor(v2))};
+  query::DbAccessor execution_dba(&dba_);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> results_paths;
@@ -491,11 +506,11 @@ class QueryPlanExpandVariable : public testing::Test {
   void SetUp() {
     // create the graph
     int chain_length = 3;
-    std::vector<VertexAccessor> layer;
+    std::vector<::VertexAccessor> layer;
     for (int from_layer_ind = -1; from_layer_ind < chain_length - 1;
          from_layer_ind++) {
-      std::vector<VertexAccessor> new_layer{dba_.InsertVertex(),
-                                            dba_.InsertVertex()};
+      std::vector<::VertexAccessor> new_layer{dba_.InsertVertex(),
+                                              dba_.InsertVertex()};
       auto label = dba_.Label(std::to_string(from_layer_ind + 1));
       labels.push_back(label);
       for (size_t v_to_ind = 0; v_to_ind < new_layer.size(); v_to_ind++) {
@@ -582,7 +597,8 @@ class QueryPlanExpandVariable : public testing::Test {
   auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
-    auto context = MakeContext(storage, symbol_table, &dba_);
+    query::DbAccessor execution_dba(&dba_);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     std::vector<utils::pmr::vector<TypedValue>> results;
     while (cursor->Pull(frame, context))
       results.emplace_back(frame[symbol].ValueList());
@@ -595,7 +611,8 @@ class QueryPlanExpandVariable : public testing::Test {
   auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
-    auto context = MakeContext(storage, symbol_table, &dba_);
+    query::DbAccessor execution_dba(&dba_);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     std::vector<Path> results;
     while (cursor->Pull(frame, context))
       results.emplace_back(frame[symbol].ValuePath());
@@ -776,7 +793,10 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   for (const auto &v : dba_.Vertices(labels[0], false))
     for (const auto &e1 : v.out())
       for (const auto &e2 : e1.to().out())
-        expected_paths.emplace_back(v, e1, e1.to(), e2, e2.to());
+        expected_paths.emplace_back(
+            query::VertexAccessor(v), query::EdgeAccessor(e1),
+            query::VertexAccessor(e1.to()), query::EdgeAccessor(e2),
+            query::VertexAccessor(e2.to()));
   ASSERT_EQ(expected_paths.size(), 8);
 
   auto results = GetPathResults(create_path, path_symbol);
@@ -798,8 +818,8 @@ struct hash<std::pair<int, int>> {
 class QueryPlanExpandWeightedShortestPath : public testing::Test {
  public:
   struct ResultType {
-    std::vector<EdgeAccessor> path;
-    VertexAccessor vertex;
+    std::vector<::EdgeAccessor> path;
+    ::VertexAccessor vertex;
     double total_weight;
   };
 
@@ -813,10 +833,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   // make 5 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
-  std::vector<VertexAccessor> v;
+  std::vector<::VertexAccessor> v;
 
   // make some edges too, in a map (from, to) vertex indices
-  std::unordered_map<std::pair<int, int>, EdgeAccessor> e;
+  std::unordered_map<std::pair<int, int>, ::EdgeAccessor> e;
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -837,7 +857,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     }
 
     auto add_edge = [&](int from, int to, double weight) {
-      EdgeAccessor edge = dba.InsertEdge(v[from], v[to], edge_type);
+      auto edge = dba.InsertEdge(v[from], v[to], edge_type);
       edge.PropsSet(prop.second, PropertyValue(weight));
       e.emplace(std::make_pair(from, to), edge);
     };
@@ -894,13 +914,14 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(utils::NewDeleteResource());
     std::vector<ResultType> results;
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     while (cursor->Pull(frame, context)) {
-      results.push_back(ResultType{std::vector<EdgeAccessor>(),
-                                   frame[node_sym].ValueVertex(),
+      results.push_back(ResultType{std::vector<::EdgeAccessor>(),
+                                   frame[node_sym].ValueVertex().impl_,
                                    frame[total_weight].ValueDouble()});
       for (const TypedValue &edge : frame[edge_list_sym].ValueList())
-        results.back().path.emplace_back(edge.ValueEdge());
+        results.back().path.emplace_back(edge.ValueEdge().impl_);
     }
 
     return results;
@@ -1168,13 +1189,14 @@ TEST(QueryPlan, ExpandOptional) {
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
                   ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(4, results.size());
   int v1_is_n_count = 0;
   for (auto &row : results) {
     ASSERT_EQ(row[0].type(), TypedValue::Type::Vertex);
-    VertexAccessor &va = row[0].ValueVertex();
+    auto &va = row[0].ValueVertex().impl_;
     auto va_p = va.PropsAt(prop);
     ASSERT_EQ(va_p.type(), PropertyValue::Type::Int);
     if (va_p.ValueInt() == 1) {
@@ -1204,7 +1226,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(1, results.size());
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
@@ -1232,7 +1255,8 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
                   ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(r_m.op_, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
@@ -1280,7 +1304,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))
                   ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(expand, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
@@ -1316,7 +1341,8 @@ TEST(QueryPlan, ExpandExistingNode) {
         NEXPR("n", IDENT("n")->MapTo(n.sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_n.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(results.size(), expected_result_count);
   };
@@ -1342,7 +1368,8 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   auto r_ =
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "_", false, storage::View::OLD);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
 
@@ -1357,10 +1384,10 @@ TEST(QueryPlan, EdgeFilter) {
   std::vector<storage::EdgeType> edge_types;
   for (int j = 0; j < 2; ++j)
     edge_types.push_back(dba.EdgeType("et" + std::to_string(j)));
-  std::vector<VertexAccessor> vertices;
+  std::vector<::VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) vertices.push_back(dba.InsertVertex());
   auto prop = PROPERTY_PAIR("property");
-  std::vector<EdgeAccessor> edges;
+  std::vector<::EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
     edges.push_back(
         dba.InsertEdge(vertices[0], vertices[i + 1], edge_types[i % 2]));
@@ -1403,7 +1430,8 @@ TEST(QueryPlan, EdgeFilter) {
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(edge_filter, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     return PullAll(*produce, &context);
   };
 
@@ -1443,7 +1471,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
       NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(r_m.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
@@ -1470,7 +1499,8 @@ TEST(QueryPlan, Filter) {
       NEXPR("x", IDENT("n")->MapTo(n.sym_))
           ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
 }
 
@@ -1502,7 +1532,8 @@ TEST(QueryPlan, EdgeUniquenessFilter) {
     if (edge_uniqueness)
       last_op = std::make_shared<EdgeUniquenessFilter>(
           last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     return PullAll(*last_op, &context);
   };
 
@@ -1535,7 +1566,8 @@ TEST(QueryPlan, Distinct) {
     auto x_ne = NEXPR("x", x_expr);
     x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
     auto produce = MakeProduce(distinct, x_ne);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(output.size(), results.size());
     auto output_it = output.begin();
@@ -1582,12 +1614,13 @@ TEST(QueryPlan, ScanAllByLabel) {
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all_by_label.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);
-  EXPECT_EQ(result_row[0].ValueVertex(), labeled_vertex);
+  EXPECT_EQ(result_row[0].ValueVertex().impl_, labeled_vertex);
 }
 
 TEST(QueryPlan, ScanAllByLabelProperty) {
@@ -1636,12 +1669,14 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                       ->MapTo(symbol_table.CreateSymbol("n", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
-          TypedValue(results[i][0].ValueVertex().PropsAt(prop)) == expected[i];
+          TypedValue(results[i][0].ValueVertex().impl_.PropsAt(prop)) ==
+          expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
       EXPECT_TRUE(equal.ValueBool());
     }
@@ -1712,12 +1747,13 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
-  auto vertex = row[0].ValueVertex();
+  auto vertex = row[0].ValueVertex().impl_;
   TypedValue value(vertex.PropsAt(prop));
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
@@ -1747,7 +1783,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   ident_m->MapTo(scan_all.sym_);
   auto scan_index = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
 
@@ -1778,7 +1815,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     auto scan_index = MakeScanAllByLabelPropertyRange(
         storage, symbol_table, "n", label, prop, "prop",
         Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
@@ -1786,7 +1824,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     auto scan_index = MakeScanAllByLabelPropertyRange(
         storage, symbol_table, "n", label, prop, "prop", std::nullopt,
         Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
@@ -1795,7 +1834,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
         storage, symbol_table, "n", label, prop, "prop",
         Bound{ident_m, Bound::Type::INCLUSIVE},
         Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
 }
@@ -1829,7 +1869,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -1864,7 +1905,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                     ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -1898,7 +1940,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto scan_all = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
 }
 
@@ -1939,7 +1982,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
         NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 
@@ -1957,7 +2001,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
             ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 

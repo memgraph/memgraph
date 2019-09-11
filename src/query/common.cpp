@@ -2,39 +2,6 @@
 
 namespace query {
 
-void ReconstructTypedValue(TypedValue &value) {
-  using Type = TypedValue::Type;
-  switch (value.type()) {
-    case Type::Vertex:
-      if (!value.ValueVertex().Reconstruct()) throw ReconstructionException();
-      break;
-    case Type::Edge:
-      if (!value.ValueEdge().Reconstruct()) throw ReconstructionException();
-      break;
-    case Type::List:
-      for (TypedValue &inner_value : value.ValueList())
-        ReconstructTypedValue(inner_value);
-      break;
-    case Type::Map:
-      for (auto &kv : value.ValueMap())
-        ReconstructTypedValue(kv.second);
-      break;
-    case Type::Path:
-      for (auto &vertex : value.ValuePath().vertices()) {
-        if (!vertex.Reconstruct()) throw ReconstructionException();
-      }
-      for (auto &edge : value.ValuePath().edges()) {
-        if (!edge.Reconstruct()) throw ReconstructionException();
-      }
-    case Type::Null:
-    case Type::Bool:
-    case Type::Int:
-    case Type::Double:
-    case Type::String:
-      break;
-  }
-}
-
 namespace impl {
 
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
@@ -80,20 +47,5 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
 }
 
 }  // namespace impl
-
-template <typename TAccessor>
-void SwitchAccessor(TAccessor &accessor, storage::View view) {
-  switch (view) {
-    case storage::View::NEW:
-      accessor.SwitchNew();
-      break;
-    case storage::View::OLD:
-      accessor.SwitchOld();
-      break;
-  }
-}
-
-template void SwitchAccessor<>(VertexAccessor &accessor, storage::View view);
-template void SwitchAccessor<>(EdgeAccessor &accessor, storage::View view);
 
 }  // namespace query

@@ -133,9 +133,9 @@ class InteractiveDbAccessor {
                         Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
-  auto Label(const std::string &name) { return dba_->Label(name); }
-  auto Property(const std::string &name) { return dba_->Property(name); }
-  auto EdgeType(const std::string &name) { return dba_->EdgeType(name); }
+  auto NameToLabel(const std::string &name) { return dba_->Label(name); }
+  auto NameToProperty(const std::string &name) { return dba_->Property(name); }
+  auto NameToEdgeType(const std::string &name) { return dba_->EdgeType(name); }
 
   int64_t VerticesCount() { return vertices_count_; }
 
@@ -368,7 +368,8 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    query::plan::PrettyPrint(dba, plans[i].final_plan.get());
+    query::DbAccessor query_dba(&dba);
+    query::plan::PrettyPrint(query_dba, plans[i].final_plan.get());
     std::cout << std::endl;
   }
 }
@@ -381,7 +382,8 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  query::plan::PrettyPrint(dba, plan.get());
+  query::DbAccessor query_dba(&dba);
+  query::plan::PrettyPrint(query_dba, plan.get());
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -390,7 +392,8 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  query::plan::PrettyPrint(dba, plan.get());
+  query::DbAccessor query_dba(&dba);
+  query::plan::PrettyPrint(query_dba, plan.get());
 }
 
 DEFCOMMAND(Help);

@@ -7,8 +7,8 @@
 
 #include "query/plan/operator.hpp"
 
-namespace database {
-class GraphDbAccessor;
+namespace query {
+class DbAccessor;
 }
 
 namespace query::plan {
@@ -16,21 +16,21 @@ namespace query::plan {
 class LogicalOperator;
 
 /// Pretty print a `LogicalOperator` plan to a `std::ostream`.
-/// GraphDbAccessor is needed for resolving label and property names.
+/// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const database::GraphDbAccessor &dba,
-                 const LogicalOperator *plan_root, std::ostream *out);
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root,
+                 std::ostream *out);
 
 /// Overload of `PrettyPrint` which defaults the `std::ostream` to `std::cout`.
-inline void PrettyPrint(const database::GraphDbAccessor &dba,
+inline void PrettyPrint(const DbAccessor &dba,
                         const LogicalOperator *plan_root) {
   PrettyPrint(dba, plan_root, &std::cout);
 }
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
-/// GraphDbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const database::GraphDbAccessor &dba,
+/// DbAccessor is needed for resolving label and property names.
+nlohmann::json PlanToJson(const DbAccessor &dba,
                           const LogicalOperator *plan_root);
 
 class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
@@ -39,7 +39,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const database::GraphDbAccessor *dba, std::ostream *out);
+  PlanPrinter(const DbAccessor *dba, std::ostream *out);
 
   bool DefaultPreVisit() override;
 
@@ -101,7 +101,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
   int64_t depth_{0};
-  const database::GraphDbAccessor *dba_{nullptr};
+  const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
 };
 
@@ -119,26 +119,21 @@ nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
 
 nlohmann::json ToJson(const Symbol &symbol);
 
-nlohmann::json ToJson(storage::EdgeType edge_type,
-                      const database::GraphDbAccessor &dba);
+nlohmann::json ToJson(storage::EdgeType edge_type, const DbAccessor &dba);
 
-nlohmann::json ToJson(storage::Label label,
-                      const database::GraphDbAccessor &dba);
+nlohmann::json ToJson(storage::Label label, const DbAccessor &dba);
 
-nlohmann::json ToJson(storage::Property property,
-                      const database::GraphDbAccessor &dba);
+nlohmann::json ToJson(storage::Property property, const DbAccessor &dba);
 
 nlohmann::json ToJson(NamedExpression *nexpr);
 
 nlohmann::json ToJson(
     const std::vector<std::pair<storage::Property, Expression *>> &properties,
-    const database::GraphDbAccessor &dba);
+    const DbAccessor &dba);
 
-nlohmann::json ToJson(const NodeCreationInfo &node_info,
-                      const database::GraphDbAccessor &dba);
+nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
 
-nlohmann::json ToJson(const EdgeCreationInfo &edge_info,
-                      const database::GraphDbAccessor &dba);
+nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
 
 nlohmann::json ToJson(const Aggregate::Element &elem);
 
@@ -153,7 +148,7 @@ nlohmann::json ToJson(const std::vector<T> &items, Args &&... args) {
 
 class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
  public:
-  PlanToJsonVisitor(const database::GraphDbAccessor *dba) : dba_(dba) {}
+  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -204,7 +199,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
  protected:
   nlohmann::json output_;
-  const database::GraphDbAccessor *dba_;
+  const DbAccessor *dba_;
 
   nlohmann::json PopOutput() {
     nlohmann::json tmp;

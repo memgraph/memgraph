@@ -47,6 +47,8 @@ class EdgeAccessor final {
 
   Gid Gid() const { return edge_->gid; }
 
+  bool IsCycle() const { return from_vertex_ == to_vertex_; }
+
   bool operator==(const EdgeAccessor &other) const {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }

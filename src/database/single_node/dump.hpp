@@ -2,8 +2,11 @@
 
 #include <ostream>
 
-#include "database/graph_db_accessor.hpp"
+// TODO: Move this whole file to query folder
+#include "query/db_accessor.hpp"
+#ifndef MG_SINGLE_NODE_V2
 #include "storage/common/constraints/unique_constraints.hpp"
+#endif
 
 namespace database {
 
@@ -14,7 +17,7 @@ namespace database {
 /// queries.
 class CypherDumpGenerator {
  public:
-  explicit CypherDumpGenerator(GraphDbAccessor *dba);
+  explicit CypherDumpGenerator(query::DbAccessor *dba);
 
   CypherDumpGenerator(const CypherDumpGenerator &other) = delete;
   // NOLINTNEXTLINE(performance-noexcept-move-constructor)
@@ -64,20 +67,23 @@ class CypherDumpGenerator {
     bool empty_;
   };
 
-  GraphDbAccessor *dba_;
+  query::DbAccessor *dba_;
 
   bool created_internal_index_;
   bool cleaned_internal_index_;
   bool cleaned_internal_label_property_;
 
+#ifndef MG_SINGLE_NODE_V2
   std::optional<ContainerState<std::vector<LabelPropertyIndex::Key>>>
       indices_state_;
   std::optional<
       ContainerState<std::vector<storage::constraints::ConstraintEntry>>>
       unique_constraints_state_;
-  std::optional<ContainerState<decltype(dba_->Vertices(false))>>
+#endif
+  std::optional<ContainerState<decltype(dba_->Vertices(storage::View::OLD))>>
       vertices_state_;
-  std::optional<ContainerState<decltype(dba_->Edges(false))>> edges_state_;
+  std::optional<ContainerState<decltype(dba_->Edges(storage::View::OLD))>>
+      edges_state_;
 };
 
 }  // namespace database

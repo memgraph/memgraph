@@ -184,7 +184,8 @@ class DatabaseEnvironment {
 void Execute(GraphDbAccessor *dba, const std::string &query) {
   CHECK(dba);
   ResultStreamFaker<query::TypedValue> results;
-  query::Interpreter()(query, *dba, {}, false, utils::NewDeleteResource())
+  query::DbAccessor query_dba(dba);
+  query::Interpreter()(query, &query_dba, {}, false, utils::NewDeleteResource())
       .PullAll(results);
 }
 
@@ -227,7 +228,8 @@ EdgeAccessor CreateEdge(GraphDbAccessor *dba, VertexAccessor from,
 TEST(DumpTest, EmptyGraph) {
   DatabaseEnvironment db;
   auto dba = db.Access();
-  CypherDumpGenerator dump(&dba);
+  query::DbAccessor query_dba(&dba);
+  CypherDumpGenerator dump(&query_dba);
   EXPECT_EQ(DumpNext(&dump), "");
 }
 
@@ -242,7 +244,8 @@ TEST(DumpTest, SingleVertex) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), kDropInternalIndex);
@@ -262,7 +265,8 @@ TEST(DumpTest, VertexWithSingleLabel) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump),
               "CREATE (:__mg_vertex__:Label1 {__mg_id__: 0});");
@@ -283,7 +287,8 @@ TEST(DumpTest, VertexWithMultipleLabels) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump),
               "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0});");
@@ -304,7 +309,8 @@ TEST(DumpTest, VertexWithSingleProperty) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump),
               "CREATE (:__mg_vertex__ {__mg_id__: 0, prop: 42});");
@@ -327,7 +333,8 @@ TEST(DumpTest, MultipleVertices) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
@@ -351,7 +358,8 @@ TEST(DumpTest, SingleEdge) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
@@ -380,7 +388,8 @@ TEST(DumpTest, MultipleEdges) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
@@ -413,7 +422,8 @@ TEST(DumpTest, EdgeWithProperties) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
     EXPECT_EQ(DumpNext(&dump), "CREATE (:__mg_vertex__ {__mg_id__: 1});");
@@ -439,7 +449,8 @@ TEST(DumpTest, IndicesKeys) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label1(prop);");
     EXPECT_EQ(DumpNext(&dump), "CREATE INDEX ON :Label2(prop);");
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
@@ -467,7 +478,8 @@ TEST(DumpTest, UniqueConstraints) {
 
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     EXPECT_EQ(DumpNext(&dump), kCreateInternalIndex);
     EXPECT_EQ(DumpNext(&dump),
               "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;");
@@ -498,7 +510,8 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   DatabaseEnvironment db_dump;
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     std::string cmd;
     while (!(cmd = DumpNext(&dump)).empty()) {
       auto dba_dump = db_dump.Access();
@@ -540,7 +553,8 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   DatabaseEnvironment db_dump;
   {
     auto dba = db.Access();
-    CypherDumpGenerator dump(&dba);
+    query::DbAccessor query_dba(&dba);
+    CypherDumpGenerator dump(&query_dba);
     std::string cmd;
     while (!(cmd = DumpNext(&dump)).empty()) {
       auto dba_dump = db_dump.Access();
@@ -564,11 +578,11 @@ TEST(DumpTest, ExecuteDumpDatabase) {
 
   {
     auto dba = db.Access();
+    query::DbAccessor query_dba(&dba);
     const std::string query = "DUMP DATABASE";
     ResultStreamFaker<query::TypedValue> stream;
-    auto results =
-        query::Interpreter()(query, dba, {}, false, utils::NewDeleteResource());
-
+    auto results = query::Interpreter()(query, &query_dba, {}, false,
+                                        utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());

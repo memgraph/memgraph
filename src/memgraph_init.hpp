@@ -18,6 +18,12 @@
 #include "query/interpreter.hpp"
 #include "query/transaction_engine.hpp"
 
+#ifdef MG_SINGLE_NODE_V2
+namespace database {
+using GraphDb = storage::Storage;
+}
+#endif
+
 DECLARE_string(durability_directory);
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
@@ -65,14 +71,26 @@ class BoltSession final
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
+#ifdef MG_SINGLE_NODE_V2
+    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db);
+#else
     TypedValueResultStream(TEncoder *encoder);
+#endif
 
     void Result(const std::vector<query::TypedValue> &values);
 
    private:
     TEncoder *encoder_;
+#ifdef MG_SINGLE_NODE_V2
+  // NOTE: Needed only for ToBoltValue conversions
+  const storage::Storage *db_;
+#endif
   };
 
+#ifdef MG_SINGLE_NODE_V2
+  // NOTE: Needed only for ToBoltValue conversions
+  const storage::Storage *db_;
+#endif
   query::TransactionEngine transaction_engine_;
 #ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;

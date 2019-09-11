@@ -108,8 +108,9 @@ static void Distinct(benchmark::State &state) {
   auto query_string = "MATCH (s) RETURN DISTINCT s";
   auto *cypher_query = ParseCypherQuery(query_string, &ast);
   auto symbol_table = query::MakeSymbolTable(cypher_query);
-  auto context =
-      query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = query::plan::MakePlanningContext(&ast, &symbol_table,
+                                                  cypher_query, &execution_dba);
   auto plan_and_cost =
       query::plan::MakeLogicalPlan(&context, parameters, false);
   ResultStreamFaker<query::TypedValue> results;
@@ -117,7 +118,7 @@ static void Distinct(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -171,13 +172,15 @@ static void ExpandVariable(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = query::TypedValue(v);
+      frame[expand_variable.input_symbol_] =
+          query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -211,13 +214,15 @@ static void ExpandBfs(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = query::TypedValue(v);
+      frame[expand_variable.input_symbol_] =
+          query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -253,15 +258,17 @@ static void ExpandShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = query::TypedValue(v);
+      frame[expand_variable.input_symbol_] =
+          query::TypedValue(query::VertexAccessor(v));
       for (const auto &dest : dba.Vertices(false)) {
-        frame[dest_symbol] = query::TypedValue(dest);
+        frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
@@ -302,15 +309,17 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
-      frame[expand_variable.input_symbol_] = query::TypedValue(v);
+      frame[expand_variable.input_symbol_] =
+          query::TypedValue(query::VertexAccessor(v));
       for (const auto &dest : dba.Vertices(false)) {
-        frame[dest_symbol] = query::TypedValue(dest);
+        frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
@@ -352,7 +361,8 @@ static void Accumulate(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -405,7 +415,8 @@ static void Aggregate(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -459,7 +470,8 @@ static void OrderBy(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -500,7 +512,8 @@ static void Unwind(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
+    query::DbAccessor execution_dba(&dba);
+    query::ExecutionContext execution_context{&execution_dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());

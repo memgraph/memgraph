@@ -19,7 +19,7 @@ using Bound = ScanAllByLabelPropertyRange::Bound;
 
 ExecutionContext MakeContext(const AstStorage &storage,
                              const SymbolTable &symbol_table,
-                             database::GraphDbAccessor *dba) {
+                             query::DbAccessor *dba) {
   ExecutionContext context{dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties =

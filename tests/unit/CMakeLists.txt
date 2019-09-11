@@ -6,7 +6,7 @@ function(add_unit_test test_cpp)
   # get exec name (remove extension from the abs path)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
-  add_executable(${target_name} ${test_cpp})
+  add_executable(${target_name} ${test_cpp} ${ARGN})
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
@@ -131,6 +131,37 @@ target_link_libraries(${test_prefix}query_plan_bag_semantics mg-single-node kvst
 
 add_unit_test(query_plan_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-single-node kvstore_dummy_lib)
+
+# Storage V2 in query execution
+define_add_lcp(add_lcp_query_plan_v2_create_set_remove_delete
+  lcp_query_plan_v2_create_set_remove_delete
+  generated_lcp_query_plan_v2_create_set_remove_delete_files)
+
+add_lcp_query_plan_v2_create_set_remove_delete(
+  ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/ast.lcp)
+add_lcp_query_plan_v2_create_set_remove_delete(
+  ${CMAKE_SOURCE_DIR}/src/query/frontend/semantic/symbol.lcp)
+add_lcp_query_plan_v2_create_set_remove_delete(
+  ${CMAKE_SOURCE_DIR}/src/query/plan/operator.lcp)
+
+add_custom_target(generate_lcp_query_plan_v2_create_set_remove_delete DEPENDS
+  ${generated_lcp_query_plan_v2_create_set_remove_delete_files})
+
+add_unit_test(query_plan_v2_create_set_remove_delete.cpp
+  ${lcp_query_plan_v2_create_set_remove_delete}
+  ${CMAKE_SOURCE_DIR}/src/query/common.cpp
+  # ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/ast.lcp.cpp
+  ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/pretty_print.cpp
+  ${CMAKE_SOURCE_DIR}/src/query/plan/operator.cpp
+  # ${CMAKE_SOURCE_DIR}/src/query/plan/operator.lcp.cpp
+  ${CMAKE_SOURCE_DIR}/src/query/typed_value.cpp)
+target_compile_definitions(${test_prefix}query_plan_v2_create_set_remove_delete PUBLIC MG_SINGLE_NODE_V2)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete glog cppitertools)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-storage-v2)
+add_dependencies(${test_prefix}query_plan_v2_create_set_remove_delete
+  generate_lcp_query_plan_v2_create_set_remove_delete)
+
+# END Storage V2 in query execution
 
 add_unit_test(query_plan_edge_cases.cpp)
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node kvstore_dummy_lib)

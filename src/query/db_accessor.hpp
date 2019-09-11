@@ -625,19 +625,20 @@ class DbAccessor final {
 
   bool MustAbort() const { return false; }
 
+  // TODO: Index manipulation should not go through Accessor
   bool CreateIndex(storage::Label label, storage::Property prop) {
-    return accessor_->CreateIndex(label, prop);
+    throw utils::NotYetImplemented("CreateIndex");
   }
 
   bool DropIndex(storage::Label label, storage::Property prop) {
-    return accessor_->DropIndex(label, prop);
+    throw utils::NotYetImplemented("DropIndex");
   }
 
-  // TODO: These should probably be in some kind of StorageInfo class instead of
-  // here.
+  // TODO: Querying information should probably be in some kind of StorageInfo
+  // class instead of here in Accessor.
   bool LabelPropertyIndexExists(storage::Label label,
                                 storage::Property prop) const {
-    return accessor_->LabelPropertyIndexExists(label, prop);
+    throw utils::NotYetImplemented("LabelPropertyIndexExists");
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
@@ -663,14 +664,15 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
-  auto CreateExistenceConstraint(storage::Label label,
-                                 storage::Property property) {
-    return accessor_->CreateExistenceConstraint(label, property);
+  // TODO: Constraints manipulation should not go through Accessor
+  utils::BasicResult<storage::ExistenceConstraintViolation, bool>
+  CreateExistenceConstraint(storage::Label label, storage::Property property) {
+    throw utils::NotYetImplemented("CreateExistenceConstraint");
   }
 
-  auto DropExistenceConstraint(storage::Label label,
+  bool DropExistenceConstraint(storage::Label label,
                                storage::Property property) {
-    return accessor_->DropExistenceConstraint(label, property);
+    throw utils::NotYetImplemented("DropExistenceConstraint");
   }
 };
 #else

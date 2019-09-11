@@ -228,8 +228,8 @@ std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
   std::vector<std::vector<query::TypedValue>> frames;
   frames.push_back(std::vector<query::TypedValue>{query::TypedValue()});
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{
-        query::TypedValue(VertexAccessor(vertex, *dba))});
+    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(
+        query::VertexAccessor(VertexAccessor(vertex, *dba)))});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
@@ -242,12 +242,12 @@ std::unique_ptr<query::plan::LogicalOperator> YieldEntities(
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{
-        query::TypedValue(VertexAccessor(vertex, *dba))});
+    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(
+        query::VertexAccessor(VertexAccessor(vertex, *dba)))});
   }
   for (const auto &edge : edges) {
     frames.emplace_back(std::vector<query::TypedValue>{
-        query::TypedValue(EdgeAccessor(edge, *dba))});
+        query::TypedValue(query::EdgeAccessor(EdgeAccessor(edge, *dba)))});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
@@ -259,20 +259,30 @@ auto GetProp(const RecordAccessor<TRecord> &rec, std::string prop,
   return rec.PropsAt(dba->Property(prop));
 }
 
+inline auto GetProp(const query::VertexAccessor &rec, std::string prop,
+                    database::GraphDbAccessor *dba) {
+  return GetProp(rec.impl_, prop, dba);
+}
+
+inline auto GetProp(const query::EdgeAccessor &rec, std::string prop,
+                    database::GraphDbAccessor *dba) {
+  return GetProp(rec.impl_, prop, dba);
+}
+
 // Checks if the given path is actually a path from source to sink and if all
 // of its edges exist in the given edge list.
 template <class TPathAllocator>
-void CheckPath(database::GraphDbAccessor *dba, const VertexAccessor &source,
-               const VertexAccessor &sink,
+void CheckPath(database::GraphDbAccessor *dba, const query::VertexAccessor &source,
+               const query::VertexAccessor &sink,
                const std::vector<query::TypedValue, TPathAllocator> &path,
                const std::vector<std::pair<int, int>> &edges) {
-  VertexAccessor curr = source;
+  auto curr = source;
   for (const auto &edge_tv : path) {
     ASSERT_TRUE(edge_tv.IsEdge());
     auto edge = edge_tv.ValueEdge();
 
-    ASSERT_TRUE(edge.from() == curr || edge.to() == curr);
-    VertexAccessor next = edge.from_is(curr) ? edge.to() : edge.from();
+    ASSERT_TRUE(edge.From() == curr || edge.To() == curr);
+    auto next = edge.From() == curr ? edge.To() : edge.From();
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
@@ -311,7 +321,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
   auto dba_ptr = db->Access();
   auto &dba = *dba_ptr;
   query::AstStorage storage;
-  query::ExecutionContext context{dba_ptr.get()};
+  query::DbAccessor execution_dba(&dba);
+  query::ExecutionContext context{&execution_dba};
   query::Symbol blocked_sym =
       context.symbol_table.CreateSymbol("blocked", true);
   query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
@@ -343,8 +354,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       // No filter lambda, nothing is ever blocked.
       input_op = std::make_shared<Yield>(
           nullptr, std::vector<query::Symbol>{blocked_sym},
-          std::vector<std::vector<query::TypedValue>>{
-              {query::TypedValue()}});
+          std::vector<std::vector<query::TypedValue>>{{query::TypedValue()}});
       filter_expr = nullptr;
       break;
     case FilterLambdaType::USE_FRAME:
@@ -364,8 +374,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       // We only block vertex #5 and run BFS.
       input_op = std::make_shared<Yield>(
           nullptr, std::vector<query::Symbol>{blocked_sym},
-          std::vector<std::vector<query::TypedValue>>{
-              {query::TypedValue(VertexAccessor(vertices[5], *dba_ptr))}});
+          std::vector<std::vector<query::TypedValue>>{{query::TypedValue(
+              query::VertexAccessor(VertexAccessor(vertices[5], *dba_ptr)))}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
       context.evaluation_context.parameters.Add(0, PropertyValue(5));
@@ -399,9 +409,9 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
                                    filter_expr});
 
   context.evaluation_context.properties =
-      query::NamesToProperties(storage.properties_, &dba);
+      query::NamesToProperties(storage.properties_, &execution_dba);
   context.evaluation_context.labels =
-      query::NamesToLabels(storage.labels_, &dba);
+      query::NamesToLabels(storage.labels_, &execution_dba);
   std::vector<std::vector<query::TypedValue>> results;
 
   // An exception should be thrown on one of the pulls.

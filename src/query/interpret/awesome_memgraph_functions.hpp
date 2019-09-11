@@ -5,14 +5,12 @@
 #include <string>
 #include <unordered_map>
 
+#include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
-
-namespace database {
-class GraphDbAccessor;
-}
 
 namespace query {
 
+class DbAccessor;
 class TypedValue;
 
 namespace {
@@ -22,10 +20,11 @@ const char kContains[] = "CONTAINS";
 }  // namespace
 
 struct FunctionContext {
-  database::GraphDbAccessor *db_accessor;
+  DbAccessor *db_accessor;
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
+  storage::View view;
 };
 
 /// Return the function implementation with the given name.

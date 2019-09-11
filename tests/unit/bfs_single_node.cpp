@@ -48,8 +48,8 @@ class SingleNodeDb : public Database {
       int u, v;
       std::string type;
       std::tie(u, v, type) = e;
-      VertexAccessor from(vertex_addr[u], *dba);
-      VertexAccessor to(vertex_addr[v], *dba);
+      ::VertexAccessor from(vertex_addr[u], *dba);
+      ::VertexAccessor to(vertex_addr[v], *dba);
       auto edge = dba->InsertEdge(from, to, dba->EdgeType(type));
       edge.PropsSet(dba->Property("from"), PropertyValue(u));
       edge.PropsSet(dba->Property("to"), PropertyValue(v));

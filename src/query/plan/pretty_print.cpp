@@ -1,13 +1,12 @@
 #include "query/plan/pretty_print.hpp"
 
-#include "database/graph_db_accessor.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
 namespace query::plan {
 
-PlanPrinter::PlanPrinter(const database::GraphDbAccessor *dba,
-                         std::ostream *out)
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out)
     : dba_(dba), out_(out) {}
 
 #define PRE_VISIT(TOp)                                   \
@@ -24,7 +23,7 @@ bool PlanPrinter::PreVisit(CreateExpand &op) {
         << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-"
                                                                       : "-")
         << "[" << op.edge_info_.symbol.name() << ":"
-        << dba_->EdgeTypeName(op.edge_info_.edge_type) << "]"
+        << dba_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
         << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->"
                                                                        : "-")
         << "(" << op.node_info_.symbol.name() << ")";
@@ -46,7 +45,7 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabel"
         << " (" << op.output_symbol_.name() << " :"
-        << dba_->LabelName(op.label_) << ")";
+        << dba_->LabelToName(op.label_) << ")";
   });
   return true;
 }
@@ -55,8 +54,8 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyValue"
         << " (" << op.output_symbol_.name() << " :"
-        << dba_->LabelName(op.label_) << " {"
-        << dba_->PropertyName(op.property_) << "})";
+        << dba_->LabelToName(op.label_) << " {"
+        << dba_->PropertyToName(op.property_) << "})";
   });
   return true;
 }
@@ -65,8 +64,8 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyRange"
         << " (" << op.output_symbol_.name() << " :"
-        << dba_->LabelName(op.label_) << " {"
-        << dba_->PropertyName(op.property_) << "})";
+        << dba_->LabelToName(op.label_) << " {"
+        << dba_->PropertyToName(op.property_) << "})";
   });
   return true;
 }
@@ -79,7 +78,7 @@ bool PlanPrinter::PreVisit(query::plan::Expand &op) {
           << "[" << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|",
                          [this](auto &stream, const auto &edge_type) {
-                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                           stream << ":" << dba_->EdgeTypeToName(edge_type);
                          });
     *out_ << "]"
           << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
@@ -97,7 +96,7 @@ bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
           << "[" << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|",
                          [this](auto &stream, const auto &edge_type) {
-                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                           stream << ":" << dba_->EdgeTypeToName(edge_type);
                          });
     *out_ << "]"
           << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
@@ -223,14 +222,14 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op,
   --depth_;
 }
 
-void PrettyPrint(const database::GraphDbAccessor &dba,
-                 const LogicalOperator *plan_root, std::ostream *out) {
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root,
+                 std::ostream *out) {
   PlanPrinter printer(&dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const database::GraphDbAccessor &dba,
+nlohmann::json PlanToJson(const DbAccessor &dba,
                           const LogicalOperator *plan_root) {
   impl::PlanToJsonVisitor visitor(&dba);
   // FIXME(mtomic): We should make visitors that take const arguments.
@@ -310,16 +309,16 @@ json ToJson(const utils::Bound<Expression *> &bound) {
 
 json ToJson(const Symbol &symbol) { return symbol.name(); }
 
-json ToJson(storage::EdgeType edge_type, const database::GraphDbAccessor &dba) {
-  return dba.EdgeTypeName(edge_type);
+json ToJson(storage::EdgeType edge_type, const DbAccessor &dba) {
+  return dba.EdgeTypeToName(edge_type);
 }
 
-json ToJson(storage::Label label, const database::GraphDbAccessor &dba) {
-  return dba.LabelName(label);
+json ToJson(storage::Label label, const DbAccessor &dba) {
+  return dba.LabelToName(label);
 }
 
-json ToJson(storage::Property property, const database::GraphDbAccessor &dba) {
-  return dba.PropertyName(property);
+json ToJson(storage::Property property, const DbAccessor &dba) {
+  return dba.PropertyToName(property);
 }
 
 json ToJson(NamedExpression *nexpr) {
@@ -331,7 +330,7 @@ json ToJson(NamedExpression *nexpr) {
 
 json ToJson(
     const std::vector<std::pair<storage::Property, Expression *>> &properties,
-    const database::GraphDbAccessor &dba) {
+    const DbAccessor &dba) {
   json json;
   for (const auto &prop_pair : properties) {
     json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second));
@@ -339,8 +338,7 @@ json ToJson(
   return json;
 }
 
-json ToJson(const NodeCreationInfo &node_info,
-            const database::GraphDbAccessor &dba) {
+json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, dba);
@@ -348,8 +346,7 @@ json ToJson(const NodeCreationInfo &node_info,
   return self;
 }
 
-json ToJson(const EdgeCreationInfo &edge_info,
-            const database::GraphDbAccessor &dba) {
+json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
   self["properties"] = ToJson(edge_info.properties, dba);

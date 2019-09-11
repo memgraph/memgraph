@@ -7,9 +7,9 @@
 #include <regex>
 #include <vector>
 
-#include "database/graph_db_accessor.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -22,8 +22,8 @@ namespace query {
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
-                      const EvaluationContext &ctx,
-                      database::GraphDbAccessor *dba, storage::View view)
+                      const EvaluationContext &ctx, DbAccessor *dba,
+                      storage::View view)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
@@ -42,9 +42,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Identifier &ident) override {
-    TypedValue value(frame_->at(symbol_table_->at(ident)), ctx_->memory);
-    SwitchAccessors(value);
-    return value;
+    return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
   }
 
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)              \
@@ -203,8 +201,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(lhs.ValueVertex().PropsAt(
-                            dba_->Property(std::string(index.ValueString()))),
+      return TypedValue(GetProperty(lhs.ValueVertex(), index.ValueString()),
                         ctx_->memory);
     }
 
@@ -212,8 +209,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString())
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(lhs.ValueEdge().PropsAt(
-                            dba_->Property(std::string(index.ValueString()))),
+      return TypedValue(GetProperty(lhs.ValueEdge(), index.ValueString()),
                         ctx_->memory);
     }
 
@@ -282,12 +278,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(expression_result.ValueVertex().PropsAt(
-                              GetProperty(property_lookup.property_)),
+        return TypedValue(GetProperty(expression_result.ValueVertex(),
+                                      property_lookup.property_),
                           ctx_->memory);
       case TypedValue::Type::Edge:
-        return TypedValue(expression_result.ValueEdge().PropsAt(
-                              GetProperty(property_lookup.property_)),
+        return TypedValue(GetProperty(expression_result.ValueEdge(),
+                                      property_lookup.property_),
                           ctx_->memory);
       case TypedValue::Type::Map: {
         // NOTE: Take non-const reference to map, so that we can move out the
@@ -313,7 +309,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
-          if (!vertex.has_label(GetLabel(label))) {
+          auto has_label = vertex.HasLabel(view_, GetLabel(label));
+          if (has_label.HasError()) {
+            switch (has_label.GetError()) {
+              case storage::Error::DELETED_OBJECT:
+                throw QueryRuntimeException(
+                    "Trying to access labels on a deleted node.");
+              case storage::Error::SERIALIZATION_ERROR:
+              case storage::Error::VERTEX_HAS_EDGES:
+                throw QueryRuntimeException(
+                    "Unexpected error when accessing labels.");
+            }
+          }
+          if (!*has_label) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -346,11 +354,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
-    TypedValue value(frame_->at(symbol_table_->at(aggregation)), ctx_->memory);
-    // Aggregation is probably always simple type, but let's switch accessor
-    // just to be sure.
-    SwitchAccessors(value);
-    return value;
+    return TypedValue(frame_->at(symbol_table_->at(aggregation)), ctx_->memory);
   }
 
   TypedValue Visit(Coalesce &coalesce) override {
@@ -372,7 +376,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp,
-                                 &ctx_->counters};
+                                 &ctx_->counters, view_};
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {
@@ -538,74 +542,50 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
-  storage::Property GetProperty(PropertyIx prop) {
-    return ctx_->properties[prop.ix];
-  }
-
-  storage::Label GetLabel(LabelIx label) {
-    return ctx_->labels[label.ix];
-  }
-
-  // If the given TypedValue contains accessors, switch them to New or Old,
-  // depending on use_new_ flag.
-  void SwitchAccessors(TypedValue &value) {
-    switch (value.type()) {
-      case TypedValue::Type::Vertex: {
-        auto &vertex = value.ValueVertex();
-        switch (view_) {
-          case storage::View::NEW:
-            vertex.SwitchNew();
-            break;
-          case storage::View::OLD:
-            vertex.SwitchOld();
-            break;
-        }
-        break;
+  template <class TRecordAccessor>
+  PropertyValue GetProperty(const TRecordAccessor &record_accessor,
+                            PropertyIx prop) {
+    auto maybe_prop =
+        record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to get a property from a deleted object.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when getting a property.");
       }
-      case TypedValue::Type::Edge: {
-        auto &edge = value.ValueEdge();
-        switch (view_) {
-          case storage::View::NEW:
-            edge.SwitchNew();
-            break;
-          case storage::View::OLD:
-            edge.SwitchOld();
-            break;
-        }
-        break;
-      }
-      case TypedValue::Type::List: {
-        auto &list = value.ValueList();
-        for (auto &list_value : list) SwitchAccessors(list_value);
-        break;
-      }
-      case TypedValue::Type::Map: {
-        auto &map = value.ValueMap();
-        for (auto &kv : map) SwitchAccessors(kv.second);
-        break;
-      }
-      case TypedValue::Type::Path:
-        switch (view_) {
-          case storage::View::NEW:
-            value.ValuePath().SwitchNew();
-            break;
-          case storage::View::OLD:
-            value.ValuePath().SwitchOld();
-            break;
-        }
-      case TypedValue::Type::Null:
-      case TypedValue::Type::Bool:
-      case TypedValue::Type::String:
-      case TypedValue::Type::Int:
-      case TypedValue::Type::Double:
-        break;
     }
+    return *maybe_prop;
   }
+
+  template <class TRecordAccessor>
+  PropertyValue GetProperty(const TRecordAccessor &record_accessor,
+                            const std::string_view &name) {
+    auto maybe_prop =
+        record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to get a property from a deleted object.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when getting a property.");
+      }
+    }
+    return *maybe_prop;
+  }
+
+  storage::Label GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
-  database::GraphDbAccessor *dba_;
+  DbAccessor *dba_;
   // which switching approach should be used when evaluating
   storage::View view_;
 };

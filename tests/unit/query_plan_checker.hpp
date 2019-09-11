@@ -392,31 +392,41 @@ class FakeDbAccessor {
     label_property_index_.emplace_back(label, property, count);
   }
 
-  storage::Label Label(const std::string &name) {
+  storage::Label NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
     return labels_.emplace(name, storage::Label(labels_.size())).first->second;
   }
 
-  storage::EdgeType EdgeType(const std::string &name) {
+  storage::Label Label(const std::string &name) { return NameToLabel(name); }
+
+  storage::EdgeType NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
     return edge_types_.emplace(name, storage::EdgeType(edge_types_.size()))
         .first->second;
   }
 
-  storage::Property Property(const std::string &name) {
+  storage::Property NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
     return properties_.emplace(name, storage::Property(properties_.size()))
         .first->second;
   }
 
-  std::string PropertyName(storage::Property property) const {
+  storage::Property Property(const std::string &name) {
+    return NameToProperty(name);
+  }
+
+  std::string PropertyToName(storage::Property property) const {
     for (const auto &kv : properties_) {
       if (kv.second == property) return kv.first;
     }
     LOG(FATAL) << "Unable to find property name";
+  }
+
+  std::string PropertyName(storage::Property property) const {
+    return PropertyToName(property);
   }
 
  private:

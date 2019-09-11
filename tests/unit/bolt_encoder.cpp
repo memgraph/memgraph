@@ -189,9 +189,12 @@ TEST(BoltEncoder, VertexAndEdge) {
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(glue::ToBoltValue(query::TypedValue(va1), storage::View::NEW));
-  vals.push_back(glue::ToBoltValue(query::TypedValue(va2), storage::View::NEW));
-  vals.push_back(glue::ToBoltValue(query::TypedValue(ea), storage::View::NEW));
+  vals.push_back(glue::ToBoltValue(
+      query::TypedValue(query::VertexAccessor(va1)), storage::View::NEW));
+  vals.push_back(glue::ToBoltValue(
+      query::TypedValue(query::VertexAccessor(va2)), storage::View::NEW));
+  vals.push_back(glue::ToBoltValue(query::TypedValue(query::EdgeAccessor(ea)),
+                                   storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,

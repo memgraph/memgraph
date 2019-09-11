@@ -7,7 +7,10 @@
 #include <functional>
 #include <random>
 
-#include "database/graph_db_accessor.hpp"
+#ifndef MG_SINGLE_NODE_V2
+#include "database/single_node/dump.hpp"
+#endif
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
@@ -336,7 +339,7 @@ TypedValue EndNode(const TypedValue *args, int64_t nargs,
                    const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("endNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(args[0].ValueEdge().to(), ctx.memory);
+  return TypedValue(args[0].ValueEdge().To(), ctx.memory);
 }
 
 TypedValue Head(const TypedValue *args, int64_t nargs,
@@ -363,8 +366,20 @@ TypedValue Properties(const TypedValue *args, int64_t nargs,
   auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
-    for (const auto &property : record_accessor.Properties()) {
-      properties.emplace(dba->PropertyName(property.first), property.second);
+    auto maybe_props = record_accessor.Properties(ctx.view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to get properties from a deleted object.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException(
+              "Unexpected error when getting properties.");
+      }
+    }
+    for (const auto &property : *maybe_props) {
+      properties.emplace(dba->PropertyToName(property.first), property.second);
     }
     return TypedValue(std::move(properties));
   };
@@ -411,17 +426,35 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs,
                      const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(args[0].ValueEdge().from(), ctx.memory);
+  return TypedValue(args[0].ValueEdge().From(), ctx.memory);
 }
+
+namespace {
+
+size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
+  if (maybe_degree.HasError()) {
+    switch (maybe_degree.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get degree of a deleted node.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw QueryRuntimeException(
+            "Unexpected error when getting node degree.");
+    }
+  }
+  return *maybe_degree;
+}
+
+}  // namespace
 
 TypedValue Degree(const TypedValue *args, int64_t nargs,
                   const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  return TypedValue(
-      static_cast<int64_t>(vertex.out_degree() + vertex.in_degree()),
-      ctx.memory);
+  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
+  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
 }
 
 TypedValue InDegree(const TypedValue *args, int64_t nargs,
@@ -429,7 +462,8 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs,
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  return TypedValue(static_cast<int64_t>(vertex.in_degree()), ctx.memory);
+  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
 
 TypedValue OutDegree(const TypedValue *args, int64_t nargs,
@@ -437,7 +471,8 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs,
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  return TypedValue(static_cast<int64_t>(vertex.out_degree()), ctx.memory);
+  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
+  return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs,
@@ -521,18 +556,30 @@ TypedValue Type(const TypedValue *args, int64_t nargs,
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(dba->EdgeTypeName(args[0].ValueEdge().EdgeType()),
+  return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()),
                     ctx.memory);
 }
 
+// TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs,
                 const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
-    for (const auto &property : record_accessor.Properties()) {
-      keys.emplace_back(dba->PropertyName(property.first));
+    auto maybe_props = record_accessor.Properties(ctx.view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException(
+              "Trying to get keys from a deleted object.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw QueryRuntimeException("Unexpected error when getting keys.");
+      }
+    }
+    for (const auto &property : *maybe_props) {
+      keys.emplace_back(dba->PropertyToName(property.first));
     }
     return TypedValue(std::move(keys));
   };
@@ -554,8 +601,19 @@ TypedValue Labels(const TypedValue *args, int64_t nargs,
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector labels(ctx.memory);
-  for (const auto &label : args[0].ValueVertex().labels()) {
-    labels.emplace_back(dba->LabelName(label));
+  auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
+  if (maybe_labels.HasError()) {
+    switch (maybe_labels.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException(
+            "Trying to get labels from a deleted node.");
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw QueryRuntimeException("Unexpected error when getting labels.");
+    }
+  }
+  for (const auto &label : *maybe_labels) {
+    labels.emplace_back(dba->LabelToName(label));
   }
   return TypedValue(std::move(labels));
 }

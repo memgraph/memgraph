@@ -13,9 +13,10 @@ int main(int argc, char *argv[]) {
   }
   database::GraphDb db;
   auto dba = db.Access();
+  query::DbAccessor query_dba(&dba);
   ResultStreamFaker<query::TypedValue> stream;
-  auto results =
-      query::Interpreter()(argv[1], dba, {}, false, utils::NewDeleteResource());
+  auto results = query::Interpreter()(argv[1], &query_dba, {}, false,
+                                      utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());

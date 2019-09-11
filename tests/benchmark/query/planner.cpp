@@ -42,8 +42,9 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     int num_matches = state.range(0);
     auto *query = AddChainedMatches(num_matches, storage);
     auto symbol_table = query::MakeSymbolTable(query);
+    query::DbAccessor exec_dba(&dba);
     auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                &dba);
+                                                &exec_dba);
     state.ResumeTiming();
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
@@ -121,8 +122,9 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
+    query::DbAccessor exec_dba(&dba);
     auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                &dba);
+                                                &exec_dba);
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
@@ -146,7 +148,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
   auto dba = db.Access();
-  auto vertex_counts = query::plan::MakeVertexCountCache(&dba);
+  query::DbAccessor exec_dba(&dba);
+  auto vertex_counts = query::plan::MakeVertexCountCache(&exec_dba);
   query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();

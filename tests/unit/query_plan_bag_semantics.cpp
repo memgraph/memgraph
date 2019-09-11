@@ -31,7 +31,8 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -61,7 +62,8 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -100,7 +102,8 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
   dba.AdvanceCommand();
   EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
@@ -171,7 +174,8 @@ TEST(QueryPlan, OrderBy) {
     auto n_p_ne =
         NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
     auto produce = MakeProduce(order_by, n_p_ne);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j)
@@ -223,7 +227,8 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p2_ne =
       NEXPR("n.p2", n_p2)->MapTo(symbol_table.CreateSymbol("n.p2", true));
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  query::DbAccessor execution_dba(&dba);
+  auto context = MakeContext(storage, symbol_table, &execution_dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
@@ -277,7 +282,8 @@ TEST(QueryPlan, OrderByExceptions) {
     auto order_by = std::make_shared<plan::OrderBy>(
         n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});
-    auto context = MakeContext(storage, symbol_table, &dba);
+    query::DbAccessor execution_dba(&dba);
+    auto context = MakeContext(storage, symbol_table, &execution_dba);
     EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
   }
 }

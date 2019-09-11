@@ -418,10 +418,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::Label GetLabel(LabelIx label) { return db_->Label(label.name); }
+  storage::Label GetLabel(LabelIx label) {
+    return db_->NameToLabel(label.name);
+  }
 
   storage::Property GetProperty(PropertyIx prop) {
-    return db_->Property(prop.name);
+    return db_->NameToProperty(prop.name);
   }
 
   LabelIx FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
