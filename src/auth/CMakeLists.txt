@@ -4,11 +4,10 @@ set(auth_src_files
     models.cpp
     module.cpp)
 
-find_package(Ldap REQUIRED)
 find_package(Seccomp REQUIRED)
 
 add_library(mg-auth STATIC ${auth_src_files})
-target_link_libraries(mg-auth json libbcrypt glog gflags fmt ldap)
+target_link_libraries(mg-auth json libbcrypt glog gflags fmt)
 target_link_libraries(mg-auth mg-utils)
 
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})

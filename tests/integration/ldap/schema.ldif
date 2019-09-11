@@ -62,6 +62,14 @@ objectclass: top
 sn: user
 userpassword: dave
 
+# User eve
+dn: cn=eve,ou=people,dc=memgraph,dc=com
+cn: eve
+objectclass: person
+objectclass: top
+sn: user
+userpassword: eve
+
 # User admin
 dn: cn=admin,ou=people,dc=memgraph,dc=com
 cn: admin
@@ -80,6 +88,7 @@ ou: roles
 dn: cn=moderator,ou=roles,dc=memgraph,dc=com
 cn: moderator
 member: cn=alice,ou=people,dc=memgraph,dc=com
+member: cn=eve,ou=people,dc=memgraph,dc=com
 objectclass: groupOfNames
 objectclass: top
 
@@ -88,5 +97,6 @@ dn: cn=admin,ou=roles,dc=memgraph,dc=com
 cn: admin
 member: cn=carol,ou=people,dc=memgraph,dc=com
 member: cn=dave,ou=people,dc=memgraph,dc=com
+member: cn=eve,ou=people,dc=memgraph,dc=com
 objectclass: groupOfNames
 objectclass: top

@@ -12,14 +12,6 @@
 namespace auth {
 
 /**
- * Call this function in each `main` file that uses the Auth stack. It is used
- * to initialize all libraries (primarily OpenLDAP).
- *
- * NOTE: This function must be called **exactly** once.
- */
-void Init();
-
-/**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles and Permissions.
  * NOTE: The functions in this class aren't thread safe. Use the `WithLock` lock

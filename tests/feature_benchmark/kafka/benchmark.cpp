@@ -32,7 +32,6 @@ void KafkaBenchmarkMain() {
 
   auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
-  auth::Init();
   auth::Auth auth{durability_directory / "auth"};
 
   audit::Log audit_log{durability_directory / "audit",

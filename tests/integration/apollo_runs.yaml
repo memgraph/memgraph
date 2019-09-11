@@ -60,6 +60,8 @@
     - prepare.sh # preparation script
     - runner.py # runner script
     - schema.ldif # schema file
+    - ve3 # Python virtual environment
+    - ../../../src/auth/reference_modules/ldap.py # LDAP auth module
     - ../../../build_debug/memgraph # memgraph binary
     - ../../../build_debug/tests/integration/ldap/tester # tester binary
   enable_network: true

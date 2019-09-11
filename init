@@ -10,7 +10,6 @@ required_pkgs=(git arcanist # source code control
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
                uuid-dev # mg-utils
                libcurl4-openssl-dev # mg-requests
-               libldap2-dev # mg-auth
                sbcl # for custom Lisp C++ preprocessing
               )
 
@@ -146,5 +145,8 @@ setup_virtualenv tests/qa
 
 # setup stress dependencies
 setup_virtualenv tests/stress
+
+# setup integration/ldap dependencies
+setup_virtualenv tests/integration/ldap
 
 echo "Done installing dependencies for Memgraph"

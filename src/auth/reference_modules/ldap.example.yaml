@@ -1,0 +1,46 @@
+# General LDAP server connection settings.
+server:
+  # LDAP server host name
+  host: "127.0.0.1"
+  # LDAP server port
+  port: 389
+  # Encryption settings, valid options are:
+  #   "disabled" --> don't use SSL
+  #   "starttls" --> issue STARTTLS on plaintext connection
+  #   "ssl" --> use SSL directly
+  encryption: "disabled"
+  # Path to SSL certificate file
+  cert_file: ""
+  # Path to SSL key file
+  key_file: ""
+  # Path to SSL CA file
+  ca_file: ""
+  # Set to true to enable server certificate validation
+  validate_cert: false
+
+# Settings used to form the user DN that will be used to bind to the LDAP
+# server.
+# DN = prefix + username + suffix
+users:
+  # Prefix used when forming the user DN
+  prefix: "cn="
+  # Suffix used when forming the user DN
+  suffix: ""
+
+# Settings used to map a user to a role. The module expects that all user to
+# role mapping objects are children of a single root object whose DN and
+# objectclass needs to be specified (`root_dn` and `root_objectclass`). The
+# module then searches all children of the root object to find an object that
+# has an attribute (`mapping_attribute`) that is equal to the user's DN. The
+# object's `role_attribute` is then used to determine the user's role.
+# NOTE: If you don't want to determine roles using LDAP, just leave the
+# `root_dn` parameter empty.
+roles:
+  # Object that contains all user to role mapping objects
+  root_dn: ""
+  # Type of the object that contains all user to role mapping objects
+  root_objectclass: ""
+  # Attribute that contains the user DN
+  user_attribute: ""
+  # Attribute that contains the role name
+  role_attribute: ""
