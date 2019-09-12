@@ -303,12 +303,14 @@ Storage::~Storage() {
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, uint64_t transaction_id,
-                            uint64_t start_timestamp)
+Storage::Accessor::Accessor(Storage *storage)
     : storage_(storage),
-      transaction_(transaction_id, start_timestamp),
-      is_transaction_active_(true),
-      storage_guard_(storage_->main_lock_) {}
+      // The lock must be acquired before creating the transaction object to
+      // prevent freshly created transactions from dangling in an active state
+      // during exclusive operations.
+      storage_guard_(storage_->main_lock_),
+      transaction_(storage->CreateTransaction()),
+      is_transaction_active_(true) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
@@ -845,20 +847,6 @@ void Storage::Accessor::Abort() {
   }
 }
 
-Storage::Accessor Storage::Access() {
-  // We acquire the transaction engine lock here because we access (and
-  // modify) the transaction engine variables (`transaction_id` and
-  // `timestamp`) below.
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
-  {
-    std::lock_guard<utils::SpinLock> guard(engine_lock_);
-    transaction_id = transaction_id_++;
-    start_timestamp = timestamp_++;
-  }
-  return Accessor{this, transaction_id, start_timestamp};
-}
-
 const std::string &Storage::LabelToName(LabelId label) const {
   return name_id_mapper_.IdToName(label.AsUint());
 }
@@ -908,6 +896,20 @@ VerticesIterable Storage::Accessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   return VerticesIterable(storage_->indices_.label_property_index.Vertices(
       label, property, lower_bound, upper_bound, view, &transaction_));
+}
+
+Transaction Storage::CreateTransaction() {
+  // We acquire the transaction engine lock here because we access (and
+  // modify) the transaction engine variables (`transaction_id` and
+  // `timestamp`) below.
+  uint64_t transaction_id;
+  uint64_t start_timestamp;
+  {
+    std::lock_guard<utils::SpinLock> guard(engine_lock_);
+    transaction_id = transaction_id_++;
+    start_timestamp = timestamp_++;
+  }
+  return {transaction_id, start_timestamp};
 }
 
 void Storage::CollectGarbage() {

@@ -176,8 +176,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    Accessor(Storage *storage, uint64_t transaction_id,
-             uint64_t start_timestamp);
+    explicit Accessor(Storage *storage);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -296,13 +295,12 @@ class Storage final {
 
    private:
     Storage *storage_;
+    std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     bool is_transaction_active_;
-
-    std::shared_lock<utils::RWLock> storage_guard_;
   };
 
-  Accessor Access();
+  Accessor Access() { return Accessor{this}; }
 
   const std::string &LabelToName(LabelId label) const;
   const std::string &PropertyToName(PropertyId property) const;
@@ -364,6 +362,8 @@ class Storage final {
   }
 
  private:
+  Transaction CreateTransaction();
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage();
