@@ -60,7 +60,7 @@ class Log {
   std::optional<RingBuffer<Item>> buffer_;
   utils::Scheduler scheduler_;
 
-  utils::LogFile log_;
+  utils::OutputFile log_;
   std::mutex lock_;
 };
 

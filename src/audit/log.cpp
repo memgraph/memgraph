@@ -91,7 +91,8 @@ void Log::ReopenLog() {
   if (!started_.load(std::memory_order_relaxed)) return;
   std::lock_guard<std::mutex> guard(lock_);
   if (log_.IsOpen()) log_.Close();
-  log_.Open(storage_directory_ / "audit.log");
+  log_.Open(storage_directory_ / "audit.log",
+            utils::OutputFile::Mode::APPEND_TO_EXISTING);
 }
 
 void Log::Flush() {

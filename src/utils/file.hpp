@@ -1,13 +1,14 @@
 /**
  * @file
  *
- * This file contains utilities for operations with files. Other than utility
- * functions, a `File` class is provided which emulates a `fstream`.
+ * This file contains utilities for operations with files.
+ * `InputFile` and `OutputFile` classes are provided which emulate a `fstream`.
  */
 #pragma once
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace utils {
@@ -32,6 +33,73 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept;
 bool CopyFile(const std::filesystem::path &src,
               const std::filesystem::path &dst) noexcept;
 
+/// This class implements a file handler that is used to read binary files. It
+/// was developed because the C++ standard library has an awful API and makes
+/// handling of binary data extremely tedious.
+///
+/// This class *isn't* thread safe. It is implemented as a wrapper around low
+/// level system calls used for file manipulation.
+class InputFile {
+ public:
+  enum class Position {
+    SET,
+    RELATIVE_TO_CURRENT,
+    RELATIVE_TO_END,
+  };
+
+  InputFile() = default;
+  ~InputFile();
+
+  InputFile(const InputFile &) = delete;
+  InputFile &operator=(const InputFile &) = delete;
+
+  InputFile(InputFile &&other) noexcept;
+  InputFile &operator=(InputFile &&other) noexcept;
+
+  /// This method opens the file used for reading. If the file can't be opened
+  /// or doesn't exist it crashes the program.
+  void Open(const std::filesystem::path &path);
+
+  /// Returns a boolean indicating whether a file is opened.
+  bool IsOpen() const;
+
+  /// Returns the path to the currently opened file. If a file isn't opened the
+  /// path is empty.
+  const std::filesystem::path &path() const;
+
+  /// Reads `size` bytes from the file into the memory pointed by `data` and
+  /// returns a boolean indicating whether the read succeeded. Reading the file
+  /// changes the current position in the file.
+  bool Read(uint8_t *data, size_t size);
+
+  /// Peeks `size` bytes from the file into the memory pointed by `data` and
+  /// returns a boolean indicating whether the peek succeeded. Peeking the file
+  /// doesn't change the current position in the file.
+  bool Peek(uint8_t *data, size_t size);
+
+  /// This method gets the size of the file. On failure and misuse it crashes
+  /// the program.
+  size_t GetSize();
+
+  /// This method gets the current absolute position in the file. On failure and
+  /// misuse it crashes the program.
+  size_t GetPosition();
+
+  /// This method sets the current position in the file and returns the absolute
+  /// set position in the file. The position is set to `offset` with the
+  /// starting point taken from `position`. On failure and misuse it crashes the
+  /// program.
+  size_t SetPosition(Position position, ssize_t offset);
+
+  /// Closes the currently opened file. On failure and misuse it crashes the
+  /// program.
+  void Close() noexcept;
+
+ private:
+  int fd_{-1};
+  std::filesystem::path path_;
+};
+
 /// This class implements a file handler that is used for mission critical files
 /// that need to be written and synced to permanent storage. Typical usage for
 /// this class is in implementation of write-ahead logging or anything similar
@@ -54,22 +122,34 @@ bool CopyFile(const std::filesystem::path &src,
 ///
 /// This class *isn't* thread safe. It is implemented as a wrapper around low
 /// level system calls used for file manipulation.
-class LogFile {
+class OutputFile {
  public:
-  LogFile() = default;
-  ~LogFile();
+  enum class Mode {
+    OVERWRITE_EXISTING,
+    APPEND_TO_EXISTING,
+  };
 
-  LogFile(const LogFile &) = delete;
-  LogFile &operator=(const LogFile &) = delete;
+  enum class Position {
+    SET,
+    RELATIVE_TO_CURRENT,
+    RELATIVE_TO_END,
+  };
 
-  LogFile(LogFile &&other);
-  LogFile &operator=(LogFile &&other);
+  OutputFile() = default;
+  ~OutputFile();
+
+  OutputFile(const OutputFile &) = delete;
+  OutputFile &operator=(const OutputFile &) = delete;
+
+  OutputFile(OutputFile &&other) noexcept;
+  OutputFile &operator=(OutputFile &&other) noexcept;
 
   /// This method opens a new file used for writing. If the file doesn't exist
-  /// it is created and if the file exists data is appended to the file to
-  /// ensure that no data is ever lost. Files are created with a restrictive
-  /// permission mask (0640). On failure and misuse it crashes the program.
-  void Open(const std::filesystem::path &path);
+  /// it is created. The `mode` flags controls whether data is appended to the
+  /// file or the file is wiped on first write. Files are created with a
+  /// restrictive permission mask (0640). On failure and misuse it crashes the
+  /// program.
+  void Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -82,7 +162,17 @@ class LogFile {
   /// the program.
   void Write(const char *data, size_t size);
   void Write(const uint8_t *data, size_t size);
-  void Write(const std::string &data);
+  void Write(const std::string_view &data);
+
+  /// This method gets the current absolute position in the file. On failure and
+  /// misuse it crashes the program.
+  size_t GetPosition();
+
+  /// This method sets the current position in the file and returns the absolute
+  /// set position in the file. The position is set to `offset` with the
+  /// starting point taken from `position`. On failure and misuse it crashes the
+  /// program.
+  size_t SetPosition(Position position, ssize_t offset);
 
   /// Syncs currently pending data to the currently opened file. On failure
   /// and misuse it crashes the program.
@@ -90,7 +180,7 @@ class LogFile {
 
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
-  void Close();
+  void Close() noexcept;
 
  private:
   int fd_{-1};

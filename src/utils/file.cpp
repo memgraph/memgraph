@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <fstream>
+#include <type_traits>
 
 #include <glog/logging.h>
 
@@ -50,34 +51,182 @@ bool CopyFile(const std::filesystem::path &src,
   return std::filesystem::copy_file(src, dst, error_code);
 }
 
-LogFile::~LogFile() {
+static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
+
+InputFile::~InputFile() {
   if (IsOpen()) Close();
 }
 
-LogFile::LogFile(LogFile &&other)
-    : fd_(other.fd_),
-      written_since_last_sync_(other.written_since_last_sync_),
-      path_(other.path_) {
+InputFile::InputFile(InputFile &&other) noexcept
+    : fd_(other.fd_), path_(std::move(other.path_)) {
   other.fd_ = -1;
-  other.written_since_last_sync_ = 0;
-  other.path_ = "";
 }
 
-LogFile &LogFile::operator=(LogFile &&other) {
+InputFile &InputFile::operator=(InputFile &&other) noexcept {
   if (IsOpen()) Close();
 
   fd_ = other.fd_;
-  written_since_last_sync_ = other.written_since_last_sync_;
-  path_ = other.path_;
+  path_ = std::move(other.path_);
 
   other.fd_ = -1;
-  other.written_since_last_sync_ = 0;
-  other.path_ = "";
 
   return *this;
 }
 
-void LogFile::Open(const std::filesystem::path &path) {
+void InputFile::Open(const std::filesystem::path &path) {
+  CHECK(!IsOpen())
+      << "While trying to open " << path
+      << " for writing the database used a handle that already has " << path_
+      << " opened in it!";
+
+  path_ = path;
+
+  while (true) {
+    fd_ = open(path_.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd_ == -1 && errno == EINTR) {
+      // The call was interrupted, try again...
+      continue;
+    } else {
+      // All other possible errors are fatal errors and are handled in the CHECK
+      // below.
+      break;
+    }
+  }
+
+  CHECK(fd_ != -1) << "While trying to open " << path_
+                   << " for reading an error occurred: " << strerror(errno)
+                   << " (" << errno << ").";
+}
+
+bool InputFile::IsOpen() const { return fd_ != -1; }
+
+const std::filesystem::path &InputFile::path() const { return path_; }
+
+bool InputFile::Read(uint8_t *data, size_t size) {
+  size_t offset = 0;
+
+  while (size > 0) {
+    auto got = read(fd_, data + offset, size);
+    if (got == -1 && errno == EINTR) {
+      continue;
+    }
+
+    if (got <= 0) {
+      return false;
+    }
+
+    size -= got;
+    offset += got;
+  }
+
+  return true;
+}
+
+bool InputFile::Peek(uint8_t *data, size_t size) {
+  size_t offset = 0;
+
+  while (size > 0) {
+    auto got = read(fd_, data + offset, size);
+    if (got == -1 && errno == EINTR) {
+      continue;
+    }
+
+    if (got <= 0) {
+      SetPosition(Position::RELATIVE_TO_CURRENT, -offset);
+      return false;
+    }
+
+    size -= got;
+    offset += got;
+  }
+
+  SetPosition(Position::RELATIVE_TO_CURRENT, -offset);
+  return true;
+}
+
+size_t InputFile::GetSize() {
+  size_t current = GetPosition();
+  size_t size = SetPosition(Position::RELATIVE_TO_END, 0);
+  SetPosition(Position::SET, current);
+  return size;
+}
+
+size_t InputFile::GetPosition() {
+  return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
+}
+
+size_t InputFile::SetPosition(Position position, ssize_t offset) {
+  int whence;
+  switch (position) {
+    case Position::SET:
+      whence = SEEK_SET;
+      break;
+    case Position::RELATIVE_TO_CURRENT:
+      whence = SEEK_CUR;
+      break;
+    case Position::RELATIVE_TO_END:
+      whence = SEEK_END;
+      break;
+  }
+  while (true) {
+    auto pos = lseek(fd_, offset, whence);
+    if (pos == -1 && errno == EINTR) {
+      continue;
+    }
+    CHECK(pos >= 0) << "While trying to set the position in " << path_
+                    << " an error occurred: " << strerror(errno) << " ("
+                    << errno << ").";
+    return pos;
+  }
+}
+
+void InputFile::Close() noexcept {
+  int ret = 0;
+  while (true) {
+    ret = close(fd_);
+    if (ret == -1 && errno == EINTR) {
+      // The call was interrupted, try again...
+      continue;
+    } else {
+      // All other possible errors are fatal errors and are handled in the CHECK
+      // below.
+      break;
+    }
+  }
+
+  CHECK(ret == 0) << "While trying to close " << path_
+                  << " an error occurred: " << strerror(errno) << " (" << errno
+                  << ").";
+
+  fd_ = -1;
+}
+
+OutputFile::~OutputFile() {
+  if (IsOpen()) Close();
+}
+
+OutputFile::OutputFile(OutputFile &&other) noexcept
+    : fd_(other.fd_),
+      written_since_last_sync_(other.written_since_last_sync_),
+      path_(std::move(other.path_)) {
+  other.fd_ = -1;
+  other.written_since_last_sync_ = 0;
+}
+
+OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
+  if (IsOpen()) Close();
+
+  fd_ = other.fd_;
+  written_since_last_sync_ = other.written_since_last_sync_;
+  path_ = std::move(other.path_);
+
+  other.fd_ = -1;
+  other.written_since_last_sync_ = 0;
+
+  return *this;
+}
+
+void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   CHECK(!IsOpen())
       << "While trying to open " << path
       << " for writing the database used a handle that already has " << path_
@@ -86,9 +235,12 @@ void LogFile::Open(const std::filesystem::path &path) {
   path_ = path;
   written_since_last_sync_ = 0;
 
+  int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
+  if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
+
   while (true) {
     // The permissions are set to ((rw-r-----) & ~umask)
-    fd_ = open(path_.c_str(), O_WRONLY | O_CLOEXEC | O_CREAT | O_APPEND, 0640);
+    fd_ = open(path_.c_str(), flags, 0640);
     if (fd_ == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
@@ -104,11 +256,11 @@ void LogFile::Open(const std::filesystem::path &path) {
                    << " (" << errno << ").";
 }
 
-bool LogFile::IsOpen() const { return fd_ != -1; }
+bool OutputFile::IsOpen() const { return fd_ != -1; }
 
-const std::filesystem::path &LogFile::path() const { return path_; }
+const std::filesystem::path &OutputFile::path() const { return path_; }
 
-void LogFile::Write(const char *data, size_t size) {
+void OutputFile::Write(const char *data, size_t size) {
   while (size > 0) {
     auto written = write(fd_, data, size);
     if (written == -1 && errno == EINTR) {
@@ -128,14 +280,43 @@ void LogFile::Write(const char *data, size_t size) {
   }
 }
 
-void LogFile::Write(const uint8_t *data, size_t size) {
+void OutputFile::Write(const uint8_t *data, size_t size) {
   Write(reinterpret_cast<const char *>(data), size);
 }
-void LogFile::Write(const std::string &data) {
+void OutputFile::Write(const std::string_view &data) {
   Write(data.data(), data.size());
 }
 
-void LogFile::Sync() {
+size_t OutputFile::GetPosition() {
+  return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
+}
+
+size_t OutputFile::SetPosition(Position position, ssize_t offset) {
+  int whence;
+  switch (position) {
+    case Position::SET:
+      whence = SEEK_SET;
+      break;
+    case Position::RELATIVE_TO_CURRENT:
+      whence = SEEK_CUR;
+      break;
+    case Position::RELATIVE_TO_END:
+      whence = SEEK_END;
+      break;
+  }
+  while (true) {
+    auto pos = lseek(fd_, offset, whence);
+    if (pos == -1 && errno == EINTR) {
+      continue;
+    }
+    CHECK(pos >= 0) << "While trying to set the position in " << path_
+                    << " an error occurred: " << strerror(errno) << " ("
+                    << errno << ").";
+    return pos;
+  }
+}
+
+void OutputFile::Sync() {
   int ret = 0;
   while (true) {
     ret = fsync(fd_);
@@ -181,7 +362,7 @@ void LogFile::Sync() {
   written_since_last_sync_ = 0;
 }
 
-void LogFile::Close() {
+void OutputFile::Close() noexcept {
   int ret = 0;
   while (true) {
     ret = close(fd_);
@@ -202,7 +383,6 @@ void LogFile::Close() {
 
   fd_ = -1;
   written_since_last_sync_ = 0;
-  path_ = "";
 }
 
 }  // namespace utils

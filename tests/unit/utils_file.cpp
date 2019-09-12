@@ -198,14 +198,17 @@ TEST_F(UtilsFileTest, EnsureDirOrDie) {
   }
 }
 
-TEST_F(UtilsFileTest, LogFileExisting) {
+TEST_F(UtilsFileTest, OutputFileExisting) {
   for (const auto &dir : kDirsAll) {
     for (const auto &file : kFilesAll) {
-      utils::LogFile handle;
+      utils::OutputFile handle;
       if (utils::EndsWith(dir, "000") || utils::EndsWith(file, "000")) {
-        ASSERT_DEATH(handle.Open(storage / dir / file), "");
+        ASSERT_DEATH(handle.Open(storage / dir / file,
+                                 utils::OutputFile::Mode::APPEND_TO_EXISTING),
+                     "");
       } else {
-        handle.Open(storage / dir / file);
+        handle.Open(storage / dir / file,
+                    utils::OutputFile::Mode::APPEND_TO_EXISTING);
         ASSERT_TRUE(handle.IsOpen());
         ASSERT_EQ(handle.path(), storage / dir / file);
         handle.Write("hello world!\n", 13);
@@ -216,14 +219,15 @@ TEST_F(UtilsFileTest, LogFileExisting) {
   }
 }
 
-TEST_F(UtilsFileTest, LogFileNew) {
+TEST_F(UtilsFileTest, OutputFileNew) {
   for (const auto &dir : kDirsAll) {
-    utils::LogFile handle;
+    utils::OutputFile handle;
     auto path = storage / dir / "test";
     if (utils::EndsWith(dir, "000")) {
-      ASSERT_DEATH(handle.Open(path), "");
+      ASSERT_DEATH(
+          handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
     } else {
-      handle.Open(path);
+      handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
       ASSERT_TRUE(handle.IsOpen());
       ASSERT_EQ(handle.path(), path);
       handle.Write("hello world!\n");
@@ -233,24 +237,27 @@ TEST_F(UtilsFileTest, LogFileNew) {
   }
 }
 
-TEST_F(UtilsFileTest, LogFileInvalidUsage) {
-  utils::LogFile handle;
+TEST_F(UtilsFileTest, OutputFileInvalidUsage) {
+  utils::OutputFile handle;
   ASSERT_DEATH(handle.Write("hello!"), "");
   ASSERT_DEATH(handle.Sync(), "");
   ASSERT_DEATH(handle.Close(), "");
-  handle.Open(storage / "existing_dir_777" / "existing_file_777");
-  ASSERT_DEATH(handle.Open(storage / "existing_dir_770" / "existing_file_770"),
+  handle.Open(storage / "existing_dir_777" / "existing_file_777",
+              utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  ASSERT_DEATH(handle.Open(storage / "existing_dir_770" / "existing_file_770",
+                           utils::OutputFile::Mode::APPEND_TO_EXISTING),
                "");
   handle.Write("hello!");
   handle.Sync();
   handle.Close();
 }
 
-TEST_F(UtilsFileTest, LogFileMove) {
-  utils::LogFile original;
-  original.Open(storage / "existing_dir_777" / "existing_file_777");
+TEST_F(UtilsFileTest, OutputFileMove) {
+  utils::OutputFile original;
+  original.Open(storage / "existing_dir_777" / "existing_file_777",
+                utils::OutputFile::Mode::APPEND_TO_EXISTING);
 
-  utils::LogFile moved(std::move(original));
+  utils::OutputFile moved(std::move(original));
 
   ASSERT_DEATH(original.Write("hello!"), "");
   ASSERT_DEATH(original.Sync(), "");
@@ -264,13 +271,15 @@ TEST_F(UtilsFileTest, LogFileMove) {
   moved.Sync();
   moved.Close();
 
-  original.Open(storage / "existing_dir_770" / "existing_file_770");
+  original.Open(storage / "existing_dir_770" / "existing_file_770",
+                utils::OutputFile::Mode::APPEND_TO_EXISTING);
   original.Close();
 }
 
-TEST_F(UtilsFileTest, LogFileDescriptorLeackage) {
+TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   for (int i = 0; i < 100000; ++i) {
-    utils::LogFile handle;
-    handle.Open(storage / "existing_dir_777" / "existing_file_777");
+    utils::OutputFile handle;
+    handle.Open(storage / "existing_dir_777" / "existing_file_777",
+                utils::OutputFile::Mode::APPEND_TO_EXISTING);
   }
 }
