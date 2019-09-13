@@ -39,10 +39,20 @@ void EnsureDirOrDie(const std::filesystem::path &dir) {
                            "isn't a directory!";
 }
 
+bool DirExists(const std::filesystem::path &dir) {
+  std::error_code error_code;  // For exception suppression.
+  return std::filesystem::is_directory(dir, error_code);
+}
+
 bool DeleteDir(const std::filesystem::path &dir) noexcept {
   std::error_code error_code;  // For exception suppression.
   if (!std::filesystem::is_directory(dir, error_code)) return false;
   return std::filesystem::remove_all(dir, error_code) > 0;
+}
+
+bool DeleteFile(const std::filesystem::path &file) noexcept {
+  std::error_code error_code;  // For exception suppression.
+  return std::filesystem::remove(file, error_code);
 }
 
 bool CopyFile(const std::filesystem::path &src,

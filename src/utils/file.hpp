@@ -26,8 +26,14 @@ bool EnsureDir(const std::filesystem::path &dir) noexcept;
 /// an error message for which directory the ensuring failed.
 void EnsureDirOrDie(const std::filesystem::path &dir);
 
+/// Returns a boolean indicating whether the directory exists.
+bool DirExists(const std::filesystem::path &dir);
+
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
+
+/// Deletes just the specified file. Symlinks are not followed.
+bool DeleteFile(const std::filesystem::path &file) noexcept;
 
 /// Copies the file from `src` to `dst`.
 bool CopyFile(const std::filesystem::path &src,
