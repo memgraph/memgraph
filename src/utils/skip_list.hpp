@@ -187,24 +187,12 @@ class SkipListGc final {
   SkipListGc(SkipListGc &&other) = delete;
   SkipListGc &operator=(SkipListGc &&other) = delete;
 
-  ~SkipListGc() {
-    Block *head = head_.load(std::memory_order_acquire);
-    while (head != nullptr) {
-      Allocator<Block> block_allocator(memory_);
-      Block *prev = head->prev.load(std::memory_order_acquire);
-      head->~Block();
-      block_allocator.deallocate(head, 1);
-      head = prev;
-    }
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      size_t bytes = SkipListNodeSize(*item->second);
-      item->second->~TNode();
-      memory_->Deallocate(item->second, bytes);
-    }
-  }
+  ~SkipListGc() { Clear(); }
 
   uint64_t AllocateId() {
+#ifndef NDEBUG
+    alive_accessors_.fetch_add(1, std::memory_order_acq_rel);
+#endif
     return accessor_id_.fetch_add(1, std::memory_order_acq_rel);
   }
 
@@ -238,6 +226,9 @@ class SkipListGc final {
         break;
       }
     }
+#ifndef NDEBUG
+    alive_accessors_.fetch_add(-1, std::memory_order_acq_rel);
+#endif
   }
 
   void Collect(TNode *node) {
@@ -311,6 +302,36 @@ class SkipListGc final {
 
   MemoryResource *GetMemoryResource() const { return memory_; }
 
+  void Clear() {
+#ifndef NDEBUG
+    CHECK(alive_accessors_ == 0)
+        << "The SkipList can't be cleared while there are existing accessors!";
+#endif
+    // Delete all allocated blocks.
+    Block *head = head_.load(std::memory_order_acquire);
+    while (head != nullptr) {
+      Allocator<Block> block_allocator(memory_);
+      Block *prev = head->prev.load(std::memory_order_acquire);
+      head->~Block();
+      block_allocator.deallocate(head, 1);
+      head = prev;
+    }
+
+    // Delete all items that have to be garbage collected.
+    std::optional<TDeleted> item;
+    while ((item = deleted_.Pop())) {
+      size_t bytes = SkipListNodeSize(*item->second);
+      item->second->~TNode();
+      memory_->Deallocate(item->second, bytes);
+    }
+
+    // Reset all variables.
+    accessor_id_ = 0;
+    head_ = nullptr;
+    tail_ = nullptr;
+    last_id_ = 0;
+  }
+
  private:
   MemoryResource *memory_;
   SpinLock lock_;
@@ -319,6 +340,9 @@ class SkipListGc final {
   std::atomic<Block *> tail_{nullptr};
   uint64_t last_id_{0};
   TStack deleted_;
+#ifndef NDEBUG
+  std::atomic<uint64_t> alive_accessors_{0};
+#endif
 };
 
 /// Concurrent skip list. It is mostly lock-free and fine-grained locking is
@@ -824,14 +848,9 @@ class SkipList final {
 
   ~SkipList() {
     if (head_ != nullptr) {
-      TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
-      while (curr != nullptr) {
-        TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
-        size_t bytes = SkipListNodeSize(*curr);
-        curr->~TNode();
-        GetMemoryResource()->Deallocate(curr, bytes);
-        curr = succ;
-      }
+      // Remove all items from the list.
+      clear();
+
       // We need to free the `head_` node manually because we didn't call its
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
@@ -850,6 +869,25 @@ class SkipList final {
   uint64_t size() const { return size_.load(std::memory_order_acquire); }
 
   MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
+
+  /// This function removes all elements from the list.
+  /// NOTE: The function *isn't* thread-safe. It must be called while there are
+  /// no more active accessors using the list.
+  void clear() {
+    TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
+    while (curr != nullptr) {
+      TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
+      size_t bytes = SkipListNodeSize(*curr);
+      curr->~TNode();
+      GetMemoryResource()->Deallocate(curr, bytes);
+      curr = succ;
+    }
+    for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+      head_->nexts[layer] = nullptr;
+    }
+    size_ = 0;
+    gc_.Clear();
+  }
 
  private:
   template <typename TKey>

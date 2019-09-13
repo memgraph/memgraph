@@ -346,6 +346,61 @@ TEST(SkipList, Move) {
   }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(SkipList, Clear) {
+  utils::SkipList<int64_t> list;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = -1000; i <= 1000; ++i) {
+      acc.insert(i);
+    }
+    ASSERT_EQ(acc.size(), 2001);
+  }
+
+  {
+    auto acc = list.access();
+    int64_t val = -1000;
+    for (auto &item : acc) {
+      ASSERT_EQ(item, val);
+      ++val;
+    }
+    ASSERT_EQ(val, 1001);
+    ASSERT_EQ(acc.size(), 2001);
+  }
+
+  list.clear();
+
+  {
+    auto acc = list.access();
+    uint64_t count = 0;
+    for (auto it = acc.begin(); it != acc.end(); ++it) {
+      ++count;
+    }
+    ASSERT_EQ(count, 0);
+    ASSERT_EQ(acc.size(), 0);
+  }
+
+  {
+    auto acc = list.access();
+    for (int64_t i = -1000; i <= 1000; ++i) {
+      acc.insert(i);
+    }
+    ASSERT_EQ(acc.size(), 2001);
+  }
+
+  {
+    auto acc = list.access();
+    int64_t val = -1000;
+    for (auto &item : acc) {
+      ASSERT_EQ(item, val);
+      ++val;
+    }
+    ASSERT_EQ(val, 1001);
+    ASSERT_EQ(acc.size(), 2001);
+  }
+}
+
 struct Inception {
   uint64_t id;
   utils::SkipList<uint64_t> data;
