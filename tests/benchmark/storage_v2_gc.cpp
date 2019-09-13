@@ -15,16 +15,14 @@ DEFINE_int32(num_threads, 4, "number of threads");
 DEFINE_int32(num_vertices, kNumVertices, "number of vertices");
 DEFINE_int32(num_iterations, kNumIterations, "number of iterations");
 
-std::pair<std::string, storage::StorageGcConfig> TestConfigurations[] = {
-    {"NoGc",
-     storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::NONE}},
+std::pair<std::string, storage::Config> TestConfigurations[] = {
+    {"NoGc", storage::Config{.gc_type = storage::Config::GcType::NONE}},
     {"100msPeriodicGc",
-     storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::PERIODIC,
-                              .interval = std::chrono::milliseconds(100)}},
+     storage::Config{.gc_type = storage::Config::GcType::PERIODIC,
+                     .gc_interval = std::chrono::milliseconds(100)}},
     {"1000msPeriodicGc",
-
-     storage::StorageGcConfig{.type = storage::StorageGcConfig::Type::PERIODIC,
-                              .interval = std::chrono::milliseconds(1000)}}};
+     storage::Config{.gc_type = storage::Config::GcType::PERIODIC,
+                     .gc_interval = std::chrono::milliseconds(1000)}}};
 
 void UpdateLabelFunc(int thread_id, storage::Storage *storage,
                      const std::vector<storage::Gid> &vertices,

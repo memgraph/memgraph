@@ -29,24 +29,14 @@ namespace storage {
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 
-/// Pass this class to the \ref Storage constructor to set the behavior of the
-/// garbage control.
-///
-/// There are three options:
-//    1. NONE - No GC at all, only useful for benchmarking.
-//    2. PERIODIC - A separate thread performs GC periodically with given
-//                  interval (this is the default, with 1 second interval).
-//    3. ON_FINISH - Whenever a transaction commits or aborts, GC is performed
-//                   on the same thread.
-struct StorageGcConfig {
-  enum class Type { NONE, PERIODIC, ON_FINISH };
-  Type type;
-  std::chrono::milliseconds interval;
-};
+/// Pass this class to the \ref Storage constructor to change the behavior of
+/// the storage. This class also defines the default behavior.
+struct Config {
+  enum class GcType { NONE, PERIODIC };
 
-inline static constexpr StorageGcConfig DefaultGcConfig = {
-    .type = StorageGcConfig::Type::PERIODIC,
-    .interval = std::chrono::milliseconds(1000)};
+  GcType gc_type{GcType::PERIODIC};
+  std::chrono::milliseconds gc_interval{std::chrono::milliseconds(1000)};
+};
 
 /// Iterable for iterating through all vertices of a Storage.
 ///
@@ -168,7 +158,7 @@ class Storage final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Storage(StorageGcConfig gc_config = DefaultGcConfig);
+  explicit Storage(Config config = Config());
 
   ~Storage();
 
@@ -400,7 +390,7 @@ class Storage final {
   utils::Synchronized<std::list<Transaction>, utils::SpinLock>
       committed_transactions_;
 
-  StorageGcConfig gc_config_;
+  Config config_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 

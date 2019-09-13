@@ -290,15 +290,15 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Storage::Storage(StorageGcConfig gc_config) : gc_config_(gc_config) {
-  if (gc_config.type == StorageGcConfig::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", gc_config.interval,
+Storage::Storage(Config config) : config_(config) {
+  if (config_.gc_type == Config::GcType::PERIODIC) {
+    gc_runner_.Run("Storage GC", config_.gc_interval,
                    [this] { this->CollectGarbage(); });
   }
 }
 
 Storage::~Storage() {
-  if (gc_config_.type == StorageGcConfig::Type::PERIODIC) {
+  if (config_.gc_type == Config::GcType::PERIODIC) {
     gc_runner_.Stop();
   }
 }
@@ -644,9 +644,6 @@ Storage::Accessor::Commit() {
     storage_->commit_log_.MarkFinished(commit_timestamp);
   }
   is_transaction_active_ = false;
-  if (storage_->gc_config_.type == StorageGcConfig::Type::ON_FINISH) {
-    storage_->CollectGarbage();
-  }
 
   return {};
 }
@@ -842,9 +839,6 @@ void Storage::Accessor::Abort() {
 
   storage_->commit_log_.MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
-  if (storage_->gc_config_.type == StorageGcConfig::Type::ON_FINISH) {
-    storage_->CollectGarbage();
-  }
 }
 
 const std::string &Storage::LabelToName(LabelId label) const {
