@@ -1,4 +1,5 @@
 set(storage_v2_src_files
+    durability.cpp
     edge_accessor.cpp
     indices.cpp
     vertex_accessor.cpp
