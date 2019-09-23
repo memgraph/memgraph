@@ -182,7 +182,6 @@ class Storage final {
                                                   &storage_->indices_));
     }
 
-    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, View view);
 
     /// @throw std::bad_alloc raised in Index::Vertices
@@ -298,10 +297,21 @@ class Storage final {
   EdgeTypeId NameToEdgeType(const std::string &name);
 
   /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return indices_.label_index.CreateIndex(label, vertices_.access());
+  }
+
+  /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property) {
     std::unique_lock<utils::RWLock> storage_guard(main_lock_);
     return indices_.label_property_index.CreateIndex(label, property,
                                                      vertices_.access());
+  }
+
+  bool DropIndex(LabelId label) {
+    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+    return indices_.label_index.DropIndex(label);
   }
 
   bool DropIndex(LabelId label, PropertyId property) {
@@ -309,7 +319,11 @@ class Storage final {
     return indices_.label_property_index.DropIndex(label, property);
   }
 
-  bool LabelPropertyIndexExists(LabelId label, PropertyId property) {
+  bool LabelIndexExists(LabelId label) const {
+    return indices_.label_index.IndexExists(label);
+  }
+
+  bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
     return indices_.label_property_index.IndexExists(label, property);
   }
 

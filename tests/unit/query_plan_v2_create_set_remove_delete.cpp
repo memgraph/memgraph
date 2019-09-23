@@ -93,6 +93,7 @@ TEST(QueryPlan, ScanAll) {
 TEST(QueryPlan, ScanAllByLabel) {
   storage::Storage db;
   auto label = db.NameToLabel("label");
+  ASSERT_TRUE(db.CreateIndex(label));
   {
     auto dba = db.Access();
     // Add some unlabeled vertices

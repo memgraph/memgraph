@@ -295,23 +295,42 @@ bool CurrentVersionHasLabelProperty(Vertex *vertex, LabelId label,
 
 void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
                                   const Transaction &tx) {
-  GetOrCreateStorage(label)->access().insert(Entry{vertex, tx.start_timestamp});
+  auto it = index_.find(label);
+  if (it == index_.end()) return;
+  it->second.access().insert(Entry{vertex, tx.start_timestamp});
+}
+
+bool LabelIndex::CreateIndex(LabelId label,
+                             utils::SkipList<Vertex>::Accessor vertices) {
+  auto [it, emplaced] =
+      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label),
+                     std::forward_as_tuple());
+  if (!emplaced) {
+    // Index already exists.
+    return false;
+  }
+  auto acc = it->second.access();
+  for (Vertex &vertex : vertices) {
+    if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+      continue;
+    }
+    acc.insert(Entry{&vertex, 0});
+  }
+  return true;
 }
 
 std::vector<LabelId> LabelIndex::ListIndices() const {
   std::vector<LabelId> ret;
   ret.reserve(index_.size());
-  auto acc = index_.access();
-  for (const auto &item : acc) {
-    ret.push_back(item.label);
+  for (const auto &item : index_) {
+    ret.push_back(item.first);
   }
   return ret;
 }
 
 void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  auto index_acc = index_.access();
-  for (auto &label_storage : index_acc) {
-    auto vertices_acc = label_storage.vertices.access();
+  for (auto &label_storage : index_) {
+    auto vertices_acc = label_storage.second.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       auto next_it = it;
       ++next_it;
@@ -322,7 +341,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(it->vertex, label_storage.label,
+          !AnyVersionHasLabel(it->vertex, label_storage.first,
                               oldest_active_start_timestamp)) {
         vertices_acc.remove(*it);
       }
@@ -330,18 +349,6 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
       it = next_it;
     }
   }
-}
-
-utils::SkipList<LabelIndex::Entry> *LabelIndex::GetOrCreateStorage(
-    LabelId label) {
-  auto acc = index_.access();
-  auto it = acc.find(label);
-  if (it == acc.end()) {
-    LabelStorage label_storage{.label = label,
-                               .vertices = utils::SkipList<Entry>()};
-    it = acc.insert(std::move(label_storage)).first;
-  }
-  return &it->vertices;
 }
 
 LabelIndex::Iterable::Iterator::Iterator(

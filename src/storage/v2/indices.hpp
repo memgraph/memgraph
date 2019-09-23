@@ -45,6 +45,15 @@ class LabelIndex {
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
+  /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices);
+
+  bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
+
+  bool IndexExists(LabelId label) const {
+    return index_.find(label) != index_.end();
+  }
+
   std::vector<LabelId> ListIndices() const;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
@@ -90,22 +99,23 @@ class LabelIndex {
   };
 
   /// Returns an self with vertices visible from the given transaction.
-  /// @throw std::bad_alloc
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
-    return Iterable(GetOrCreateStorage(label)->access(), label, view,
-                    transaction, indices_);
+    auto it = index_.find(label);
+    CHECK(it != index_.end())
+        << "Index for label " << label.AsUint() << " doesn't exist";
+    return Iterable(it->second.access(), label, view, transaction, indices_);
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
-    return GetOrCreateStorage(label)->size();
+    auto it = index_.find(label);
+    CHECK(it != index_.end())
+        << "Index for label " << label.AsUint() << " doesn't exist";
+    return it->second.size();
   }
 
  private:
-  utils::SkipList<LabelStorage> index_;
   Indices *indices_;
-
-  /// @throw std::bad_alloc
-  utils::SkipList<Entry> *GetOrCreateStorage(LabelId label);
+  std::map<LabelId, utils::SkipList<Entry>> index_;
 };
 
 class LabelPropertyIndex {
@@ -140,7 +150,7 @@ class LabelPropertyIndex {
     return index_.erase({label, property}) > 0;
   }
 
-  bool IndexExists(LabelId label, PropertyId property) {
+  bool IndexExists(LabelId label, PropertyId property) const {
     return index_.find({label, property}) != index_.end();
   }
 

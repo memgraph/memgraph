@@ -49,6 +49,154 @@ class IndexTest : public testing::Test {
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(IndexTest, LabelIndexCreate) {
+  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+
+  {
+    auto acc = storage.Access();
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    }
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+
+  EXPECT_TRUE(storage.CreateIndex(label1));
+
+  {
+    auto acc = storage.Access();
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+
+  {
+    auto acc = storage.Access();
+    for (int i = 10; i < 20; ++i) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    }
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc.AdvanceCommand();
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc.Abort();
+  }
+
+  {
+    auto acc = storage.Access();
+    for (int i = 10; i < 20; ++i) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    }
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    acc.AdvanceCommand();
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+
+  {
+    auto acc = storage.Access();
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    acc.AdvanceCommand();
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(IndexTest, LabelIndexDrop) {
+  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+
+  {
+    auto acc = storage.Access();
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    }
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+
+  EXPECT_TRUE(storage.CreateIndex(label1));
+
+  {
+    auto acc = storage.Access();
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+
+  EXPECT_TRUE(storage.DropIndex(label1));
+  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+
+  EXPECT_FALSE(storage.DropIndex(label1));
+  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+
+  {
+    auto acc = storage.Access();
+    for (int i = 10; i < 20; ++i) {
+      auto vertex = CreateVertex(&acc);
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    }
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+
+  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_TRUE(storage.LabelIndexExists(label1));
+  EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1));
+
+  {
+    auto acc = storage.Access();
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc.AdvanceCommand();
+
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexBasic) {
   // The following steps are performed and index correctness is validated after
   // each step:
@@ -57,14 +205,16 @@ TEST_F(IndexTest, LabelIndexBasic) {
   // 3. Remove Label1 from odd numbered vertices, and add it to even numbered
   //    vertices.
   // 4. Delete even numbered vertices.
+  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_TRUE(storage.CreateIndex(label2));
+
   auto acc = storage.Access();
-  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+  EXPECT_THAT(storage.ListAllIndices().label,
+              UnorderedElementsAre(label1, label2));
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), IsEmpty());
-  EXPECT_THAT(storage.ListAllIndices().label,
-              UnorderedElementsAre(label1, label2));
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = CreateVertex(&acc);
@@ -133,6 +283,9 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
   // By removing labels and adding them again we create duplicate entries for
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
+  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_TRUE(storage.CreateIndex(label2));
+
   {
     auto acc = storage.Access();
     for (int i = 0; i < 5; ++i) {
@@ -172,6 +325,9 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
+  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_TRUE(storage.CreateIndex(label2));
+
   auto acc_before = storage.Access();
   auto acc = storage.Access();
   auto acc_after = storage.Access();
@@ -202,6 +358,9 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexCountEstimate) {
+  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_TRUE(storage.CreateIndex(label2));
+
   auto acc = storage.Access();
   for (int i = 0; i < 20; ++i) {
     auto vertex = CreateVertex(&acc);
