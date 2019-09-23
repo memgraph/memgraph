@@ -14,8 +14,8 @@ using testing::UnorderedElementsAre;
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Sanity) {
   storage::Storage storage(
-      storage::Config{.gc_type = storage::Config::GcType::PERIODIC,
-                      .gc_interval = std::chrono::milliseconds(100)});
+      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
+                             .interval = std::chrono::milliseconds(100)}});
 
   std::vector<storage::Gid> vertices;
 
@@ -164,8 +164,8 @@ TEST(StorageV2Gc, Sanity) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Indices) {
   storage::Storage storage(
-      storage::Config{.gc_type = storage::Config::GcType::PERIODIC,
-                      .gc_interval = std::chrono::milliseconds(100)});
+      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
+                             .interval = std::chrono::milliseconds(100)}});
 
   {
     auto acc0 = storage.Access();

@@ -291,14 +291,14 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Storage::Storage(Config config) : config_(config) {
-  if (config_.gc_type == Config::GcType::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc_interval,
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    gc_runner_.Run("Storage GC", config_.gc.interval,
                    [this] { this->CollectGarbage(); });
   }
 }
 
 Storage::~Storage() {
-  if (config_.gc_type == Config::GcType::PERIODIC) {
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
 }

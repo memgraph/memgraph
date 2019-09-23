@@ -4,6 +4,7 @@
 #include <shared_mutex>
 
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -28,15 +29,6 @@ namespace storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
-
-/// Pass this class to the \ref Storage constructor to change the behavior of
-/// the storage. This class also defines the default behavior.
-struct Config {
-  enum class GcType { NONE, PERIODIC };
-
-  GcType gc_type{GcType::PERIODIC};
-  std::chrono::milliseconds gc_interval{std::chrono::milliseconds(1000)};
-};
 
 /// Iterable for iterating through all vertices of a Storage.
 ///
