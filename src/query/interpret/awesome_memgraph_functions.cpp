@@ -374,6 +374,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs,
               "Trying to get properties from a deleted object.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Unexpected error when getting properties.");
       }
@@ -438,6 +439,7 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException(
             "Unexpected error when getting node degree.");
     }
@@ -575,6 +577,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs,
               "Trying to get keys from a deleted object.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
@@ -609,6 +612,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs,
             "Trying to get labels from a deleted node.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when getting labels.");
     }
   }

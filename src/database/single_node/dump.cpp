@@ -106,6 +106,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
             "Trying to get labels from a deleted node.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException(
             "Unexpected error when getting labels.");
     }
@@ -122,6 +123,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
             "Trying to get properties from a deleted object.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException(
             "Unexpected error when getting properties.");
     }
@@ -150,6 +152,7 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
             "Trying to get properties from a deleted object.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException(
             "Unexpected error when getting properties.");
     }

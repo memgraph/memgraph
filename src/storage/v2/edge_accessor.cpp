@@ -8,45 +8,47 @@
 namespace storage {
 
 VertexAccessor EdgeAccessor::FromVertex() const {
-  return VertexAccessor{from_vertex_, transaction_, indices_};
+  return VertexAccessor{from_vertex_, transaction_, indices_, config_};
 }
 
 VertexAccessor EdgeAccessor::ToVertex() const {
-  return VertexAccessor{to_vertex_, transaction_, indices_};
+  return VertexAccessor{to_vertex_, transaction_, indices_, config_};
 }
 
 Result<bool> EdgeAccessor::SetProperty(PropertyId property,
                                        const PropertyValue &value) {
-  std::lock_guard<utils::SpinLock> guard(edge_->lock);
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  if (!PrepareForWrite(transaction_, edge_))
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr))
     return Error::SERIALIZATION_ERROR;
 
-  if (edge_->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  auto it = edge_->properties.find(property);
-  bool existed = it != edge_->properties.end();
+  auto it = edge_.ptr->properties.find(property);
+  bool existed = it != edge_.ptr->properties.end();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  if (it != edge_->properties.end()) {
-    CreateAndLinkDelta(transaction_, edge_, Delta::SetPropertyTag(), property,
-                       it->second);
+  if (it != edge_.ptr->properties.end()) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
+                       property, it->second);
     if (value.IsNull()) {
       // remove the property
-      edge_->properties.erase(it);
+      edge_.ptr->properties.erase(it);
     } else {
       // set the value
       it->second = value;
     }
   } else {
-    CreateAndLinkDelta(transaction_, edge_, Delta::SetPropertyTag(), property,
-                       PropertyValue());
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
+                       property, PropertyValue());
     if (!value.IsNull()) {
-      edge_->properties.emplace(property, value);
+      edge_.ptr->properties.emplace(property, value);
     }
   }
 
@@ -55,17 +57,18 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                                                 View view) const {
+  if (!config_.properties_on_edges) return PropertyValue();
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_->lock);
-    deleted = edge_->deleted;
-    auto it = edge_->properties.find(property);
-    if (it != edge_->properties.end()) {
+    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    deleted = edge_.ptr->deleted;
+    auto it = edge_.ptr->properties.find(property);
+    if (it != edge_.ptr->properties.end()) {
       value = it->second;
     }
-    delta = edge_->delta;
+    delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
                      [&deleted, &value, property](const Delta &delta) {
@@ -99,14 +102,16 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
     View view) const {
+  if (!config_.properties_on_edges)
+    return std::map<PropertyId, PropertyValue>{};
   std::map<PropertyId, PropertyValue> properties;
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(edge_->lock);
-    deleted = edge_->deleted;
-    properties = edge_->properties;
-    delta = edge_->delta;
+    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    deleted = edge_.ptr->deleted;
+    properties = edge_.ptr->properties;
+    delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(
       transaction_, delta, view, [&deleted, &properties](const Delta &delta) {

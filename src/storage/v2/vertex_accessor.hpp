@@ -4,6 +4,7 @@
 
 #include "storage/v2/vertex.hpp"
 
+#include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -19,12 +20,17 @@ class VertexAccessor final {
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices)
-      : vertex_(vertex), transaction_(transaction), indices_(indices) {}
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices,
+                 Config::Items config)
+      : vertex_(vertex),
+        transaction_(transaction),
+        indices_(indices),
+        config_(config) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
-                                              Indices *indices, View view);
+                                              Indices *indices,
+                                              Config::Items config, View view);
 
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
@@ -84,6 +90,7 @@ class VertexAccessor final {
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;
+  Config::Items config_;
 };
 
 }  // namespace storage

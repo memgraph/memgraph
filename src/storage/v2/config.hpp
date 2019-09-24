@@ -13,6 +13,10 @@ struct Config {
     Type type{Type::PERIODIC};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
   } gc;
+
+  struct Items {
+    bool properties_on_edges{true};
+  } items;
 };
 
 }  // namespace storage

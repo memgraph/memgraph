@@ -317,6 +317,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                     "Trying to access labels on a deleted node.");
               case storage::Error::SERIALIZATION_ERROR:
               case storage::Error::VERTEX_HAS_EDGES:
+              case storage::Error::PROPERTIES_DISABLED:
                 throw QueryRuntimeException(
                     "Unexpected error when accessing labels.");
             }
@@ -554,6 +555,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               "Trying to get a property from a deleted object.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Unexpected error when getting a property.");
       }
@@ -573,6 +575,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               "Trying to get a property from a deleted object.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Unexpected error when getting a property.");
       }

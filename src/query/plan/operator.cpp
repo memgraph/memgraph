@@ -133,6 +133,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
           throw QueryRuntimeException(
               "Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
@@ -231,6 +232,7 @@ void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba,
         throw QueryRuntimeException(
             "Trying to create an edge on a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when creating an edge.");
     }
   }
@@ -490,6 +492,7 @@ auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
             "Trying to get relationships of a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException(
             "Unexpected error when accessing relationships.");
     }
@@ -695,6 +698,7 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException(
             "Unexpected error when getting node degree.");
     }
@@ -1903,6 +1907,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 "Can't serialize due to concurrent operations.");
           case storage::Error::DELETED_OBJECT:
           case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::PROPERTIES_DISABLED:
             throw QueryRuntimeException(
                 "Unexpected error when deleting an edge.");
         }
@@ -1925,6 +1930,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                     "Can't serialize due to concurrent operations.");
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
+              case storage::Error::PROPERTIES_DISABLED:
                 throw QueryRuntimeException(
                     "Unexpected error when deleting a node.");
             }
@@ -1939,6 +1945,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::VERTEX_HAS_EDGES:
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
+              case storage::Error::PROPERTIES_DISABLED:
                 throw QueryRuntimeException(
                     "Unexpected error when deleting a node.");
             }
@@ -2063,6 +2070,9 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException(
               "Can't serialize due to concurrent operations.");
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException(
+              "Can't set property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
           throw QueryRuntimeException(
               "Unexpected error when setting properties.");
@@ -2079,6 +2089,7 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
               "Trying to get properties from a deleted object.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Unexpected error when getting properties.");
       }
@@ -2097,6 +2108,9 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
           case storage::Error::SERIALIZATION_ERROR:
             throw QueryRuntimeException(
                 "Can't serialize due to concurrent operations.");
+          case storage::Error::PROPERTIES_DISABLED:
+            throw QueryRuntimeException(
+                "Can't set property because properties are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
             throw QueryRuntimeException(
                 "Unexpected error when setting properties.");
@@ -2205,6 +2219,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
           throw QueryRuntimeException(
               "Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
@@ -2258,6 +2273,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException(
               "Can't serialize due to concurrent operations.");
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException(
+              "Can't remove property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
           throw QueryRuntimeException(
               "Unexpected error when removing property.");
@@ -2330,6 +2348,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
           throw QueryRuntimeException(
               "Trying to remove labels from a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Unexpected error when removing labels from a node.");
       }

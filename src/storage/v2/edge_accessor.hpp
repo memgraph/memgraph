@@ -3,7 +3,9 @@
 #include <optional>
 
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_ref.hpp"
 
+#include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -19,14 +21,16 @@ class EdgeAccessor final {
   friend class Storage;
 
  public:
-  EdgeAccessor(Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
-               Vertex *to_vertex, Transaction *transaction, Indices *indices)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
+               Vertex *to_vertex, Transaction *transaction, Indices *indices,
+               Config::Items config)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
         transaction_(transaction),
-        indices_(indices) {}
+        indices_(indices),
+        config_(config) {}
 
   VertexAccessor FromVertex() const;
 
@@ -45,7 +49,13 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const { return edge_->gid; }
+  Gid Gid() const {
+    if (config_.properties_on_edges) {
+      return edge_.ptr->gid;
+    } else {
+      return edge_.gid;
+    }
+  }
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
@@ -55,12 +65,13 @@ class EdgeAccessor final {
   bool operator!=(const EdgeAccessor &other) const { return !(*this == other); }
 
  private:
-  Edge *edge_;
+  EdgeRef edge_;
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
   Transaction *transaction_;
   Indices *indices_;
+  Config::Items config_;
 };
 
 }  // namespace storage

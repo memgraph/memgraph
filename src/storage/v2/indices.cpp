@@ -355,7 +355,7 @@ LabelIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -375,7 +375,8 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
                                self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ =
-          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_};
+          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_,
+                         self_->config_};
       break;
     }
   }
@@ -383,12 +384,14 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                LabelId label, View view,
-                               Transaction *transaction, Indices *indices)
+                               Transaction *transaction, Indices *indices,
+                               Config::Items config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       transaction_(transaction),
-      indices_(indices) {}
+      indices_(indices),
+      config_(config) {}
 
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (PropertyValueLess(value, rhs.value)) {
@@ -519,7 +522,7 @@ LabelPropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -567,7 +570,8 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                                        self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ =
-          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_);
+          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
+                         self_->config_);
       break;
     }
   }
@@ -578,7 +582,7 @@ LabelPropertyIndex::Iterable::Iterable(
     PropertyId property,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-    Transaction *transaction, Indices *indices)
+    Transaction *transaction, Indices *indices, Config::Items config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
@@ -586,7 +590,8 @@ LabelPropertyIndex::Iterable::Iterable(
       upper_bound_(upper_bound),
       view_(view),
       transaction_(transaction),
-      indices_(indices) {}
+      indices_(indices),
+      config_(config) {}
 
 LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
   auto index_iterator = index_accessor_.begin();

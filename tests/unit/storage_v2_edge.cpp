@@ -1,12 +1,20 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <limits>
 
 #include "storage/v2/storage.hpp"
 
+class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
+
+INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest,
+                        ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, StorageEdgeTest,
+                        ::testing::Values(false));
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromSmallerCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -173,8 +181,8 @@ TEST(StorageV2, EdgeCreateFromSmallerCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromLargerCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -341,8 +349,8 @@ TEST(StorageV2, EdgeCreateFromLargerCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromSameCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -479,8 +487,8 @@ TEST(StorageV2, EdgeCreateFromSameCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromSmallerAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -742,8 +750,8 @@ TEST(StorageV2, EdgeCreateFromSmallerAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromLargerAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -1005,8 +1013,8 @@ TEST(StorageV2, EdgeCreateFromLargerAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeCreateFromSameAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -1216,8 +1224,8 @@ TEST(StorageV2, EdgeCreateFromSameAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -1478,8 +1486,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromLargerCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -1740,8 +1748,8 @@ TEST(StorageV2, EdgeDeleteFromLargerCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromSameCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -1950,8 +1958,8 @@ TEST(StorageV2, EdgeDeleteFromSameCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -2360,8 +2368,8 @@ TEST(StorageV2, EdgeDeleteFromSmallerAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromLargerAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -2771,8 +2779,8 @@ TEST(StorageV2, EdgeDeleteFromLargerAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgeDeleteFromSameAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -3103,8 +3111,8 @@ TEST(StorageV2, EdgeDeleteFromSameAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDetachDeleteSingleCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -3247,8 +3255,8 @@ TEST(StorageV2, VertexDetachDeleteSingleCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex1 =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_vertex2 =
@@ -3598,8 +3606,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDetachDeleteSingleAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_from =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_to =
@@ -3850,8 +3858,8 @@ TEST(StorageV2, VertexDetachDeleteSingleAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
-  storage::Storage store;
+TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
+  storage::Storage store({.items = {.properties_on_edges = GetParam()}});
   storage::Gid gid_vertex1 =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   storage::Gid gid_vertex2 =
@@ -4545,8 +4553,8 @@ TEST(StorageV2, VertexDetachDeleteMultipleAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgePropertyCommit) {
-  storage::Storage store;
+TEST(StorageWithProperties, EdgePropertyCommit) {
+  storage::Storage store({.items = {.properties_on_edges = true}});
   storage::Gid gid =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
@@ -4682,8 +4690,8 @@ TEST(StorageV2, EdgePropertyCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgePropertyAbort) {
-  storage::Storage store;
+TEST(StorageWithProperties, EdgePropertyAbort) {
+  storage::Storage store({.items = {.properties_on_edges = true}});
   storage::Gid gid =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -4990,8 +4998,8 @@ TEST(StorageV2, EdgePropertyAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, EdgePropertySerializationError) {
-  storage::Storage store;
+TEST(StorageWithProperties, EdgePropertySerializationError) {
+  storage::Storage store({.items = {.properties_on_edges = true}});
   storage::Gid gid =
       storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
@@ -5095,6 +5103,77 @@ TEST(StorageV2, EdgePropertySerializationError) {
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property1].ValueInt(), 123);
     }
+
+    acc.Abort();
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageWithoutProperties, EdgePropertyAbort) {
+  storage::Storage store({.items = {.properties_on_edges = false}});
+  storage::Gid gid =
+      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto et = acc.NameToEdgeType("et5");
+    auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
+    ASSERT_EQ(edge.EdgeType(), et);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    auto property = acc.NameToProperty("property5");
+
+    ASSERT_TRUE(edge.GetProperty(property, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
+
+    {
+      auto res =
+          edge.SetProperty(property, storage::PropertyValue("temporary"));
+      ASSERT_TRUE(res.HasError());
+      ASSERT_EQ(res.GetError(), storage::Error::PROPERTIES_DISABLED);
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
+
+    {
+      auto res = edge.SetProperty(property, storage::PropertyValue("nandare"));
+      ASSERT_TRUE(res.HasError());
+      ASSERT_EQ(res.GetError(), storage::Error::PROPERTIES_DISABLED);
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
+
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    auto property = acc.NameToProperty("property5");
+
+    ASSERT_TRUE(edge.GetProperty(property, storage::View::OLD)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::OLD)->size(), 0);
+
+    ASSERT_TRUE(edge.GetProperty(property, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
+
+    auto other_property = acc.NameToProperty("other");
+
+    ASSERT_TRUE(edge.GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }

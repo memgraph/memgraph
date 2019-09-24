@@ -39,6 +39,7 @@ class AllVerticesIterable final {
   Transaction *transaction_;
   View view_;
   Indices *indices_;
+  Config::Items config_;
 
  public:
   class Iterator final {
@@ -279,6 +280,7 @@ class Storage final {
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     bool is_transaction_active_;
+    Config::Items config_;
   };
 
   Accessor Access() { return Accessor{this}; }

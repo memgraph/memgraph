@@ -12,6 +12,7 @@ enum class Error : uint8_t {
   SERIALIZATION_ERROR,
   DELETED_OBJECT,
   VERTEX_HAS_EDGES,
+  PROPERTIES_DISABLED,
 };
 
 template <class TValue>

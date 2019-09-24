@@ -4,6 +4,7 @@
 
 #include <glog/logging.h>
 
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
@@ -150,28 +151,28 @@ struct Delta {
         command_id(command_id),
         property({key, value}) {}
 
-  Delta(AddInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
+  Delta(AddInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(AddOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
+  Delta(AddOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
+  Delta(RemoveInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, Edge *edge,
+  Delta(RemoveOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
         timestamp(timestamp),
@@ -232,7 +233,7 @@ struct Delta {
     struct {
       EdgeTypeId edge_type;
       Vertex *vertex;
-      Edge *edge;
+      EdgeRef edge;
     } vertex_edge;
   };
 

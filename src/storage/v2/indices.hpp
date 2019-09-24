@@ -4,6 +4,7 @@
 #include <tuple>
 #include <utility>
 
+#include "storage/v2/config.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -40,7 +41,8 @@ class LabelIndex {
   };
 
  public:
-  explicit LabelIndex(Indices *indices) : indices_(indices) {}
+  LabelIndex(Indices *indices, Config::Items config)
+      : indices_(indices), config_(config) {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -61,7 +63,8 @@ class LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
-             View view, Transaction *transaction, Indices *indices);
+             View view, Transaction *transaction, Indices *indices,
+             Config::Items config);
 
     class Iterator {
      public:
@@ -96,6 +99,7 @@ class LabelIndex {
     View view_;
     Transaction *transaction_;
     Indices *indices_;
+    Config::Items config_;
   };
 
   /// Returns an self with vertices visible from the given transaction.
@@ -103,7 +107,8 @@ class LabelIndex {
     auto it = index_.find(label);
     CHECK(it != index_.end())
         << "Index for label " << label.AsUint() << " doesn't exist";
-    return Iterable(it->second.access(), label, view, transaction, indices_);
+    return Iterable(it->second.access(), label, view, transaction, indices_,
+                    config_);
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -114,8 +119,9 @@ class LabelIndex {
   }
 
  private:
-  Indices *indices_;
   std::map<LabelId, utils::SkipList<Entry>> index_;
+  Indices *indices_;
+  Config::Items config_;
 };
 
 class LabelPropertyIndex {
@@ -133,7 +139,8 @@ class LabelPropertyIndex {
   };
 
  public:
-  explicit LabelPropertyIndex(Indices *indices) : indices_(indices) {}
+  LabelPropertyIndex(Indices *indices, Config::Items config)
+      : indices_(indices), config_(config) {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -166,7 +173,8 @@ class LabelPropertyIndex {
              PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-             View view, Transaction *transaction, Indices *indices);
+             View view, Transaction *transaction, Indices *indices,
+             Config::Items config);
 
     class Iterator {
      public:
@@ -207,6 +215,7 @@ class LabelPropertyIndex {
     View view_;
     Transaction *transaction_;
     Indices *indices_;
+    Config::Items config_;
   };
 
   /// @throw std::bad_alloc if unable to copy a PropertyValue
@@ -220,7 +229,7 @@ class LabelPropertyIndex {
         << "Index for label " << label.AsUint() << " and property "
         << property.AsUint() << " doesn't exist";
     return Iterable(it->second.access(), label, property, lower_bound,
-                    upper_bound, view, transaction, indices_);
+                    upper_bound, view, transaction, indices_, config_);
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
@@ -240,12 +249,14 @@ class LabelPropertyIndex {
       const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
  private:
-  Indices *indices_;
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  Indices *indices_;
+  Config::Items config_;
 };
 
 struct Indices {
-  Indices() : label_index(this), label_property_index(this) {}
+  explicit Indices(Config::Items config)
+      : label_index(this, config), label_property_index(this, config) {}
 
   // Disable copy and move because members hold pointer to `this`.
   Indices(const Indices &) = delete;

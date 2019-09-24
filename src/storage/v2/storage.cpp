@@ -15,9 +15,10 @@ namespace storage {
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
-                            Transaction *tx, View view, Indices *indices) {
+                            Transaction *tx, View view, Indices *indices,
+                            Config::Items config) {
   while (it != end) {
-    auto maybe_vertex = VertexAccessor::Create(&*it, tx, indices, view);
+    auto maybe_vertex = VertexAccessor::Create(&*it, tx, indices, config, view);
     if (!maybe_vertex) {
       ++it;
       continue;
@@ -32,20 +33,20 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
                                  self->transaction_, self->view_,
-                                 self->indices_)) {}
+                                 self->indices_, self->config_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const {
   // TODO: current vertex accessor could be cached to avoid reconstructing every
   // time
   return *VertexAccessor::Create(&*it_, self_->transaction_, self_->indices_,
-                                 self_->view_);
+                                 self_->config_, self_->view_);
 }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
                                self_->transaction_, self_->view_,
-                               self_->indices_);
+                               self_->indices_, self_->config_);
   return *this;
 }
 
@@ -290,7 +291,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Storage::Storage(Config config) : config_(config) {
+Storage::Storage(Config config) : indices_(config.items), config_(config) {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval,
                    [this] { this->CollectGarbage(); });
@@ -310,12 +311,14 @@ Storage::Accessor::Accessor(Storage *storage)
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction()),
-      is_transaction_active_(true) {}
+      is_transaction_active_(true),
+      config_(storage->config_.items) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       transaction_(std::move(other.transaction_)),
-      is_transaction_active_(other.is_transaction_active_) {
+      is_transaction_active_(other.is_transaction_active_),
+      config_(other.config_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
 }
@@ -334,7 +337,7 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   CHECK(inserted) << "The vertex must be inserted here!";
   CHECK(it != acc.end()) << "Invalid Vertex accessor!";
   delta->prev.Set(&*it);
-  return VertexAccessor{&*it, &transaction_, &storage_->indices_};
+  return VertexAccessor(&*it, &transaction_, &storage_->indices_, config_);
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
@@ -342,7 +345,8 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
   auto acc = storage_->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, view);
+  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_,
+                                config_, view);
 }
 
 Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -373,8 +377,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
          "accessor when deleting a vertex!";
   auto vertex_ptr = vertex->vertex_;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   {
     std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
@@ -390,8 +394,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e{edge,       edge_type,     from_vertex,
-                   vertex_ptr, &transaction_, &storage_->indices_};
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_,
+                   &storage_->indices_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -401,8 +405,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e{edge,      edge_type,     vertex_ptr,
-                   to_vertex, &transaction_, &storage_->indices_};
+    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_,
+                   &storage_->indices_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -466,14 +470,18 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  auto gid = storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Edge{storage::Gid::FromUint(gid), delta});
-  CHECK(inserted) << "The edge must be inserted here!";
-  CHECK(it != acc.end()) << "Invalid Edge accessor!";
-  auto edge = &*it;
-  delta->prev.Set(&*it);
+  auto gid = storage::Gid::FromUint(
+      storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = storage_->edges_.access();
+    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    CHECK(inserted) << "The edge must be inserted here!";
+    CHECK(it != acc.end()) << "Invalid Edge accessor!";
+    edge = EdgeRef(&*it);
+    delta->prev.Set(&*it);
+  }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(),
                      edge_type, to_vertex, edge);
@@ -483,23 +491,27 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                      edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-  return EdgeAccessor{edge,      edge_type,     from_vertex,
-                      to_vertex, &transaction_, &storage_->indices_};
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_,
+                      &storage_->indices_, config_);
 }
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   CHECK(edge->transaction_ == &transaction_)
       << "EdgeAccessor must be from the same transaction as the storage "
          "accessor when deleting an edge!";
-  auto edge_ptr = edge->edge_;
+  auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
-  std::lock_guard<utils::SpinLock> guard(edge_ptr->lock);
+  std::unique_lock<utils::SpinLock> guard;
+  if (config_.properties_on_edges) {
+    auto edge_ptr = edge_ref.ptr;
+    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
-  if (!PrepareForWrite(&transaction_, edge_ptr))
-    return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(&transaction_, edge_ptr))
+      return Error::SERIALIZATION_ERROR;
 
-  if (edge_ptr->deleted) return false;
+    if (edge_ptr->deleted) return false;
+  }
 
   auto from_vertex = edge->from_vertex_;
   auto to_vertex = edge->to_vertex_;
@@ -529,32 +541,43 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
     CHECK(!to_vertex->deleted) << "Invalid database state!";
   }
 
-  CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
-  edge_ptr->deleted = true;
+  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex,
+                                                                auto *edges) {
+    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
+    auto it = std::find(edges->begin(), edges->end(), link);
+    if (config_.properties_on_edges) {
+      CHECK(it != edges->end()) << "Invalid database state!";
+    } else if (it == edges->end()) {
+      return false;
+    }
+    std::swap(*it, *edges->rbegin());
+    edges->pop_back();
+    return true;
+  };
+
+  auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
+  auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
+
+  if (config_.properties_on_edges) {
+    CHECK((op1 && op2)) << "Invalid database state!";
+  } else {
+    CHECK((op1 && op2) || (!op1 && !op2)) << "Invalid database state!";
+    if (!op1 && !op2) {
+      // The edge is already deleted.
+      return false;
+    }
+  }
+
+  if (config_.properties_on_edges) {
+    auto edge_ptr = edge_ref.ptr;
+    CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
+    edge_ptr->deleted = true;
+  }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(),
-                     edge_type, to_vertex, edge_ptr);
-  {
-    std::tuple<EdgeTypeId, Vertex *, Edge *> link{edge_type, to_vertex,
-                                                  edge_ptr};
-    auto it = std::find(from_vertex->out_edges.begin(),
-                        from_vertex->out_edges.end(), link);
-    CHECK(it != from_vertex->out_edges.end()) << "Invalid database state!";
-    std::swap(*it, *from_vertex->out_edges.rbegin());
-    from_vertex->out_edges.pop_back();
-  }
-
+                     edge_type, to_vertex, edge_ref);
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type,
-                     from_vertex, edge_ptr);
-  {
-    std::tuple<EdgeTypeId, Vertex *, Edge *> link{edge_type, from_vertex,
-                                                  edge_ptr};
-    auto it =
-        std::find(to_vertex->in_edges.begin(), to_vertex->in_edges.end(), link);
-    CHECK(it != to_vertex->in_edges.end()) << "Invalid database state!";
-    std::swap(*it, *to_vertex->in_edges.rbegin());
-    to_vertex->in_edges.pop_back();
-  }
+                     from_vertex, edge_ref);
 
   return true;
 }
@@ -700,7 +723,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::ADD_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
@@ -710,7 +733,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::ADD_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),
@@ -720,7 +743,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
@@ -731,7 +754,7 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, Edge *> link{
+              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                   current->vertex_edge.edge_type, current->vertex_edge.vertex,
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),

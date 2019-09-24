@@ -85,6 +85,9 @@ void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException(
               "Trying to set properties on a deleted object.");
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException(
+              "Can't set property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
           throw QueryRuntimeException(
               "Unexpected error when setting a property.");

@@ -8,7 +8,7 @@
 #include "utils/spin_lock.hpp"
 
 #include "storage/v2/delta.hpp"
-#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace storage {
@@ -24,8 +24,8 @@ struct Vertex {
   std::vector<LabelId> labels;
   std::map<PropertyId, storage::PropertyValue> properties;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, Edge *>> out_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   utils::SpinLock lock;
   bool deleted;
