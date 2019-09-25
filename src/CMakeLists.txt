@@ -63,7 +63,7 @@ set(mg_single_node_sources
     query/plan/rewrite/index_lookup.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
-    query/plugin/plugin.cpp
+    query/procedure/module.cpp
     query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
@@ -134,7 +134,7 @@ set(mg_single_node_v2_sources
     query/plan/rewrite/index_lookup.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
-    query/plugin/plugin.cpp
+    query/procedure/module.cpp
     query/typed_value.cpp
     memgraph_init.cpp
 )
