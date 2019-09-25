@@ -109,11 +109,11 @@ struct Delta {
   // Used for both Vertex and Edge
   struct DeleteObjectTag {};
   struct RecreateObjectTag {};
-  struct AddLabelTag {};
-  struct RemoveLabelTag {};
   struct SetPropertyTag {};
 
   // Used only for Vertex
+  struct AddLabelTag {};
+  struct RemoveLabelTag {};
   struct AddInEdgeTag {};
   struct AddOutEdgeTag {};
   struct RemoveInEdgeTag {};
@@ -179,42 +179,27 @@ struct Delta {
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(Delta &&other) noexcept
-      : action(other.action),
-        timestamp(other.timestamp),
-        command_id(other.command_id),
-        prev(other.prev),
-        next(other.next.load()) {
-    switch (other.action) {
+  Delta(const Delta &) = delete;
+  Delta(Delta &&) = delete;
+  Delta &operator=(const Delta &) = delete;
+  Delta &operator=(Delta &&) = delete;
+
+  ~Delta() {
+    switch (action) {
       case Action::DELETE_OBJECT:
       case Action::RECREATE_OBJECT:
-        break;
       case Action::ADD_LABEL:
       case Action::REMOVE_LABEL:
-        label = other.label;
-        break;
-      case Action::SET_PROPERTY:
-        property.key = other.property.key;
-        new (&property.value) PropertyValue(std::move(other.property.value));
-        break;
       case Action::ADD_IN_EDGE:
       case Action::ADD_OUT_EDGE:
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
-        vertex_edge = other.vertex_edge;
+        break;
+      case Action::SET_PROPERTY:
+        property.value.~PropertyValue();
         break;
     }
-
-    // reset the action of other
-    other.DestroyValue();
-    other.action = Action::DELETE_OBJECT;
   }
-
-  Delta(const Delta &) = delete;
-  Delta &operator=(const Delta &) = delete;
-  Delta &operator=(Delta &&other) = delete;
-
-  ~Delta() { DestroyValue(); }
 
   Action action;
 
@@ -236,24 +221,6 @@ struct Delta {
       EdgeRef edge;
     } vertex_edge;
   };
-
- private:
-  void DestroyValue() {
-    switch (action) {
-      case Action::DELETE_OBJECT:
-      case Action::RECREATE_OBJECT:
-      case Action::ADD_LABEL:
-      case Action::REMOVE_LABEL:
-      case Action::ADD_IN_EDGE:
-      case Action::ADD_OUT_EDGE:
-      case Action::REMOVE_IN_EDGE:
-      case Action::REMOVE_OUT_EDGE:
-        break;
-      case Action::SET_PROPERTY:
-        property.value.~PropertyValue();
-        break;
-    }
-  }
 };
 
 static_assert(alignof(Delta) >= 8,
