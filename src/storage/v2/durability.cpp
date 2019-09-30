@@ -132,7 +132,7 @@ void Encoder::Finalize() {
 
 std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path,
                                             const std::string &magic) {
-  file_.Open(path);
+  if (!file_.Open(path)) return std::nullopt;
   std::string file_magic(magic.size(), '\0');
   if (!Read(reinterpret_cast<uint8_t *>(file_magic.data()), file_magic.size()))
     return std::nullopt;
@@ -366,12 +366,12 @@ bool Decoder::SkipPropertyValue() {
   }
 }
 
-uint64_t Decoder::GetSize() { return file_.GetSize(); }
+std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
 
-uint64_t Decoder::GetPosition() { return file_.GetPosition(); }
+std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
-void Decoder::SetPosition(uint64_t position) {
-  file_.SetPosition(utils::InputFile::Position::SET, position);
+bool Decoder::SetPosition(uint64_t position) {
+  return !!file_.SetPosition(utils::InputFile::Position::SET, position);
 }
 
 }  // namespace storage::durability

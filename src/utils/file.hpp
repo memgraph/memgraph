@@ -7,6 +7,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -63,8 +64,8 @@ class InputFile {
   InputFile &operator=(InputFile &&other) noexcept;
 
   /// This method opens the file used for reading. If the file can't be opened
-  /// or doesn't exist it crashes the program.
-  void Open(const std::filesystem::path &path);
+  /// or doesn't exist it returns `false`.
+  bool Open(const std::filesystem::path &path);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -83,22 +84,21 @@ class InputFile {
   /// doesn't change the current position in the file.
   bool Peek(uint8_t *data, size_t size);
 
-  /// This method gets the size of the file. On failure and misuse it crashes
-  /// the program.
-  size_t GetSize();
+  /// This method gets the size of the file. On failure it returns
+  /// `std::nullopt`.
+  std::optional<size_t> GetSize();
 
-  /// This method gets the current absolute position in the file. On failure and
-  /// misuse it crashes the program.
-  size_t GetPosition();
+  /// This method gets the current absolute position in the file. On failure it
+  /// returns `std::nullopt`.
+  std::optional<size_t> GetPosition();
 
   /// This method sets the current position in the file and returns the absolute
   /// set position in the file. The position is set to `offset` with the
-  /// starting point taken from `position`. On failure and misuse it crashes the
-  /// program.
-  size_t SetPosition(Position position, ssize_t offset);
+  /// starting point taken from `position`. On failure it returns
+  /// `std::nullopt`.
+  std::optional<size_t> SetPosition(Position position, ssize_t offset);
 
-  /// Closes the currently opened file. On failure and misuse it crashes the
-  /// program.
+  /// Closes the currently opened file. On failure it crashes the program.
   void Close() noexcept;
 
  private:

@@ -102,9 +102,9 @@ class Decoder final {
   bool SkipString();
   bool SkipPropertyValue();
 
-  uint64_t GetSize();
-  uint64_t GetPosition();
-  void SetPosition(uint64_t position);
+  std::optional<uint64_t> GetSize();
+  std::optional<uint64_t> GetPosition();
+  bool SetPosition(uint64_t position);
 
  private:
   utils::InputFile file_;

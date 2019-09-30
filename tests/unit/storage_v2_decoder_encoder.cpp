@@ -59,7 +59,9 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
     }
     ASSERT_FALSE(decoder.ReadMarker());
     ASSERT_FALSE(decoder.ReadMarker());
-    ASSERT_EQ(decoder.GetPosition(), decoder.GetSize());
+    auto pos = decoder.GetPosition();
+    ASSERT_TRUE(pos);
+    ASSERT_EQ(pos, decoder.GetSize());
   }
 }
 
@@ -91,7 +93,9 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
       }                                                            \
       ASSERT_FALSE(decoder.Read##name());                          \
       ASSERT_FALSE(decoder.Read##name());                          \
-      ASSERT_EQ(decoder.GetPosition(), decoder.GetSize());         \
+      auto pos = decoder.GetPosition();                            \
+      ASSERT_TRUE(pos);                                            \
+      ASSERT_EQ(pos, decoder.GetSize());                           \
     }                                                              \
   }
 
@@ -148,7 +152,9 @@ GENERATE_READ_TEST(
       }                                                            \
       ASSERT_FALSE(decoder.Skip##name());                          \
       ASSERT_FALSE(decoder.Skip##name());                          \
-      ASSERT_EQ(decoder.GetPosition(), decoder.GetSize());         \
+      auto pos = decoder.GetPosition();                            \
+      ASSERT_TRUE(pos);                                            \
+      ASSERT_EQ(pos, decoder.GetSize());                           \
     }                                                              \
   }
 
@@ -179,7 +185,7 @@ GENERATE_SKIP_TEST(
     {                                                                          \
       utils::InputFile ifile;                                                  \
       utils::OutputFile ofile;                                                 \
-      ifile.Open(storage_file);                                                \
+      ASSERT_TRUE(ifile.Open(storage_file));                                   \
       ofile.Open(alternate_file, utils::OutputFile::Mode::OVERWRITE_EXISTING); \
       auto size = ifile.GetSize();                                             \
       for (size_t i = 0; i <= size; ++i) {                                     \
@@ -245,7 +251,7 @@ GENERATE_PARTIAL_READ_TEST(
     {                                                                          \
       utils::InputFile ifile;                                                  \
       utils::OutputFile ofile;                                                 \
-      ifile.Open(storage_file);                                                \
+      ASSERT_TRUE(ifile.Open(storage_file));                                   \
       ofile.Open(alternate_file, utils::OutputFile::Mode::OVERWRITE_EXISTING); \
       auto size = ifile.GetSize();                                             \
       for (size_t i = 0; i <= size; ++i) {                                     \
@@ -388,11 +394,14 @@ TEST_F(DecoderEncoderTest, DecoderPosition) {
     ASSERT_TRUE(version);
     ASSERT_EQ(*version, kTestVersion);
     for (int i = 0; i < 10; ++i) {
-      decoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion));
+      ASSERT_TRUE(
+          decoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion)));
       auto decoded = decoder.ReadBool();
       ASSERT_TRUE(decoded);
       ASSERT_TRUE(*decoded);
-      ASSERT_EQ(decoder.GetPosition(), decoder.GetSize());
+      auto pos = decoder.GetPosition();
+      ASSERT_TRUE(pos);
+      ASSERT_EQ(pos, decoder.GetSize());
     }
   }
 }
@@ -416,6 +425,8 @@ TEST_F(DecoderEncoderTest, EncoderPosition) {
     auto decoded = decoder.ReadBool();
     ASSERT_TRUE(decoded);
     ASSERT_TRUE(*decoded);
-    ASSERT_EQ(decoder.GetPosition(), decoder.GetSize());
+    auto pos = decoder.GetPosition();
+    ASSERT_TRUE(pos);
+    ASSERT_EQ(pos, decoder.GetSize());
   }
 }

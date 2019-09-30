@@ -63,9 +63,7 @@ bool CopyFile(const std::filesystem::path &src,
 
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
-InputFile::~InputFile() {
-  if (IsOpen()) Close();
-}
+InputFile::~InputFile() { Close(); }
 
 InputFile::InputFile(InputFile &&other) noexcept
     : fd_(other.fd_), path_(std::move(other.path_)) {
@@ -73,7 +71,7 @@ InputFile::InputFile(InputFile &&other) noexcept
 }
 
 InputFile &InputFile::operator=(InputFile &&other) noexcept {
-  if (IsOpen()) Close();
+  Close();
 
   fd_ = other.fd_;
   path_ = std::move(other.path_);
@@ -83,11 +81,8 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   return *this;
 }
 
-void InputFile::Open(const std::filesystem::path &path) {
-  CHECK(!IsOpen())
-      << "While trying to open " << path
-      << " for writing the database used a handle that already has " << path_
-      << " opened in it!";
+bool InputFile::Open(const std::filesystem::path &path) {
+  if (IsOpen()) return false;
 
   path_ = path;
 
@@ -97,15 +92,13 @@ void InputFile::Open(const std::filesystem::path &path) {
       // The call was interrupted, try again...
       continue;
     } else {
-      // All other possible errors are fatal errors and are handled in the CHECK
-      // below.
+      // All other possible errors are fatal errors and are handled with the
+      // return value.
       break;
     }
   }
 
-  CHECK(fd_ != -1) << "While trying to open " << path_
-                   << " for reading an error occurred: " << strerror(errno)
-                   << " (" << errno << ").";
+  return fd_ != -1;
 }
 
 bool InputFile::IsOpen() const { return fd_ != -1; }
@@ -154,18 +147,21 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
   return true;
 }
 
-size_t InputFile::GetSize() {
-  size_t current = GetPosition();
-  size_t size = SetPosition(Position::RELATIVE_TO_END, 0);
-  SetPosition(Position::SET, current);
+std::optional<size_t> InputFile::GetSize() {
+  auto current = GetPosition();
+  if (!current) return std::nullopt;
+  auto size = SetPosition(Position::RELATIVE_TO_END, 0);
+  if (!size) return std::nullopt;
+  if (!SetPosition(Position::SET, *current)) return std::nullopt;
   return size;
 }
 
-size_t InputFile::GetPosition() {
+std::optional<size_t> InputFile::GetPosition() {
   return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
 }
 
-size_t InputFile::SetPosition(Position position, ssize_t offset) {
+std::optional<size_t> InputFile::SetPosition(Position position,
+                                             ssize_t offset) {
   int whence;
   switch (position) {
     case Position::SET:
@@ -183,14 +179,14 @@ size_t InputFile::SetPosition(Position position, ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    CHECK(pos >= 0) << "While trying to set the position in " << path_
-                    << " an error occurred: " << strerror(errno) << " ("
-                    << errno << ").";
+    if (pos < 0) return std::nullopt;
     return pos;
   }
 }
 
 void InputFile::Close() noexcept {
+  if (!IsOpen()) return;
+
   int ret = 0;
   while (true) {
     ret = close(fd_);
@@ -204,9 +200,11 @@ void InputFile::Close() noexcept {
     }
   }
 
-  CHECK(ret == 0) << "While trying to close " << path_
-                  << " an error occurred: " << strerror(errno) << " (" << errno
-                  << ").";
+  if (ret != 0) {
+    LOG(ERROR) << "While trying to close " << path_
+               << " an error occurred: " << strerror(errno) << " (" << errno
+               << ").";
+  }
 
   fd_ = -1;
 }
