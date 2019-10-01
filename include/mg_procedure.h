@@ -366,6 +366,33 @@ const struct mgp_edge *mgp_path_edge_at(const struct mgp_path *path,
                                         size_t index);
 ///@}
 
+/// @name Procedure Result
+/// These functions and types are used to set the result of your custom
+/// procedure.
+///@{
+
+/// Stores either an error result or a list of mgp_result_record instances.
+struct mgp_result;
+/// Represents a record of resulting field values.
+struct mgp_result_record;
+
+/// Set the error as the result of the procedure.
+/// If there's no memory for copying the error message, 0 is returned.
+int mgp_result_set_error_msg(struct mgp_result *res, const char *error_msg);
+
+/// Create a new record for results.
+/// Return NULL if unable to allocate a mgp_result_record.
+struct mgp_result_record *mgp_result_new_record(struct mgp_result *res);
+
+/// Assign a value to a field in the given record.
+/// Return 0 if there's no memory to copy the mgp_value to mgp_result_record or
+/// if the combination of `field_name` and `val` does not satisfy the
+/// procedure's result signature.
+int mgp_result_record_insert(struct mgp_result_record *record,
+                             const char *field_name,
+                             const struct mgp_value *val);
+///@}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
