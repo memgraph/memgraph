@@ -15,7 +15,7 @@ namespace storage {
 
 struct Vertex {
   Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    CHECK(delta->action == Delta::Action::DELETE_OBJECT)
+    CHECK(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT)
         << "Vertex must be created with an initial DELETE_OBJECT delta!";
   }
 

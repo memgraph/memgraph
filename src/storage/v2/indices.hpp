@@ -118,6 +118,8 @@ class LabelIndex {
     return it->second.size();
   }
 
+  void Clear() { index_.clear(); }
+
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
@@ -247,6 +249,8 @@ class LabelPropertyIndex {
       LabelId label, PropertyId property,
       const std::optional<utils::Bound<PropertyValue>> &lower,
       const std::optional<utils::Bound<PropertyValue>> &upper) const;
+
+  void Clear() { index_.clear(); }
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;

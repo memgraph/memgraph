@@ -14,7 +14,7 @@ struct Vertex;
 
 struct Edge {
   Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    CHECK(delta->action == Delta::Action::DELETE_OBJECT)
+    CHECK(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT)
         << "Edge must be created with an initial DELETE_OBJECT delta!";
   }
 

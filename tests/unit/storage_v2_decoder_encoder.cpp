@@ -36,9 +36,9 @@ class DecoderEncoderTest : public ::testing::Test {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, ReadMarker) {
   {
-    storage::durability::Encoder encoder;
+    storage::Encoder encoder;
     encoder.Initialize(storage_file, kTestMagic, kTestVersion);
-    for (const auto &item : storage::durability::kMarkersAll) {
+    for (const auto &item : storage::kMarkersAll) {
       encoder.WriteMarker(item);
     }
     {
@@ -48,11 +48,11 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
     encoder.Finalize();
   }
   {
-    storage::durability::Decoder decoder;
+    storage::Decoder decoder;
     auto version = decoder.Initialize(storage_file, kTestMagic);
     ASSERT_TRUE(version);
     ASSERT_EQ(*version, kTestVersion);
-    for (const auto &item : storage::durability::kMarkersAll) {
+    for (const auto &item : storage::kMarkersAll) {
       auto decoded = decoder.ReadMarker();
       ASSERT_TRUE(decoded);
       ASSERT_EQ(*decoded, item);
@@ -70,7 +70,7 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
   TEST_F(DecoderEncoderTest, Read##name) {                         \
     std::vector<type> dataset{__VA_ARGS__};                        \
     {                                                              \
-      storage::durability::Encoder encoder;                        \
+      storage::Encoder encoder;                                    \
       encoder.Initialize(storage_file, kTestMagic, kTestVersion);  \
       for (const auto &item : dataset) {                           \
         encoder.Write##name(item);                                 \
@@ -82,7 +82,7 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
       encoder.Finalize();                                          \
     }                                                              \
     {                                                              \
-      storage::durability::Decoder decoder;                        \
+      storage::Decoder decoder;                                    \
       auto version = decoder.Initialize(storage_file, kTestMagic); \
       ASSERT_TRUE(version);                                        \
       ASSERT_EQ(*version, kTestVersion);                           \
@@ -131,7 +131,7 @@ GENERATE_READ_TEST(
   TEST_F(DecoderEncoderTest, Skip##name) {                         \
     std::vector<type> dataset{__VA_ARGS__};                        \
     {                                                              \
-      storage::durability::Encoder encoder;                        \
+      storage::Encoder encoder;                                    \
       encoder.Initialize(storage_file, kTestMagic, kTestVersion);  \
       for (const auto &item : dataset) {                           \
         encoder.Write##name(item);                                 \
@@ -143,7 +143,7 @@ GENERATE_READ_TEST(
       encoder.Finalize();                                          \
     }                                                              \
     {                                                              \
-      storage::durability::Decoder decoder;                        \
+      storage::Decoder decoder;                                    \
       auto version = decoder.Initialize(storage_file, kTestMagic); \
       ASSERT_TRUE(version);                                        \
       ASSERT_EQ(*version, kTestVersion);                           \
@@ -177,7 +177,7 @@ GENERATE_SKIP_TEST(
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                \
   TEST_F(DecoderEncoderTest, PartialRead##name) {                              \
     {                                                                          \
-      storage::durability::Encoder encoder;                                    \
+      storage::Encoder encoder;                                                \
       encoder.Initialize(storage_file, kTestMagic, kTestVersion);              \
       encoder.Write##name(value);                                              \
       encoder.Finalize();                                                      \
@@ -195,7 +195,7 @@ GENERATE_SKIP_TEST(
           ofile.Write(&byte, sizeof(byte));                                    \
           ofile.Sync();                                                        \
         }                                                                      \
-        storage::durability::Decoder decoder;                                  \
+        storage::Decoder decoder;                                              \
         auto version = decoder.Initialize(alternate_file, kTestMagic);         \
         if (i < kTestMagic.size() + sizeof(kTestVersion)) {                    \
           ASSERT_FALSE(version);                                               \
@@ -215,7 +215,7 @@ GENERATE_SKIP_TEST(
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_READ_TEST(Marker, storage::durability::Marker::SECTION_VERTEX);
+GENERATE_PARTIAL_READ_TEST(Marker, storage::Marker::SECTION_VERTEX);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_READ_TEST(Bool, false);
@@ -243,7 +243,7 @@ GENERATE_PARTIAL_READ_TEST(
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                \
   TEST_F(DecoderEncoderTest, PartialSkip##name) {                              \
     {                                                                          \
-      storage::durability::Encoder encoder;                                    \
+      storage::Encoder encoder;                                                \
       encoder.Initialize(storage_file, kTestMagic, kTestVersion);              \
       encoder.Write##name(value);                                              \
       encoder.Finalize();                                                      \
@@ -261,7 +261,7 @@ GENERATE_PARTIAL_READ_TEST(
           ofile.Write(&byte, sizeof(byte));                                    \
           ofile.Sync();                                                        \
         }                                                                      \
-        storage::durability::Decoder decoder;                                  \
+        storage::Decoder decoder;                                              \
         auto version = decoder.Initialize(alternate_file, kTestMagic);         \
         if (i < kTestMagic.size() + sizeof(kTestVersion)) {                    \
           ASSERT_FALSE(version);                                               \
@@ -294,7 +294,7 @@ GENERATE_PARTIAL_SKIP_TEST(
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
   {
-    storage::durability::Encoder encoder;
+    storage::Encoder encoder;
     encoder.Initialize(storage_file, kTestMagic, kTestVersion);
     encoder.WritePropertyValue(storage::PropertyValue(123L));
     encoder.Finalize();
@@ -302,51 +302,50 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
   {
     utils::OutputFile file;
     file.Open(storage_file, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    for (auto marker : storage::durability::kMarkersAll) {
+    for (auto marker : storage::kMarkersAll) {
       bool valid_marker;
       switch (marker) {
-        case storage::durability::Marker::TYPE_NULL:
-        case storage::durability::Marker::TYPE_BOOL:
-        case storage::durability::Marker::TYPE_INT:
-        case storage::durability::Marker::TYPE_DOUBLE:
-        case storage::durability::Marker::TYPE_STRING:
-        case storage::durability::Marker::TYPE_LIST:
-        case storage::durability::Marker::TYPE_MAP:
-        case storage::durability::Marker::TYPE_PROPERTY_VALUE:
+        case storage::Marker::TYPE_NULL:
+        case storage::Marker::TYPE_BOOL:
+        case storage::Marker::TYPE_INT:
+        case storage::Marker::TYPE_DOUBLE:
+        case storage::Marker::TYPE_STRING:
+        case storage::Marker::TYPE_LIST:
+        case storage::Marker::TYPE_MAP:
+        case storage::Marker::TYPE_PROPERTY_VALUE:
           valid_marker = true;
           break;
 
-        case storage::durability::Marker::SECTION_VERTEX:
-        case storage::durability::Marker::SECTION_EDGE:
-        case storage::durability::Marker::SECTION_MAPPER:
-        case storage::durability::Marker::SECTION_METADATA:
-        case storage::durability::Marker::SECTION_INDICES:
-        case storage::durability::Marker::SECTION_CONSTRAINTS:
-        case storage::durability::Marker::SECTION_OFFSETS:
-        case storage::durability::Marker::VALUE_FALSE:
-        case storage::durability::Marker::VALUE_TRUE:
+        case storage::Marker::SECTION_VERTEX:
+        case storage::Marker::SECTION_EDGE:
+        case storage::Marker::SECTION_MAPPER:
+        case storage::Marker::SECTION_METADATA:
+        case storage::Marker::SECTION_INDICES:
+        case storage::Marker::SECTION_CONSTRAINTS:
+        case storage::Marker::SECTION_OFFSETS:
+        case storage::Marker::VALUE_FALSE:
+        case storage::Marker::VALUE_TRUE:
           valid_marker = false;
           break;
       }
       // We only run this test with invalid markers.
       if (valid_marker) continue;
       {
-        file.SetPosition(
-            utils::OutputFile::Position::RELATIVE_TO_END,
-            -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
+        file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END,
+                         -(sizeof(uint64_t) + sizeof(storage::Marker)));
         auto byte = static_cast<uint8_t>(marker);
         file.Write(&byte, sizeof(byte));
         file.Sync();
       }
       {
-        storage::durability::Decoder decoder;
+        storage::Decoder decoder;
         auto version = decoder.Initialize(storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
         ASSERT_FALSE(decoder.SkipPropertyValue());
       }
       {
-        storage::durability::Decoder decoder;
+        storage::Decoder decoder;
         auto version = decoder.Initialize(storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
@@ -355,22 +354,21 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
     }
     {
       {
-        file.SetPosition(
-            utils::OutputFile::Position::RELATIVE_TO_END,
-            -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
+        file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END,
+                         -(sizeof(uint64_t) + sizeof(storage::Marker)));
         uint8_t byte = 1;
         file.Write(&byte, sizeof(byte));
         file.Sync();
       }
       {
-        storage::durability::Decoder decoder;
+        storage::Decoder decoder;
         auto version = decoder.Initialize(storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
         ASSERT_FALSE(decoder.SkipPropertyValue());
       }
       {
-        storage::durability::Decoder decoder;
+        storage::Decoder decoder;
         auto version = decoder.Initialize(storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
@@ -383,13 +381,13 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, DecoderPosition) {
   {
-    storage::durability::Encoder encoder;
+    storage::Encoder encoder;
     encoder.Initialize(storage_file, kTestMagic, kTestVersion);
     encoder.WriteBool(true);
     encoder.Finalize();
   }
   {
-    storage::durability::Decoder decoder;
+    storage::Decoder decoder;
     auto version = decoder.Initialize(storage_file, kTestMagic);
     ASSERT_TRUE(version);
     ASSERT_EQ(*version, kTestVersion);
@@ -409,7 +407,7 @@ TEST_F(DecoderEncoderTest, DecoderPosition) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, EncoderPosition) {
   {
-    storage::durability::Encoder encoder;
+    storage::Encoder encoder;
     encoder.Initialize(storage_file, kTestMagic, kTestVersion);
     encoder.WriteBool(false);
     encoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion));
@@ -418,7 +416,7 @@ TEST_F(DecoderEncoderTest, EncoderPosition) {
     encoder.Finalize();
   }
   {
-    storage::durability::Decoder decoder;
+    storage::Decoder decoder;
     auto version = decoder.Initialize(storage_file, kTestMagic);
     ASSERT_TRUE(version);
     ASSERT_EQ(*version, kTestVersion);

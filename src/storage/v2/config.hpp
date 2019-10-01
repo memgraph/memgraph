@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
 
 namespace storage {
 
@@ -17,6 +19,19 @@ struct Config {
   struct Items {
     bool properties_on_edges{true};
   } items;
+
+  struct Durability {
+    enum class SnapshotType { NONE, PERIODIC };
+
+    std::filesystem::path storage_directory{"storage"};
+
+    bool recover_on_startup{false};
+
+    SnapshotType snapshot_type{SnapshotType::NONE};
+    std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};
+    uint64_t snapshot_retention_count{3};
+    bool snapshot_on_exit{false};
+  } durability;
 };
 
 }  // namespace storage

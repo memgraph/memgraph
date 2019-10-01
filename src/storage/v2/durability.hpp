@@ -2,15 +2,29 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
 
+#include "storage/v2/config.hpp"
+#include "storage/v2/constraints.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/indices.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/scheduler.hpp"
+#include "utils/skip_list.hpp"
 
-namespace storage::durability {
+namespace storage {
+
+static const std::string kSnapshotDirectory{"snapshots"};
+static const std::string kWalDirectory{"wal"};
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
@@ -110,4 +124,74 @@ class Decoder final {
   utils::InputFile file_;
 };
 
-}  // namespace storage::durability
+/// Exception used to handle errors during recovery.
+class RecoveryFailure : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+/// Structure used to hold information about a snapshot.
+struct SnapshotInfo {
+  uint64_t offset_edges;
+  uint64_t offset_vertices;
+  uint64_t offset_indices;
+  uint64_t offset_constraints;
+  uint64_t offset_mapper;
+  uint64_t offset_metadata;
+
+  std::string uuid;
+  uint64_t start_timestamp;
+  uint64_t edges_count;
+  uint64_t vertices_count;
+};
+
+/// Function used to read information about the snapshot file.
+/// @throw RecoveryFailure
+SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
+
+/// Durability class that is used to provide full durability functionality to
+/// the storage.
+class Durability final {
+ public:
+  struct RecoveryInfo {
+    uint64_t next_vertex_id;
+    uint64_t next_edge_id;
+    uint64_t next_timestamp;
+  };
+
+  Durability(Config::Durability config, utils::SkipList<Vertex> *vertices,
+             utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+             Indices *indices, Constraints *constraints, Config::Items items);
+
+  std::optional<RecoveryInfo> Initialize(
+      std::function<void(std::function<void(Transaction *)>)>
+          execute_with_transaction);
+
+  void Finalize();
+
+ private:
+  void CreateSnapshot(Transaction *transaction);
+
+  std::optional<RecoveryInfo> RecoverData();
+
+  RecoveryInfo LoadSnapshot(const std::filesystem::path &path);
+
+  Config::Durability config_;
+
+  utils::SkipList<Vertex> *vertices_;
+  utils::SkipList<Edge> *edges_;
+  NameIdMapper *name_id_mapper_;
+  Indices *indices_;
+  Constraints *constraints_;
+  Config::Items items_;
+
+  std::function<void(std::function<void(Transaction *)>)>
+      execute_with_transaction_;
+
+  std::filesystem::path snapshot_directory_;
+  utils::Scheduler snapshot_runner_;
+
+  // UUID used to distinguish snapshots and to link snapshots to WALs
+  std::string uuid_;
+};
+
+}  // namespace storage

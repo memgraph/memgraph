@@ -1,5 +1,6 @@
 #include "storage/v2/storage.hpp"
 
+#include <algorithm>
 #include <memory>
 
 #include <gflags/gflags.h>
@@ -291,7 +292,29 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Storage::Storage(Config config) : indices_(config.items), config_(config) {
+Storage::Storage(Config config)
+    : indices_(config.items),
+      config_(config),
+      durability_(config.durability, &vertices_, &edges_, &name_id_mapper_,
+                  &indices_, &constraints_, config.items) {
+  auto info = durability_.Initialize([this](auto callback) {
+    // Take master RW lock (for reading).
+    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+
+    // Create the transaction used to create the snapshot.
+    auto transaction = CreateTransaction();
+
+    // Create snapshot.
+    callback(&transaction);
+
+    // Finalize snapshot transaction.
+    commit_log_.MarkFinished(transaction.start_timestamp);
+  });
+  if (info) {
+    vertex_id_ = info->next_vertex_id;
+    edge_id_ = info->next_edge_id;
+    timestamp_ = std::max(timestamp_, info->next_timestamp);
+  }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval,
                    [this] { this->CollectGarbage(); });
@@ -302,6 +325,7 @@ Storage::~Storage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
+  durability_.Finalize();
 }
 
 Storage::Accessor::Accessor(Storage *storage)
