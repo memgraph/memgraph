@@ -10,6 +10,42 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+/// @name Memory Allocation
+///
+/// These should be preferred compared to plain malloc calls as Memgraph's
+/// execution will handle allocation and deallocation more efficiently. In
+/// addition to efficiency, Memgraph can set the limit on allowed allocations
+/// thus providing some safety with regards to memory usage. The allocated
+/// memory is only valid during the execution of mgp_main. You must not allocate
+/// global resources with these functions. None of the functions are
+/// thread-safe, because we provide a single thread of execution when invoking a
+/// custom procedure. This allows Memgraph to be more efficient as stated
+/// before.
+///@{
+
+/// Allocate a block of memory with given size in bytes.
+/// Unlike malloc, this function is not thread-safe.
+/// `size_in_bytes` must be greater than 0.
+/// The returned pointer must be freed with mgp_free.
+/// NULL is returned if unable to serve the requested allocation.
+void *mgp_alloc(size_t size_in_bytes);
+
+/// Allocate an aligned block of memory with given size in bytes.
+/// Unlike malloc and aligned_alloc, this function is not thread-safe.
+/// `size_in_bytes` must be greater than 0.
+/// `alignment` must be a power of 2 value.
+/// The returned pointer must be freed with mgp_free.
+/// NULL is returned if unable to serve the requested allocation.
+void *mgp_aligned_alloc(size_t size_in_bytes, size_t alignment);
+
+/// Deallocate an allocation from mgp_alloc or mgp_aligned_alloc.
+/// Unlike free, this function is not thread-safe.
+/// If `ptr` is NULL, this function does nothing.
+/// The behavior is undefined if `ptr` is not a value returned from a prior
+/// mgp_alloc or mgp_aligned_alloc call.
+void mgp_free(void *ptr);
+///@}
+
 /// @name Operations on mgp_value
 ///
 /// struct mgp_value is an immutable container of various values that may appear
