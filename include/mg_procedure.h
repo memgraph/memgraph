@@ -393,6 +393,180 @@ int mgp_result_record_insert(struct mgp_result_record *record,
                              const struct mgp_value *val);
 ///@}
 
+/// @name Graph Constructs
+///@{
+
+/// Label of a vertex.
+struct mgp_label {
+  /// Name of the label as a NULL terminated character string.
+  const char *name;
+};
+
+/// Type of an edge.
+struct mgp_edge_type {
+  /// Name of the type as a NULL terminated character string.
+  const char *name;
+};
+
+/// Iterator over property values of a vertex or an edge.
+struct mgp_properties_iterator;
+
+/// Free the memory used by a mgp_properties_iterator.
+void mgp_properties_iterator_destroy(struct mgp_properties_iterator *it);
+
+/// Reference to a named property value.
+struct mgp_property {
+  /// Name (key) of a property as a NULL terminated string.
+  const char *name;
+  /// Value of the referenced property.
+  const struct mgp_value *value;
+};
+
+/// Get the current property pointed to by the iterator.
+/// When the mgp_properties_iterator_next is invoked, the previous
+/// mgp_property is invalidated and its value must not be used.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_property *mgp_properties_iterator_get(
+    const struct mgp_properties_iterator *it);
+
+/// Advance the iterator to the next property and return it.
+/// The previous mgp_property obtained through mgp_properties_iterator_get
+/// will be invalidated, and you must not use its value.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_property *mgp_properties_iterator_next(
+    struct mgp_properties_iterator *it);
+
+/// Iterator over edges of a vertex.
+struct mgp_edges_iterator;
+
+/// Free the memory used by a mgp_edges_iterator.
+void mgp_edges_iterator_destroy(struct mgp_edges_iterator *it);
+
+/// Copy a mgp_vertex.
+/// Returned pointer must be freed with mgp_vertex_destroy.
+/// NULL is returned if unable to allocate a mgp_vertex.
+struct mgp_vertex *mgp_vertex_copy(const struct mgp_vertex *v);
+
+/// Free the memory used by a mgp_vertex.
+void mgp_vertex_destroy(struct mgp_vertex *v);
+
+/// Return non-zero if given vertices are equal, otherwise 0.
+int mgp_vertex_equal(const struct mgp_vertex *v1, const struct mgp_vertex *v2);
+
+/// Return the number of labels a given vertex has.
+size_t mgp_vertex_labels_count(const struct mgp_vertex *v);
+
+/// Return mgp_label in mgp_vertex at given index.
+/// If the index is out of bounds, mgp_label.name is set to NULL.
+struct mgp_label mgp_vertex_label_at(const struct mgp_vertex *v, size_t index);
+
+/// Return non-zero if the given vertex has the given label.
+int mgp_vertex_has_label(const struct mgp_vertex *v, struct mgp_label label);
+
+/// Return non-zero if the given vertex has a label with given name.
+int mgp_vertex_has_label_named(const struct mgp_vertex *v,
+                               const char *label_name);
+
+/// Get a copy of a vertex property mapped to a given name.
+/// Returned value must be freed with mgp_value_destroy.
+/// NULL is returned if unable to allocate a mgp_value.
+struct mgp_value *mgp_vertex_get_property(const struct mgp_vertex *v,
+                                          const char *property_name);
+
+/// Start iterating over properties stored in the given vertex.
+/// The returned mgp_properties_iterator needs to be deallocated with
+/// mgp_properties_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_properties_iterator *mgp_vertex_iter_properties(
+    const struct mgp_vertex *v);
+
+/// Start iterating over inbound edges of the given vertex.
+/// The returned mgp_edges_iterator needs to be deallocated with
+/// mgp_edges_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_edges_iterator *mgp_vertex_iter_in_edges(const struct mgp_vertex *v);
+
+/// Start iterating over outbound edges of the given vertex.
+/// The returned mgp_edges_iterator needs to be deallocated with
+/// mgp_edges_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_edges_iterator *mgp_vertex_iter_out_edges(
+    const struct mgp_vertex *v);
+
+/// Get the current edge pointed to by the iterator.
+/// When the mgp_edges_iterator_next is invoked, the previous
+/// mgp_edge is invalidated and its value must not be used.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_edge *mgp_edges_iterator_get(
+    const struct mgp_edges_iterator *it);
+
+/// Advance the iterator to the next edge and return it.
+/// The previous mgp_edge obtained through mgp_edges_iterator_get
+/// will be invalidated, and you must not use its value.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_edge *mgp_edges_iterator_next(struct mgp_edges_iterator *it);
+
+/// Copy a mgp_edge.
+/// Returned pointer must be freed with mgp_edge_destroy.
+/// NULL is returned if unable to allocate a mgp_edge.
+struct mgp_edge *mgp_edge_copy(const struct mgp_edge *e);
+
+/// Free the memory used by a mgp_edge.
+void mgp_edge_destroy(struct mgp_edge *e);
+
+/// Return the type of the given edge.
+struct mgp_edge_type mgp_edge_get_type(const struct mgp_edge *e);
+
+/// Return the source vertex of the given edge.
+const struct mgp_vertex *mgp_edge_get_from(const struct mgp_edge *e);
+
+/// Return the destination vertex of the given edge.
+const struct mgp_vertex *mgp_edge_get_to(const struct mgp_edge *e);
+
+/// Get a copy of a edge property mapped to a given name.
+/// Returned value must be freed with mgp_value_destroy.
+/// NULL is returned if unable to allocate a mgp_value.
+struct mgp_value *mgp_edge_get_property(const struct mgp_edge *e,
+                                        const char *property_name);
+
+/// Start iterating over properties stored in the given edge.
+/// The returned mgp_properties_iterator needs to be deallocated with
+/// mgp_properties_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_properties_iterator *mgp_edge_iter_properties(
+    const struct mgp_edge *e);
+
+/// State of the graph database.
+struct mgp_graph;
+
+/// Iterator over vertices.
+struct mgp_vertices_iterator;
+
+/// Free the memory used by a mgp_vertices_iterator.
+void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
+
+/// Start iterating over vertices of the given graph.
+/// The returned mgp_vertices_iterator needs to be deallocated with
+/// mgp_vertices_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_vertices_iterator *mgp_graph_iter_vertices(
+    const struct mgp_graph *g);
+
+/// Get the current vertex pointed to by the iterator.
+/// When the mgp_vertices_iterator_next is invoked, the previous
+/// mgp_vertex is invalidated and its value must not be used.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_vertex *mgp_vertices_iterator_get(
+    const struct mgp_vertices_iterator *it);
+
+/// Advance the iterator to the next vertex and return it.
+/// The previous mgp_vertex obtained through mgp_vertices_iterator_get
+/// will be invalidated, and you must not use its value.
+/// NULL is returned if the end of the iteration has been reached.
+const struct mgp_vertex *mgp_vertices_iterator_next(
+    struct mgp_vertices_iterator *it);
+///@}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
