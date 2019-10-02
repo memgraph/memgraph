@@ -671,7 +671,8 @@ TEST_F(PrintToJsonTest, Aggregate) {
           {PROPERTY_LOOKUP("node", value), nullptr, Aggregation::Op::SUM,
            GetSymbol("sum")},
           {PROPERTY_LOOKUP("node", value), PROPERTY_LOOKUP("node", color),
-           Aggregation::Op::COLLECT_MAP, GetSymbol("map")}},
+           Aggregation::Op::COLLECT_MAP, GetSymbol("map")},
+          {nullptr, nullptr, Aggregation::Op::COUNT, GetSymbol("count")}},
       std::vector<Expression *>{PROPERTY_LOOKUP("node", type)},
       std::vector<Symbol>{node_sym});
 
@@ -689,6 +690,10 @@ TEST_F(PrintToJsonTest, Aggregate) {
                 "key" : "(PropertyLookup (Identifier \"node\") \"color\")",
                 "op" : "collect",
                 "output_symbol" : "map"
+              },
+              {
+                "op": "count",
+                "output_symbol": "count"
               }
             ],
             "group_by" : [

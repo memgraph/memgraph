@@ -360,7 +360,9 @@ json ToJson(const EdgeCreationInfo &edge_info,
 
 json ToJson(const Aggregate::Element &elem) {
   json json;
-  json["value"] = ToJson(elem.value);
+  if (elem.value) {
+    json["value"] = ToJson(elem.value);
+  }
   if (elem.key) {
     json["key"] = ToJson(elem.key);
   }
