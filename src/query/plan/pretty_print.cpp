@@ -357,7 +357,9 @@ json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
 
 json ToJson(const Aggregate::Element &elem) {
   json json;
-  json["value"] = ToJson(elem.value);
+  if (elem.value) {
+    json["value"] = ToJson(elem.value);
+  }
   if (elem.key) {
     json["key"] = ToJson(elem.key);
   }
