@@ -73,6 +73,7 @@ clause : cypherMatch
        | remove
        | with
        | cypherReturn
+       | callProcedure
        ;
 
 cypherMatch : OPTIONAL? MATCH pattern where? ;
@@ -106,6 +107,14 @@ removeItem : ( variable nodeLabels )
 with : WITH ( DISTINCT )? returnBody ( where )? ;
 
 cypherReturn : RETURN ( DISTINCT )? returnBody ;
+
+callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( yieldProcedureResults )? ;
+
+procedureName : symbolicName ( '.' symbolicName )* ;
+
+yieldProcedureResults : YIELD ( procedureResult ( ',' procedureResult )* ) ;
+
+procedureResult : ( variable AS variable ) | variable ;
 
 returnBody : returnItems ( order )? ( skip )? ( limit )? ;
 
@@ -312,6 +321,7 @@ cypherKeyword : ALL
               | ASSERT
               | BFS
               | BY
+              | CALL
               | CASE
               | CONSTRAINT
               | CONTAINS
@@ -366,6 +376,7 @@ cypherKeyword : ALL
               | WITH
               | WSHORTEST
               | XOR
+              | YIELD
               ;
 
 symbolicName : UnescapedSymbolicName

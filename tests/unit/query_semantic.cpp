@@ -1129,3 +1129,63 @@ TEST_F(TestSymbolGenerator, MatchUnion) {
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
+
+TEST_F(TestSymbolGenerator, CallProcedureYield) {
+  // WITH 1 AS x CALL proc(x) YIELD x AS y RETURN x, y
+  auto call = storage.Create<CallProcedure>();
+  call->procedure_name_ = "proc";
+  auto *arg_x = IDENT("x");
+  call->arguments_.push_back(arg_x);
+  call->result_fields_.emplace_back("x");
+  call->result_identifiers_.push_back(IDENT("y"));
+  auto *as_x = AS("x");
+  auto *ret = RETURN("x", "y");
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), as_x), call, ret));
+  auto symbol_table = query::MakeSymbolTable(query);
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  const auto &sym_x = symbol_table.at(*as_x);
+  const auto &sym_y = symbol_table.at(*call->result_identifiers_.back());
+  EXPECT_EQ(symbol_table.at(*arg_x), sym_x);
+  auto *ret_x =
+      dynamic_cast<Identifier *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(ret_x);
+  auto *ret_y =
+      dynamic_cast<Identifier *>(ret->body_.named_expressions[1]->expression_);
+  ASSERT_TRUE(ret_y);
+  EXPECT_EQ(symbol_table.at(*ret_x), sym_x);
+  EXPECT_EQ(symbol_table.at(*ret_y), sym_y);
+  EXPECT_NE(symbol_table.at(*ret->body_.named_expressions[0]), sym_x);
+  EXPECT_NE(symbol_table.at(*ret->body_.named_expressions[1]), sym_y);
+}
+
+TEST_F(TestSymbolGenerator, CallProcedureShadowingYield) {
+  // WITH 1 AS x CALL proc() YIELD x RETURN 42 AS res
+  auto call = storage.Create<CallProcedure>();
+  call->procedure_name_ = "proc";
+  call->result_fields_.emplace_back("x");
+  call->result_identifiers_.push_back(IDENT("x"));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call,
+                                  RETURN(LITERAL(42), AS("res"))));
+  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+}
+
+TEST_F(TestSymbolGenerator, CallProcedureShadowingYieldAlias) {
+  // WITH 1 AS x CALL proc() YIELD y AS x RETURN 42 AS res
+  auto call = storage.Create<CallProcedure>();
+  call->procedure_name_ = "proc";
+  call->result_fields_.emplace_back("y");
+  call->result_identifiers_.push_back(IDENT("x"));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call,
+                                  RETURN(LITERAL(42), AS("res"))));
+  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+}
+
+TEST_F(TestSymbolGenerator, CallProcedureUnboundArgument) {
+  // CALL proc(unbound)
+  auto call = storage.Create<CallProcedure>();
+  call->procedure_name_ = "proc";
+  call->arguments_.push_back(IDENT("unbound"));
+  auto query = QUERY(SINGLE_QUERY(call));
+  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+}
+

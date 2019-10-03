@@ -77,6 +77,7 @@ ASCENDING      : A S C E N D I N G ;
 ASSERT         : A S S E R T ;
 BFS            : B F S ;
 BY             : B Y ;
+CALL           : C A L L ;
 CASE           : C A S E ;
 COALESCE       : C O A L E S C E ;
 CONSTRAINT     : C O N S T R A I N T ;
@@ -134,6 +135,7 @@ WHERE          : W H E R E ;
 WITH           : W I T H ;
 WSHORTEST      : W S H O R T E S T ;
 XOR            : X O R ;
+YIELD          : Y I E L D ;
 
 /* Double and single quoted string literals. */
 StringLiteral : '"'  ( ~[\\"] | EscapeSequence )* '"'

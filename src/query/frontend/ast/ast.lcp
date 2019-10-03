@@ -1586,6 +1586,49 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class call-procedure (clause)
+  ((procedure-name "std::string" :scope :public)
+   (arguments "std::vector<Expression *>"
+              :scope :public
+              :slk-save #'slk-save-ast-vector
+              :slk-load (slk-load-ast-vector "Expression"))
+   (result-fields "std::vector<std::string>" :scope :public)
+   (result-identifiers "std::vector<Identifier *>"
+                       :scope :public
+                       :slk-save #'slk-save-ast-vector
+                       :slk-load (slk-load-ast-vector "Identifier")))
+  (:public
+    #>cpp
+    CallProcedure() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        for (auto &arg : arguments_) {
+          if (!arg->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
+        if (cont) {
+          for (auto &ident : result_identifiers_) {
+            if (!ident->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class match (clause)
   ((patterns "std::vector<Pattern *>"
              :scope :public

@@ -217,10 +217,16 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_update = false;
   bool has_return = false;
   bool has_optional_match = false;
+  bool has_call_procedure = false;
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
-    if (utils::IsSubtype(clause_type, Unwind::kType)) {
+    if (utils::IsSubtype(clause_type, CallProcedure::kType)) {
+      if (has_return) {
+        throw SemanticException("CALL can't be put after RETURN clause.");
+      }
+      has_call_procedure = true;
+    } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       if (has_update || has_return) {
         throw SemanticException(
             "UNWIND can't be put after RETURN clause or after an update.");
@@ -261,7 +267,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       DLOG(FATAL) << "Can't happen";
     }
   }
-  if (!has_update && !has_return) {
+  bool is_standalone_call_procedure =
+      has_call_procedure && single_query->clauses_.size() == 1U;
+  if (!has_update && !has_return && !is_standalone_call_procedure) {
     throw SemanticException(
         "Query should either create or update something, or return results!");
   }
@@ -314,6 +322,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(
   if (ctx->unwind()) {
     return static_cast<Clause *>(ctx->unwind()->accept(this).as<Unwind *>());
   }
+  if (ctx->callProcedure()) {
+    return static_cast<Clause *>(
+        ctx->callProcedure()->accept(this).as<CallProcedure *>());
+  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
   return 0;
@@ -335,6 +347,44 @@ antlrcpp::Any CypherMainVisitor::visitCreate(
   auto *create = storage_->Create<Create>();
   create->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
   return create;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCallProcedure(
+    MemgraphCypher::CallProcedureContext *ctx) {
+  auto *call_proc = storage_->Create<CallProcedure>();
+  CHECK(!ctx->procedureName()->symbolicName().empty());
+  std::vector<std::string> procedure_subnames;
+  procedure_subnames.reserve(ctx->procedureName()->symbolicName().size());
+  for (auto *subname : ctx->procedureName()->symbolicName()) {
+    procedure_subnames.emplace_back(subname->accept(this).as<std::string>());
+  }
+  utils::Join(&call_proc->procedure_name_, procedure_subnames, ".");
+  call_proc->arguments_.reserve(ctx->expression().size());
+  for (auto *expr : ctx->expression()) {
+    call_proc->arguments_.push_back(expr->accept(this));
+  }
+  auto *yield_ctx = ctx->yieldProcedureResults();
+  if (!yield_ctx) {
+    // TODO: Standalone CallProcedure clause may omit YIELD only if the function
+    // never returns anything.
+    return call_proc;
+  }
+  call_proc->result_fields_.reserve(yield_ctx->procedureResult().size());
+  call_proc->result_identifiers_.reserve(yield_ctx->procedureResult().size());
+  for (auto *result : yield_ctx->procedureResult()) {
+    CHECK(result->variable().size() == 1 || result->variable().size() == 2);
+    call_proc->result_fields_.push_back(
+        result->variable()[0]->accept(this).as<std::string>());
+    std::string result_alias;
+    if (result->variable().size() == 2) {
+      result_alias = result->variable()[1]->accept(this).as<std::string>();
+    } else {
+      result_alias = result->variable()[0]->accept(this).as<std::string>();
+    }
+    call_proc->result_identifiers_.push_back(
+        storage_->Create<Identifier>(result_alias));
+  }
+  return call_proc;
 }
 
 /**

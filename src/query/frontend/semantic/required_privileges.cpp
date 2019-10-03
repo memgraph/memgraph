@@ -68,6 +68,10 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
+  bool PreVisit(CallProcedure &) override {
+    // TODO: Corresponding privilege
+    return false;
+  }
   bool PreVisit(Delete &) override {
     AddPrivilege(AuthQuery::Privilege::DELETE);
     return false;

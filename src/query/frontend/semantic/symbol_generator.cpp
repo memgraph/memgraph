@@ -156,6 +156,23 @@ bool SymbolGenerator::PostVisit(Create &) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(CallProcedure &call_proc) {
+  for (auto *expr : call_proc.arguments_) {
+    expr->Accept(*this);
+  }
+  return false;
+}
+
+bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
+  for (auto *ident : call_proc.result_identifiers_) {
+    if (HasSymbol(ident->name_)) {
+      throw RedeclareVariableError(ident->name_);
+    }
+    ident->MapTo(CreateSymbol(ident->name_, true));
+  }
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Return &ret) {
   scope_.in_return = true;
   VisitReturnBody(ret.body_);

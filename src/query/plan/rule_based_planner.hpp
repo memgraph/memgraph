@@ -210,7 +210,9 @@ class RuleBasedPlanner {
               std::move(input_op), unwind->named_expression_->expression_,
               symbol);
         } else {
-          throw utils::NotYetImplemented("clause conversion to operator(s)");
+          throw utils::NotYetImplemented(
+              "clause '{}' conversion to operator(s)",
+              clause->GetTypeInfo().name);
         }
       }
     }

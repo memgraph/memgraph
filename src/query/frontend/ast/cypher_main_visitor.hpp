@@ -215,6 +215,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreate(MemgraphCypher::CreateContext *ctx) override;
 
   /**
+   * @return CallProcedure*
+   */
+  antlrcpp::Any visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) override;
+
+  /**
    * @return std::string
    */
   antlrcpp::Any visitUserOrRoleName(
