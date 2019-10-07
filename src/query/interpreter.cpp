@@ -719,9 +719,8 @@ Callback HandleInfoQuery(InfoQuery *info_query, DbAccessor *db_accessor) {
         std::vector<std::vector<TypedValue>> results(
             {{TypedValue("is_leader"),
               TypedValue(db_accessor->raft()->IsLeader())},
-             {TypedValue("term_id"),
-              TypedValue(static_cast<int64_t>(
-                  db_accessor->raft()->TermId()))}});
+             {TypedValue("term_id"), TypedValue(static_cast<int64_t>(
+                                         db_accessor->raft()->TermId()))}});
         return results;
       };
       // It is critical to abort this query because it can be executed on
@@ -834,7 +833,10 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
   return callback;
 }
 
-Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
+Interpreter::Interpreter(InterpreterContext *interpreter_context)
+    : interpreter_context_(interpreter_context) {
+  CHECK(interpreter_context_) << "Interpreter context must not be NULL";
+}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query_string, DbAccessor *db_accessor,
@@ -982,7 +984,7 @@ Interpreter::Results Interpreter::operator()(
       throw ProfileInMulticommandTxException();
     }
 
-    if (!is_tsc_available_) {
+    if (!interpreter_context_->is_tsc_available) {
       throw QueryException("TSC support is missing for PROFILE");
     }
 
@@ -1085,7 +1087,8 @@ Interpreter::Results Interpreter::operator()(
       throw IndexInMulticommandTxException();
     }
     // Creating an index influences computed plan costs.
-    auto invalidate_plan_cache = [plan_cache = &this->plan_cache_] {
+    auto invalidate_plan_cache = [plan_cache =
+                                      &this->interpreter_context_->plan_cache] {
       auto access = plan_cache->access();
       for (auto &kv : access) {
         access.remove(kv.first);
@@ -1103,7 +1106,8 @@ Interpreter::Results Interpreter::operator()(
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
-    callback = HandleAuthQuery(auth_query, auth_, parameters, db_accessor);
+    callback = HandleAuthQuery(auth_query, interpreter_context_->auth,
+                               parameters, db_accessor);
 #endif
   } else if (auto *stream_query =
                  utils::Downcast<StreamQuery>(parsed_query.query)) {
@@ -1114,8 +1118,9 @@ Interpreter::Results Interpreter::operator()(
     if (in_explicit_transaction) {
       throw StreamClauseInMulticommandTxException();
     }
-    callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
-                                 db_accessor);
+    callback =
+        HandleStreamQuery(stream_query, interpreter_context_->kafka_streams,
+                          parameters, db_accessor);
 #endif
   } else if (auto *info_query =
                  utils::Downcast<InfoQuery>(parsed_query.query)) {
@@ -1152,7 +1157,7 @@ Interpreter::Results Interpreter::operator()(
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
     HashType query_hash, CypherQuery *query, AstStorage ast_storage,
     const Parameters &parameters, DbAccessor *db_accessor) {
-  auto plan_cache_access = plan_cache_.access();
+  auto plan_cache_access = interpreter_context_->plan_cache.access();
   auto it = plan_cache_access.find(query_hash);
   if (it != plan_cache_access.end()) {
     if (it->second->IsExpired()) {
@@ -1175,7 +1180,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
     // Parse original query into antlr4 AST.
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
-      std::unique_lock<utils::SpinLock> guard(antlr_lock_);
+      std::unique_lock<utils::SpinLock> guard(interpreter_context_->antlr_lock);
       return std::make_unique<frontend::opencypher::Parser>(original_query);
     }();
     // Convert antlr4 AST into Memgraph AST.
@@ -1187,13 +1192,13 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
 
   auto stripped_query_hash = fnv(stripped_query);
 
-  auto ast_cache_accessor = ast_cache_.access();
+  auto ast_cache_accessor = interpreter_context_->ast_cache.access();
   auto ast_it = ast_cache_accessor.find(stripped_query_hash);
   if (ast_it == ast_cache_accessor.end()) {
     // Parse stripped query into antlr4 AST.
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
-      std::unique_lock<utils::SpinLock> guard(antlr_lock_);
+      std::unique_lock<utils::SpinLock> guard(interpreter_context_->antlr_lock);
       try {
         return std::make_unique<frontend::opencypher::Parser>(stripped_query);
       } catch (const SyntaxException &e) {

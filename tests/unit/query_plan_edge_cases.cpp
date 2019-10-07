@@ -41,8 +41,9 @@ class QueryExecution : public testing::Test {
   auto Execute(const std::string &query) {
     query::DbAccessor query_dba(&*dba_);
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = query::Interpreter()(query, &query_dba, {}, false,
-                                        utils::NewDeleteResource());
+    query::Interpreter::InterpreterContext interpreter_context;
+    auto results = query::Interpreter(&interpreter_context)(
+        query, &query_dba, {}, false, utils::NewDeleteResource());
     stream.Header(results.header());
     results.PullAll(stream);
     stream.Summary(results.summary());

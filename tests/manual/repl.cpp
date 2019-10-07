@@ -297,7 +297,8 @@ int main(int argc, char *argv[]) {
   std::cout << "Generating graph..." << std::endl;
   //  fill_db;
   random_generate(db, node_count, edge_count);
-  query::Interpreter interpreter;
+  query::Interpreter::InterpreterContext interpreter_context;
+  query::Interpreter interpreter{&interpreter_context};
   query::Repl(&db, &interpreter);
   return 0;
 }

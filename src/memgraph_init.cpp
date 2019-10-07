@@ -32,12 +32,14 @@ BoltSession::BoltSession(SessionData *data,
 #ifdef MG_SINGLE_NODE_V2
       db_(data->db),
 #endif
-      transaction_engine_(data->db, data->interpreter),
+      interpreter_(data->interpreter_context),
+      transaction_engine_(data->db, &interpreter_),
 #ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
       audit_log_(data->audit_log),
 #endif
-      endpoint_(endpoint) {}
+      endpoint_(endpoint) {
+}
 
 using TEncoder =
     communication::bolt::Session<communication::InputStream,
@@ -174,8 +176,9 @@ void KafkaStreamWriter(
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    (*session_data.interpreter)(query, &execution_dba, params_pv, false,
-                                utils::NewDeleteResource())
+    query::Interpreter interpreter{session_data.interpreter_context};
+    interpreter(query, &execution_dba, params_pv, false,
+                utils::NewDeleteResource())
         .PullAll(stream);
 #ifdef MG_SINGLE_NODE_V2
     auto maybe_constraint_violation = dba.Commit();

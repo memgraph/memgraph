@@ -15,8 +15,9 @@ int main(int argc, char *argv[]) {
   auto dba = db.Access();
   query::DbAccessor query_dba(&dba);
   ResultStreamFaker<query::TypedValue> stream;
-  auto results = query::Interpreter()(argv[1], &query_dba, {}, false,
-                                      utils::NewDeleteResource());
+  query::Interpreter::InterpreterContext interpreter_context;
+  auto results = query::Interpreter(&interpreter_context)(
+      argv[1], &query_dba, {}, false, utils::NewDeleteResource());
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());

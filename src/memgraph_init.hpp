@@ -31,14 +31,15 @@ DECLARE_string(durability_directory);
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(database::GraphDb *_db, query::Interpreter *_interpreter,
+  SessionData(database::GraphDb *_db,
+              query::Interpreter::InterpreterContext *_interpreter_context,
               auth::Auth *_auth, audit::Log *_audit_log)
       : db(_db),
-        interpreter(_interpreter),
+        interpreter_context(_interpreter_context),
         auth(_auth),
         audit_log(_audit_log) {}
   database::GraphDb *db;
-  query::Interpreter *interpreter;
+  query::Interpreter::InterpreterContext *interpreter_context;
   auth::Auth *auth;
   audit::Log *audit_log;
 };
@@ -82,8 +83,8 @@ class BoltSession final
    private:
     TEncoder *encoder_;
 #ifdef MG_SINGLE_NODE_V2
-  // NOTE: Needed only for ToBoltValue conversions
-  const storage::Storage *db_;
+    // NOTE: Needed only for ToBoltValue conversions
+    const storage::Storage *db_;
 #endif
   };
 
@@ -91,6 +92,7 @@ class BoltSession final
   // NOTE: Needed only for ToBoltValue conversions
   const storage::Storage *db_;
 #endif
+  query::Interpreter interpreter_;
   query::TransactionEngine transaction_engine_;
 #ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;

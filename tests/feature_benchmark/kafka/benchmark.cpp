@@ -38,9 +38,9 @@ void KafkaBenchmarkMain() {
                        audit::kBufferSizeDefault,
                        audit::kBufferFlushIntervalMillisDefault};
 
-  query::Interpreter interpreter;
+  query::Interpreter::InterpreterContext interpreter_context;
   database::GraphDb db;
-  SessionData session_data{&db, &interpreter, &auth, &audit_log};
+  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
   std::atomic<int64_t> query_counter{0};
   std::atomic<bool> timeout_reached{false};
@@ -55,8 +55,8 @@ void KafkaBenchmarkMain() {
         query_counter++;
       }};
 
-  session_data.interpreter->auth_ = &auth;
-  session_data.interpreter->kafka_streams_ = &kafka_streams;
+  interpreter_context.auth = &auth;
+  interpreter_context.kafka_streams = &kafka_streams;
 
   std::string stream_name = "benchmark";
 

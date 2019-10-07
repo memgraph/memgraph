@@ -97,8 +97,8 @@ void SingleNodeMain() {
 #else
   database::GraphDb db;
 #endif
-  query::Interpreter interpreter;
-  SessionData session_data{&db, &interpreter, &auth, &audit_log};
+  query::Interpreter::InterpreterContext interpreter_context;
+  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
   integrations::kafka::Streams kafka_streams{
       durability_directory / "streams",
@@ -108,15 +108,15 @@ void SingleNodeMain() {
         KafkaStreamWriter(session_data, query, params);
       }};
 
+  interpreter_context.auth = &auth;
+  interpreter_context.kafka_streams = &kafka_streams;
+
   try {
     // Recover possible streams.
     kafka_streams.Recover();
   } catch (const integrations::kafka::KafkaStreamException &e) {
     LOG(ERROR) << e.what();
   }
-
-  session_data.interpreter->auth_ = &auth;
-  session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";

@@ -15,7 +15,8 @@
 class InterpreterTest : public ::testing::Test {
  protected:
   database::GraphDb db_;
-  query::Interpreter interpreter_;
+  query::Interpreter::InterpreterContext interpreter_context_;
+  query::Interpreter interpreter_{&interpreter_context_};
 
   auto Interpret(const std::string &query,
                  const std::map<std::string, PropertyValue> &params = {}) {
@@ -232,9 +233,7 @@ TEST_F(InterpreterTest, Bfs) {
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
-    EXPECT_EQ(
-        edges[0].impl_.from().PropsAt(dba.Property(kId)).ValueInt(),
-        0);
+    EXPECT_EQ(edges[0].impl_.from().PropsAt(dba.Property(kId)).ValueInt(), 0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
       EXPECT_EQ(edges[i - 1].To(), edges[i].From());

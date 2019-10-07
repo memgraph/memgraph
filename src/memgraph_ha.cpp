@@ -40,8 +40,8 @@ void SingleNodeHAMain() {
   auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   database::GraphDb db;
-  query::Interpreter interpreter;
-  SessionData session_data{&db, &interpreter, nullptr, nullptr};
+  query::Interpreter::InterpreterContext interpreter_context;
+  SessionData session_data{&db, &interpreter_context, nullptr, nullptr};
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -55,9 +55,7 @@ void SingleNodeHAMain() {
                  service_name, FLAGS_num_workers);
 
   // Handler for regular termination signals
-  auto shutdown = [&db] {
-    db.Shutdown();
-  };
+  auto shutdown = [&db] { db.Shutdown(); };
 
   InitSignalHandlers(shutdown);
 

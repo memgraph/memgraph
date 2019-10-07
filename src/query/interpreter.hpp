@@ -12,6 +12,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
+#include "utils/tsc.hpp"
 
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
@@ -65,7 +66,56 @@ class Interpreter {
     std::vector<AuthQuery::Privilege> required_privileges;
   };
 
+  struct QueryCacheEntry {
+    bool operator==(const QueryCacheEntry &other) const {
+      return first == other.first;
+    }
+    bool operator<(const QueryCacheEntry &other) const {
+      return first < other.first;
+    }
+    bool operator==(const HashType &other) const { return first == other; }
+    bool operator<(const HashType &other) const { return first < other; }
+
+    HashType first;
+    // TODO: Maybe store the query string here and use it as a key with the hash
+    // so that we eliminate the risk of hash collisions.
+    CachedQuery second;
+  };
+
+  struct PlanCacheEntry {
+    bool operator==(const PlanCacheEntry &other) const {
+      return first == other.first;
+    }
+    bool operator<(const PlanCacheEntry &other) const {
+      return first < other.first;
+    }
+    bool operator==(const HashType &other) const { return first == other; }
+    bool operator<(const HashType &other) const { return first < other; }
+
+    HashType first;
+    // TODO: Maybe store the query string here and use it as a key with the hash
+    // so that we eliminate the risk of hash collisions.
+    std::shared_ptr<CachedPlan> second;
+  };
+
  public:
+  struct InterpreterContext {
+    // Antlr has singleton instance that is shared between threads. It is
+    // protected by locks inside of antlr. Unfortunately, they are not protected
+    // in a very good way. Once we have antlr version without race conditions we
+    // can remove this lock. This will probably never happen since antlr
+    // developers introduce more bugs in each version. Fortunately, we have
+    // cache so this lock probably won't impact performance much...
+    utils::SpinLock antlr_lock;
+    bool is_tsc_available{utils::CheckAvailableTSC()};
+
+    auth::Auth *auth{nullptr};
+    integrations::kafka::Streams *kafka_streams{nullptr};
+
+    utils::SkipList<QueryCacheEntry> ast_cache;
+    utils::SkipList<PlanCacheEntry> plan_cache;
+  };
+
   /**
    * Wraps a `Query` that was created as a result of parsing a query string
    * along with its privileges.
@@ -204,7 +254,7 @@ class Interpreter {
     bool should_abort_query_;
   };
 
-  Interpreter();
+  explicit Interpreter(InterpreterContext *interpreter_context);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
@@ -220,9 +270,6 @@ class Interpreter {
                              const std::map<std::string, PropertyValue> &params,
                              bool in_explicit_transaction,
                              utils::MemoryResource *execution_memory);
-
-  auth::Auth *auth_ = nullptr;
-  integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  protected:
   std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(
@@ -244,49 +291,7 @@ class Interpreter {
                                  const plan::LogicalOperator *);
 
  private:
-  struct QueryCacheEntry {
-    bool operator==(const QueryCacheEntry &other) const {
-      return first == other.first;
-    }
-    bool operator<(const QueryCacheEntry &other) const {
-      return first < other.first;
-    }
-    bool operator==(const HashType &other) const { return first == other; }
-    bool operator<(const HashType &other) const { return first < other; }
-
-    HashType first;
-    // TODO: Maybe store the query string here and use it as a key with the hash
-    // so that we eliminate the risk of hash collisions.
-    CachedQuery second;
-  };
-
-  struct PlanCacheEntry {
-    bool operator==(const PlanCacheEntry &other) const {
-      return first == other.first;
-    }
-    bool operator<(const PlanCacheEntry &other) const {
-      return first < other.first;
-    }
-    bool operator==(const HashType &other) const { return first == other; }
-    bool operator<(const HashType &other) const { return first < other; }
-
-    HashType first;
-    // TODO: Maybe store the query string here and use it as a key with the hash
-    // so that we eliminate the risk of hash collisions.
-    std::shared_ptr<CachedPlan> second;
-  };
-
-  utils::SkipList<QueryCacheEntry> ast_cache_;
-  utils::SkipList<PlanCacheEntry> plan_cache_;
-
-  // Antlr has singleton instance that is shared between threads. It is
-  // protected by locks inside of antlr. Unfortunately, they are not protected
-  // in a very good way. Once we have antlr version without race conditions we
-  // can remove this lock. This will probably never happen since antlr
-  // developers introduce more bugs in each version. Fortunately, we have cache
-  // so this lock probably won't impact performance much...
-  utils::SpinLock antlr_lock_;
-  bool is_tsc_available_;
+  InterpreterContext *interpreter_context_;
 
   // high level tree -> CachedPlan
   std::shared_ptr<CachedPlan> CypherQueryToPlan(HashType query_hash,
