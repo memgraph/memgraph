@@ -8,10 +8,6 @@
 
 #include "storage/v2/mvcc.hpp"
 
-DEFINE_string(
-    durability_directory, "durability",
-    "Path to directory in which to save snapshots and write-ahead log files.");
-
 namespace storage {
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,

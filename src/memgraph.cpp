@@ -35,6 +35,43 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
 
+#ifdef MG_SINGLE_NODE_V2
+// General purpose flags.
+DEFINE_string(data_directory, "mg_data",
+              "Path to directory in which to save all permanent data.");
+
+// Storage flags.
+DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30,
+                        "Storage garbage collector interval (in seconds).",
+                        FLAG_IN_RANGE(1, 24 * 3600));
+DEFINE_bool(storage_properties_on_edges, false,
+            "Controls whether edges have properties.");
+DEFINE_bool(storage_recover_on_startup, false,
+            "Controls whether the storage recovers persisted data on startup.");
+DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
+                        "Storage snapshot creation interval (in seconds). Set "
+                        "to 0 to disable periodic snapshot creation.",
+                        FLAG_IN_RANGE(0, 7 * 24 * 3600));
+DEFINE_bool(storage_wal_enabled, false,
+            "Controls whether the storage uses write-ahead-logging. To enable "
+            "WAL periodic snapshots must be enabled.");
+DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3,
+                        "The number of snapshots that should always be kept.",
+                        FLAG_IN_RANGE(1, 1000000));
+DEFINE_VALIDATED_uint64(storage_wal_file_size_kib,
+                        storage::Config::Durability().wal_file_size_kibibytes,
+                        "Minimum file size of each WAL file.",
+                        FLAG_IN_RANGE(1, 1000 * 1024));
+DEFINE_VALIDATED_uint64(
+    storage_wal_file_flush_every_n_tx,
+    storage::Config::Durability().wal_file_flush_every_n_tx,
+    "Issue a 'fsync' call after this amount of transactions are written to the "
+    "WAL file. Set to 1 for fully synchronous operation.",
+    FLAG_IN_RANGE(1, 1000000));
+DEFINE_bool(storage_snapshot_on_exit, false,
+            "Controls whether the storage creates another snapshot on exit.");
+#endif
+
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
@@ -68,13 +105,17 @@ void SingleNodeMain() {
 
   // Begin enterprise features initialization
 
-  auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
+#ifdef MG_SINGLE_NODE_V2
+  auto data_directory = std::filesystem::path(FLAGS_data_directory);
+#else
+  auto data_directory = std::filesystem::path(FLAGS_durability_directory);
+#endif
 
   // Auth
-  auth::Auth auth{durability_directory / "auth"};
+  auth::Auth auth{data_directory / "auth"};
 
   // Audit log
-  audit::Log audit_log{durability_directory / "audit", FLAGS_audit_buffer_size,
+  audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
                        FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
@@ -91,7 +132,36 @@ void SingleNodeMain() {
   // Main storage and execution engines initialization
 
 #ifdef MG_SINGLE_NODE_V2
-  storage::Storage db;
+  storage::Config db_config{
+      .gc = {.type = storage::Config::Gc::Type::PERIODIC,
+             .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
+      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
+      .durability = {
+          .storage_directory = FLAGS_data_directory,
+          .recover_on_startup = FLAGS_storage_recover_on_startup,
+          .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
+          .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
+          .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
+          .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
+  if (FLAGS_storage_snapshot_interval_sec == 0) {
+    LOG_IF(FATAL, FLAGS_storage_wal_enabled)
+        << "In order to use write-ahead-logging you must enable "
+           "periodic snapshots by setting the snapshot interval to a "
+           "value larger than 0!";
+    db_config.durability.snapshot_wal_mode =
+        storage::Config::Durability::SnapshotWalMode::DISABLED;
+  } else {
+    if (FLAGS_storage_wal_enabled) {
+      db_config.durability.snapshot_wal_mode = storage::Config::Durability::
+          SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    } else {
+      db_config.durability.snapshot_wal_mode =
+          storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
+    }
+    db_config.durability.snapshot_interval =
+        std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+  }
+  storage::Storage db(db_config);
 #else
   database::GraphDb db;
 #endif
@@ -117,7 +187,7 @@ void SingleNodeMain() {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-        durability_directory / "telemetry", std::chrono::minutes(10));
+        data_directory / "telemetry", std::chrono::minutes(10));
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
       auto dba = db.Access();
       return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
