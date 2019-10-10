@@ -11,16 +11,17 @@ int main(int argc, char *argv[]) {
     std::cout << "Usage: ./single_query 'RETURN \"query here\"'" << std::endl;
     exit(1);
   }
+
   database::GraphDb db;
-  auto dba = db.Access();
-  query::DbAccessor query_dba(&dba);
+  query::InterpreterContext interpreter_context{&db};
+  query::Interpreter interpreter{&interpreter_context};
+
   ResultStreamFaker<query::TypedValue> stream;
-  query::InterpreterContext interpreter_context;
-  auto results = query::Interpreter(&interpreter_context)(
-      argv[1], &query_dba, {}, false, utils::NewDeleteResource());
-  stream.Header(results.header());
-  results.PullAll(stream);
-  stream.Summary(results.summary());
+  auto [header, _] = interpreter.Interpret(argv[1], {});
+  stream.Header(header);
+  auto summary = interpreter.PullAll(&stream);
+  stream.Summary(summary);
   std::cout << stream;
+
   return 0;
 }

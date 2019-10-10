@@ -838,10 +838,79 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context)
   CHECK(interpreter_context_) << "Interpreter context must not be NULL";
 }
 
-Interpreter::Results Interpreter::operator()(
-    const std::string &query_string, DbAccessor *db_accessor,
+std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+Interpreter::Interpret(const std::string &query,
+                       const std::map<std::string, PropertyValue> &params) {
+  // Clear pending results.
+  results_ = std::nullopt;
+  execution_memory_.Release();
+
+  // Check the query for transaction commands.
+  auto query_upper = utils::Trim(utils::ToUpperCase(query));
+  if (query_upper == "BEGIN") {
+    if (in_explicit_transaction_) {
+      throw QueryException("Nested transactions are not supported.");
+    }
+    in_explicit_transaction_ = true;
+    expect_rollback_ = false;
+    return {};
+  } else if (query_upper == "COMMIT") {
+    if (!in_explicit_transaction_) {
+      throw QueryException("No current transaction to commit.");
+    }
+    if (expect_rollback_) {
+      throw QueryException(
+          "Transaction can't be committed because there was a previous "
+          "error. Please invoke a rollback instead.");
+    }
+
+    try {
+      Commit();
+    } catch (const utils::BasicException &) {
+      AbortCommand();
+      throw;
+    }
+
+    expect_rollback_ = false;
+    in_explicit_transaction_ = false;
+    return {};
+  } else if (query_upper == "ROLLBACK") {
+    if (!in_explicit_transaction_) {
+      throw QueryException("No current transaction to rollback.");
+    }
+    Abort();
+    expect_rollback_ = false;
+    in_explicit_transaction_ = false;
+    return {};
+  }
+
+  // Any other query in an explicit transaction block advances the command.
+  if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
+
+  // Create a DB accessor if we don't yet have one.
+  if (!db_accessor_) {
+    db_accessor_.emplace(interpreter_context_->db->Access());
+    execution_db_accessor_.emplace(&*db_accessor_);
+  }
+
+  // Clear leftover results.
+  results_ = std::nullopt;
+  execution_memory_.Release();
+
+  // Interpret the query and return the headers.
+  try {
+    results_.emplace(Prepare(query, params, &*execution_db_accessor_));
+    return {results_->header(), results_->privileges()};
+  } catch (const utils::BasicException &) {
+    AbortCommand();
+    throw;
+  }
+}
+
+Interpreter::Results Interpreter::Prepare(
+    const std::string &query_string,
     const std::map<std::string, PropertyValue> &params,
-    bool in_explicit_transaction, utils::MemoryResource *execution_memory) {
+    DbAccessor *db_accessor) {
   AstStorage ast_storage;
   Parameters parameters;
   std::map<std::string, TypedValue> summary;
@@ -899,7 +968,7 @@ Interpreter::Results Interpreter::operator()(
 
     return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
-                   parsed_query.required_privileges, execution_memory);
+                   parsed_query.required_privileges, &execution_memory_);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ExplainQuery::kType)) {
@@ -970,7 +1039,7 @@ Interpreter::Results Interpreter::operator()(
 
     return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
-                   parsed_query.required_privileges, execution_memory);
+                   parsed_query.required_privileges, &execution_memory_);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
@@ -980,7 +1049,7 @@ Interpreter::Results Interpreter::operator()(
         << "Expected stripped query to start with '" << kProfileQueryStart
         << "'";
 
-    if (in_explicit_transaction) {
+    if (in_explicit_transaction_) {
       throw ProfileInMulticommandTxException();
     }
 
@@ -1052,7 +1121,7 @@ Interpreter::Results Interpreter::operator()(
 
     return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
-                   parsed_query.required_privileges, execution_memory,
+                   parsed_query.required_privileges, &execution_memory_,
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
@@ -1073,7 +1142,7 @@ Interpreter::Results Interpreter::operator()(
 
     return Results(db_accessor, parameters, plan, std::move(output_symbols),
                    std::move(header), std::move(summary),
-                   parsed_query.required_privileges, execution_memory,
+                   parsed_query.required_privileges, &execution_memory_,
                    /* is_profile_query */ false,
                    /* should_abort_query */ false);
 #else
@@ -1083,7 +1152,7 @@ Interpreter::Results Interpreter::operator()(
 
   Callback callback;
   if (auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query)) {
-    if (in_explicit_transaction) {
+    if (in_explicit_transaction_) {
       throw IndexInMulticommandTxException();
     }
     // Creating an index influences computed plan costs.
@@ -1103,7 +1172,7 @@ Interpreter::Results Interpreter::operator()(
         "Managing user privileges is not yet supported in Memgraph HA "
         "instance.");
 #else
-    if (in_explicit_transaction) {
+    if (in_explicit_transaction_) {
       throw UserModificationInMulticommandTxException();
     }
     callback = HandleAuthQuery(auth_query, interpreter_context_->auth,
@@ -1115,7 +1184,7 @@ Interpreter::Results Interpreter::operator()(
     throw utils::NotYetImplemented(
         "Graph streams are not yet supported in Memgraph HA instance.");
 #else
-    if (in_explicit_transaction) {
+    if (in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
     callback =
@@ -1150,8 +1219,61 @@ Interpreter::Results Interpreter::operator()(
 
   return Results(db_accessor, parameters, plan, std::move(output_symbols),
                  callback.header, std::move(summary),
-                 parsed_query.required_privileges, execution_memory,
+                 parsed_query.required_privileges, &execution_memory_,
                  /* is_profile_query */ false, callback.should_abort_query);
+}
+
+void Interpreter::Abort() {
+  results_ = std::nullopt;
+  execution_memory_.Release();
+  expect_rollback_ = false;
+  in_explicit_transaction_ = false;
+  if (!db_accessor_) return;
+  db_accessor_->Abort();
+  execution_db_accessor_ = std::nullopt;
+  db_accessor_ = std::nullopt;
+}
+
+void Interpreter::Commit() {
+  results_ = std::nullopt;
+  execution_memory_.Release();
+  if (!db_accessor_) return;
+#ifdef MG_SINGLE_NODE_V2
+  auto maybe_constraint_violation = db_accessor_->Commit();
+  if (maybe_constraint_violation.HasError()) {
+    const auto &constraint_violation = maybe_constraint_violation.GetError();
+    auto label_name =
+        execution_db_accessor_->LabelToName(constraint_violation.label);
+    auto property_name =
+        execution_db_accessor_->PropertyToName(constraint_violation.property);
+    execution_db_accessor_ = std::nullopt;
+    db_accessor_ = std::nullopt;
+    throw QueryException(
+        "Unable to commit due to existence constraint violation on :{}({}).",
+        label_name, property_name);
+  }
+#else
+  db_accessor_->Commit();
+#endif
+  execution_db_accessor_ = std::nullopt;
+  db_accessor_ = std::nullopt;
+}
+
+void Interpreter::AdvanceCommand() {
+  results_ = std::nullopt;
+  execution_memory_.Release();
+  if (!db_accessor_) return;
+  db_accessor_->AdvanceCommand();
+}
+
+void Interpreter::AbortCommand() {
+  results_ = std::nullopt;
+  execution_memory_.Release();
+  if (in_explicit_transaction_) {
+    expect_rollback_ = true;
+  } else {
+    Abort();
+  }
 }
 
 std::shared_ptr<CachedPlan> Interpreter::CypherQueryToPlan(

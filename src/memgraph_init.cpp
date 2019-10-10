@@ -33,7 +33,6 @@ BoltSession::BoltSession(SessionData *data,
       db_(data->db),
 #endif
       interpreter_(data->interpreter_context),
-      transaction_engine_(data->db, &interpreter_),
 #ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
       audit_log_(data->audit_log),
@@ -56,14 +55,14 @@ std::vector<std::string> BoltSession::Interpret(
                      PropertyValue(params_pv));
 #endif
   try {
-    auto result = transaction_engine_.Interpret(query, params_pv);
+    auto result = interpreter_.Interpret(query, params_pv);
 #ifndef MG_SINGLE_NODE_HA
     if (user_) {
       const auto &permissions = user_->GetPermissions();
       for (const auto &privilege : result.second) {
         if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
             auth::PermissionLevel::GRANT) {
-          transaction_engine_.Abort();
+          interpreter_.Abort();
           throw communication::bolt::ClientError(
               "You are not authorized to execute this query! Please contact "
               "your database administrator.");
@@ -88,7 +87,7 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
 #else
     TypedValueResultStream stream(encoder);
 #endif
-    const auto &summary = transaction_engine_.PullAll(&stream);
+    const auto &summary = interpreter_.PullAll(&stream);
     std::map<std::string, communication::bolt::Value> decoded_summary;
     for (const auto &kv : summary) {
 #ifdef MG_SINGLE_NODE_V2
@@ -117,7 +116,7 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
   }
 }
 
-void BoltSession::Abort() { transaction_engine_.Abort(); }
+void BoltSession::Abort() { interpreter_.Abort(); }
 
 bool BoltSession::Authenticate(const std::string &username,
                                const std::string &password) {
@@ -169,35 +168,22 @@ void BoltSession::TypedValueResultStream::Result(
 void KafkaStreamWriter(
     SessionData &session_data, const std::string &query,
     const std::map<std::string, communication::bolt::Value> &params) {
-  auto dba = session_data.db->Access();
-  query::DbAccessor execution_dba(&dba);
+  query::Interpreter interpreter(session_data.interpreter_context);
   KafkaResultStream stream;
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+
   try {
-    query::Interpreter interpreter{session_data.interpreter_context};
-    interpreter(query, &execution_dba, params_pv, false,
-                utils::NewDeleteResource())
-        .PullAll(stream);
-#ifdef MG_SINGLE_NODE_V2
-    auto maybe_constraint_violation = dba.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      auto label_name = dba.LabelToName(constraint_violation.label);
-      auto property_name = dba.PropertyToName(constraint_violation.property);
-      LOG(WARNING) << fmt::format(
-          "[Kafka] query execution failed with an exception: "
-          "Unable to commit due to constraint violation on :{}({}).",
-          label_name, property_name);
-    }
-#else
-    dba.Commit();
-#endif
+    // NOTE: This potentially allows Kafka streams to execute transaction
+    // control queries. However, those will not really work as a new
+    // `Interpreter` instance is created upon every call to this function,
+    // meaning any multicommand transaction state is lost.
+    interpreter.Interpret(query, params_pv);
+    interpreter.PullAll(&stream);
   } catch (const utils::BasicException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "
                  << e.what();
-    dba.Abort();
   }
 };
 

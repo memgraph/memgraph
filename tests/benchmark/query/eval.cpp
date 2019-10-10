@@ -2,7 +2,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/interpret/eval.hpp"
-#include "query/transaction_engine.hpp"
+#include "query/interpreter.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE

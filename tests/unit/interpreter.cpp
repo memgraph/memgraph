@@ -15,19 +15,23 @@
 class InterpreterTest : public ::testing::Test {
  protected:
   database::GraphDb db_;
-  query::InterpreterContext interpreter_context_;
+  query::InterpreterContext interpreter_context_{&db_};
   query::Interpreter interpreter_{&interpreter_context_};
 
+  /**
+   * Execute the given query and commit the transaction.
+   *
+   * Return the query stream.
+   */
   auto Interpret(const std::string &query,
                  const std::map<std::string, PropertyValue> &params = {}) {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
     ResultStreamFaker<query::TypedValue> stream;
-    auto results = interpreter_(query, &query_dba, params, false,
-                                utils::NewDeleteResource());
-    stream.Header(results.header());
-    results.PullAll(stream);
-    stream.Summary(results.summary());
+
+    auto [header, _] = interpreter_.Interpret(query, params);
+    stream.Header(header);
+    auto summary = interpreter_.PullAll(&stream);
+    stream.Summary(summary);
+
     return stream;
   }
 };
@@ -208,21 +212,15 @@ TEST_F(InterpreterTest, Bfs) {
     dba.Commit();
   }
 
-  auto dba = db_.Access();
-  query::DbAccessor query_dba(&dba);
-  ResultStreamFaker<query::TypedValue> stream;
-  auto results = interpreter_(
+  auto stream = Interpret(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
-      "e.reachable)]->(m) RETURN r",
-      &query_dba, {}, false, utils::NewDeleteResource());
-  stream.Header(results.header());
-  results.PullAll(stream);
-  stream.Summary(results.summary());
+      "e.reachable)]->(m) RETURN r");
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "r");
   ASSERT_EQ(stream.GetResults().size(), 5 * kNumNodesPerLevel);
 
+  auto dba = db_.Access();
   int expected_level = 1;
   int remaining_nodes_in_level = kNumNodesPerLevel;
   std::unordered_set<int64_t> matched_ids;
@@ -254,43 +252,26 @@ TEST_F(InterpreterTest, Bfs) {
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
   ResultStreamFaker<query::TypedValue> stream;
-  auto dba = db_.Access();
-  query::DbAccessor query_dba(&dba);
-  ASSERT_THROW(interpreter_("CREATE INDEX ON :X(y)", &query_dba, {}, true,
-                            utils::NewDeleteResource())
-                   .PullAll(stream),
+  interpreter_.Interpret("BEGIN", {});
+  ASSERT_THROW(interpreter_.Interpret("CREATE INDEX ON :X(y)", {}),
                query::IndexInMulticommandTxException);
+  interpreter_.Interpret("ROLLBACK", {});
 }
 
 // Test shortest path end to end.
 TEST_F(InterpreterTest, ShortestPath) {
-  {
-    ResultStreamFaker<query::TypedValue> stream;
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_(
-        "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
-        "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)",
-        &query_dba, {}, true, utils::NewDeleteResource())
-        .PullAll(stream);
+  Interpret(
+      "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
+      "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)");
 
-    dba.Commit();
-  }
-
-  ResultStreamFaker<query::TypedValue> stream;
-  auto dba = db_.Access();
-  query::DbAccessor query_dba(&dba);
-  auto results =
-      interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e",
-                   &query_dba, {}, false, utils::NewDeleteResource());
-  stream.Header(results.header());
-  results.PullAll(stream);
-  stream.Summary(results.summary());
+  auto stream =
+      Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "e");
   ASSERT_EQ(stream.GetResults().size(), 3U);
 
+  auto dba = db_.Access();
   std::vector<std::vector<std::string>> expected_results{
       {"r1"}, {"r2"}, {"r1", "r2"}};
 
@@ -316,65 +297,13 @@ TEST_F(InterpreterTest, ShortestPath) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(InterpreterTest, UniqueConstraintTest) {
-  ResultStreamFaker<query::TypedValue> stream;
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;",
-                 &query_dba, {}, true, utils::NewDeleteResource())
-        .PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_("CREATE (:A{a:1, b:1})", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_("CREATE (:A{a:2, b:2})", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    ASSERT_THROW(interpreter_("CREATE (:A{a:1, b:1})", &query_dba, {}, true,
-                              utils::NewDeleteResource())
-                     .PullAll(stream),
-                 query::QueryRuntimeException);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_("MATCH (n:A{a:2, b:2}) SET n.a=1", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    interpreter_("CREATE (:A{a:2, b:2})", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    dba.Commit();
-  }
-
-  {
-    auto dba = db_.Access();
-    query::DbAccessor query_dba(&dba);
-    interpreter_("MATCH (n:A{a:2, b:2}) DETACH DELETE n", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    interpreter_("CREATE (n:A{a:2, b:2})", &query_dba, {}, true,
-                 utils::NewDeleteResource())
-        .PullAll(stream);
-    dba.Commit();
-  }
+  Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
+  Interpret("CREATE (:A{a:1, b:1})");
+  Interpret("CREATE (:A{a:2, b:2})");
+  ASSERT_THROW(Interpret("CREATE (:A{a:1, b:1})"),
+               query::QueryRuntimeException);
+  Interpret("MATCH (n:A{a:2, b:2}) SET n.a=1");
+  Interpret("CREATE (:A{a:2, b:2})");
+  Interpret("MATCH (n:A{a:2, b:2}) DETACH DELETE n");
+  Interpret("CREATE (n:A{a:2, b:2})");
 }

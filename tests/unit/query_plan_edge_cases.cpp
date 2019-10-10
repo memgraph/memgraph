@@ -17,36 +17,34 @@ DECLARE_bool(query_cost_planner);
 class QueryExecution : public testing::Test {
  protected:
   std::optional<database::GraphDb> db_;
-  std::optional<database::GraphDbAccessor> dba_;
+  std::optional<query::InterpreterContext> interpreter_context_;
+  std::optional<query::Interpreter> interpreter_;
 
   void SetUp() {
     db_.emplace();
-    dba_.emplace(db_->Access());
+    interpreter_context_.emplace(&*db_);
+    interpreter_.emplace(&*interpreter_context_);
   }
 
   void TearDown() {
-    dba_ = std::nullopt;
+    interpreter_ = std::nullopt;
+    interpreter_context_ = std::nullopt;
     db_ = std::nullopt;
   }
 
-  /** Commits the current transaction and refreshes the dba_
-   * variable to hold a new accessor with a new transaction */
-  void Commit() {
-    dba_->Commit();
-    dba_ = db_->Access();
-  }
-
-  /** Executes the query and returns the results.
-   * Does NOT commit the transaction */
+  /**
+   * Execute the given query and commit the transaction.
+   *
+   * Return the query results.
+   */
   auto Execute(const std::string &query) {
-    query::DbAccessor query_dba(&*dba_);
     ResultStreamFaker<query::TypedValue> stream;
-    query::InterpreterContext interpreter_context;
-    auto results = query::Interpreter(&interpreter_context)(
-        query, &query_dba, {}, false, utils::NewDeleteResource());
-    stream.Header(results.header());
-    results.PullAll(stream);
-    stream.Summary(results.summary());
+
+    auto [header, _] = interpreter_->Interpret(query, {});
+    stream.Header(header);
+    auto summary = interpreter_->PullAll(&stream);
+    stream.Summary(summary);
+
     return stream.GetResults();
   }
 };
@@ -58,7 +56,6 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
   Execute(
       "CREATE (a:Person {id: 1}), (b:Person "
       "{id:2})-[:Has]->(:Dog)-[:Likes]->(:Food )");
-  Commit();
   ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 4);
 
   auto Exec = [this](bool desc, const std::string &edge_pattern) {
@@ -90,7 +87,6 @@ TEST_F(QueryExecution, EdgeUniquenessInOptional) {
   // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
   // MATCH, we only need to check that scenario.
   Execute("CREATE (), ()-[:Type]->()");
-  Commit();
   ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 3);
   EXPECT_EQ(Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
                     "RETURN n, r1, r2")

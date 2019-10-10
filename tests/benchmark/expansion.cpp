@@ -13,8 +13,8 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   // GraphDb shouldn't be global constructed/destructed. See
   // documentation in database/single_node/graph_db.hpp for details.
   std::optional<database::GraphDb> db_;
-  query::InterpreterContext interpreter_context_;
-  query::Interpreter interpreter_{&interpreter_context_};
+  std::optional<query::InterpreterContext> interpreter_context_;
+  std::optional<query::Interpreter> interpreter_;
 
   void SetUp(const benchmark::State &state) override {
     db_.emplace();
@@ -30,6 +30,9 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       dba.InsertEdge(start, dest, edge_type);
     }
     dba.Commit();
+
+    interpreter_context_.emplace(&*db_);
+    interpreter_.emplace(&*interpreter_context_);
   }
 
   void TearDown(const benchmark::State &) override {
@@ -39,17 +42,16 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     db_ = std::nullopt;
   }
 
-  auto &interpreter() { return interpreter_; }
+  auto &interpreter() { return *interpreter_; }
 };
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
-  auto dba = db_->Access();
-  query::DbAccessor query_dba(&dba);
+
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, &query_dba, {}, false, utils::NewDeleteResource())
-        .PullAll(results);
+    interpreter().Interpret(query, {});
+    interpreter().PullAll(&results);
   }
 }
 
@@ -60,12 +62,11 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
-  auto dba = db_->Access();
-  query::DbAccessor query_dba(&dba);
+
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, &query_dba, {}, false, utils::NewDeleteResource())
-        .PullAll(results);
+    interpreter().Interpret(query, {});
+    interpreter().PullAll(&results);
   }
 }
 

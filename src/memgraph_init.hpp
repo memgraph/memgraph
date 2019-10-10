@@ -16,7 +16,6 @@
 #include "communication/init.hpp"
 #include "communication/session.hpp"
 #include "query/interpreter.hpp"
-#include "query/transaction_engine.hpp"
 
 #ifdef MG_SINGLE_NODE_V2
 namespace database {
@@ -93,7 +92,6 @@ class BoltSession final
   const storage::Storage *db_;
 #endif
   query::Interpreter interpreter_;
-  query::TransactionEngine transaction_engine_;
 #ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;
   std::optional<auth::User> user_;

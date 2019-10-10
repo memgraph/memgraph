@@ -2,6 +2,8 @@
 
 #include <gflags/gflags.h>
 
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -9,6 +11,8 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/likely.hpp"
+#include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
@@ -26,6 +30,8 @@ class Streams;
 }  // namespace integrations::kafka
 
 namespace query {
+
+static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
 // TODO: Maybe this should move to query/plan/planner.
 /// Interface for accessing the root operator of a logical plan.
@@ -104,6 +110,21 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
+#ifdef MG_SINGLE_NODE_V2
+  explicit InterpreterContext(storage::Storage *db)
+#else
+  explicit InterpreterContext(database::GraphDb *db)
+#endif
+      : db(db) {
+    CHECK(db) << "Storage must not be NULL";
+  }
+
+#ifdef MG_SINGLE_NODE_V2
+  storage::Storage *db;
+#else
+  database::GraphDb *db;
+#endif
+
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we
@@ -266,16 +287,53 @@ class Interpreter {
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
 
-  virtual ~Interpreter() {}
+  virtual ~Interpreter() { Abort(); }
+
+  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+  Interpret(const std::string &query,
+            const std::map<std::string, PropertyValue> &params);
 
   /**
    * Generates an Results object for the parameters. The resulting object
    * can be Pulled with its results written to an arbitrary stream.
    */
-  virtual Results operator()(const std::string &query, DbAccessor *db_accessor,
-                             const std::map<std::string, PropertyValue> &params,
-                             bool in_explicit_transaction,
-                             utils::MemoryResource *execution_memory);
+  virtual Results Prepare(const std::string &query,
+                          const std::map<std::string, PropertyValue> &params,
+                          DbAccessor *db_accessor);
+
+  template <typename TStream>
+  std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
+    // If we don't have any results (eg. a transaction command preceeded),
+    // return an empty summary.
+    if (UNLIKELY(!results_)) return {};
+
+    // Stream all results and return the summary.
+    try {
+      results_->PullAll(*result_stream);
+      // Make a copy of the summary because the `Commit` call will destroy the
+      // `results_` object.
+      auto summary = results_->summary();
+      if (!in_explicit_transaction_) {
+        if (results_->ShouldAbortQuery()) {
+          Abort();
+        } else {
+          Commit();
+        }
+      }
+
+      return summary;
+#ifdef MG_SINGLE_NODE_HA
+    } catch (const query::HintedAbortError &) {
+      AbortCommand();
+      throw utils::BasicException("Transaction was asked to abort.");
+#endif
+    } catch (const utils::BasicException &) {
+      AbortCommand();
+      throw;
+    }
+  }
+
+  void Abort();
 
  protected:
   std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(
@@ -298,6 +356,25 @@ class Interpreter {
 
  private:
   InterpreterContext *interpreter_context_;
+
+#ifdef MG_SINGLE_NODE_V2
+  std::optional<storage::Storage::Accessor> db_accessor_;
+#else
+  std::optional<database::GraphDbAccessor> db_accessor_;
+#endif
+  std::optional<DbAccessor> execution_db_accessor_;
+  // The `query::Interpreter::Results` object MUST be destroyed before the
+  // `database::GraphDbAccessor` is destroyed because the `Results` object holds
+  // references to the `GraphDb` object and will crash the database when
+  // destructed if you are not careful.
+  std::optional<Results> results_;
+  bool in_explicit_transaction_{false};
+  bool expect_rollback_{false};
+  utils::MonotonicBufferResource execution_memory_{kExecutionMemoryBlockSize};
+
+  void Commit();
+  void AdvanceCommand();
+  void AbortCommand();
 
   // high level tree -> CachedPlan
   std::shared_ptr<CachedPlan> CypherQueryToPlan(HashType query_hash,

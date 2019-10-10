@@ -97,7 +97,7 @@ void SingleNodeMain() {
 #else
   database::GraphDb db;
 #endif
-  query::InterpreterContext interpreter_context;
+  query::InterpreterContext interpreter_context{&db};
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
   integrations::kafka::Streams kafka_streams{

@@ -122,6 +122,9 @@ std::string DumpNext(CypherDumpGenerator *dump) {
 
 class DatabaseEnvironment {
  public:
+  DatabaseEnvironment()
+      : interpreter_context_{&db_}, interpreter_{&interpreter_context_} {}
+
   GraphDbAccessor Access() { return db_.Access(); }
 
   DatabaseState GetState() {
@@ -177,19 +180,27 @@ class DatabaseEnvironment {
     return {vertices, edges, indices, constraints};
   }
 
+  /**
+   * Execute the given query and commit the transaction.
+   *
+   * Return the query stream.
+   */
+  auto Execute(const std::string &query) {
+    ResultStreamFaker<query::TypedValue> stream;
+
+    auto [header, _] = interpreter_.Interpret(query, {});
+    stream.Header(header);
+    auto summary = interpreter_.PullAll(&stream);
+    stream.Summary(summary);
+
+    return stream;
+  }
+
  private:
   database::GraphDb db_;
+  query::InterpreterContext interpreter_context_;
+  query::Interpreter interpreter_;
 };
-
-void Execute(GraphDbAccessor *dba, const std::string &query) {
-  CHECK(dba);
-  ResultStreamFaker<query::TypedValue> results;
-  query::DbAccessor query_dba(dba);
-  query::InterpreterContext interpreter_context;
-  query::Interpreter (&interpreter_context)(query, &query_dba, {}, false,
-                                            utils::NewDeleteResource())
-      .PullAll(results);
-}
 
 VertexAccessor CreateVertex(GraphDbAccessor *dba,
                             const std::vector<std::string> &labels,
@@ -444,8 +455,8 @@ TEST(DumpTest, IndicesKeys) {
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label1", "Label2"}, {{"p", PropertyValue(1)}}, false);
-    Execute(&dba, "CREATE INDEX ON :Label1(prop);");
-    Execute(&dba, "CREATE INDEX ON :Label2(prop);");
+    dba.BuildIndex(dba.Label("Label1"), dba.Property("prop"));
+    dba.BuildIndex(dba.Label("Label2"), dba.Property("prop"));
     dba.Commit();
   }
 
@@ -470,11 +481,10 @@ TEST(DumpTest, UniqueConstraints) {
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label"}, {{"prop", PropertyValue(1)}}, false);
-    Execute(&dba, "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;");
+    dba.BuildUniqueConstraint(dba.Label("Label"), {dba.Property("prop")});
     // Create one with multiple properties.
-    Execute(
-        &dba,
-        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop1, u.prop2 IS UNIQUE;");
+    dba.BuildUniqueConstraint(dba.Label("Label"),
+                              {dba.Property("prop1"), dba.Property("prop2")});
     dba.Commit();
   }
 
@@ -514,11 +524,10 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     auto dba = db.Access();
     query::DbAccessor query_dba(&dba);
     CypherDumpGenerator dump(&query_dba);
+
     std::string cmd;
     while (!(cmd = DumpNext(&dump)).empty()) {
-      auto dba_dump = db_dump.Access();
-      Execute(&dba_dump, cmd);
-      dba_dump.Commit();
+      db_dump.Execute(cmd);
     }
   }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
@@ -545,10 +554,11 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(&dba, z, u, "Knows", {});
     CreateEdge(&dba, w, z, "Knows", {{"how", PropertyValue("school")}});
     CreateEdge(&dba, w, z, "Likes", {{"how", PropertyValue("very much")}});
+
     // Create few indices
-    Execute(&dba, "CREATE CONSTRAINT ON (u:Person) ASSERT u.name IS UNIQUE;");
-    Execute(&dba, "CREATE INDEX ON :Person(id);");
-    Execute(&dba, "CREATE INDEX ON :Person(unexisting_property);");
+    dba.BuildUniqueConstraint(dba.Label("Person"), {dba.Property("name")});
+    dba.BuildIndex(dba.Label("Person"), dba.Property("id"));
+    dba.BuildIndex(dba.Label("Person"), dba.Property("unexisting_property"));
   }
 
   const auto &db_initial_state = db.GetState();
@@ -557,11 +567,10 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     auto dba = db.Access();
     query::DbAccessor query_dba(&dba);
     CypherDumpGenerator dump(&query_dba);
+
     std::string cmd;
     while (!(cmd = DumpNext(&dump)).empty()) {
-      auto dba_dump = db_dump.Access();
-      Execute(&dba_dump, cmd);
-      dba_dump.Commit();
+      db_dump.Execute(cmd);
     }
   }
   EXPECT_EQ(db.GetState(), db_dump.GetState());
@@ -579,17 +588,7 @@ TEST(DumpTest, ExecuteDumpDatabase) {
   }
 
   {
-    auto dba = db.Access();
-    query::DbAccessor query_dba(&dba);
-    const std::string query = "DUMP DATABASE";
-    ResultStreamFaker<query::TypedValue> stream;
-    query::InterpreterContext interpreter_context;
-    auto results = query::Interpreter(&interpreter_context)(
-        query, &query_dba, {}, false, utils::NewDeleteResource());
-    stream.Header(results.header());
-    results.PullAll(stream);
-    stream.Summary(results.summary());
-
+    auto stream = db.Execute("DUMP DATABASE");
     EXPECT_EQ(stream.GetResults().size(), 4U);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "QUERY");

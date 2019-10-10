@@ -40,7 +40,7 @@ void SingleNodeHAMain() {
   auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   database::GraphDb db;
-  query::InterpreterContext interpreter_context;
+  query::InterpreterContext interpreter_context{&db};
   SessionData session_data{&db, &interpreter_context, nullptr, nullptr};
 
   ServerContext context;

@@ -61,16 +61,12 @@ void query::Repl(database::GraphDb *db, query::Interpreter *interpreter) {
 
     // regular cypher queries
     try {
-      auto dba = db->Access();
       ResultStreamFaker<query::TypedValue> stream;
-      DbAccessor execution_dba(&dba);
-      auto results = (*interpreter)(command, &execution_dba, {}, false,
-                                    utils::NewDeleteResource());
-      stream.Header(results.header());
-      results.PullAll(stream);
-      stream.Summary(results.summary());
+      auto [header, _] = interpreter->Interpret(command, {});
+      stream.Header(header);
+      auto summary = interpreter->PullAll(&stream);
+      stream.Summary(summary);
       std::cout << stream;
-      dba.Commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::LexingException &e) {
