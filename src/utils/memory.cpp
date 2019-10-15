@@ -37,10 +37,7 @@ MonotonicBufferResource::MonotonicBufferResource(void *buffer,
                                                  MemoryResource *memory)
     : memory_(memory),
       initial_buffer_(buffer),
-      initial_size_(buffer_size),
-      next_buffer_size_(GrowMonotonicBuffer(
-          initial_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer))) {
-}
+      initial_size_(buffer_size) {}
 
 MonotonicBufferResource::MonotonicBufferResource(
     MonotonicBufferResource &&other) noexcept
@@ -48,6 +45,7 @@ MonotonicBufferResource::MonotonicBufferResource(
       current_buffer_(other.current_buffer_),
       initial_buffer_(other.initial_buffer_),
       initial_size_(other.initial_size_),
+      next_buffer_size_(other.next_buffer_size_),
       allocated_(other.allocated_) {
   other.current_buffer_ = nullptr;
 }
@@ -60,6 +58,7 @@ MonotonicBufferResource &MonotonicBufferResource::operator=(
   current_buffer_ = other.current_buffer_;
   initial_buffer_ = other.initial_buffer_;
   initial_size_ = other.initial_size_;
+  next_buffer_size_ = other.next_buffer_size_;
   allocated_ = other.allocated_;
   other.current_buffer_ = nullptr;
   other.allocated_ = 0U;
@@ -76,6 +75,7 @@ void MonotonicBufferResource::Release() {
     b = next;
   }
   current_buffer_ = nullptr;
+  next_buffer_size_ = initial_size_;
   allocated_ = 0U;
 }
 
