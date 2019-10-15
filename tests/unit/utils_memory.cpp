@@ -329,6 +329,39 @@ TEST(PoolResource, BlockDeallocation) {
   EXPECT_EQ(test_mem.new_count_, 0U);
 }
 
+class AllocationTrackingMemory final : public utils::MemoryResource {
+ public:
+  std::vector<size_t> allocated_sizes_;
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override {
+    allocated_sizes_.push_back(bytes);
+    return utils::NewDeleteResource()->Allocate(bytes, alignment);
+  }
+
+  void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
+    return utils::NewDeleteResource()->Deallocate(ptr, bytes, alignment);
+  }
+
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+};
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(MonotonicBufferResource, ResetGrowthFactor) {
+  AllocationTrackingMemory test_mem;
+  constexpr size_t stack_data_size = 1024;
+  char stack_data[stack_data_size];
+  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size,
+                                     &test_mem);
+  mem.Allocate(stack_data_size + 1);
+  mem.Release();
+  mem.Allocate(stack_data_size + 1);
+  ASSERT_EQ(test_mem.allocated_sizes_.size(), 2);
+  ASSERT_EQ(test_mem.allocated_sizes_.front(), test_mem.allocated_sizes_.back());
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 class ContainerWithAllocatorLast final {
  public:
