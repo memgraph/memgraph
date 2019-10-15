@@ -1,5 +1,13 @@
 # Change Log
 
+## v0.15.1
+
+### Bug Fixes and Other Changes
+
+* Fix several memory management bugs
+* Reduce memory usage in query execution
+* Fix bug that crashes the database when `EXPLAIN` is used
+
 ## v0.15.0
 
 ### Breaking Changes
