@@ -373,13 +373,7 @@ class MonotonicBufferResource final : public MemoryResource {
 
     /// Get the size of the area reserved for `this`
     size_t bytes_for_buffer() const {
-      size_t bytes = std::max(alignment, sizeof(*this));
-      if (bytes > alignment) {
-        size_t multiple = bytes / alignment;
-        if (bytes % alignment != 0) ++multiple;
-        bytes = multiple * alignment;
-      }
-      return bytes;
+      return *RoundUint64ToMultiple(sizeof(*this), alignment);
     }
 
     /// Get total allocated size.

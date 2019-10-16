@@ -81,29 +81,25 @@ void MonotonicBufferResource::Release() {
 
 void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
   static_assert(std::is_same_v<size_t, uintptr_t>);
+  static_assert(std::is_same_v<size_t, uint64_t>);
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
-    size_t size = next_size > bytes ? next_size : bytes;
+    const size_t size = next_size > bytes ? next_size : bytes;
     // Simplify alignment by always using values greater or equal to max_align
-    size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
+    const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
     // Setup the Buffer area before `Buffer::data` such that `Buffer::data` is
-    // correctly aligned. We do this by allocating an additional `multiple` of
-    // `alignment` of bytes. `multiple` is determined by the size of Buffer.
-    // This will ensure that both Buffer fits and is correctly aligned.
-    // `Buffer::data` is also correctly aligned as we use the pointer after this
-    // `multiple` of `alignment` bytes.
+    // correctly aligned. Since we request the initial memory to be aligned to
+    // `alloc_align`, we can just allocate an additional multiple of
+    // `alloc_align` of bytes such that the `Buffer` fits. `Buffer::data` will
+    // then be aligned after this multiple of bytes.
     static_assert(IsPow2(alignof(Buffer)),
                   "Buffer should not be a packed struct in order to be placed "
                   "at the start of an allocation request");
-    size_t bytes_for_buffer = std::max(alloc_align, sizeof(Buffer));
-    size_t multiple = bytes_for_buffer / alloc_align;
-    if (bytes_for_buffer % alloc_align != 0) ++multiple;
-    bytes_for_buffer = multiple * alloc_align;
-    if (bytes_for_buffer < sizeof(Buffer) ||
-        bytes_for_buffer % alloc_align != 0) {
-      throw BadAlloc("Allocation size overflow");
-    }
-    size_t alloc_size = bytes_for_buffer + size;
+    const auto maybe_bytes_for_buffer =
+        RoundUint64ToMultiple(sizeof(Buffer), alloc_align);
+    if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
+    const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
+    const size_t alloc_size = bytes_for_buffer + size;
     if (alloc_size < size) throw BadAlloc("Allocation size overflow");
     void *ptr = memory_->Allocate(alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.

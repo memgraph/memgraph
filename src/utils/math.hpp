@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <type_traits>
 
 #include <glog/logging.h>
@@ -36,6 +37,26 @@ constexpr inline bool IsPow2(uint64_t val) noexcept {
 constexpr inline uint64_t Ceil2(uint64_t val) noexcept {
   if (val == 0ULL || val == 1ULL) return 1ULL;
   return 1ULL << (Log2(val - 1ULL) + 1ULL);
+}
+
+/// Round `val` to the next `multiple` value, if needed.
+/// `std::nullopt` is returned in case of an overflow or if `multiple` is 0.
+///
+/// Examples:
+///
+///     RoundUint64ToMultiple(5, 8) == 8
+///     RoundUint64ToMultiple(8, 8) == 8
+///     RoundUint64ToMultiple(9, 8) == 16
+constexpr inline std::optional<uint64_t> RoundUint64ToMultiple(
+    uint64_t val, uint64_t multiple) noexcept {
+  if (multiple == 0) return std::nullopt;
+  uint64_t numerator = val + multiple - 1;
+  // Check for overflow.
+  if (numerator < val) return std::nullopt;
+  // Rely on integer division to get the rounded multiple.
+  // No overflow is possible as the final, rounded value can only be less than
+  // or equal to `numerator`.
+  return (numerator / multiple) * multiple;
 }
 
 }  // namespace utils

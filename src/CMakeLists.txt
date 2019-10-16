@@ -63,6 +63,7 @@ set(mg_single_node_sources
     query/plan/rewrite/index_lookup.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
+    query/procedure/mg_procedure_impl.cpp
     query/procedure/module.cpp
     query/repl.cpp
     query/typed_value.cpp
@@ -100,6 +101,7 @@ if (READLINE_FOUND)
 endif()
 
 add_library(mg-single-node STATIC ${mg_single_node_sources})
+target_include_directories(mg-single-node PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-single-node ${MG_SINGLE_NODE_LIBS})
 add_dependencies(mg-single-node generate_opencypher_parser)
 add_dependencies(mg-single-node generate_lcp_single_node)
@@ -134,6 +136,7 @@ set(mg_single_node_v2_sources
     query/plan/rewrite/index_lookup.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
+    query/procedure/mg_procedure_impl.cpp
     query/procedure/module.cpp
     query/typed_value.cpp
     memgraph_init.cpp
@@ -152,6 +155,7 @@ if (USE_LTALLOC)
 endif()
 
 add_library(mg-single-node-v2 STATIC ${mg_single_node_v2_sources})
+target_include_directories(mg-single-node-v2 PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-single-node-v2 ${MG_SINGLE_NODE_V2_LIBS})
 add_dependencies(mg-single-node-v2 generate_opencypher_parser)
 add_dependencies(mg-single-node-v2 generate_lcp_common)
