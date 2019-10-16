@@ -1110,6 +1110,7 @@ Durability::RecoveryInfo Durability::LoadSnapshot(
 
       // Skip out edges.
       auto out_size = snapshot.ReadUint();
+      if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
       for (uint64_t j = 0; j < *out_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
         if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
