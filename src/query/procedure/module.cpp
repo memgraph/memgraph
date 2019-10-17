@@ -22,8 +22,8 @@ std::optional<Module> LoadModuleFromSharedLibrary(std::filesystem::path path) {
     return std::nullopt;
   }
   // Get required mgp_main
-  module.main_fn = reinterpret_cast<void (*)(const mgp_list *,
-                                             const mgp_graph *, mgp_result *)>(
+  module.main_fn = reinterpret_cast<void (*)(
+      const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)>(
       dlsym(module.handle, "mgp_main"));
   const char *error = dlerror();
   if (!module.main_fn || error) {

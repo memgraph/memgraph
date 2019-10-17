@@ -13,6 +13,7 @@
 
 struct mgp_graph;
 struct mgp_list;
+struct mgp_memory;
 struct mgp_result;
 
 namespace query::procedure {
@@ -23,7 +24,8 @@ struct Module final {
   /// System handle to shared library.
   void *handle;
   /// Entry-point for module's custom procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *)>
+  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
+                     mgp_memory *)>
       main_fn;
   /// Optional initialization function called on module load.
   std::function<int()> init_fn;
