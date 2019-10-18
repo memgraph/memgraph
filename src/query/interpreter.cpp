@@ -71,6 +71,99 @@ class DumpClosure final {
 }  // namespace
 #endif
 
+/**
+ * A container for data related to the parsing of a query.
+ */
+struct ParsedQuery {
+  std::string query_string;
+  std::map<std::string, PropertyValue> user_parameters;
+  Parameters parameters;
+  frontend::StrippedQuery stripped_query;
+  AstStorage ast_storage;
+  Query *query;
+  std::vector<AuthQuery::Privilege> required_privileges;
+};
+
+ParsedQuery ParseQuery(const std::string &query_string,
+                       const std::map<std::string, PropertyValue> &params,
+                       utils::SkipList<QueryCacheEntry> *cache,
+                       utils::SpinLock *antlr_lock) {
+  // Strip the query for caching purposes. The process of stripping a query
+  // "normalizes" it by replacing any literals with new parameters . This
+  // results in just the *structure* of the query being taken into account for
+  // caching.
+  frontend::StrippedQuery stripped_query{query_string};
+
+  // Copy over the parameters that were introduced during stripping.
+  Parameters parameters{stripped_query.literals()};
+
+  // Check that all user-specified parameters are provided.
+  for (const auto &param_pair : stripped_query.parameters()) {
+    auto it = params.find(param_pair.second);
+
+    if (it == params.end()) {
+      throw query::UnprovidedParameterError("Parameter ${} not provided.",
+                                            param_pair.second);
+    }
+
+    parameters.Add(param_pair.first, it->second);
+  }
+
+  // Cache the query's AST if it isn't already.
+  auto hash = stripped_query.hash();
+  auto accessor = cache->access();
+  auto it = accessor.find(hash);
+  std::unique_ptr<frontend::opencypher::Parser> parser;
+
+  if (it == accessor.end()) {
+    {
+      std::unique_lock<utils::SpinLock> guard(*antlr_lock);
+
+      try {
+        parser = std::make_unique<frontend::opencypher::Parser>(
+            stripped_query.query());
+      } catch (const SyntaxException &e) {
+        // There is a syntax exception in the stripped query. Re-run the parser
+        // on the original query to get an appropriate error messsage.
+        parser = std::make_unique<frontend::opencypher::Parser>(query_string);
+
+        // If an exception was not thrown here, the stripper messed something
+        // up.
+        LOG(FATAL)
+            << "The stripped query can't be parsed, but the original can.";
+      }
+    }
+
+    // Convert the ANTLR4 parse tree into an AST.
+    AstStorage ast_storage;
+    frontend::ParsingContext context{true};
+    frontend::CypherMainVisitor visitor(context, &ast_storage);
+
+    visitor.visit(parser->tree());
+
+    CachedQuery cached_query{std::move(ast_storage), visitor.query(),
+                             query::GetRequiredPrivileges(visitor.query())};
+
+    it = accessor.insert({hash, std::move(cached_query)}).first;
+  }
+
+  // Return a copy of both the AST storage and the query.
+  AstStorage ast_storage;
+  ast_storage.properties_ = it->second.ast_storage.properties_;
+  ast_storage.labels_ = it->second.ast_storage.labels_;
+  ast_storage.edge_types_ = it->second.ast_storage.edge_types_;
+
+  Query *query = it->second.query->Clone(&ast_storage);
+
+  return ParsedQuery{query_string,
+                     params,
+                     std::move(parameters),
+                     std::move(stripped_query),
+                     std::move(ast_storage),
+                     query,
+                     it->second.required_privileges};
+}
+
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root,
@@ -911,17 +1004,13 @@ Interpreter::Results Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, PropertyValue> &params,
     DbAccessor *db_accessor) {
-  AstStorage ast_storage;
-  Parameters parameters;
   std::map<std::string, TypedValue> summary;
 
   utils::Timer parsing_timer;
-  auto queries =
-      StripAndParseQuery(query_string, &parameters, &ast_storage, params);
-  frontend::StrippedQuery &stripped_query = queries.first;
-  ParsedQuery &parsed_query = queries.second;
+  ParsedQuery parsed_query =
+      ParseQuery(query_string, params, &interpreter_context_->ast_cache,
+                 &interpreter_context_->antlr_lock);
   auto parsing_time = parsing_timer.Elapsed();
-
   summary["parsing_time"] = parsing_time.count();
   // TODO: set summary['type'] based on transaction metadata
   // the type can't be determined based only on top level LogicalOp
@@ -948,8 +1037,9 @@ Interpreter::Results Interpreter::Prepare(
 #endif
 
   if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
-    plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                             std::move(ast_storage), parameters, db_accessor);
+    plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), cypher_query,
+                             std::move(parsed_query.ast_storage),
+                             parsed_query.parameters, db_accessor);
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
     summary["cost_estimate"] = plan->cost();
@@ -957,24 +1047,29 @@ Interpreter::Results Interpreter::Prepare(
     auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
     std::vector<std::string> header;
+    header.reserve(output_symbols.size());
+
     for (const auto &symbol : output_symbols) {
       // When the symbol is aliased or expanded from '*' (inside RETURN or
       // WITH), then there is no token position, so use symbol name.
       // Otherwise, find the name from stripped query.
-      header.push_back(utils::FindOr(stripped_query.named_expressions(),
-                                     symbol.token_position(), symbol.name())
-                           .first);
+      header.push_back(
+          utils::FindOr(parsed_query.stripped_query.named_expressions(),
+                        symbol.token_position(), symbol.name())
+              .first);
     }
 
-    return Results(db_accessor, parameters, plan, std::move(output_symbols),
-                   std::move(header), std::move(summary),
-                   parsed_query.required_privileges, &execution_memory_);
+    return Results(db_accessor, parsed_query.parameters, plan,
+                   std::move(output_symbols), std::move(header),
+                   std::move(summary), parsed_query.required_privileges,
+                   &execution_memory_);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ExplainQuery::kType)) {
     const std::string kExplainQueryStart = "explain ";
-    CHECK(utils::StartsWith(utils::ToLowerCase(stripped_query.query()),
-                            kExplainQueryStart))
+    CHECK(utils::StartsWith(
+        utils::ToLowerCase(parsed_query.stripped_query.query()),
+        kExplainQueryStart))
         << "Expected stripped query to start with '" << kExplainQueryStart
         << "'";
 
@@ -999,17 +1094,16 @@ Interpreter::Results Interpreter::Prepare(
     // totally different plan if we were to create a new one right now. Doing so
     // would result in discrepancies between the explained (or profiled) plan
     // and the one that's executed when the query is ran standalone.
-    auto queries =
-        StripAndParseQuery(query_string.substr(kExplainQueryStart.size()),
-                           &parameters, &ast_storage, params);
-    frontend::StrippedQuery &stripped_query = queries.first;
-    ParsedQuery &parsed_query = queries.second;
+    ParsedQuery parsed_query = ParseQuery(
+        query_string.substr(kExplainQueryStart.size()), params,
+        &interpreter_context_->ast_cache, &interpreter_context_->antlr_lock);
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
     CHECK(cypher_query)
         << "Cypher grammar should not allow other queries in EXPLAIN";
     std::shared_ptr<CachedPlan> cypher_query_plan =
-        CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                          std::move(ast_storage), parameters, db_accessor);
+        CypherQueryToPlan(parsed_query.stripped_query.hash(), cypher_query,
+                          std::move(parsed_query.ast_storage),
+                          parsed_query.parameters, db_accessor);
 
     std::stringstream printed_plan;
     PrettyPrintPlan(*db_accessor, &cypher_query_plan->plan(), &printed_plan);
@@ -1037,15 +1131,17 @@ Interpreter::Results Interpreter::Prepare(
 
     std::vector<std::string> header{query_plan_symbol.name()};
 
-    return Results(db_accessor, parameters, plan, std::move(output_symbols),
-                   std::move(header), std::move(summary),
-                   parsed_query.required_privileges, &execution_memory_);
+    return Results(db_accessor, parsed_query.parameters, plan,
+                   std::move(output_symbols), std::move(header),
+                   std::move(summary), parsed_query.required_privileges,
+                   &execution_memory_);
   }
 
   if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
     const std::string kProfileQueryStart = "profile ";
-    CHECK(utils::StartsWith(utils::ToLowerCase(stripped_query.query()),
-                            kProfileQueryStart))
+    CHECK(utils::StartsWith(
+        utils::ToLowerCase(parsed_query.stripped_query.query()),
+        kProfileQueryStart))
         << "Expected stripped query to start with '" << kProfileQueryStart
         << "'";
 
@@ -1059,17 +1155,16 @@ Interpreter::Results Interpreter::Prepare(
 
     // See the comment regarding the caching of Cypher queries within
     // "metaqueries" for explain queries
-    auto queries =
-        StripAndParseQuery(query_string.substr(kProfileQueryStart.size()),
-                           &parameters, &ast_storage, params);
-    frontend::StrippedQuery &stripped_query = queries.first;
-    ParsedQuery &parsed_query = queries.second;
+    ParsedQuery parsed_query = ParseQuery(
+        query_string.substr(kProfileQueryStart.size()), params,
+        &interpreter_context_->ast_cache, &interpreter_context_->antlr_lock);
     auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
     CHECK(cypher_query)
         << "Cypher grammar should not allow other queries in PROFILE";
     auto cypher_query_plan =
-        CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                          std::move(ast_storage), parameters, db_accessor);
+        CypherQueryToPlan(parsed_query.stripped_query.hash(), cypher_query,
+                          std::move(parsed_query.ast_storage),
+                          parsed_query.parameters, db_accessor);
 
     // Copy the symbol table and add our own symbols (used by the `OutputTable`
     // operator below)
@@ -1119,9 +1214,10 @@ Interpreter::Results Interpreter::Prepare(
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
 
-    return Results(db_accessor, parameters, plan, std::move(output_symbols),
-                   std::move(header), std::move(summary),
-                   parsed_query.required_privileges, &execution_memory_,
+    return Results(db_accessor, parsed_query.parameters, plan,
+                   std::move(output_symbols), std::move(header),
+                   std::move(summary), parsed_query.required_privileges,
+                   &execution_memory_,
                    /* is_profile_query */ true, /* should_abort_query */ true);
   }
 
@@ -1140,9 +1236,10 @@ Interpreter::Results Interpreter::Prepare(
 
     summary["planning_time"] = planning_timer.Elapsed().count();
 
-    return Results(db_accessor, parameters, plan, std::move(output_symbols),
-                   std::move(header), std::move(summary),
-                   parsed_query.required_privileges, &execution_memory_,
+    return Results(db_accessor, parsed_query.parameters, plan,
+                   std::move(output_symbols), std::move(header),
+                   std::move(summary), parsed_query.required_privileges,
+                   &execution_memory_,
                    /* is_profile_query */ false,
                    /* should_abort_query */ false);
 #else
@@ -1176,7 +1273,7 @@ Interpreter::Results Interpreter::Prepare(
       throw UserModificationInMulticommandTxException();
     }
     callback = HandleAuthQuery(auth_query, interpreter_context_->auth,
-                               parameters, db_accessor);
+                               parsed_query.parameters, db_accessor);
 #endif
   } else if (auto *stream_query =
                  utils::Downcast<StreamQuery>(parsed_query.query)) {
@@ -1189,7 +1286,7 @@ Interpreter::Results Interpreter::Prepare(
     }
     callback =
         HandleStreamQuery(stream_query, interpreter_context_->kafka_streams,
-                          parameters, db_accessor);
+                          parsed_query.parameters, db_accessor);
 #endif
   } else if (auto *info_query =
                  utils::Downcast<InfoQuery>(parsed_query.query)) {
@@ -1217,8 +1314,8 @@ Interpreter::Results Interpreter::Prepare(
   summary["planning_time"] = planning_time.count();
   summary["cost_estimate"] = 0.0;
 
-  return Results(db_accessor, parameters, plan, std::move(output_symbols),
-                 callback.header, std::move(summary),
+  return Results(db_accessor, parsed_query.parameters, plan,
+                 std::move(output_symbols), callback.header, std::move(summary),
                  parsed_query.required_privileges, &execution_memory_,
                  /* is_profile_query */ false, callback.should_abort_query);
 }
@@ -1293,89 +1390,6 @@ std::shared_ptr<CachedPlan> Interpreter::CypherQueryToPlan(
                std::make_shared<CachedPlan>(MakeLogicalPlan(
                    query, std::move(ast_storage), parameters, db_accessor))})
       .first->second;
-}
-
-Interpreter::ParsedQuery Interpreter::ParseQuery(
-    const std::string &stripped_query, const std::string &original_query,
-    const frontend::ParsingContext &context, AstStorage *ast_storage) {
-  if (!context.is_query_cached) {
-    // Parse original query into antlr4 AST.
-    auto parser = [&] {
-      // Be careful about unlocking since parser can throw.
-      std::unique_lock<utils::SpinLock> guard(interpreter_context_->antlr_lock);
-      return std::make_unique<frontend::opencypher::Parser>(original_query);
-    }();
-    // Convert antlr4 AST into Memgraph AST.
-    frontend::CypherMainVisitor visitor(context, ast_storage);
-    visitor.visit(parser->tree());
-    return ParsedQuery{visitor.query(),
-                       query::GetRequiredPrivileges(visitor.query())};
-  }
-
-  auto stripped_query_hash = fnv(stripped_query);
-
-  auto ast_cache_accessor = interpreter_context_->ast_cache.access();
-  auto ast_it = ast_cache_accessor.find(stripped_query_hash);
-  if (ast_it == ast_cache_accessor.end()) {
-    // Parse stripped query into antlr4 AST.
-    auto parser = [&] {
-      // Be careful about unlocking since parser can throw.
-      std::unique_lock<utils::SpinLock> guard(interpreter_context_->antlr_lock);
-      try {
-        return std::make_unique<frontend::opencypher::Parser>(stripped_query);
-      } catch (const SyntaxException &e) {
-        // There is syntax exception in stripped query. Rerun parser on
-        // the original query to get appropriate error messsage.
-        auto parser =
-            std::make_unique<frontend::opencypher::Parser>(original_query);
-        // If exception was not thrown here, StrippedQuery messed
-        // something up.
-        LOG(FATAL) << "Stripped query can't be parsed, but the original can.";
-        return parser;
-      }
-    }();
-    // Convert antlr4 AST into Memgraph AST.
-    AstStorage cached_ast_storage;
-    frontend::CypherMainVisitor visitor(context, &cached_ast_storage);
-    visitor.visit(parser->tree());
-    CachedQuery cached_query{std::move(cached_ast_storage), visitor.query(),
-                             query::GetRequiredPrivileges(visitor.query())};
-    // Cache it.
-    ast_it = ast_cache_accessor
-                 .insert({stripped_query_hash, std::move(cached_query)})
-                 .first;
-  }
-  ast_storage->properties_ = ast_it->second.ast_storage.properties_;
-  ast_storage->labels_ = ast_it->second.ast_storage.labels_;
-  ast_storage->edge_types_ = ast_it->second.ast_storage.edge_types_;
-  return ParsedQuery{ast_it->second.query->Clone(ast_storage),
-                     ast_it->second.required_privileges};
-}
-
-std::pair<frontend::StrippedQuery, Interpreter::ParsedQuery>
-Interpreter::StripAndParseQuery(
-    const std::string &query_string, Parameters *parameters,
-    AstStorage *ast_storage,
-    const std::map<std::string, PropertyValue> &params) {
-  frontend::StrippedQuery stripped_query(query_string);
-
-  *parameters = stripped_query.literals();
-  for (const auto &param_pair : stripped_query.parameters()) {
-    auto param_it = params.find(param_pair.second);
-    if (param_it == params.end()) {
-      throw query::UnprovidedParameterError("Parameter ${} not provided.",
-                                            param_pair.second);
-    }
-    parameters->Add(param_pair.first, param_it->second);
-  }
-
-  frontend::ParsingContext parsing_context;
-  parsing_context.is_query_cached = true;
-
-  auto parsed_query = ParseQuery(stripped_query.query(), query_string,
-                                 parsing_context, ast_storage);
-
-  return {std::move(stripped_query), std::move(parsed_query)};
 }
 
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(

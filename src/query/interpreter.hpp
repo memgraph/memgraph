@@ -144,15 +144,6 @@ struct InterpreterContext {
 class Interpreter {
  public:
   /**
-   * Wraps a `Query` that was created as a result of parsing a query string
-   * along with its privileges.
-   */
-  struct ParsedQuery {
-    Query *query;
-    std::vector<AuthQuery::Privilege> required_privileges;
-  };
-
-  /**
    * Encapsulates all what's necessary for the interpretation of a query
    * into a single object that can be pulled (into the given Stream).
    */
@@ -336,10 +327,6 @@ class Interpreter {
   void Abort();
 
  protected:
-  std::pair<frontend::StrippedQuery, ParsedQuery> StripAndParseQuery(
-      const std::string &, Parameters *, AstStorage *ast_storage,
-      const std::map<std::string, PropertyValue> &);
-
   // high level tree -> logical plan
   // AstStorage and SymbolTable may be modified during planning. The created
   // LogicalPlan must take ownership of AstStorage and SymbolTable.
@@ -382,12 +369,6 @@ class Interpreter {
                                                 AstStorage ast_storage,
                                                 const Parameters &parameters,
                                                 DbAccessor *db_accessor);
-
-  // stripped query -> high level tree
-  ParsedQuery ParseQuery(const std::string &stripped_query,
-                         const std::string &original_query,
-                         const frontend::ParsingContext &context,
-                         AstStorage *ast_storage);
 };
 
 }  // namespace query

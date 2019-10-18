@@ -90,10 +90,7 @@ static query::CypherQuery *ParseCypherQuery(const std::string &query_string,
   // Convert antlr4 AST into Memgraph AST.
   query::frontend::CypherMainVisitor cypher_visitor(parsing_context, ast);
   cypher_visitor.visit(parser.tree());
-  query::Interpreter::ParsedQuery parsed_query{
-      cypher_visitor.query(),
-      query::GetRequiredPrivileges(cypher_visitor.query())};
-  return utils::Downcast<query::CypherQuery>(parsed_query.query);
+  return utils::Downcast<query::CypherQuery>(cypher_visitor.query());
 };
 
 template <class TMemory>
