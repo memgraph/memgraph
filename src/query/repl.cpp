@@ -62,7 +62,7 @@ void query::Repl(database::GraphDb *db, query::Interpreter *interpreter) {
     // regular cypher queries
     try {
       ResultStreamFaker stream;
-      auto [header, _] = interpreter->Interpret(command, {});
+      auto [header, _] = interpreter->Prepare(command, {});
       stream.Header(header);
       auto summary = interpreter->PullAll(&stream);
       stream.Summary(summary);

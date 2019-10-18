@@ -188,7 +188,7 @@ class DatabaseEnvironment {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream;
 
-    auto [header, _] = interpreter_.Interpret(query, {});
+    auto [header, _] = interpreter_.Prepare(query, {});
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

@@ -55,7 +55,7 @@ std::vector<std::string> BoltSession::Interpret(
                      PropertyValue(params_pv));
 #endif
   try {
-    auto result = interpreter_.Interpret(query, params_pv);
+    auto result = interpreter_.Prepare(query, params_pv);
 #ifndef MG_SINGLE_NODE_HA
     if (user_) {
       const auto &permissions = user_->GetPermissions();

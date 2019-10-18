@@ -50,7 +50,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpreter().Interpret(query, {});
+    interpreter().Prepare(query, {});
     interpreter().PullAll(&results);
   }
 }
@@ -65,7 +65,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpreter().Interpret(query, {});
+    interpreter().Prepare(query, {});
     interpreter().PullAll(&results);
   }
 }

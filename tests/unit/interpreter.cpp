@@ -41,7 +41,7 @@ class InterpreterTest : public ::testing::Test {
                  const std::map<std::string, PropertyValue> &params = {}) {
     ResultStreamFaker stream;
 
-    auto [header, _] = interpreter_.Interpret(query, params);
+    auto [header, _] = interpreter_.Prepare(query, params);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);
@@ -272,10 +272,10 @@ TEST_F(InterpreterTest, Bfs) {
 }
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
-  interpreter_.Interpret("BEGIN", {});
-  ASSERT_THROW(interpreter_.Interpret("CREATE INDEX ON :X(y)", {}),
+  interpreter_.Prepare("BEGIN", {});
+  ASSERT_THROW(interpreter_.Prepare("CREATE INDEX ON :X(y)", {}),
                query::IndexInMulticommandTxException);
-  interpreter_.Interpret("ROLLBACK", {});
+  interpreter_.Prepare("ROLLBACK", {});
 }
 
 // Test shortest path end to end.

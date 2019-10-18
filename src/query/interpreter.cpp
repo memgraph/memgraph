@@ -754,73 +754,6 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context)
   CHECK(interpreter_context_) << "Interpreter context must not be NULL";
 }
 
-std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-Interpreter::Interpret(const std::string &query,
-                       const std::map<std::string, PropertyValue> &params) {
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
-
-  // Check the query for transaction commands.
-  auto query_upper = utils::Trim(utils::ToUpperCase(query));
-  if (query_upper == "BEGIN") {
-    if (in_explicit_transaction_) {
-      throw QueryException("Nested transactions are not supported.");
-    }
-    in_explicit_transaction_ = true;
-    expect_rollback_ = false;
-    return {};
-  } else if (query_upper == "COMMIT") {
-    if (!in_explicit_transaction_) {
-      throw QueryException("No current transaction to commit.");
-    }
-    if (expect_rollback_) {
-      throw QueryException(
-          "Transaction can't be committed because there was a previous "
-          "error. Please invoke a rollback instead.");
-    }
-
-    try {
-      Commit();
-    } catch (const utils::BasicException &) {
-      AbortCommand();
-      throw;
-    }
-
-    expect_rollback_ = false;
-    in_explicit_transaction_ = false;
-    return {};
-  } else if (query_upper == "ROLLBACK") {
-    if (!in_explicit_transaction_) {
-      throw QueryException("No current transaction to rollback.");
-    }
-    Abort();
-    expect_rollback_ = false;
-    in_explicit_transaction_ = false;
-    return {};
-  }
-
-  // Any other query in an explicit transaction block advances the command.
-  if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
-
-  // Create a DB accessor if we don't yet have one.
-  if (!db_accessor_) {
-    db_accessor_.emplace(interpreter_context_->db->Access());
-    execution_db_accessor_.emplace(&*db_accessor_);
-  }
-
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
-
-  // Prepare the query and return the headers.
-  try {
-    Prepare(query, params);
-    return {prepared_query_->header, prepared_query_->privileges};
-  } catch (const utils::BasicException &) {
-    AbortCommand();
-    throw;
-  }
-}
-
 ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
                              const Parameters &parameters,
                              const std::vector<Symbol> &output_symbols,
@@ -926,6 +859,42 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(
                std::make_shared<CachedPlan>(MakeLogicalPlan(
                    std::move(ast_storage), (query), parameters, db_accessor))})
       .first->second;
+}
+
+void Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
+  if (query_upper == "BEGIN") {
+    if (in_explicit_transaction_) {
+      throw QueryException("Nested transactions are not supported.");
+    }
+    in_explicit_transaction_ = true;
+    expect_rollback_ = false;
+  } else if (query_upper == "COMMIT") {
+    if (!in_explicit_transaction_) {
+      throw QueryException("No current transaction to commit.");
+    }
+    if (expect_rollback_) {
+      throw QueryException(
+          "Transaction can't be committed because there was a previous "
+          "error. Please invoke a rollback instead.");
+    }
+
+    try {
+      Commit();
+    } catch (const utils::BasicException &) {
+      AbortCommand();
+      throw;
+    }
+
+    expect_rollback_ = false;
+    in_explicit_transaction_ = false;
+  } else if (query_upper == "ROLLBACK") {
+    if (!in_explicit_transaction_) {
+      throw QueryException("No current transaction to rollback.");
+    }
+    Abort();
+    expect_rollback_ = false;
+    in_explicit_transaction_ = false;
+  }
 }
 
 PreparedQuery PrepareCypherQuery(
@@ -1321,79 +1290,112 @@ PreparedQuery PrepareConstraintQuery(
                        }};
 }
 
-void Interpreter::Prepare(const std::string &query_string,
-                          const std::map<std::string, PropertyValue> &params) {
-  summary_.clear();
+std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+Interpreter::Prepare(const std::string &query_string,
+                     const std::map<std::string, PropertyValue> &params) {
+  // Clear the last prepared query.
+  prepared_query_ = std::nullopt;
+  execution_memory_.Release();
 
-  // TODO: Set summary['type'] based on transaction metadata. The type can't be
-  // determined based only on the toplevel logical operator -- for example
-  // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
-  // toplevel operator). For now we always set "rw" because something must be
-  // set, but it doesn't have to be correct (for Bolt clients).
-  summary_["type"] = "rw";
+  // Handle transaction control queries.
+  auto query_upper = utils::Trim(utils::ToUpperCase(query_string));
 
-  // Set a default cost estimate of 0. Individual queries can overwrite this
-  // field with an improved estimate.
-  summary_["cost_estimate"] = 0.0;
+  if (query_upper == "BEGIN" || query_upper == "COMMIT" ||
+      query_upper == "ROLLBACK") {
+    PrepareTransactionQuery(query_upper);
+    return {{}, {}};
+  }
 
-  utils::Timer parsing_timer;
-  ParsedQuery parsed_query =
-      ParseQuery(query_string, params, &interpreter_context_->ast_cache,
-                 &interpreter_context_->antlr_lock);
-  summary_["parsing_time"] = parsing_timer.Elapsed().count();
+  // All queries other than transaction control queries advance the command in
+  // an explicit transaction block.
+  if (in_explicit_transaction_ && db_accessor_) {
+    AdvanceCommand();
+  }
+
+  // Create a database accessor if we don't yet have one.
+  if (!db_accessor_) {
+    db_accessor_.emplace(interpreter_context_->db->Access());
+    execution_db_accessor_.emplace(&*db_accessor_);
+  }
+
+  try {
+    summary_ = {};
+
+    // TODO: Set summary['type'] based on transaction metadata. The type can't
+    // be determined based only on the toplevel logical operator -- for example
+    // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
+    // toplevel operator). For now we always set "rw" because something must be
+    // set, but it doesn't have to be correct (for Bolt clients).
+    summary_["type"] = "rw";
+
+    // Set a default cost estimate of 0. Individual queries can overwrite this
+    // field with an improved estimate.
+    summary_["cost_estimate"] = 0.0;
+
+    utils::Timer parsing_timer;
+    ParsedQuery parsed_query =
+        ParseQuery(query_string, params, &interpreter_context_->ast_cache,
+                   &interpreter_context_->antlr_lock);
+    summary_["parsing_time"] = parsing_timer.Elapsed().count();
 
 #ifdef MG_SINGLE_NODE_HA
-  {
-    InfoQuery *info_query = nullptr;
-    if (!execution_db_accessor_->raft()->IsLeader() &&
-        (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
-         info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
-      throw raft::CantExecuteQueries();
+    {
+      InfoQuery *info_query = nullptr;
+      if (!execution_db_accessor_->raft()->IsLeader() &&
+          (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
+           info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
+        throw raft::CantExecuteQueries();
+      }
     }
-  }
 #endif
 
-  utils::Timer planning_timer;
-  PreparedQuery prepared_query;
+    utils::Timer planning_timer;
+    PreparedQuery prepared_query;
 
-  if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-    prepared_query = PrepareCypherQuery(
-        std::move(parsed_query), &summary_, interpreter_context_,
-        &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
-    prepared_query = PrepareExplainQuery(
-        std::move(parsed_query), &summary_, interpreter_context_,
-        &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-    prepared_query = PrepareProfileQuery(
-        std::move(parsed_query), in_explicit_transaction_, &summary_,
-        interpreter_context_, &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-    prepared_query = PrepareDumpQuery(
-        std::move(parsed_query), &summary_, interpreter_context_,
-        &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-    prepared_query = PrepareIndexQuery(
-        std::move(parsed_query), in_explicit_transaction_, &summary_,
-        interpreter_context_, &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-    prepared_query = PrepareAuthQuery(
-        std::move(parsed_query), in_explicit_transaction_, &summary_,
-        interpreter_context_, &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-    prepared_query = PrepareInfoQuery(
-        std::move(parsed_query), &summary_, interpreter_context_,
-        &*execution_db_accessor_, &execution_memory_);
-  } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-    prepared_query = PrepareConstraintQuery(
-        std::move(parsed_query), &summary_, interpreter_context_,
-        &*execution_db_accessor_, &execution_memory_);
-  } else {
-    LOG(FATAL) << "Should not get here -- unknown query type!";
+    if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+      prepared_query = PrepareCypherQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
+      prepared_query = PrepareExplainQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
+      prepared_query = PrepareProfileQuery(
+          std::move(parsed_query), in_explicit_transaction_, &summary_,
+          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
+      prepared_query = PrepareDumpQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareIndexQuery(
+          std::move(parsed_query), in_explicit_transaction_, &summary_,
+          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
+      prepared_query = PrepareAuthQuery(
+          std::move(parsed_query), in_explicit_transaction_, &summary_,
+          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareInfoQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          &*execution_db_accessor_, &execution_memory_);
+    } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
+      prepared_query = PrepareConstraintQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          &*execution_db_accessor_, &execution_memory_);
+    } else {
+      LOG(FATAL) << "Should not get here -- unknown query type!";
+    }
+
+    summary_["planning_time"] = planning_timer.Elapsed().count();
+    prepared_query_ = std::move(prepared_query);
+
+    return {prepared_query_->header, prepared_query_->privileges};
+  } catch (const utils::BasicException &) {
+    AbortCommand();
+    throw;
   }
-
-  summary_["planning_time"] = planning_timer.Elapsed().count();
-  prepared_query_ = std::move(prepared_query);
 }
 
 void Interpreter::Abort() {

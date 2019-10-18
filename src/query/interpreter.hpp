@@ -198,10 +198,6 @@ class Interpreter final {
   Interpreter &operator=(Interpreter &&) = delete;
   ~Interpreter() { Abort(); }
 
-  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-  Interpret(const std::string &query,
-            const std::map<std::string, PropertyValue> &params);
-
   /**
    * Prepare a query for execution.
    *
@@ -213,12 +209,16 @@ class Interpreter final {
    * leader and a query other than an Info Raft query was given
    * @throw query::QueryException
    */
-  void Prepare(const std::string &query,
-               const std::map<std::string, PropertyValue> &params);
+  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+  Prepare(const std::string &query,
+          const std::map<std::string, PropertyValue> &params);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
    * given stream.
+   *
+   * It is not possible to prepare a query once and execute it multiple times,
+   * i.e. `Prepare` has to be called before *every* call to `PullAll`.
    *
    * TStream should be a type implementing the `Stream` concept, i.e. it should
    * contain the member function `void Result(const std::vector<TypedValue> &)`.
@@ -252,6 +252,7 @@ class Interpreter final {
   bool expect_rollback_{false};
   utils::MonotonicBufferResource execution_memory_{kExecutionMemoryBlockSize};
 
+  void PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
   void AbortCommand();
@@ -276,8 +277,6 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
         Abort();
       }
     }
-
-    return summary_;
 #ifdef MG_SINGLE_NODE_HA
   } catch (const query::HintedAbortError &) {
     AbortCommand();
@@ -287,6 +286,8 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
     AbortCommand();
     throw;
   }
+
+  return summary_;
 }
 
 }  // namespace query
