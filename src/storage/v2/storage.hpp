@@ -62,11 +62,13 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
-                      Transaction *transaction, View view, Indices *indices)
+                      Transaction *transaction, View view, Indices *indices,
+                      Config::Items config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
-        indices_(indices) {}
+        indices_(indices),
+        config_(config) {}
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
   Iterator end() { return Iterator(this, vertices_accessor_.end()); }
@@ -179,9 +181,9 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(),
-                                                  &transaction_, view,
-                                                  &storage_->indices_));
+      return VerticesIterable(
+          AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                              &storage_->indices_, storage_->config_.items));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
