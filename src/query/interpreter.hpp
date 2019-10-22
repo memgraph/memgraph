@@ -125,8 +125,10 @@ class Interpreter {
       // enough for a single Pull.
       constexpr size_t stack_size = 256 * 1024;
       char stack_data[stack_size];
-      utils::MonotonicBufferResource memory(&stack_data[0], stack_size);
-      ctx_.evaluation_context.memory = &memory;
+      utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
+      // TODO (mferencevic): Tune the parameters accordingly.
+      utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
+      ctx_.evaluation_context.memory = &pool_memory;
       // We can now Pull a result.
       bool return_value = cursor_->Pull(frame_, ctx_);
       if (return_value && !output_symbols_.empty()) {
