@@ -185,7 +185,7 @@ void Execute(GraphDbAccessor *dba, const std::string &query) {
   CHECK(dba);
   ResultStreamFaker<query::TypedValue> results;
   query::DbAccessor query_dba(dba);
-  query::Interpreter::InterpreterContext interpreter_context;
+  query::InterpreterContext interpreter_context;
   query::Interpreter (&interpreter_context)(query, &query_dba, {}, false,
                                             utils::NewDeleteResource())
       .PullAll(results);
@@ -583,7 +583,7 @@ TEST(DumpTest, ExecuteDumpDatabase) {
     query::DbAccessor query_dba(&dba);
     const std::string query = "DUMP DATABASE";
     ResultStreamFaker<query::TypedValue> stream;
-    query::Interpreter::InterpreterContext interpreter_context;
+    query::InterpreterContext interpreter_context;
     auto results = query::Interpreter(&interpreter_context)(
         query, &query_dba, {}, false, utils::NewDeleteResource());
     stream.Header(results.header());

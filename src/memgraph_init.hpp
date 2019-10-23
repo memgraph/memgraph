@@ -32,14 +32,14 @@ struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
   SessionData(database::GraphDb *_db,
-              query::Interpreter::InterpreterContext *_interpreter_context,
+              query::InterpreterContext *_interpreter_context,
               auth::Auth *_auth, audit::Log *_audit_log)
       : db(_db),
         interpreter_context(_interpreter_context),
         auth(_auth),
         audit_log(_audit_log) {}
   database::GraphDb *db;
-  query::Interpreter::InterpreterContext *interpreter_context;
+  query::InterpreterContext *interpreter_context;
   auth::Auth *auth;
   audit::Log *audit_log;
 };

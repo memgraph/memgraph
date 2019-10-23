@@ -93,7 +93,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   SymbolTable symbol_table_;
 };
 
-Interpreter::CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan)
+CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan)
     : plan_(std::move(plan)) {}
 
 void Interpreter::PrettyPrintPlan(const DbAccessor &dba,
@@ -1154,7 +1154,7 @@ Interpreter::Results Interpreter::operator()(
                  /* is_profile_query */ false, callback.should_abort_query);
 }
 
-std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
+std::shared_ptr<CachedPlan> Interpreter::CypherQueryToPlan(
     HashType query_hash, CypherQuery *query, AstStorage ast_storage,
     const Parameters &parameters, DbAccessor *db_accessor) {
   auto plan_cache_access = interpreter_context_->plan_cache.access();

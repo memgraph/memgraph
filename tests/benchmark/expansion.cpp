@@ -13,7 +13,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   // GraphDb shouldn't be global constructed/destructed. See
   // documentation in database/single_node/graph_db.hpp for details.
   std::optional<database::GraphDb> db_;
-  query::Interpreter::InterpreterContext interpreter_context_;
+  query::InterpreterContext interpreter_context_;
   query::Interpreter interpreter_{&interpreter_context_};
 
   void SetUp(const benchmark::State &state) override {

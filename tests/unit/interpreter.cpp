@@ -15,7 +15,7 @@
 class InterpreterTest : public ::testing::Test {
  protected:
   database::GraphDb db_;
-  query::Interpreter::InterpreterContext interpreter_context_;
+  query::InterpreterContext interpreter_context_;
   query::Interpreter interpreter_{&interpreter_context_};
 
   auto Interpret(const std::string &query,

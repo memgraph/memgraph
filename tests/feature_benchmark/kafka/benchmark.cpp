@@ -38,7 +38,7 @@ void KafkaBenchmarkMain() {
                        audit::kBufferSizeDefault,
                        audit::kBufferFlushIntervalMillisDefault};
 
-  query::Interpreter::InterpreterContext interpreter_context;
+  query::InterpreterContext interpreter_context;
   database::GraphDb db;
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
