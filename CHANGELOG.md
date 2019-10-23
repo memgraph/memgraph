@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.15.2
+
+### Bug Fixes and Other Changes
+
+* Fix memory management issue that could cause OOM
+
 ## v0.15.1
 
 ### Bug Fixes and Other Changes
