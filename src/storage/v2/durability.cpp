@@ -123,6 +123,8 @@ void Encoder::SetPosition(uint64_t position) {
   file_.SetPosition(utils::OutputFile::Position::SET, position);
 }
 
+void Encoder::Sync() { file_.Sync(); }
+
 void Encoder::Finalize() {
   file_.Sync();
   file_.Close();
@@ -303,7 +305,23 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_METADATA:
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
+    case Marker::SECTION_DELTA:
     case Marker::SECTION_OFFSETS:
+    case Marker::DELTA_VERTEX_CREATE:
+    case Marker::DELTA_VERTEX_DELETE:
+    case Marker::DELTA_VERTEX_ADD_LABEL:
+    case Marker::DELTA_VERTEX_REMOVE_LABEL:
+    case Marker::DELTA_VERTEX_SET_PROPERTY:
+    case Marker::DELTA_EDGE_CREATE:
+    case Marker::DELTA_EDGE_DELETE:
+    case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_END:
+    case Marker::DELTA_LABEL_INDEX_CREATE:
+    case Marker::DELTA_LABEL_INDEX_DROP:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -380,7 +398,23 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_METADATA:
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
+    case Marker::SECTION_DELTA:
     case Marker::SECTION_OFFSETS:
+    case Marker::DELTA_VERTEX_CREATE:
+    case Marker::DELTA_VERTEX_DELETE:
+    case Marker::DELTA_VERTEX_ADD_LABEL:
+    case Marker::DELTA_VERTEX_REMOVE_LABEL:
+    case Marker::DELTA_VERTEX_SET_PROPERTY:
+    case Marker::DELTA_EDGE_CREATE:
+    case Marker::DELTA_EDGE_DELETE:
+    case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_END:
+    case Marker::DELTA_LABEL_INDEX_CREATE:
+    case Marker::DELTA_LABEL_INDEX_DROP:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
@@ -467,6 +501,51 @@ const uint64_t kVersion{12};
 //     * number of edges
 //     * number of vertices
 
+// WAL format:
+//
+// 1) Magic string (non-encoded)
+//
+// 2) WAL version (non-encoded, little-endian)
+//
+// 3) Section offsets:
+//     * offset to the metadata section
+//     * offset to the first delta in the WAL
+//
+// 4) Metadata
+//     * storage UUID
+//     * sequence number (number indicating the sequence position of this WAL
+//       file)
+//
+// 5) Encoded deltas; each delta is written in the following format:
+//     * commit timestamp
+//     * action (only one of the actions below are encoded)
+//         * vertex create, vertex delete
+//              * gid
+//         * vertex add label, vertex remove label
+//              * gid
+//              * label name
+//         * vertex set property
+//              * gid
+//              * property name
+//              * property value
+//         * edge create, edge delete
+//              * gid
+//              * edge type name
+//              * from vertex gid
+//              * to vertex gid
+//         * edge set property
+//              * gid
+//              * property name
+//              * property value
+//         * transaction end (marks that the whole transaction is
+//           stored in the WAL file)
+//         * label index create, label index drop
+//              * label name
+//         * label property index create, label property index drop,
+//           existence constraint create, existence constraint drop
+//              * label name
+//              * property name
+
 // This is the prefix used for Snapshot and WAL filenames. It is a timestamp
 // format that equals to: YYYYmmddHHMMSSffffff
 const std::string kTimestampFormat =
@@ -477,6 +556,63 @@ const std::string kTimestampFormat =
 std::string MakeSnapshotName(uint64_t start_timestamp) {
   std::string date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
   return date_str + "_timestamp_" + std::to_string(start_timestamp);
+}
+
+// Generates the name for a WAL file in a well-defined sortable format.
+std::string MakeWalName() {
+  std::string date_str = utils::Timestamp::Now().ToString(kTimestampFormat);
+  return date_str + "_current";
+}
+
+// Generates the name for a WAL file in a well-defined sortable format with the
+// range of timestamps contained [from, to] appended to the name.
+std::string RemakeWalName(const std::string &current_name,
+                          uint64_t from_timestamp, uint64_t to_timestamp) {
+  return current_name.substr(0, current_name.size() - 8) + "_from_" +
+         std::to_string(from_timestamp) + "_to_" + std::to_string(to_timestamp);
+}
+
+Marker OperationToMarker(StorageGlobalOperation operation) {
+  switch (operation) {
+    case StorageGlobalOperation::LABEL_INDEX_CREATE:
+      return Marker::DELTA_LABEL_INDEX_CREATE;
+    case StorageGlobalOperation::LABEL_INDEX_DROP:
+      return Marker::DELTA_LABEL_INDEX_DROP;
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+      return Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE;
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+      return Marker::DELTA_LABEL_PROPERTY_INDEX_DROP;
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+      return Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE;
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+      return Marker::DELTA_EXISTENCE_CONSTRAINT_DROP;
+  }
+}
+
+Marker VertexActionToMarker(Delta::Action action) {
+  // When converting a Delta to a WAL delta the logic is inverted. That is
+  // because the Delta's represent undo actions and we want to store redo
+  // actions.
+  switch (action) {
+    case Delta::Action::DELETE_OBJECT:
+      return Marker::DELTA_VERTEX_CREATE;
+    case Delta::Action::RECREATE_OBJECT:
+      return Marker::DELTA_VERTEX_DELETE;
+    case Delta::Action::SET_PROPERTY:
+      return Marker::DELTA_VERTEX_SET_PROPERTY;
+    case Delta::Action::ADD_LABEL:
+      return Marker::DELTA_VERTEX_REMOVE_LABEL;
+    case Delta::Action::REMOVE_LABEL:
+      return Marker::DELTA_VERTEX_ADD_LABEL;
+    case Delta::Action::ADD_IN_EDGE:
+      return Marker::DELTA_EDGE_DELETE;
+    case Delta::Action::ADD_OUT_EDGE:
+      return Marker::DELTA_EDGE_DELETE;
+    case Delta::Action::REMOVE_IN_EDGE:
+      return Marker::DELTA_EDGE_CREATE;
+    case Delta::Action::REMOVE_OUT_EDGE:
+      return Marker::DELTA_EDGE_CREATE;
+  }
 }
 }  // namespace
 
@@ -546,6 +682,380 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   }
 
   return info;
+}
+
+// Function used to read information about the WAL file.
+WalInfo ReadWalInfo(const std::filesystem::path &path) {
+  // Check magic and version.
+  Decoder wal;
+  auto version = wal.Initialize(path, kWalMagic);
+  if (!version)
+    throw RecoveryFailure("Couldn't read WAL magic and/or version!");
+  if (*version != kVersion) throw RecoveryFailure("Invalid WAL version!");
+
+  // Prepare return value.
+  WalInfo info;
+
+  // Read offsets.
+  {
+    auto marker = wal.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_OFFSETS)
+      throw RecoveryFailure("Invalid WAL data!");
+
+    auto wal_size = wal.GetSize();
+    if (!wal_size) throw RecoveryFailure("Invalid WAL data!");
+
+    auto read_offset = [&wal, wal_size] {
+      auto maybe_offset = wal.ReadUint();
+      if (!maybe_offset) throw RecoveryFailure("Invalid WAL format!");
+      auto offset = *maybe_offset;
+      if (offset > *wal_size) throw RecoveryFailure("Invalid WAL format!");
+      return offset;
+    };
+
+    info.offset_metadata = read_offset();
+    info.offset_deltas = read_offset();
+  }
+
+  // Read metadata.
+  {
+    wal.SetPosition(info.offset_metadata);
+
+    auto marker = wal.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_METADATA)
+      throw RecoveryFailure("Invalid WAL data!");
+
+    auto maybe_uuid = wal.ReadString();
+    if (!maybe_uuid) throw RecoveryFailure("Invalid WAL data!");
+    info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_seq_num = wal.ReadUint();
+    if (!maybe_seq_num) throw RecoveryFailure("Invalid WAL data!");
+    info.seq_num = *maybe_seq_num;
+  }
+
+  // Read deltas.
+  info.num_deltas = 0;
+  auto validate_delta = [&wal]() -> std::optional<std::pair<uint64_t, bool>> {
+    auto marker = wal.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_DELTA) return std::nullopt;
+
+    auto timestamp = wal.ReadUint();
+    if (!timestamp) return std::nullopt;
+
+    auto action = wal.ReadMarker();
+    if (!action) return std::nullopt;
+
+    bool is_transaction_end;
+    switch (*action) {
+      // These delta actions are all found inside transactions so they don't
+      // indicate a transaction end.
+      case Marker::DELTA_VERTEX_CREATE:
+      case Marker::DELTA_VERTEX_DELETE:
+        if (!wal.ReadUint()) return std::nullopt;
+        is_transaction_end = false;
+        break;
+      case Marker::DELTA_VERTEX_ADD_LABEL:
+      case Marker::DELTA_VERTEX_REMOVE_LABEL:
+        if (!wal.ReadUint() || !wal.SkipString()) return std::nullopt;
+        is_transaction_end = false;
+        break;
+      case Marker::DELTA_EDGE_CREATE:
+      case Marker::DELTA_EDGE_DELETE:
+        if (!wal.ReadUint() || !wal.SkipString() || !wal.ReadUint() ||
+            !wal.ReadUint())
+          return std::nullopt;
+        is_transaction_end = false;
+        break;
+      case Marker::DELTA_VERTEX_SET_PROPERTY:
+      case Marker::DELTA_EDGE_SET_PROPERTY:
+        if (!wal.ReadUint() || !wal.SkipString() || !wal.SkipPropertyValue())
+          return std::nullopt;
+        is_transaction_end = false;
+        break;
+
+      // This delta explicitly indicates that a transaction is done.
+      case Marker::DELTA_TRANSACTION_END:
+        is_transaction_end = true;
+        break;
+
+      // These operations aren't transactional and they are encoded only using
+      // a single delta, so they each individually mark the end of their
+      // 'transaction'.
+      case Marker::DELTA_LABEL_INDEX_CREATE:
+      case Marker::DELTA_LABEL_INDEX_DROP:
+        if (!wal.SkipString()) return std::nullopt;
+        is_transaction_end = true;
+        break;
+      case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
+      case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+      case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
+      case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
+        if (!wal.SkipString() || !wal.SkipString()) return std::nullopt;
+        is_transaction_end = true;
+        break;
+
+      // These markers aren't delta actions.
+      case Marker::TYPE_NULL:
+      case Marker::TYPE_BOOL:
+      case Marker::TYPE_INT:
+      case Marker::TYPE_DOUBLE:
+      case Marker::TYPE_STRING:
+      case Marker::TYPE_LIST:
+      case Marker::TYPE_MAP:
+      case Marker::TYPE_PROPERTY_VALUE:
+      case Marker::SECTION_VERTEX:
+      case Marker::SECTION_EDGE:
+      case Marker::SECTION_MAPPER:
+      case Marker::SECTION_METADATA:
+      case Marker::SECTION_INDICES:
+      case Marker::SECTION_CONSTRAINTS:
+      case Marker::SECTION_DELTA:
+      case Marker::SECTION_OFFSETS:
+      case Marker::VALUE_FALSE:
+      case Marker::VALUE_TRUE:
+        return std::nullopt;
+    }
+
+    return {{*timestamp, is_transaction_end}};
+  };
+  auto size = wal.GetSize();
+  // Here we read the whole file and determine the number of valid deltas. A
+  // delta is valid only if all of its data can be successfully read. This
+  // allows us to recover data from WAL files that are corrupt at the end (eg.
+  // because of power loss) but are still valid at the beginning. While reading
+  // the deltas we only count deltas which are a part of a fully valid
+  // transaction (indicated by a TRANSACTION_END delta or any other
+  // non-transactional operation).
+  std::optional<uint64_t> current_timestamp;
+  uint64_t num_deltas = 0;
+  while (wal.GetPosition() != size) {
+    auto ret = validate_delta();
+    if (!ret) break;
+    auto [timestamp, is_end_of_transaction] = *ret;
+    if (!current_timestamp) current_timestamp = timestamp;
+    if (*current_timestamp != timestamp) break;
+    ++num_deltas;
+    if (is_end_of_transaction) {
+      if (info.num_deltas == 0) {
+        info.from_timestamp = timestamp;
+        info.to_timestamp = timestamp;
+      }
+      if (timestamp < info.from_timestamp || timestamp < info.to_timestamp)
+        break;
+      info.to_timestamp = timestamp;
+      info.num_deltas += num_deltas;
+      current_timestamp = std::nullopt;
+      num_deltas = 0;
+    }
+  }
+
+  if (info.num_deltas == 0) throw RecoveryFailure("Invalid WAL data!");
+
+  return info;
+}
+
+WalFile::WalFile(const std::filesystem::path &wal_directory,
+                 const std::string &uuid, Config::Items items,
+                 NameIdMapper *name_id_mapper, uint64_t seq_num)
+    : items_(items),
+      name_id_mapper_(name_id_mapper),
+      path_(wal_directory / MakeWalName()),
+      from_timestamp_(0),
+      to_timestamp_(0),
+      count_(0) {
+  // Ensure that the storage directory exists.
+  utils::EnsureDirOrDie(wal_directory);
+
+  // Initialize the WAL file.
+  wal_.Initialize(path_, kWalMagic, kVersion);
+
+  // Write placeholder offsets.
+  uint64_t offset_offsets = 0;
+  uint64_t offset_metadata = 0;
+  uint64_t offset_deltas = 0;
+  wal_.WriteMarker(Marker::SECTION_OFFSETS);
+  offset_offsets = wal_.GetPosition();
+  wal_.WriteUint(offset_metadata);
+  wal_.WriteUint(offset_deltas);
+
+  // Write metadata.
+  offset_metadata = wal_.GetPosition();
+  wal_.WriteMarker(Marker::SECTION_METADATA);
+  wal_.WriteString(uuid);
+  wal_.WriteUint(seq_num);
+
+  // Write final offsets.
+  offset_deltas = wal_.GetPosition();
+  wal_.SetPosition(offset_offsets);
+  wal_.WriteUint(offset_metadata);
+  wal_.WriteUint(offset_deltas);
+  wal_.SetPosition(offset_deltas);
+
+  // Sync the initial data.
+  wal_.Sync();
+}
+
+WalFile::~WalFile() {
+  if (count_ != 0) {
+    // Finalize file.
+    wal_.Finalize();
+
+    // Rename file.
+    std::filesystem::path new_path(path_);
+    new_path.replace_filename(
+        RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
+    // If the rename fails it isn't a crucial situation. The renaming is done
+    // only to make the directory structure of the WAL files easier to read
+    // manually.
+    utils::RenamePath(path_, new_path);
+  } else {
+    // Remove empty WAL file.
+    utils::DeleteFile(path_);
+  }
+}
+
+void WalFile::AppendDelta(const Delta &delta, Vertex *vertex,
+                          uint64_t timestamp) {
+  // When converting a Delta to a WAL delta the logic is inverted. That is
+  // because the Delta's represent undo actions and we want to store redo
+  // actions.
+  wal_.WriteMarker(Marker::SECTION_DELTA);
+  wal_.WriteUint(timestamp);
+  std::lock_guard<utils::SpinLock> guard(vertex->lock);
+  switch (delta.action) {
+    case Delta::Action::DELETE_OBJECT:
+    case Delta::Action::RECREATE_OBJECT: {
+      wal_.WriteMarker(VertexActionToMarker(delta.action));
+      wal_.WriteUint(vertex->gid.AsUint());
+      break;
+    }
+    case Delta::Action::SET_PROPERTY: {
+      wal_.WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
+      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      // The property value is the value that is currently stored in the
+      // vertex.
+      auto it = vertex->properties.find(delta.property.key);
+      if (it != vertex->properties.end()) {
+        wal_.WritePropertyValue(it->second);
+      } else {
+        wal_.WritePropertyValue(PropertyValue());
+      }
+      break;
+    }
+    case Delta::Action::ADD_LABEL:
+    case Delta::Action::REMOVE_LABEL: {
+      wal_.WriteMarker(VertexActionToMarker(delta.action));
+      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteString(name_id_mapper_->IdToName(delta.label.AsUint()));
+      break;
+    }
+    case Delta::Action::ADD_OUT_EDGE:
+    case Delta::Action::REMOVE_OUT_EDGE: {
+      wal_.WriteMarker(VertexActionToMarker(delta.action));
+      if (items_.properties_on_edges) {
+        wal_.WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
+      } else {
+        wal_.WriteUint(delta.vertex_edge.edge.gid.AsUint());
+      }
+      wal_.WriteString(
+          name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
+      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteUint(delta.vertex_edge.vertex->gid.AsUint());
+      break;
+    }
+    case Delta::Action::ADD_IN_EDGE:
+    case Delta::Action::REMOVE_IN_EDGE:
+      // These actions are already encoded in the *_OUT_EDGE actions. This
+      // function should never be called for this type of deltas.
+      LOG(FATAL) << "Invalid delta action!";
+  }
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp) {
+  // When converting a Delta to a WAL delta the logic is inverted. That is
+  // because the Delta's represent undo actions and we want to store redo
+  // actions.
+  wal_.WriteMarker(Marker::SECTION_DELTA);
+  wal_.WriteUint(timestamp);
+  std::lock_guard<utils::SpinLock> guard(edge->lock);
+  switch (delta.action) {
+    case Delta::Action::SET_PROPERTY: {
+      wal_.WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
+      wal_.WriteUint(edge->gid.AsUint());
+      wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
+      // The property value is the value that is currently stored in the
+      // edge.
+      auto it = edge->properties.find(delta.property.key);
+      if (it != edge->properties.end()) {
+        wal_.WritePropertyValue(it->second);
+      } else {
+        wal_.WritePropertyValue(PropertyValue());
+      }
+      break;
+    }
+    case Delta::Action::DELETE_OBJECT:
+    case Delta::Action::RECREATE_OBJECT:
+      // These actions are already encoded in vertex *_OUT_EDGE actions. Also,
+      // these deltas don't contain any information about the from vertex, to
+      // vertex or edge type so they are useless. This function should never
+      // be called for this type of deltas.
+      LOG(FATAL) << "Invalid delta action!";
+    case Delta::Action::ADD_LABEL:
+    case Delta::Action::REMOVE_LABEL:
+    case Delta::Action::ADD_OUT_EDGE:
+    case Delta::Action::REMOVE_OUT_EDGE:
+    case Delta::Action::ADD_IN_EDGE:
+    case Delta::Action::REMOVE_IN_EDGE:
+      // These deltas shouldn't appear for edges.
+      LOG(FATAL) << "Invalid database state!";
+  }
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendTransactionEnd(uint64_t timestamp) {
+  wal_.WriteMarker(Marker::SECTION_DELTA);
+  wal_.WriteUint(timestamp);
+  wal_.WriteMarker(Marker::DELTA_TRANSACTION_END);
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
+                              std::optional<PropertyId> property,
+                              uint64_t timestamp) {
+  wal_.WriteMarker(Marker::SECTION_DELTA);
+  wal_.WriteUint(timestamp);
+  switch (operation) {
+    case StorageGlobalOperation::LABEL_INDEX_CREATE:
+    case StorageGlobalOperation::LABEL_INDEX_DROP: {
+      wal_.WriteMarker(OperationToMarker(operation));
+      wal_.WriteString(name_id_mapper_->IdToName(label.AsUint()));
+      break;
+    }
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP: {
+      CHECK(property) << "Invalid function call!";
+      wal_.WriteMarker(OperationToMarker(operation));
+      wal_.WriteString(name_id_mapper_->IdToName(label.AsUint()));
+      wal_.WriteString(name_id_mapper_->IdToName(property->AsUint()));
+      break;
+    }
+  }
+  UpdateStats(timestamp);
+}
+
+void WalFile::Sync() { wal_.Sync(); }
+
+uint64_t WalFile::GetSize() { return wal_.GetPosition(); }
+
+void WalFile::UpdateStats(uint64_t timestamp) {
+  if (count_ == 0) from_timestamp_ = timestamp;
+  to_timestamp_ = timestamp;
+  count_ += 1;
 }
 
 Durability::Durability(Config::Durability config,

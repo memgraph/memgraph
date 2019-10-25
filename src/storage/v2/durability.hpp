@@ -10,6 +10,7 @@
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -47,7 +48,24 @@ enum class Marker : uint8_t {
   SECTION_METADATA = 0x23,
   SECTION_INDICES = 0x24,
   SECTION_CONSTRAINTS = 0x25,
+  SECTION_DELTA = 0x26,
   SECTION_OFFSETS = 0x42,
+
+  DELTA_VERTEX_CREATE = 0x50,
+  DELTA_VERTEX_DELETE = 0x51,
+  DELTA_VERTEX_ADD_LABEL = 0x52,
+  DELTA_VERTEX_REMOVE_LABEL = 0x53,
+  DELTA_VERTEX_SET_PROPERTY = 0x54,
+  DELTA_EDGE_CREATE = 0x55,
+  DELTA_EDGE_DELETE = 0x56,
+  DELTA_EDGE_SET_PROPERTY = 0x57,
+  DELTA_TRANSACTION_END = 0x58,
+  DELTA_LABEL_INDEX_CREATE = 0x59,
+  DELTA_LABEL_INDEX_DROP = 0x5a,
+  DELTA_LABEL_PROPERTY_INDEX_CREATE = 0x5b,
+  DELTA_LABEL_PROPERTY_INDEX_DROP = 0x5c,
+  DELTA_EXISTENCE_CONSTRAINT_CREATE = 0x5d,
+  DELTA_EXISTENCE_CONSTRAINT_DROP = 0x5e,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -56,14 +74,38 @@ enum class Marker : uint8_t {
 /// List of all available markers.
 /// IMPORTANT: Don't forget to update this list when you add a new Marker.
 static const Marker kMarkersAll[] = {
-    Marker::TYPE_NULL,       Marker::TYPE_BOOL,
-    Marker::TYPE_INT,        Marker::TYPE_DOUBLE,
-    Marker::TYPE_STRING,     Marker::TYPE_LIST,
-    Marker::TYPE_MAP,        Marker::TYPE_PROPERTY_VALUE,
-    Marker::SECTION_VERTEX,  Marker::SECTION_EDGE,
-    Marker::SECTION_MAPPER,  Marker::SECTION_METADATA,
-    Marker::SECTION_INDICES, Marker::SECTION_CONSTRAINTS,
-    Marker::SECTION_OFFSETS, Marker::VALUE_FALSE,
+    Marker::TYPE_NULL,
+    Marker::TYPE_BOOL,
+    Marker::TYPE_INT,
+    Marker::TYPE_DOUBLE,
+    Marker::TYPE_STRING,
+    Marker::TYPE_LIST,
+    Marker::TYPE_MAP,
+    Marker::TYPE_PROPERTY_VALUE,
+    Marker::SECTION_VERTEX,
+    Marker::SECTION_EDGE,
+    Marker::SECTION_MAPPER,
+    Marker::SECTION_METADATA,
+    Marker::SECTION_INDICES,
+    Marker::SECTION_CONSTRAINTS,
+    Marker::SECTION_DELTA,
+    Marker::SECTION_OFFSETS,
+    Marker::DELTA_VERTEX_CREATE,
+    Marker::DELTA_VERTEX_DELETE,
+    Marker::DELTA_VERTEX_ADD_LABEL,
+    Marker::DELTA_VERTEX_REMOVE_LABEL,
+    Marker::DELTA_VERTEX_SET_PROPERTY,
+    Marker::DELTA_EDGE_CREATE,
+    Marker::DELTA_EDGE_DELETE,
+    Marker::DELTA_EDGE_SET_PROPERTY,
+    Marker::DELTA_TRANSACTION_END,
+    Marker::DELTA_LABEL_INDEX_CREATE,
+    Marker::DELTA_LABEL_INDEX_DROP,
+    Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE,
+    Marker::DELTA_LABEL_PROPERTY_INDEX_DROP,
+    Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE,
+    Marker::DELTA_EXISTENCE_CONSTRAINT_DROP,
+    Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };
 
@@ -86,6 +128,8 @@ class Encoder final {
 
   uint64_t GetPosition();
   void SetPosition(uint64_t position);
+
+  void Sync();
 
   void Finalize();
 
@@ -147,6 +191,69 @@ struct SnapshotInfo {
 /// Function used to read information about the snapshot file.
 /// @throw RecoveryFailure
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
+
+/// Structure used to hold information about a WAL.
+struct WalInfo {
+  uint64_t offset_metadata;
+  uint64_t offset_deltas;
+
+  std::string uuid;
+  uint64_t seq_num;
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  uint64_t num_deltas;
+};
+
+/// Function used to read information about the WAL file.
+/// @throw RecoveryFailure
+WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// Enum used to indicate a global database operation that isn't transactional.
+enum class StorageGlobalOperation {
+  LABEL_INDEX_CREATE,
+  LABEL_INDEX_DROP,
+  LABEL_PROPERTY_INDEX_CREATE,
+  LABEL_PROPERTY_INDEX_DROP,
+  EXISTENCE_CONSTRAINT_CREATE,
+  EXISTENCE_CONSTRAINT_DROP,
+};
+
+/// WalFile class used to append deltas and operations to the WAL file.
+class WalFile {
+ public:
+  WalFile(const std::filesystem::path &wal_directory, const std::string &uuid,
+          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num);
+
+  WalFile(const WalFile &) = delete;
+  WalFile(WalFile &&) = delete;
+  WalFile &operator=(const WalFile &) = delete;
+  WalFile &operator=(WalFile &&) = delete;
+
+  ~WalFile();
+
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp);
+
+  void AppendTransactionEnd(uint64_t timestamp);
+
+  void AppendOperation(StorageGlobalOperation operation, LabelId label,
+                       std::optional<PropertyId> property, uint64_t timestamp);
+
+  void Sync();
+
+  uint64_t GetSize();
+
+ private:
+  void UpdateStats(uint64_t timestamp);
+
+  Config::Items items_;
+  NameIdMapper *name_id_mapper_;
+  Encoder wal_;
+  std::filesystem::path path_;
+  uint64_t from_timestamp_;
+  uint64_t to_timestamp_;
+  uint64_t count_;
+};
 
 /// Durability class that is used to provide full durability functionality to
 /// the storage.

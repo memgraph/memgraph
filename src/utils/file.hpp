@@ -40,6 +40,11 @@ bool DeleteFile(const std::filesystem::path &file) noexcept;
 bool CopyFile(const std::filesystem::path &src,
               const std::filesystem::path &dst) noexcept;
 
+/// Renames the path from `src` to `dst`. If the `dst` contains directories that
+/// don't exist, the renaming fails. Symlinks are not followed.
+bool RenamePath(const std::filesystem::path &src,
+                const std::filesystem::path &dst);
+
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes
 /// handling of binary data extremely tedious.

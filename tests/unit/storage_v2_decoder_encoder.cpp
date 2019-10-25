@@ -322,7 +322,23 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case storage::Marker::SECTION_METADATA:
         case storage::Marker::SECTION_INDICES:
         case storage::Marker::SECTION_CONSTRAINTS:
+        case storage::Marker::SECTION_DELTA:
         case storage::Marker::SECTION_OFFSETS:
+        case storage::Marker::DELTA_VERTEX_CREATE:
+        case storage::Marker::DELTA_VERTEX_DELETE:
+        case storage::Marker::DELTA_VERTEX_ADD_LABEL:
+        case storage::Marker::DELTA_VERTEX_REMOVE_LABEL:
+        case storage::Marker::DELTA_VERTEX_SET_PROPERTY:
+        case storage::Marker::DELTA_EDGE_CREATE:
+        case storage::Marker::DELTA_EDGE_DELETE:
+        case storage::Marker::DELTA_EDGE_SET_PROPERTY:
+        case storage::Marker::DELTA_TRANSACTION_END:
+        case storage::Marker::DELTA_LABEL_INDEX_CREATE:
+        case storage::Marker::DELTA_LABEL_INDEX_DROP:
+        case storage::Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
+        case storage::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+        case storage::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
+        case storage::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
         case storage::Marker::VALUE_FALSE:
         case storage::Marker::VALUE_TRUE:
           valid_marker = false;

@@ -15,6 +15,9 @@
 
 namespace storage {
 
+const uint64_t kTimestampInitialId = 0;
+const uint64_t kTransactionInitialId = 1ULL << 63U;
+
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp)
       : transaction_id(transaction_id),

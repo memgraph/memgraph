@@ -61,6 +61,13 @@ bool CopyFile(const std::filesystem::path &src,
   return std::filesystem::copy_file(src, dst, error_code);
 }
 
+bool RenamePath(const std::filesystem::path &src,
+                const std::filesystem::path &dst) {
+  std::error_code error_code;  // For exception suppression.
+  std::filesystem::rename(src, dst, error_code);
+  return !error_code;
+}
+
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
 InputFile::~InputFile() { Close(); }

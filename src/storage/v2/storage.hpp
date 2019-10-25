@@ -28,9 +28,6 @@ namespace storage {
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
-
 /// Iterable for iterating through all vertices of a Storage.
 ///
 /// An instance of this will be usually be wrapped inside VerticesIterable for
