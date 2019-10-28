@@ -612,6 +612,103 @@ const mgp_edge *mgp_value_get_edge(const mgp_value *val) { return val->edge_v; }
 
 const mgp_path *mgp_value_get_path(const mgp_value *val) { return val->path_v; }
 
+mgp_list *mgp_list_make_empty(size_t capacity, mgp_memory *memory) {
+  auto *list = new_mgp_object<mgp_list>(memory);
+  if (!list) return nullptr;
+  try {
+    // May throw std::bad_alloc or std::length_error.
+    list->elems.reserve(capacity);
+  } catch (...) {
+    mgp_list_destroy(list);
+    return nullptr;
+  }
+  return list;
+}
+
+void mgp_list_destroy(mgp_list *list) { delete_mgp_object(list); }
+
+int mgp_list_append(mgp_list *list, const mgp_value *val) {
+  if (mgp_list_size(list) >= mgp_list_capacity(list)) return 0;
+  return mgp_list_append_extend(list, val);
+}
+
+int mgp_list_append_extend(mgp_list *list, const mgp_value *val) {
+  try {
+    // May throw std::bad_alloc or std::length_error.
+    list->elems.push_back(*val);
+  } catch (...) {
+    return 0;
+  }
+  return 1;
+}
+
+size_t mgp_list_size(const mgp_list *list) { return list->elems.size(); }
+
+size_t mgp_list_capacity(const mgp_list *list) {
+  return list->elems.capacity();
+}
+
+const mgp_value *mgp_list_at(const mgp_list *list, size_t i) {
+  if (i >= mgp_list_size(list)) return nullptr;
+  return &list->elems[i];
+}
+
+mgp_map *mgp_map_make_empty(mgp_memory *memory) {
+  return new_mgp_object<mgp_map>(memory);
+}
+
+void mgp_map_destroy(mgp_map *map) { delete_mgp_object(map); }
+
+int mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) {
+  try {
+    // Unfortunately, cppreference.com does not say what exceptions are thrown,
+    // so catch all of them. It's probably `std::bad_alloc` and
+    // `std::length_error`.
+    map->items.emplace(key, *value);
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
+size_t mgp_map_size(const mgp_map *map) { return map->items.size(); }
+
+const mgp_value *mgp_map_at(const mgp_map *map, const char *key) {
+  auto found_it = map->items.find(key);
+  if (found_it == map->items.end()) return nullptr;
+  return &found_it->second;
+}
+
+const char *mgp_map_item_key(const mgp_map_item *item) { return item->key; }
+
+const mgp_value *mgp_map_item_value(const mgp_map_item *item) {
+  return item->value;
+}
+
+mgp_map_items_iterator *mgp_map_iter_items(const mgp_map *map,
+                                           mgp_memory *memory) {
+  return new_mgp_object<mgp_map_items_iterator>(memory, map);
+}
+
+void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) {
+  delete_mgp_object(it);
+}
+
+const mgp_map_item *mgp_map_items_iterator_get(
+    const mgp_map_items_iterator *it) {
+  if (it->current_it == it->map->items.end()) return nullptr;
+  return &it->current;
+}
+
+const mgp_map_item *mgp_map_items_iterator_next(mgp_map_items_iterator *it) {
+  if (it->current_it == it->map->items.end()) return nullptr;
+  ++it->current_it;
+  if (it->current_it == it->map->items.end()) return nullptr;
+  it->current.key = it->current_it->first.c_str();
+  it->current.value = &it->current_it->second;
+  return &it->current;
+}
+
 /// Plugin Result
 
 int mgp_result_set_error_msg(mgp_result *res, const char *msg) {

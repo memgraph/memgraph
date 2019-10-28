@@ -171,6 +171,37 @@ struct mgp_map {
   utils::pmr::map<utils::pmr::string, mgp_value> items;
 };
 
+struct mgp_map_item {
+  const char *key;
+  const mgp_value *value;
+};
+
+struct mgp_map_items_iterator {
+  using allocator_type = utils::Allocator<mgp_map_items_iterator>;
+
+  mgp_map_items_iterator(const mgp_map *map, utils::MemoryResource *memory)
+      : memory(memory), map(map), current_it(map->items.begin()) {
+    if (current_it != map->items.end()) {
+      current.key = current_it->first.c_str();
+      current.value = &current_it->second;
+    }
+  }
+
+  mgp_map_items_iterator(const mgp_map_items_iterator &) = delete;
+  mgp_map_items_iterator(mgp_map_items_iterator &&) = delete;
+  mgp_map_items_iterator &operator=(const mgp_map_items_iterator &) = delete;
+  mgp_map_items_iterator &operator=(mgp_map_items_iterator &&) = delete;
+
+  ~mgp_map_items_iterator() = default;
+
+  utils::MemoryResource *GetMemoryResource() const { return memory; }
+
+  utils::MemoryResource *memory;
+  const mgp_map *map;
+  decltype(map->items.begin()) current_it;
+  mgp_map_item current;
+};
+
 struct mgp_vertex {
   /// Allocator type so that STL containers are aware that we need one.
   /// We don't actually need this, but it simplifies the C API, because we store
