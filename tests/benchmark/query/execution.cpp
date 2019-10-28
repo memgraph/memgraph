@@ -112,7 +112,7 @@ static void Distinct(benchmark::State &state) {
                                                   cypher_query, &execution_dba);
   auto plan_and_cost =
       query::plan::MakeLogicalPlan(&context, parameters, false);
-  ResultStreamFaker<query::TypedValue> results;
+  ResultStreamFaker results;
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};

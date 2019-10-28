@@ -49,7 +49,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker<query::TypedValue> results;
+    ResultStreamFaker results;
     interpreter().Interpret(query, {});
     interpreter().PullAll(&results);
   }
@@ -64,7 +64,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker<query::TypedValue> results;
+    ResultStreamFaker results;
     interpreter().Interpret(query, {});
     interpreter().PullAll(&results);
   }

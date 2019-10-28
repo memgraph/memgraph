@@ -5,6 +5,9 @@
 #include "glog/logging.h"
 
 #include "communication/bolt/v1/value.hpp"
+#include "glue/communication.hpp"
+#include "query/typed_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 
 // TODO: Why is this here?! It's only used in tests and query/repl.cpp
@@ -15,7 +18,6 @@
  * sent to it in an acceptable order, and tracks
  * the content of those messages.
  */
-template <class TResultValue = communication::bolt::Value>
 class ResultStreamFaker {
  public:
   ResultStreamFaker() = default;
@@ -26,12 +28,31 @@ class ResultStreamFaker {
 
   void Header(const std::vector<std::string> &fields) { header_ = fields; }
 
-  void Result(const std::vector<TResultValue> &values) {
+  void Result(const std::vector<communication::bolt::Value> &values) {
     results_.push_back(values);
   }
 
-  void Summary(const std::map<std::string, TResultValue> &summary) {
+  void Result(const std::vector<query::TypedValue> &values) {
+    std::vector<communication::bolt::Value> bvalues;
+    bvalues.reserve(values.size());
+    for (const auto &value : values) {
+      bvalues.push_back(glue::ToBoltValue(value, storage::View::NEW));
+    }
+    results_.push_back(std::move(bvalues));
+  }
+
+  void Summary(
+      const std::map<std::string, communication::bolt::Value> &summary) {
     summary_ = summary;
+  }
+
+  void Summary(const std::map<std::string, query::TypedValue> &summary) {
+    std::map<std::string, communication::bolt::Value> bsummary;
+    for (const auto &item : summary) {
+      bsummary.insert(
+          {item.first, glue::ToBoltValue(item.second, storage::View::NEW)});
+    }
+    summary_ = std::move(bsummary);
   }
 
   const auto &GetHeader() const { return header_; }
@@ -110,6 +131,6 @@ class ResultStreamFaker {
  private:
   // the data that the record stream can accept
   std::vector<std::string> header_;
-  std::vector<std::vector<TResultValue>> results_;
-  std::map<std::string, TResultValue> summary_;
+  std::vector<std::vector<communication::bolt::Value>> results_;
+  std::map<std::string, communication::bolt::Value> summary_;
 };

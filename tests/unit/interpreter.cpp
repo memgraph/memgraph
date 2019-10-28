@@ -1,13 +1,27 @@
 #include <cstdlib>
 
+#include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
+#include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
+
+namespace {
+
+auto ToEdgeList(const communication::bolt::Value &v) {
+  std::vector<communication::bolt::Edge> list;
+  for (auto x : v.ValueList()) {
+    list.push_back(x.ValueEdge());
+  }
+  return list;
+};
+
+}  // namespace
 
 // TODO: This is not a unit test, but tests/integration dir is chaotic at the
 // moment. After tests refactoring is done, move/rename this.
@@ -25,7 +39,7 @@ class InterpreterTest : public ::testing::Test {
    */
   auto Interpret(const std::string &query,
                  const std::map<std::string, PropertyValue> &params = {}) {
-    ResultStreamFaker<query::TypedValue> stream;
+    ResultStreamFaker stream;
 
     auto [header, _] = interpreter_.Interpret(query, params);
     stream.Header(header);
@@ -132,7 +146,8 @@ TEST_F(InterpreterTest, Parameters) {
                    PropertyValue(5), PropertyValue(2), PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = query::test_common::ToIntList(stream.GetResults()[0][0]);
+    auto result = query::test_common::ToIntList(
+        glue::ToTypedValue(stream.GetResults()[0][0]));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
@@ -214,10 +229,12 @@ TEST_F(InterpreterTest, Bfs) {
 
   auto stream = Interpret(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
-      "e.reachable)]->(m) RETURN r");
+      "e.reachable)]->(m) RETURN n, r, m");
 
-  ASSERT_EQ(stream.GetHeader().size(), 1U);
-  EXPECT_EQ(stream.GetHeader()[0], "r");
+  ASSERT_EQ(stream.GetHeader().size(), 3U);
+  EXPECT_EQ(stream.GetHeader()[0], "n");
+  EXPECT_EQ(stream.GetHeader()[1], "r");
+  EXPECT_EQ(stream.GetHeader()[2], "m");
   ASSERT_EQ(stream.GetResults().size(), 5 * kNumNodesPerLevel);
 
   auto dba = db_.Access();
@@ -226,18 +243,22 @@ TEST_F(InterpreterTest, Bfs) {
   std::unordered_set<int64_t> matched_ids;
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges = query::test_common::ToEdgeList(result[0]);
+    const auto &begin = result[0].ValueVertex();
+    const auto &edges = ToEdgeList(result[1]);
+    const auto &end = result[2].ValueVertex();
+
     // Check that path is of expected length. Returned paths should be from
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
-    EXPECT_EQ(edges[0].impl_.from().PropsAt(dba.Property(kId)).ValueInt(), 0);
+    EXPECT_EQ(edges.front().from, begin.id);
+    EXPECT_EQ(begin.properties.at(kId).ValueInt(), 0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
-      EXPECT_EQ(edges[i - 1].To(), edges[i].From());
+      EXPECT_EQ(edges[i - 1].to.AsInt(), edges[i].from.AsInt());
     }
-    auto matched_id =
-        edges.back().impl_.to().PropsAt(dba.Property(kId)).ValueInt();
+    auto matched_id = end.properties.at(kId).ValueInt();
+    EXPECT_EQ(edges.back().to, end.id);
     // Check that we didn't match that node already.
     EXPECT_TRUE(matched_ids.insert(matched_id).second);
     // Check that shortest path was found.
@@ -251,7 +272,6 @@ TEST_F(InterpreterTest, Bfs) {
 }
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
-  ResultStreamFaker<query::TypedValue> stream;
   interpreter_.Interpret("BEGIN", {});
   ASSERT_THROW(interpreter_.Interpret("CREATE INDEX ON :X(y)", {}),
                query::IndexInMulticommandTxException);
@@ -276,11 +296,13 @@ TEST_F(InterpreterTest, ShortestPath) {
       {"r1"}, {"r2"}, {"r1", "r2"}};
 
   for (const auto &result : stream.GetResults()) {
-    const auto &edges = query::test_common::ToEdgeList(result[0]);
+    const auto &edges = ToEdgeList(result[0]);
 
     std::vector<std::string> datum;
+    datum.reserve(edges.size());
+
     for (const auto &edge : edges) {
-      datum.push_back(dba.EdgeTypeName(edge.EdgeType()));
+      datum.push_back(edge.type);
     }
 
     bool any_match = false;

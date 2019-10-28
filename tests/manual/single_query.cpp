@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
   query::InterpreterContext interpreter_context{&db};
   query::Interpreter interpreter{&interpreter_context};
 
-  ResultStreamFaker<query::TypedValue> stream;
+  ResultStreamFaker stream;
   auto [header, _] = interpreter.Interpret(argv[1], {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

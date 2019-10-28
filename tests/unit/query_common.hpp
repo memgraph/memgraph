@@ -47,14 +47,6 @@ auto ToIntList(const TypedValue &t) {
   return list;
 };
 
-auto ToEdgeList(const TypedValue &t) {
-  std::vector<EdgeAccessor> list;
-  for (auto x : t.ValueList()) {
-    list.push_back(x.ValueEdge());
-  }
-  return list;
-};
-
 auto ToIntMap(const TypedValue &t) {
   std::map<std::string, int64_t> map;
   for (const auto &kv : t.ValueMap())

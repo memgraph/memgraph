@@ -38,7 +38,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker<query::TypedValue> stream;
+    ResultStreamFaker stream;
 
     auto [header, _] = interpreter_->Interpret(query, {});
     stream.Header(header);

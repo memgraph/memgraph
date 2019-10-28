@@ -186,7 +186,7 @@ class DatabaseEnvironment {
    * Return the query stream.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker<query::TypedValue> stream;
+    ResultStreamFaker stream;
 
     auto [header, _] = interpreter_.Interpret(query, {});
     stream.Header(header);
