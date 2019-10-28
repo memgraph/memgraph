@@ -120,6 +120,55 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
   }
 }
 
+query::TypedValue ToTypedValue(const mgp_value &val,
+                               utils::MemoryResource *memory) {
+  switch (mgp_value_get_type(&val)) {
+    case MGP_VALUE_TYPE_NULL:
+      return query::TypedValue(memory);
+    case MGP_VALUE_TYPE_BOOL:
+      return query::TypedValue(static_cast<bool>(mgp_value_get_bool(&val)),
+                               memory);
+    case MGP_VALUE_TYPE_INT:
+      return query::TypedValue(mgp_value_get_int(&val), memory);
+    case MGP_VALUE_TYPE_DOUBLE:
+      return query::TypedValue(mgp_value_get_double(&val), memory);
+    case MGP_VALUE_TYPE_STRING:
+      return query::TypedValue(mgp_value_get_string(&val), memory);
+    case MGP_VALUE_TYPE_LIST: {
+      const auto *list = mgp_value_get_list(&val);
+      query::TypedValue::TVector tv_list(memory);
+      tv_list.reserve(list->elems.size());
+      for (const auto &elem : list->elems) {
+        tv_list.emplace_back(ToTypedValue(elem, memory));
+      }
+      return query::TypedValue(std::move(tv_list));
+    }
+    case MGP_VALUE_TYPE_MAP: {
+      const auto *map = mgp_value_get_map(&val);
+      query::TypedValue::TMap tv_map(memory);
+      for (const auto &item : map->items) {
+        tv_map.emplace(item.first, ToTypedValue(item.second, memory));
+      }
+      return query::TypedValue(std::move(tv_map));
+    }
+    case MGP_VALUE_TYPE_VERTEX:
+      return query::TypedValue(mgp_value_get_vertex(&val)->impl, memory);
+    case MGP_VALUE_TYPE_EDGE:
+      return query::TypedValue(mgp_value_get_edge(&val)->impl, memory);
+    case MGP_VALUE_TYPE_PATH: {
+      const auto *path = mgp_value_get_path(&val);
+      CHECK(!path->vertices.empty());
+      CHECK(path->vertices.size() == path->edges.size() + 1);
+      query::Path tv_path(path->vertices[0].impl, memory);
+      for (size_t i = 0; i < path->edges.size(); ++i) {
+        tv_path.Expand(path->edges[i].impl);
+        tv_path.Expand(path->vertices[i + 1].impl);
+      }
+      return query::TypedValue(std::move(tv_path));
+    }
+  }
+}
+
 }  // namespace
 
 mgp_value::mgp_value(utils::MemoryResource *m) noexcept
@@ -562,3 +611,39 @@ const mgp_vertex *mgp_value_get_vertex(const mgp_value *val) {
 const mgp_edge *mgp_value_get_edge(const mgp_value *val) { return val->edge_v; }
 
 const mgp_path *mgp_value_get_path(const mgp_value *val) { return val->path_v; }
+
+/// Plugin Result
+
+int mgp_result_set_error_msg(mgp_result *res, const char *msg) {
+  auto *memory = res->rows.get_allocator().GetMemoryResource();
+  try {
+    res->error_msg.emplace(msg, memory);
+  } catch (...) {
+    return 0;
+  }
+  return 1;
+}
+
+mgp_result_record *mgp_result_new_record(mgp_result *res) {
+  auto *memory = res->rows.get_allocator().GetMemoryResource();
+  try {
+    res->rows.push_back(mgp_result_record{
+        utils::pmr::map<utils::pmr::string, query::TypedValue>(memory)});
+  } catch (...) {
+    return nullptr;
+  }
+  return &res->rows.back();
+}
+
+int mgp_result_record_insert(mgp_result_record *record, const char *field_name,
+                             const mgp_value *val) {
+  auto *memory = record->values.get_allocator().GetMemoryResource();
+  // TODO: Result validation when we add registering procedures with result
+  // signature description.
+  try {
+    record->values.emplace(field_name, ToTypedValue(*val, memory));
+  } catch (...) {
+    return 0;
+  }
+  return 1;
+}

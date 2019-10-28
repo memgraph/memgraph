@@ -4,6 +4,9 @@
 #pragma once
 
 #include "mg_procedure.h"
+
+#include <optional>
+
 #include "query/db_accessor.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
@@ -288,6 +291,17 @@ struct mgp_path {
 
   utils::pmr::vector<mgp_vertex> vertices;
   utils::pmr::vector<mgp_edge> edges;
+};
+
+struct mgp_result_record {
+  utils::pmr::map<utils::pmr::string, query::TypedValue> values;
+};
+
+struct mgp_result {
+  explicit mgp_result(utils::MemoryResource *mem) : rows(mem) {}
+
+  utils::pmr::vector<mgp_result_record> rows;
+  std::optional<utils::pmr::string> error_msg;
 };
 
 struct mgp_graph {
