@@ -652,37 +652,3 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::AuthQuery>((action), (user), (role), (user_or_role), \
                                    password, (privileges))
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
-#define CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri, \
-                      batch_interval, batch_size)                           \
-  storage.Create<query::StreamQuery>(                                       \
-      query::StreamQuery::Action::CREATE_STREAM, (stream_name),             \
-      LITERAL(stream_uri), LITERAL(stream_topic), LITERAL(transform_uri),   \
-      (batch_interval), (batch_size), nullptr)
-#define DROP_STREAM(stream_name)                                               \
-  storage.Create<query::StreamQuery>(query::StreamQuery::Action::DROP_STREAM,  \
-                                     (stream_name), nullptr, nullptr, nullptr, \
-                                     nullptr, nullptr, nullptr)
-#define SHOW_STREAMS                                                           \
-  storage.Create<query::StreamQuery>(query::StreamQuery::Action::SHOW_STREAMS, \
-                                     "", nullptr, nullptr, nullptr, nullptr,   \
-                                     nullptr, nullptr)
-#define START_STREAM(stream_name, limit_batches)                               \
-  storage.Create<query::StreamQuery>(query::StreamQuery::Action::START_STREAM, \
-                                     (stream_name), nullptr, nullptr, nullptr, \
-                                     nullptr, nullptr, (limit_batches))
-#define STOP_STREAM(stream_name)                                               \
-  storage.Create<query::StreamQuery>(query::StreamQuery::Action::STOP_STREAM,  \
-                                     (stream_name), nullptr, nullptr, nullptr, \
-                                     nullptr, nullptr, nullptr)
-#define START_ALL_STREAMS                                                  \
-  storage.Create<query::StreamQuery>(                                      \
-      query::StreamQuery::Action::START_ALL_STREAMS, "", nullptr, nullptr, \
-      nullptr, nullptr, nullptr, nullptr)
-#define STOP_ALL_STREAMS                                                  \
-  storage.Create<query::StreamQuery>(                                     \
-      query::StreamQuery::Action::STOP_ALL_STREAMS, "", nullptr, nullptr, \
-      nullptr, nullptr, nullptr, nullptr)
-#define TEST_STREAM(stream_name, limit_batches)                               \
-  storage.Create<query::TestStream>(query::StreamQuery::Action::TEST_STREAM,  \
-                                    (stream_name), nullptr, nullptr, nullptr, \
-                                    nullptr, nullptr, (limit_batches))

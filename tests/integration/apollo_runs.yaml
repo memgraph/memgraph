@@ -23,17 +23,6 @@
     - ../../../build_debug/memgraph # memgraph binary
     - ../../../build_debug/tests/integration/transactions/tester # tester binary
 
-- name: integration__kafka
-  cd: kafka
-  commands: ./runner.sh
-  infiles:
-    - runner.sh # runner script
-    - transform.py # transform script
-    - ../../../build_debug/memgraph # memgraph binary
-    - ../../../build_debug/kafka.py # kafka script
-    - ../../../build_debug/tests/integration/kafka/tester # tester binary
-  enable_network: true
-
 - name: integration__auth
   cd: auth
   commands: TIMEOUT=820 ./runner.py

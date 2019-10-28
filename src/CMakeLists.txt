@@ -4,7 +4,6 @@
 add_subdirectory(lisp)
 add_subdirectory(utils)
 add_subdirectory(requests)
-add_subdirectory(integrations)
 add_subdirectory(io)
 add_subdirectory(telemetry)
 add_subdirectory(communication)
@@ -88,7 +87,7 @@ set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
     mg-utils mg-io mg-requests mg-communication)
 # These are enterprise subsystems
-set(MG_SINGLE_NODE_LIBS ${MG_SINGLE_NODE_LIBS} mg-integrations-kafka mg-auth)
+set(MG_SINGLE_NODE_LIBS ${MG_SINGLE_NODE_LIBS} mg-auth)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_LIBS ltalloc)
@@ -146,7 +145,7 @@ set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags mg-storage-v2
     mg-utils mg-io mg-requests mg-communication)
 # These are enterprise subsystems
-set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-integrations-kafka mg-auth)
+set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
@@ -230,7 +229,7 @@ add_custom_target(generate_lcp_single_node_ha DEPENDS generate_lcp_common ${gene
 
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
-    mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-comm-rpc
+    mg-utils mg-io mg-requests mg-communication mg-comm-rpc
     mg-auth)
 
 if (USE_LTALLOC)

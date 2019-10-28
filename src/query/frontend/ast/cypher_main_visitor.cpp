@@ -178,15 +178,6 @@ antlrcpp::Any CypherMainVisitor::visitAuthQuery(
   return auth_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitStreamQuery(
-    MemgraphCypher::StreamQueryContext *ctx) {
-  CHECK(ctx->children.size() == 1)
-      << "StreamQuery should have exactly one child!";
-  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
-  query_ = stream_query;
-  return stream_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDumpQuery(
     MemgraphCypher::DumpQueryContext *ctx) {
   auto *dump_query = storage_->Create<DumpQuery>();
@@ -538,7 +529,6 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
   if (ctx->INDEX()) return AuthQuery::Privilege::INDEX;
   if (ctx->STATS()) return AuthQuery::Privilege::STATS;
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
-  if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
   LOG(FATAL) << "Should not get here - unknown privilege!";
 }
@@ -574,152 +564,6 @@ antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
   auth->role_ = ctx->role->accept(this).as<std::string>();
   return auth;
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitCreateStream(
-    MemgraphCypher::CreateStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
-  stream_query->stream_name_ = ctx->streamName()->getText();
-  if (!ctx->streamUri->StringLiteral()) {
-    throw SyntaxException("Stream URI should be a string literal.");
-  }
-  stream_query->stream_uri_ = ctx->streamUri->accept(this);
-  if (!ctx->streamTopic->StringLiteral()) {
-    throw SyntaxException("Topic should be a string literal.");
-  }
-  stream_query->stream_topic_ = ctx->streamTopic->accept(this);
-  if (!ctx->transformUri->StringLiteral()) {
-    throw SyntaxException("Transform URI should be a string literal.");
-  }
-  stream_query->transform_uri_ = ctx->transformUri->accept(this);
-  if (ctx->batchIntervalOption()) {
-    stream_query->batch_interval_in_ms_ =
-        ctx->batchIntervalOption()->accept(this);
-  }
-  if (ctx->batchSizeOption()) {
-    stream_query->batch_size_ = ctx->batchSizeOption()->accept(this);
-  }
-  return stream_query;
-}
-
-/**
- * @return Expression*
- */
-antlrcpp::Any CypherMainVisitor::visitBatchIntervalOption(
-    MemgraphCypher::BatchIntervalOptionContext *ctx) {
-  if (!ctx->literal()->numberLiteral() ||
-      !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch interval should be an integer.");
-  }
-  return ctx->literal()->accept(this);
-}
-
-/**
- * @return Expression*
- */
-antlrcpp::Any CypherMainVisitor::visitBatchSizeOption(
-    MemgraphCypher::BatchSizeOptionContext *ctx) {
-  if (!ctx->literal()->numberLiteral() ||
-      !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch size should be an integer.");
-  }
-  return ctx->literal()->accept(this);
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitDropStream(
-    MemgraphCypher::DropStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::DROP_STREAM;
-  stream_query->stream_name_ = ctx->streamName()->getText();
-  return stream_query;
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitShowStreams(
-    MemgraphCypher::ShowStreamsContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::SHOW_STREAMS;
-  return stream_query;
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitStartStream(
-    MemgraphCypher::StartStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::START_STREAM;
-  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
-  if (ctx->limitBatchesOption()) {
-    stream_query->limit_batches_ = ctx->limitBatchesOption()->accept(this);
-  }
-  return stream_query;
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitStopStream(
-    MemgraphCypher::StopStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::STOP_STREAM;
-  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
-  return stream_query;
-}
-
-/**
- * @return Expression*
- */
-antlrcpp::Any CypherMainVisitor::visitLimitBatchesOption(
-    MemgraphCypher::LimitBatchesOptionContext *ctx) {
-  if (!ctx->literal()->numberLiteral() ||
-      !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch limit should be an integer.");
-  }
-  return ctx->literal()->accept(this);
-}
-
-/*
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitStartAllStreams(
-    MemgraphCypher::StartAllStreamsContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::START_ALL_STREAMS;
-  return stream_query;
-}
-
-/*
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitStopAllStreams(
-    MemgraphCypher::StopAllStreamsContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::STOP_ALL_STREAMS;
-  return stream_query;
-}
-
-/**
- * @return StreamQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitTestStream(
-    MemgraphCypher::TestStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::TEST_STREAM;
-  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
-  if (ctx->limitBatchesOption()) {
-    stream_query->limit_batches_ = ctx->limitBatchesOption()->accept(this);
-  }
-  return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(

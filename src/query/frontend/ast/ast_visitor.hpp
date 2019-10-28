@@ -65,7 +65,6 @@ class AuthQuery;
 class ExplainQuery;
 class ProfileQuery;
 class IndexQuery;
-class StreamQuery;
 class InfoQuery;
 class ConstraintQuery;
 class RegexMatch;
@@ -113,7 +112,7 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
-                              IndexQuery, AuthQuery, StreamQuery, InfoQuery,
+                              IndexQuery, AuthQuery, InfoQuery,
                               ConstraintQuery, DumpQuery> {};
 
 }  // namespace query

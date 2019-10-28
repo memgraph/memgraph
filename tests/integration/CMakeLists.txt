@@ -7,9 +7,6 @@ add_subdirectory(ssl)
 # transactions test binaries
 add_subdirectory(transactions)
 
-# kafka test binaries
-add_subdirectory(kafka)
-
 # auth test binaries
 add_subdirectory(auth)
 

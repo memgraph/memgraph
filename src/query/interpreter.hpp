@@ -25,10 +25,6 @@ namespace auth {
 class Auth;
 }  // namespace auth
 
-namespace integrations::kafka {
-class Streams;
-}  // namespace integrations::kafka
-
 namespace query {
 
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
@@ -135,7 +131,6 @@ struct InterpreterContext {
   bool is_tsc_available{utils::CheckAvailableTSC()};
 
   auth::Auth *auth{nullptr};
-  integrations::kafka::Streams *kafka_streams{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;

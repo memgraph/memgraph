@@ -15,8 +15,6 @@
 #else
 #include "database/single_node/graph_db.hpp"
 #endif
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
@@ -100,23 +98,7 @@ void SingleNodeMain() {
   query::InterpreterContext interpreter_context{&db};
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
-  integrations::kafka::Streams kafka_streams{
-      durability_directory / "streams",
-      [&session_data](
-          const std::string &query,
-          const std::map<std::string, communication::bolt::Value> &params) {
-        KafkaStreamWriter(session_data, query, params);
-      }};
-
   interpreter_context.auth = &auth;
-  interpreter_context.kafka_streams = &kafka_streams;
-
-  try {
-    // Recover possible streams.
-    kafka_streams.Recover();
-  } catch (const integrations::kafka::KafkaStreamException &e) {
-    LOG(ERROR) << e.what();
-  }
 
   ServerContext context;
   std::string service_name = "Bolt";

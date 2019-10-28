@@ -205,22 +205,6 @@ import_external_library(rocksdb STATIC
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
   BUILD_COMMAND $(MAKE) rocksdb)
 
-# Setup librdkafka.
-import_external_library(librdkafka STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include/librdkafka
-  CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
-             -DRDKAFKA_BUILD_EXAMPLES=OFF
-             -DRDKAFKA_BUILD_TESTS=OFF
-             -DCMAKE_INSTALL_LIBDIR=lib
-             -DWITH_SSL=ON
-             # If we want SASL, we need to install it on build machines
-             -DWITH_SASL=OFF)
-
-import_library(librdkafka++ STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
-  librdkafka-proj)
-
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a

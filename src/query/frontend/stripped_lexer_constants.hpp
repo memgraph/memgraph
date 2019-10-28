@@ -88,9 +88,8 @@ const trie::Trie kKeywords = {
     "when",    "then",     "else",      "end",      "count",      "filter",
     "extract", "any",      "none",      "single",   "true",       "false",
     "reduce",  "coalesce", "user",      "password", "alter",      "drop",
-    "stream",  "streams",  "load",      "data",     "kafka",      "transform",
-    "batch",   "interval", "show",      "start",    "stats",      "stop",
-    "size",    "topic",    "test",      "unique",   "explain",    "profile",
+    "show",    "stats",
+    "unique",  "explain",  "profile",
     "storage", "index",    "info",      "exists",   "assert",     "constraint",
     "node",    "key",      "dump",      "database"};
 

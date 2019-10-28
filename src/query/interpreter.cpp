@@ -10,8 +10,6 @@
 #endif
 #include "glue/auth.hpp"
 #include "glue/communication.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -504,170 +502,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
       return callback;
     default:
       break;
-  }
-}
-
-Callback HandleStreamQuery(StreamQuery *stream_query,
-                           integrations::kafka::Streams *streams,
-                           const Parameters &parameters,
-                           DbAccessor *db_accessor) {
-  // Empty frame and symbol table for evaluation of expressions. This is OK
-  // since all expressions should be literals or parameter lookups.
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-  // the argument to Callback.
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  evaluation_context.parameters = parameters;
-  ExpressionEvaluator eval(&frame, symbol_table, evaluation_context,
-                           db_accessor, storage::View::OLD);
-
-  std::string stream_name = stream_query->stream_name_;
-  auto stream_uri =
-      EvaluateOptionalExpression(stream_query->stream_uri_, &eval);
-  auto stream_topic =
-      EvaluateOptionalExpression(stream_query->stream_topic_, &eval);
-  auto transform_uri =
-      EvaluateOptionalExpression(stream_query->transform_uri_, &eval);
-  auto batch_interval_in_ms =
-      EvaluateOptionalExpression(stream_query->batch_interval_in_ms_, &eval);
-  auto batch_size =
-      EvaluateOptionalExpression(stream_query->batch_size_, &eval);
-  auto limit_batches =
-      EvaluateOptionalExpression(stream_query->limit_batches_, &eval);
-
-  Callback callback;
-
-  switch (stream_query->action_) {
-    case StreamQuery::Action::CREATE_STREAM:
-      callback.fn = [streams, stream_name, stream_uri, stream_topic,
-                     transform_uri, batch_interval_in_ms, batch_size] {
-        CHECK(stream_uri.IsString());
-        CHECK(stream_topic.IsString());
-        CHECK(transform_uri.IsString());
-        CHECK(batch_interval_in_ms.IsInt() || batch_interval_in_ms.IsNull());
-        CHECK(batch_size.IsInt() || batch_size.IsNull());
-
-        integrations::kafka::StreamInfo info;
-        info.stream_name = stream_name;
-
-        info.stream_uri = stream_uri.ValueString();
-        info.stream_topic = stream_topic.ValueString();
-        info.transform_uri = transform_uri.ValueString();
-        info.batch_interval_in_ms =
-            batch_interval_in_ms.IsInt()
-                ? std::make_optional(batch_interval_in_ms.ValueInt())
-                : std::nullopt;
-        info.batch_size = batch_size.IsInt()
-                              ? std::make_optional(batch_size.ValueInt())
-                              : std::nullopt;
-
-        try {
-          streams->Create(info);
-        } catch (const integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::DROP_STREAM:
-      callback.fn = [streams, stream_name] {
-        try {
-          streams->Drop(stream_name);
-        } catch (const integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::SHOW_STREAMS:
-      callback.header = {"name", "uri", "topic", "transform", "status"};
-      callback.fn = [streams] {
-        std::vector<std::vector<TypedValue>> status;
-        for (const auto &stream : streams->Show()) {
-          status.push_back(std::vector<TypedValue>{
-              TypedValue(stream.stream_name), TypedValue(stream.stream_uri),
-              TypedValue(stream.stream_topic), TypedValue(stream.transform_uri),
-              TypedValue(stream.stream_status)});
-        }
-        return status;
-      };
-      return callback;
-    case StreamQuery::Action::START_STREAM:
-      callback.fn = [streams, stream_name, limit_batches] {
-        CHECK(limit_batches.IsInt() || limit_batches.IsNull());
-
-        try {
-          streams->Start(stream_name,
-                         limit_batches.IsInt()
-                             ? std::make_optional(limit_batches.ValueInt())
-                             : std::nullopt);
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::STOP_STREAM:
-      callback.fn = [streams, stream_name] {
-        try {
-          streams->Stop(stream_name);
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::START_ALL_STREAMS:
-      callback.fn = [streams] {
-        try {
-          streams->StartAll();
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::STOP_ALL_STREAMS:
-      callback.fn = [streams] {
-        try {
-          streams->StopAll();
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::TEST_STREAM:
-      callback.header = {"query", "params"};
-      callback.fn = [streams, stream_name, limit_batches] {
-        CHECK(limit_batches.IsInt() || limit_batches.IsNull());
-
-        std::vector<std::vector<TypedValue>> rows;
-        try {
-          auto results = streams->Test(
-              stream_name, limit_batches.IsInt()
-                               ? std::make_optional(limit_batches.ValueInt())
-                               : std::nullopt);
-          for (const auto &result : results) {
-            std::map<std::string, TypedValue> params;
-            for (const auto &param : result.second) {
-              params.emplace(param.first, glue::ToTypedValue(param.second));
-            }
-
-            rows.emplace_back(std::vector<TypedValue>{TypedValue(result.first),
-                                                      TypedValue(params)});
-          }
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return rows;
-      };
-      return callback;
   }
 }
 
@@ -1274,19 +1108,6 @@ Interpreter::Results Interpreter::Prepare(
     }
     callback = HandleAuthQuery(auth_query, interpreter_context_->auth,
                                parsed_query.parameters, db_accessor);
-#endif
-  } else if (auto *stream_query =
-                 utils::Downcast<StreamQuery>(parsed_query.query)) {
-#ifdef MG_SINGLE_NODE_HA
-    throw utils::NotYetImplemented(
-        "Graph streams are not yet supported in Memgraph HA instance.");
-#else
-    if (in_explicit_transaction_) {
-      throw StreamClauseInMulticommandTxException();
-    }
-    callback =
-        HandleStreamQuery(stream_query, interpreter_context_->kafka_streams,
-                          parsed_query.parameters, db_accessor);
 #endif
   } else if (auto *info_query =
                  utils::Downcast<InfoQuery>(parsed_query.query)) {

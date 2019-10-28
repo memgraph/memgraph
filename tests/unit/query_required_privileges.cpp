@@ -111,28 +111,6 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
               UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 
-TEST_F(TestPrivilegeExtractor, StreamQuery) {
-  std::string stream_name("kafka");
-  std::string stream_uri("localhost:1234");
-  std::string stream_topic("tropik");
-  std::string transform_uri("localhost:1234/file.py");
-
-  std::vector<StreamQuery *> stream_queries = {
-      CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri,
-                    nullptr, nullptr),
-      DROP_STREAM(stream_name),
-      SHOW_STREAMS,
-      START_STREAM(stream_name, nullptr),
-      STOP_STREAM(stream_name),
-      START_ALL_STREAMS,
-      STOP_ALL_STREAMS};
-
-  for (auto *query : stream_queries) {
-    EXPECT_THAT(GetRequiredPrivileges(query),
-                UnorderedElementsAre(AuthQuery::Privilege::STREAM));
-  }
-}
-
 TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
   auto *query = storage.Create<InfoQuery>();
   query->info_type_ = InfoQuery::InfoType::INDEX;

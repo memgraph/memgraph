@@ -141,41 +141,6 @@ QUERIES = [
         "SHOW USERS FOR test_role",
         ("AUTH",)
     ),
-
-    # STREAM
-    (
-        "CREATE STREAM strim AS LOAD DATA KAFKA '127.0.0.1:9092' WITH TOPIC "
-        "'test' WITH TRANSFORM 'http://127.0.0.1/transform.py'",
-        ("STREAM",)
-    ),
-    (
-        "DROP STREAM strim",
-        ("STREAM",)
-    ),
-    (
-        "SHOW STREAMS",
-        ("STREAM",)
-    ),
-    (
-        "START STREAM strim",
-        ("STREAM",)
-    ),
-    (
-        "STOP STREAM strim",
-        ("STREAM",)
-    ),
-    (
-        "START ALL STREAMS",
-        ("STREAM",)
-    ),
-    (
-        "STOP ALL STREAMS",
-        ("STREAM",)
-    ),
-    (
-        "TEST STREAM strim",
-        ("STREAM",)
-    ),
 ]
 
 UNAUTHORIZED_ERROR = "You are not authorized to execute this query! Please " \

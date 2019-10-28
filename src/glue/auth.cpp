@@ -26,8 +26,6 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::DUMP;
     case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
-    case query::AuthQuery::Privilege::STREAM:
-      return auth::Permission::STREAM;
   }
 }
 }

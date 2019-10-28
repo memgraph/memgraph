@@ -182,12 +182,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override;
 
   /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitStreamQuery(
-      MemgraphCypher::StreamQueryContext *ctx) override;
-
-  /**
    * @return DumpQuery*
    */
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
@@ -325,63 +319,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitShowUsersForRole(
       MemgraphCypher::ShowUsersForRoleContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitCreateStream(
-      MemgraphCypher::CreateStreamContext *ctx) override;
-
-  antlrcpp::Any visitBatchIntervalOption(
-      MemgraphCypher::BatchIntervalOptionContext *ctx) override;
-
-  antlrcpp::Any visitBatchSizeOption(
-      MemgraphCypher::BatchSizeOptionContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitDropStream(
-      MemgraphCypher::DropStreamContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitShowStreams(
-      MemgraphCypher::ShowStreamsContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitStartStream(
-      MemgraphCypher::StartStreamContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitStopStream(
-      MemgraphCypher::StopStreamContext *ctx) override;
-
-  antlrcpp::Any visitLimitBatchesOption(
-      MemgraphCypher::LimitBatchesOptionContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitStartAllStreams(
-      MemgraphCypher::StartAllStreamsContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitStopAllStreams(
-      MemgraphCypher::StopAllStreamsContext *ctx) override;
-
-  /**
-   * @return StreamQuery*
-   */
-  antlrcpp::Any visitTestStream(
-      MemgraphCypher::TestStreamContext *ctx) override;
 
   /**
    * @return Return*

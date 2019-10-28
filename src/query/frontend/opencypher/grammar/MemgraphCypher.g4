@@ -9,10 +9,7 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | ALTER
                       | AUTH
-                      | BATCH
-                      | BATCHES
                       | CLEAR
-                      | DATA
                       | DATABASE
                       | DENY
                       | DROP
@@ -21,24 +18,13 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GRANT
                       | IDENTIFIED
-                      | INTERVAL
-                      | K_TEST
-                      | KAFKA
-                      | LOAD
                       | PASSWORD
                       | PRIVILEGES
                       | REVOKE
                       | ROLE
                       | ROLES
-                      | SIZE
-                      | START
                       | STATS
-                      | STOP
-                      | STREAM
-                      | STREAMS
                       | TO
-                      | TOPIC
-                      | TRANSFORM
                       | USER
                       | USERS
                       ;
@@ -55,7 +41,6 @@ query : cypherQuery
       | infoQuery
       | constraintQuery
       | authQuery
-      | streamQuery
       | dumpQuery
       ;
 
@@ -104,7 +89,7 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | STATS | AUTH | STREAM | CONSTRAINT | DUMP ;
+          | REMOVE | INDEX | STATS | AUTH | CONSTRAINT | DUMP ;
 
 privilegeList : privilege ( ',' privilege )* ;
 
@@ -113,41 +98,5 @@ showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
-
-streamQuery : createStream
-            | dropStream
-            | showStreams
-            | startStream
-            | stopStream
-            | startAllStreams
-            | stopAllStreams
-            | testStream
-            ;
-
-streamName : symbolicName ;
-
-createStream : CREATE STREAM streamName AS LOAD DATA KAFKA
-streamUri=literal WITH TOPIC streamTopic=literal WITH TRANSFORM
-transformUri=literal ( batchIntervalOption )? ( batchSizeOption )? ;
-
-batchIntervalOption : BATCH INTERVAL literal ;
-
-batchSizeOption : BATCH SIZE literal ;
-
-dropStream : DROP STREAM streamName ;
-
-showStreams : SHOW STREAMS ;
-
-startStream : START STREAM streamName ( limitBatchesOption )? ;
-
-stopStream : STOP STREAM streamName ;
-
-limitBatchesOption : LIMIT limitBatches=literal BATCHES ;
-
-startAllStreams : START ALL STREAMS ;
-
-stopAllStreams : STOP ALL STREAMS ;
-
-testStream : K_TEST STREAM streamName ( limitBatchesOption )? ;
 
 dumpQuery: DUMP DATABASE ;

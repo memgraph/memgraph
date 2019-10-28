@@ -100,20 +100,6 @@ class BoltSession final
   io::network::Endpoint endpoint_;
 };
 
-/// Class that implements ResultStream API for Kafka.
-///
-/// Kafka doesn't need to stream the import results back to the client so we
-/// don't need any functionality here.
-class KafkaResultStream {
- public:
-  void Result(const std::vector<query::TypedValue> &) {}
-};
-
-/// Writes data streamed from kafka to memgraph.
-void KafkaStreamWriter(
-    SessionData &session_data, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params);
-
 /// Set up signal handlers and register `shutdown` on SIGTERM and SIGINT.
 /// In most cases you don't have to call this. If you are using a custom server
 /// startup function for `WithInit`, then you probably need to use this to

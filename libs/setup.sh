@@ -136,11 +136,6 @@ sed -i 's/-Wshadow/-Wno-defaulted-function-deleted/' rocksdb/CMakeLists.txt
 # remove shared library from install dependencies
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
-# kafka
-kafka_tag="c319b4e987d0bc4fe4f01cf91419d90b62061655" # Mar 8, 2018
-# git clone https://github.com/edenhill/librdkafka.git
-clone git://deps.memgraph.io/librdkafka.git librdkafka $kafka_tag
-
 # mgclient
 mgclient_tag="fe94b3631385ef5dbe40a3d8458860dbcc33e6ea" # May 27, 2019
 # git clone https://github.com/memgraph/mgclient.git

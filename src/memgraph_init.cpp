@@ -165,28 +165,6 @@ void BoltSession::TypedValueResultStream::Result(
   encoder_->MessageRecord(decoded_values);
 }
 
-void KafkaStreamWriter(
-    SessionData &session_data, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params) {
-  query::Interpreter interpreter(session_data.interpreter_context);
-  KafkaResultStream stream;
-  std::map<std::string, PropertyValue> params_pv;
-  for (const auto &kv : params)
-    params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-
-  try {
-    // NOTE: This potentially allows Kafka streams to execute transaction
-    // control queries. However, those will not really work as a new
-    // `Interpreter` instance is created upon every call to this function,
-    // meaning any multicommand transaction state is lost.
-    interpreter.Interpret(query, params_pv);
-    interpreter.PullAll(&stream);
-  } catch (const utils::BasicException &e) {
-    LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                 << e.what();
-  }
-};
-
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
 // when we are exiting main, inside destructors of database::GraphDb and
