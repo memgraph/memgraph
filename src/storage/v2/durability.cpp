@@ -434,10 +434,6 @@ bool Decoder::SetPosition(uint64_t position) {
 /////////////////////////////
 
 namespace {
-// Magic values written to the start of a snapshot/WAL file to identify it.
-const std::string kSnapshotMagic{"MGsn"};
-const std::string kWalMagic{"MGwl"};
-
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
@@ -614,6 +610,204 @@ Marker VertexActionToMarker(Delta::Action action) {
       return Marker::DELTA_EDGE_CREATE;
   }
 }
+
+// This function convertes a Marker to a WalDeltaData::Type. It checks for the
+// validity of the marker and throws if an invalid marker is specified.
+// @throw RecoveryFailure
+WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
+  switch (marker) {
+    case Marker::DELTA_VERTEX_CREATE:
+      return WalDeltaData::Type::VERTEX_CREATE;
+    case Marker::DELTA_VERTEX_DELETE:
+      return WalDeltaData::Type::VERTEX_DELETE;
+    case Marker::DELTA_VERTEX_ADD_LABEL:
+      return WalDeltaData::Type::VERTEX_ADD_LABEL;
+    case Marker::DELTA_VERTEX_REMOVE_LABEL:
+      return WalDeltaData::Type::VERTEX_REMOVE_LABEL;
+    case Marker::DELTA_EDGE_CREATE:
+      return WalDeltaData::Type::EDGE_CREATE;
+    case Marker::DELTA_EDGE_DELETE:
+      return WalDeltaData::Type::EDGE_DELETE;
+    case Marker::DELTA_VERTEX_SET_PROPERTY:
+      return WalDeltaData::Type::VERTEX_SET_PROPERTY;
+    case Marker::DELTA_EDGE_SET_PROPERTY:
+      return WalDeltaData::Type::EDGE_SET_PROPERTY;
+    case Marker::DELTA_TRANSACTION_END:
+      return WalDeltaData::Type::TRANSACTION_END;
+    case Marker::DELTA_LABEL_INDEX_CREATE:
+      return WalDeltaData::Type::LABEL_INDEX_CREATE;
+    case Marker::DELTA_LABEL_INDEX_DROP:
+      return WalDeltaData::Type::LABEL_INDEX_DROP;
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
+      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
+    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
+      return WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
+    case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
+      return WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
+
+    case Marker::TYPE_NULL:
+    case Marker::TYPE_BOOL:
+    case Marker::TYPE_INT:
+    case Marker::TYPE_DOUBLE:
+    case Marker::TYPE_STRING:
+    case Marker::TYPE_LIST:
+    case Marker::TYPE_MAP:
+    case Marker::TYPE_PROPERTY_VALUE:
+    case Marker::SECTION_VERTEX:
+    case Marker::SECTION_EDGE:
+    case Marker::SECTION_MAPPER:
+    case Marker::SECTION_METADATA:
+    case Marker::SECTION_INDICES:
+    case Marker::SECTION_CONSTRAINTS:
+    case Marker::SECTION_DELTA:
+    case Marker::SECTION_OFFSETS:
+    case Marker::VALUE_FALSE:
+    case Marker::VALUE_TRUE:
+      throw RecoveryFailure("Invalid WAL data!");
+  }
+}
+
+bool IsWalDeltaDataTypeTransactionEnd(WalDeltaData::Type type) {
+  switch (type) {
+    // These delta actions are all found inside transactions so they don't
+    // indicate a transaction end.
+    case WalDeltaData::Type::VERTEX_CREATE:
+    case WalDeltaData::Type::VERTEX_DELETE:
+    case WalDeltaData::Type::VERTEX_ADD_LABEL:
+    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
+    case WalDeltaData::Type::EDGE_CREATE:
+    case WalDeltaData::Type::EDGE_DELETE:
+    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
+    case WalDeltaData::Type::EDGE_SET_PROPERTY:
+      return false;
+
+    // This delta explicitly indicates that a transaction is done.
+    case WalDeltaData::Type::TRANSACTION_END:
+      return true;
+
+    // These operations aren't transactional and they are encoded only using
+    // a single delta, so they each individually mark the end of their
+    // 'transaction'.
+    case WalDeltaData::Type::LABEL_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+      return true;
+  }
+}
+
+// Function used to either read or skip the current WAL delta data. The WAL
+// delta header must be read before calling this function. If the delta data is
+// read then the data returned is valid, if the delta data is skipped then the
+// returned data is not guaranteed to be set (it could be empty) and shouldn't
+// be used.
+// @throw RecoveryFailure
+template <bool read_data>
+WalDeltaData ReadSkipWalDeltaData(Decoder *wal) {
+  WalDeltaData delta;
+
+  auto action = wal->ReadMarker();
+  if (!action) throw RecoveryFailure("Invalid WAL data!");
+  delta.type = MarkerToWalDeltaDataType(*action);
+
+  switch (delta.type) {
+    case WalDeltaData::Type::VERTEX_CREATE:
+    case WalDeltaData::Type::VERTEX_DELETE: {
+      auto gid = wal->ReadUint();
+      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.vertex_create_delete.gid = Gid::FromUint(*gid);
+      break;
+    }
+    case WalDeltaData::Type::VERTEX_ADD_LABEL:
+    case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
+      auto gid = wal->ReadUint();
+      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.vertex_add_remove_label.gid = Gid::FromUint(*gid);
+      if constexpr (read_data) {
+        auto label = wal->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.vertex_add_remove_label.label = std::move(*label);
+      } else {
+        if (!wal->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
+    case WalDeltaData::Type::EDGE_SET_PROPERTY: {
+      auto gid = wal->ReadUint();
+      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.vertex_edge_set_property.gid = Gid::FromUint(*gid);
+      if constexpr (read_data) {
+        auto property = wal->ReadString();
+        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        delta.vertex_edge_set_property.property = std::move(*property);
+        auto value = wal->ReadPropertyValue();
+        if (!value) throw RecoveryFailure("Invalid WAL data!");
+        delta.vertex_edge_set_property.value = std::move(*value);
+      } else {
+        if (!wal->SkipString() || !wal->SkipPropertyValue())
+          throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+    case WalDeltaData::Type::EDGE_CREATE:
+    case WalDeltaData::Type::EDGE_DELETE: {
+      auto gid = wal->ReadUint();
+      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.edge_create_delete.gid = Gid::FromUint(*gid);
+      if constexpr (read_data) {
+        auto edge_type = wal->ReadString();
+        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        delta.edge_create_delete.edge_type = std::move(*edge_type);
+      } else {
+        if (!wal->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      auto from_gid = wal->ReadUint();
+      if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.edge_create_delete.from_vertex = Gid::FromUint(*from_gid);
+      auto to_gid = wal->ReadUint();
+      if (!to_gid) throw RecoveryFailure("Invalid WAL data!");
+      delta.edge_create_delete.to_vertex = Gid::FromUint(*to_gid);
+      break;
+    }
+    case WalDeltaData::Type::TRANSACTION_END:
+      break;
+    case WalDeltaData::Type::LABEL_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto label = wal->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label.label = std::move(*label);
+      } else {
+        if (!wal->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
+      if constexpr (read_data) {
+        auto label = wal->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property.label = std::move(*label);
+        auto property = wal->ReadString();
+        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property.property = std::move(*property);
+      } else {
+        if (!wal->SkipString() || !wal->SkipString())
+          throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+  }
+
+  return delta;
+}
 }  // namespace
 
 // Function used to read information about the snapshot file.
@@ -737,87 +931,13 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Read deltas.
   info.num_deltas = 0;
   auto validate_delta = [&wal]() -> std::optional<std::pair<uint64_t, bool>> {
-    auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_DELTA) return std::nullopt;
-
-    auto timestamp = wal.ReadUint();
-    if (!timestamp) return std::nullopt;
-
-    auto action = wal.ReadMarker();
-    if (!action) return std::nullopt;
-
-    bool is_transaction_end;
-    switch (*action) {
-      // These delta actions are all found inside transactions so they don't
-      // indicate a transaction end.
-      case Marker::DELTA_VERTEX_CREATE:
-      case Marker::DELTA_VERTEX_DELETE:
-        if (!wal.ReadUint()) return std::nullopt;
-        is_transaction_end = false;
-        break;
-      case Marker::DELTA_VERTEX_ADD_LABEL:
-      case Marker::DELTA_VERTEX_REMOVE_LABEL:
-        if (!wal.ReadUint() || !wal.SkipString()) return std::nullopt;
-        is_transaction_end = false;
-        break;
-      case Marker::DELTA_EDGE_CREATE:
-      case Marker::DELTA_EDGE_DELETE:
-        if (!wal.ReadUint() || !wal.SkipString() || !wal.ReadUint() ||
-            !wal.ReadUint())
-          return std::nullopt;
-        is_transaction_end = false;
-        break;
-      case Marker::DELTA_VERTEX_SET_PROPERTY:
-      case Marker::DELTA_EDGE_SET_PROPERTY:
-        if (!wal.ReadUint() || !wal.SkipString() || !wal.SkipPropertyValue())
-          return std::nullopt;
-        is_transaction_end = false;
-        break;
-
-      // This delta explicitly indicates that a transaction is done.
-      case Marker::DELTA_TRANSACTION_END:
-        is_transaction_end = true;
-        break;
-
-      // These operations aren't transactional and they are encoded only using
-      // a single delta, so they each individually mark the end of their
-      // 'transaction'.
-      case Marker::DELTA_LABEL_INDEX_CREATE:
-      case Marker::DELTA_LABEL_INDEX_DROP:
-        if (!wal.SkipString()) return std::nullopt;
-        is_transaction_end = true;
-        break;
-      case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
-      case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-      case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
-      case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
-        if (!wal.SkipString() || !wal.SkipString()) return std::nullopt;
-        is_transaction_end = true;
-        break;
-
-      // These markers aren't delta actions.
-      case Marker::TYPE_NULL:
-      case Marker::TYPE_BOOL:
-      case Marker::TYPE_INT:
-      case Marker::TYPE_DOUBLE:
-      case Marker::TYPE_STRING:
-      case Marker::TYPE_LIST:
-      case Marker::TYPE_MAP:
-      case Marker::TYPE_PROPERTY_VALUE:
-      case Marker::SECTION_VERTEX:
-      case Marker::SECTION_EDGE:
-      case Marker::SECTION_MAPPER:
-      case Marker::SECTION_METADATA:
-      case Marker::SECTION_INDICES:
-      case Marker::SECTION_CONSTRAINTS:
-      case Marker::SECTION_DELTA:
-      case Marker::SECTION_OFFSETS:
-      case Marker::VALUE_FALSE:
-      case Marker::VALUE_TRUE:
-        return std::nullopt;
+    try {
+      auto timestamp = ReadWalDeltaHeader(&wal);
+      auto type = SkipWalDeltaData(&wal);
+      return {{timestamp, IsWalDeltaDataTypeTransactionEnd(type)}};
+    } catch (const RecoveryFailure &) {
+      return std::nullopt;
     }
-
-    return {{*timestamp, is_transaction_end}};
   };
   auto size = wal.GetSize();
   // Here we read the whole file and determine the number of valid deltas. A
@@ -853,6 +973,80 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   if (info.num_deltas == 0) throw RecoveryFailure("Invalid WAL data!");
 
   return info;
+}
+
+bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
+  if (a.type != b.type) return false;
+  switch (a.type) {
+    case WalDeltaData::Type::VERTEX_CREATE:
+    case WalDeltaData::Type::VERTEX_DELETE:
+      return a.vertex_create_delete.gid == b.vertex_create_delete.gid;
+
+    case WalDeltaData::Type::VERTEX_ADD_LABEL:
+    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
+      return a.vertex_add_remove_label.gid == b.vertex_add_remove_label.gid &&
+             a.vertex_add_remove_label.label == b.vertex_add_remove_label.label;
+
+    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
+    case WalDeltaData::Type::EDGE_SET_PROPERTY:
+      return a.vertex_edge_set_property.gid == b.vertex_edge_set_property.gid &&
+             a.vertex_edge_set_property.property ==
+                 b.vertex_edge_set_property.property &&
+             a.vertex_edge_set_property.value ==
+                 b.vertex_edge_set_property.value;
+
+    case WalDeltaData::Type::EDGE_CREATE:
+    case WalDeltaData::Type::EDGE_DELETE:
+      return a.edge_create_delete.gid == b.edge_create_delete.gid &&
+             a.edge_create_delete.edge_type == b.edge_create_delete.edge_type &&
+             a.edge_create_delete.from_vertex ==
+                 b.edge_create_delete.from_vertex &&
+             a.edge_create_delete.to_vertex == b.edge_create_delete.to_vertex;
+
+    case WalDeltaData::Type::TRANSACTION_END:
+      return true;
+
+    case WalDeltaData::Type::LABEL_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_INDEX_DROP:
+      return a.operation_label.label == b.operation_label.label;
+
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+      return a.operation_label_property.label ==
+                 b.operation_label_property.label &&
+             a.operation_label_property.property ==
+                 b.operation_label_property.property;
+  }
+}
+bool operator!=(const WalDeltaData &a, const WalDeltaData &b) {
+  return !(a == b);
+}
+
+// Function used to read the WAL delta header. The function returns the delta
+// timestamp.
+uint64_t ReadWalDeltaHeader(Decoder *wal) {
+  auto marker = wal->ReadMarker();
+  if (!marker || *marker != Marker::SECTION_DELTA)
+    throw RecoveryFailure("Invalid WAL data!");
+
+  auto timestamp = wal->ReadUint();
+  if (!timestamp) throw RecoveryFailure("Invalid WAL data!");
+  return *timestamp;
+}
+
+// Function used to either read the current WAL delta data. The WAL delta header
+// must be read before calling this function.
+WalDeltaData ReadWalDeltaData(Decoder *wal) {
+  return ReadSkipWalDeltaData<true>(wal);
+}
+
+// Function used to either skip the current WAL delta data. The WAL delta header
+// must be read before calling this function.
+WalDeltaData::Type SkipWalDeltaData(Decoder *wal) {
+  auto delta = ReadSkipWalDeltaData<false>(wal);
+  return delta.type;
 }
 
 WalFile::WalFile(const std::filesystem::path &wal_directory,

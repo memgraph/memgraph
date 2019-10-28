@@ -27,6 +27,10 @@ namespace storage {
 static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
 
+// Magic values written to the start of a snapshot/WAL file to identify it.
+const std::string kSnapshotMagic{"MGsn"};
+const std::string kWalMagic{"MGwl"};
+
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
 /// Markers that are used to indicate crucial parts of the snapshot/WAL.
@@ -207,6 +211,80 @@ struct WalInfo {
 /// Function used to read information about the WAL file.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// Structure used to return loaded WAL delta data.
+struct WalDeltaData {
+  enum class Type {
+    VERTEX_CREATE,
+    VERTEX_DELETE,
+    VERTEX_ADD_LABEL,
+    VERTEX_REMOVE_LABEL,
+    VERTEX_SET_PROPERTY,
+    EDGE_CREATE,
+    EDGE_DELETE,
+    EDGE_SET_PROPERTY,
+    TRANSACTION_END,
+    LABEL_INDEX_CREATE,
+    LABEL_INDEX_DROP,
+    LABEL_PROPERTY_INDEX_CREATE,
+    LABEL_PROPERTY_INDEX_DROP,
+    EXISTENCE_CONSTRAINT_CREATE,
+    EXISTENCE_CONSTRAINT_DROP,
+  };
+
+  Type type{Type::TRANSACTION_END};
+
+  struct {
+    Gid gid;
+  } vertex_create_delete;
+
+  struct {
+    Gid gid;
+    std::string label;
+  } vertex_add_remove_label;
+
+  struct {
+    Gid gid;
+    std::string property;
+    PropertyValue value;
+  } vertex_edge_set_property;
+
+  struct {
+    Gid gid;
+    std::string edge_type;
+    Gid from_vertex;
+    Gid to_vertex;
+  } edge_create_delete;
+
+  struct {
+    std::string label;
+  } operation_label;
+
+  struct {
+    std::string label;
+    std::string property;
+  } operation_label_property;
+};
+
+bool operator==(const WalDeltaData &a, const WalDeltaData &b);
+bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
+
+/// Function used to read the WAL delta header. The function returns the delta
+/// timestamp.
+/// @throw RecoveryFailure
+uint64_t ReadWalDeltaHeader(Decoder *wal);
+
+/// Function used to either read the current WAL delta data. The function
+/// returns the read delta data. The WAL delta header must be read before
+/// calling this function.
+/// @throw RecoveryFailure
+WalDeltaData ReadWalDeltaData(Decoder *wal);
+
+/// Function used to either skip the current WAL delta data. The function
+/// returns the skipped delta type. The WAL delta header must be read before
+/// calling this function.
+/// @throw RecoveryFailure
+WalDeltaData::Type SkipWalDeltaData(Decoder *wal);
 
 /// Enum used to indicate a global database operation that isn't transactional.
 enum class StorageGlobalOperation {

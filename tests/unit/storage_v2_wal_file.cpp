@@ -12,6 +12,25 @@
 #include "utils/file.hpp"
 #include "utils/uuid.hpp"
 
+// Helper function used to convert between enum types.
+storage::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
+    storage::StorageGlobalOperation operation) {
+  switch (operation) {
+    case storage::StorageGlobalOperation::LABEL_INDEX_CREATE:
+      return storage::WalDeltaData::Type::LABEL_INDEX_CREATE;
+    case storage::StorageGlobalOperation::LABEL_INDEX_DROP:
+      return storage::WalDeltaData::Type::LABEL_INDEX_DROP;
+    case storage::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+      return storage::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
+    case storage::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+      return storage::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
+    case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+      return storage::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
+    case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+      return storage::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
+  }
+}
+
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
  public:
@@ -28,12 +47,24 @@ class DeltaGenerator final {
       auto delta = storage::CreateDeleteObjectDelta(&transaction_);
       auto &it = gen_->vertices_.emplace_back(gid, delta);
       delta->prev.Set(&it);
+      {
+        storage::WalDeltaData data;
+        data.type = storage::WalDeltaData::Type::VERTEX_CREATE;
+        data.vertex_create_delete.gid = gid;
+        data_.push_back(data);
+      }
       return &it;
     }
 
     void DeleteVertex(storage::Vertex *vertex) {
       storage::CreateAndLinkDelta(&transaction_, &*vertex,
                                   storage::Delta::RecreateObjectTag());
+      {
+        storage::WalDeltaData data;
+        data.type = storage::WalDeltaData::Type::VERTEX_DELETE;
+        data.vertex_create_delete.gid = vertex->gid;
+        data_.push_back(data);
+      }
     }
 
     void AddLabel(storage::Vertex *vertex, const std::string &label) {
@@ -41,6 +72,13 @@ class DeltaGenerator final {
       vertex->labels.push_back(label_id);
       storage::CreateAndLinkDelta(&transaction_, &*vertex,
                                   storage::Delta::RemoveLabelTag(), label_id);
+      {
+        storage::WalDeltaData data;
+        data.type = storage::WalDeltaData::Type::VERTEX_ADD_LABEL;
+        data.vertex_add_remove_label.gid = vertex->gid;
+        data.vertex_add_remove_label.label = label;
+        data_.push_back(data);
+      }
     }
 
     void RemoveLabel(storage::Vertex *vertex, const std::string &label) {
@@ -49,6 +87,13 @@ class DeltaGenerator final {
           std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
       storage::CreateAndLinkDelta(&transaction_, &*vertex,
                                   storage::Delta::AddLabelTag(), label_id);
+      {
+        storage::WalDeltaData data;
+        data.type = storage::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
+        data.vertex_add_remove_label.gid = vertex->gid;
+        data.vertex_add_remove_label.label = label;
+        data_.push_back(data);
+      }
     }
 
     void SetProperty(storage::Vertex *vertex, const std::string &property,
@@ -74,6 +119,17 @@ class DeltaGenerator final {
           props.erase(it);
         }
       }
+      {
+        storage::WalDeltaData data;
+        data.type = storage::WalDeltaData::Type::VERTEX_SET_PROPERTY;
+        data.vertex_edge_set_property.gid = vertex->gid;
+        data.vertex_edge_set_property.property = property;
+        // We don't store the property value here. That is because the storage
+        // generates multiple `SetProperty` deltas using only the final values
+        // of the property. The intermediate values aren't encoded. The value is
+        // later determined in the `Finalize` function.
+        data_.push_back(data);
+      }
     }
 
     void Finalize(bool append_transaction_end = true) {
@@ -93,7 +149,33 @@ class DeltaGenerator final {
       }
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
-        gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
+        if (gen_->valid_) {
+          gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
+          for (auto &data : data_) {
+            if (data.type == storage::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
+              // We need to put the final property value into the SET_PROPERTY
+              // delta.
+              auto vertex =
+                  std::find(gen_->vertices_.begin(), gen_->vertices_.end(),
+                            data.vertex_edge_set_property.gid);
+              ASSERT_NE(vertex, gen_->vertices_.end());
+              auto property_id =
+                  storage::PropertyId::FromUint(gen_->mapper_.NameToId(
+                      data.vertex_edge_set_property.property));
+              auto &props = vertex->properties;
+              auto it = props.find(property_id);
+              if (it == props.end()) {
+                data.vertex_edge_set_property.value = storage::PropertyValue();
+              } else {
+                data.vertex_edge_set_property.value = it->second;
+              }
+            }
+            gen_->data_.emplace_back(commit_timestamp, data);
+          }
+          storage::WalDeltaData data{
+              .type = storage::WalDeltaData::Type::TRANSACTION_END};
+          gen_->data_.emplace_back(commit_timestamp, data);
+        }
       } else {
         gen_->valid_ = false;
       }
@@ -102,7 +184,10 @@ class DeltaGenerator final {
    private:
     DeltaGenerator *gen_;
     storage::Transaction transaction_;
+    std::vector<storage::WalDeltaData> data_;
   };
+
+  using DataT = std::vector<std::pair<uint64_t, storage::WalDeltaData>>;
 
   DeltaGenerator(const std::filesystem::path &data_directory,
                  bool properties_on_edges, uint64_t seq_num)
@@ -129,7 +214,24 @@ class DeltaGenerator final {
       property_id = storage::PropertyId::FromUint(mapper_.NameToId(*property));
     }
     wal_file_.AppendOperation(operation, label_id, property_id, timestamp_);
-    UpdateStats(timestamp_, 1);
+    if (valid_) {
+      UpdateStats(timestamp_, 1);
+      storage::WalDeltaData data;
+      data.type = StorageGlobalOperationToWalDeltaDataType(operation);
+      switch (operation) {
+        case storage::StorageGlobalOperation::LABEL_INDEX_CREATE:
+        case storage::StorageGlobalOperation::LABEL_INDEX_DROP:
+          data.operation_label.label = label;
+          break;
+        case storage::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+        case storage::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+        case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+        case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+          data.operation_label_property.label = label;
+          data.operation_label_property.property = *property;
+      }
+      data_.emplace_back(timestamp_, data);
+    }
   }
 
   uint64_t GetPosition() { return wal_file_.GetSize(); }
@@ -144,9 +246,10 @@ class DeltaGenerator final {
             .num_deltas = deltas_count_};
   }
 
+  DataT GetData() { return data_; }
+
  private:
   void UpdateStats(uint64_t timestamp, uint64_t count) {
-    if (!valid_) return;
     if (deltas_count_ == 0) {
       tx_from_ = timestamp;
     }
@@ -164,6 +267,8 @@ class DeltaGenerator final {
   storage::NameIdMapper mapper_;
 
   storage::WalFile wal_file_;
+
+  DataT data_;
 
   uint64_t deltas_count_{0};
   uint64_t tx_from_{0};
@@ -189,6 +294,21 @@ void AssertWalInfoEqual(const storage::WalInfo &a, const storage::WalInfo &b) {
   ASSERT_EQ(a.from_timestamp, b.from_timestamp);
   ASSERT_EQ(a.to_timestamp, b.to_timestamp);
   ASSERT_EQ(a.num_deltas, b.num_deltas);
+}
+
+void AssertWalDataEqual(const DeltaGenerator::DataT &data,
+                        const std::filesystem::path &path) {
+  auto info = storage::ReadWalInfo(path);
+  storage::Decoder wal;
+  wal.Initialize(path, storage::kWalMagic);
+  wal.SetPosition(info.offset_deltas);
+  DeltaGenerator::DataT current;
+  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+    auto timestamp = storage::ReadWalDeltaHeader(&wal);
+    current.emplace_back(timestamp, storage::ReadWalDeltaData(&wal));
+  }
+  ASSERT_EQ(data.size(), current.size());
+  ASSERT_EQ(data, current);
 }
 
 class WalFileTest : public ::testing::TestWithParam<bool> {
@@ -236,11 +356,13 @@ TEST_P(WalFileTest, EmptyFile) {
 #define GENERATE_SIMPLE_TEST(name, ops)                                  \
   TEST_P(WalFileTest, name) {                                            \
     storage::WalInfo info;                                               \
+    DeltaGenerator::DataT data;                                          \
                                                                          \
     {                                                                    \
       DeltaGenerator gen(storage_directory, GetParam(), 5);              \
       ops;                                                               \
       info = gen.GetInfo();                                              \
+      data = gen.GetData();                                              \
     }                                                                    \
                                                                          \
     auto wal_files = GetFilesList();                                     \
@@ -251,6 +373,7 @@ TEST_P(WalFileTest, EmptyFile) {
                    storage::RecoveryFailure);                            \
     } else {                                                             \
       AssertWalInfoEqual(info, storage::ReadWalInfo(wal_files.front())); \
+      AssertWalDataEqual(data, wal_files.front());                       \
     }                                                                    \
   }
 
