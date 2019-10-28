@@ -339,3 +339,119 @@ struct mgp_graph {
   query::DbAccessor *impl;
   storage::View view;
 };
+
+struct mgp_properties_iterator {
+  using allocator_type = utils::Allocator<mgp_properties_iterator>;
+
+  // Define members at the start because we use decltype a lot here, so members
+  // need to be visible in method definitions.
+
+  utils::MemoryResource *memory;
+  const mgp_graph *graph;
+  std::remove_reference_t<decltype(
+      *std::declval<query::VertexAccessor>().Properties(graph->view))>
+      pvs;
+  decltype(pvs.begin()) current_it;
+  std::optional<std::pair<utils::pmr::string, mgp_value>> current;
+  mgp_property property{nullptr, nullptr};
+
+  // Construct with no properties.
+  explicit mgp_properties_iterator(const mgp_graph *graph,
+                                   utils::MemoryResource *memory)
+      : memory(memory), graph(graph), current_it(pvs.begin()) {}
+
+  // May throw who the #$@! knows what because PropertyValueStore doesn't
+  // document what it throws, and it may surely throw some piece of !@#$
+  // exception because it's built on top of STL and other libraries.
+  mgp_properties_iterator(const mgp_graph *graph, decltype(pvs) pvs,
+                          utils::MemoryResource *memory)
+      : memory(memory),
+        graph(graph),
+        pvs(std::move(pvs)),
+        current_it(this->pvs.begin()) {
+    if (current_it != this->pvs.end()) {
+      current.emplace(
+          utils::pmr::string(graph->impl->PropertyToName(current_it->first),
+                             memory),
+          mgp_value(current_it->second, memory));
+      property.name = current->first.c_str();
+      property.value = &current->second;
+    }
+  }
+
+  mgp_properties_iterator(const mgp_properties_iterator &) = delete;
+  mgp_properties_iterator(mgp_properties_iterator &&) = delete;
+
+  mgp_properties_iterator &operator=(const mgp_properties_iterator &) = delete;
+  mgp_properties_iterator &operator=(mgp_properties_iterator &&) = delete;
+
+  ~mgp_properties_iterator() = default;
+
+  utils::MemoryResource *GetMemoryResource() const { return memory; }
+};
+
+struct mgp_edges_iterator {
+  using allocator_type = utils::Allocator<mgp_edges_iterator>;
+
+  // Hopefully mgp_vertex copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &,
+                                                utils::MemoryResource *>);
+
+  mgp_edges_iterator(const mgp_vertex &v,
+                     utils::MemoryResource *memory) noexcept
+      : memory(memory), source_vertex(v, memory) {}
+
+  mgp_edges_iterator(mgp_edges_iterator &&other) noexcept
+      : memory(other.memory),
+        source_vertex(std::move(other.source_vertex)),
+        in(std::move(other.in)),
+        in_it(std::move(other.in_it)),
+        out(std::move(other.out)),
+        out_it(std::move(other.out_it)),
+        current_e(std::move(other.current_e)) {}
+
+  mgp_edges_iterator(const mgp_edges_iterator &) = delete;
+  mgp_edges_iterator &operator=(const mgp_edges_iterator &) = delete;
+  mgp_edges_iterator &operator=(mgp_edges_iterator &&) = delete;
+
+  ~mgp_edges_iterator() = default;
+
+  utils::MemoryResource *GetMemoryResource() const { return memory; }
+
+  utils::MemoryResource *memory;
+  mgp_vertex source_vertex;
+  std::optional<std::remove_reference_t<decltype(
+      *source_vertex.impl.InEdges(source_vertex.graph->view))>>
+      in;
+  std::optional<decltype(in->begin())> in_it;
+  std::optional<std::remove_reference_t<decltype(
+      *source_vertex.impl.OutEdges(source_vertex.graph->view))>>
+      out;
+  std::optional<decltype(out->begin())> out_it;
+  std::optional<mgp_edge> current_e;
+};
+
+struct mgp_vertices_iterator {
+  using allocator_type = utils::Allocator<mgp_vertices_iterator>;
+
+  /// @throw anything VerticesIterable may throw
+  mgp_vertices_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
+      : memory(memory),
+        graph(graph),
+        vertices(graph->impl->Vertices(graph->view)),
+        current_it(vertices.begin()) {
+    if (current_it != vertices.end()) {
+      current_v.emplace(*current_it, graph, memory);
+    }
+  }
+
+  utils::MemoryResource *GetMemoryResource() const { return memory; }
+
+  utils::MemoryResource *memory;
+  const mgp_graph *graph;
+  decltype(graph->impl->Vertices(graph->view)) vertices;
+  decltype(vertices.begin()) current_it;
+  std::optional<mgp_vertex> current_v;
+
+};

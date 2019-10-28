@@ -702,11 +702,72 @@ const mgp_map_item *mgp_map_items_iterator_get(
 
 const mgp_map_item *mgp_map_items_iterator_next(mgp_map_items_iterator *it) {
   if (it->current_it == it->map->items.end()) return nullptr;
-  ++it->current_it;
-  if (it->current_it == it->map->items.end()) return nullptr;
+  if (++it->current_it == it->map->items.end()) return nullptr;
   it->current.key = it->current_it->first.c_str();
   it->current.value = &it->current_it->second;
   return &it->current;
+}
+
+mgp_path *mgp_path_make_with_start(const mgp_vertex *vertex,
+                                   mgp_memory *memory) {
+  auto *path = new_mgp_object<mgp_path>(memory);
+  if (!path) return nullptr;
+  try {
+    path->vertices.push_back(*vertex);
+  } catch (...) {
+    delete_mgp_object(path);
+    return nullptr;
+  }
+  return path;
+}
+
+void mgp_path_destroy(mgp_path *path) { delete_mgp_object(path); }
+
+int mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
+  CHECK(mgp_path_size(path) == path->vertices.size() - 1) << "Invalid mgp_path";
+  // Check that the both the last vertex on path and dst_vertex are endpoints of
+  // the given edge.
+  const auto *src_vertex = &path->vertices.back();
+  const mgp_vertex *dst_vertex = nullptr;
+  if (mgp_vertex_equal(mgp_edge_get_to(edge), src_vertex)) {
+    dst_vertex = mgp_edge_get_from(edge);
+  } else if (mgp_vertex_equal(mgp_edge_get_from(edge), src_vertex)) {
+    dst_vertex = mgp_edge_get_to(edge);
+  } else {
+    // edge is not a continuation on src_vertex
+    return 0;
+  }
+  // Try appending edge and dst_vertex to path, preserving the original mgp_path
+  // instance if anything fails.
+  try {
+    path->edges.push_back(*edge);
+  } catch (...) {
+    CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+    return 0;
+  }
+  try {
+    path->vertices.push_back(*dst_vertex);
+  } catch (...) {
+    path->edges.pop_back();
+    CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+    return 0;
+  }
+  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  return 1;
+}
+
+size_t mgp_path_size(const mgp_path *path) { return path->edges.size(); }
+
+const mgp_vertex *mgp_path_vertex_at(const mgp_path *path, size_t i) {
+  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  if (i > mgp_path_size(path)) return nullptr;
+  return &path->vertices[i];
+}
+
+const mgp_edge *mgp_path_edge_at(const mgp_path *path, size_t i) {
+  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  if (i >= mgp_path_size(path)) return nullptr;
+  return &path->edges[i];
 }
 
 /// Plugin Result
@@ -743,4 +804,403 @@ int mgp_result_record_insert(mgp_result_record *record, const char *field_name,
     return 0;
   }
   return 1;
+}
+
+/// Graph Constructs
+
+void mgp_properties_iterator_destroy(mgp_properties_iterator *it) {
+  delete_mgp_object(it);
+}
+
+const mgp_property *mgp_properties_iterator_get(
+    const mgp_properties_iterator *it) {
+  if (it->current) return &it->property;
+  return nullptr;
+}
+
+const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
+  // Incrementing the iterator either for on-disk or in-memory
+  // storage, so perhaps the underlying thing can throw.
+  // Both copying TypedValue and/or string from PropertyName may fail to
+  // allocate. Also, dereferencing `it->current_it` could also throw, so
+  // either way return nullptr and leave `it` in undefined state.
+  // Hopefully iterator comparison doesn't throw, but wrap the whole thing in
+  // try ... catch just to be sure.
+  try {
+    if (it->current_it == it->pvs.end()) {
+      CHECK(!it->current) << "Iteration is already done, so it->current should "
+                             "have been set to std::nullopt";
+      return nullptr;
+    }
+    if (++it->current_it == it->pvs.end()) {
+      it->current = std::nullopt;
+      return nullptr;
+    }
+    it->current.emplace(
+        utils::pmr::string(
+            it->graph->impl->PropertyToName(it->current_it->first),
+            it->GetMemoryResource()),
+        mgp_value(it->current_it->second, it->GetMemoryResource()));
+    it->property.name = it->current->first.c_str();
+    it->property.value = &it->current->second;
+    return &it->property;
+  } catch (...) {
+    it->current = std::nullopt;
+    return nullptr;
+  }
+}
+
+mgp_vertex *mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory) {
+  return new_mgp_object<mgp_vertex>(memory, *v);
+}
+
+void mgp_vertex_destroy(mgp_vertex *v) { delete_mgp_object(v); }
+
+int mgp_vertex_equal(const mgp_vertex *a, const mgp_vertex *b) {
+  return a->impl == b->impl ? 1 : 0;
+}
+
+size_t mgp_vertex_labels_count(const mgp_vertex *v) {
+  auto maybe_labels = v->impl.Labels(v->graph->view);
+  if (maybe_labels.HasError()) {
+    switch (maybe_labels.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        // Treat deleted vertex as having no labels.
+        return 0;
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+        LOG(ERROR) << "Unexpected error when getting vertex labels.";
+        return 0;
+    }
+  }
+  return maybe_labels->size();
+}
+
+mgp_label mgp_vertex_label_at(const mgp_vertex *v, size_t i) {
+  // TODO: Maybe it's worth caching this in mgp_vertex.
+  auto maybe_labels = v->impl.Labels(v->graph->view);
+  if (maybe_labels.HasError()) {
+    switch (maybe_labels.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        return mgp_label{nullptr};
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+        LOG(ERROR) << "Unexpected error when getting vertex labels.";
+        return mgp_label{nullptr};
+    }
+  }
+  if (i >= maybe_labels->size()) return mgp_label{nullptr};
+  const auto &label = (*maybe_labels)[i];
+  static_assert(
+      std::is_lvalue_reference_v<decltype(v->graph->impl->LabelToName(label))>,
+      "Expected LabelToName to return a pointer or reference, so we "
+      "don't have to take a copy and manage memory.");
+  const auto &name = v->graph->impl->LabelToName(label);
+  return mgp_label{name.c_str()};
+}
+
+int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
+  storage::Label label;
+  try {
+    // This will allocate a std::string from `name`, which may throw
+    // std::bad_alloc or std::length_error. This could be avoided with a
+    // std::string_view. Although storage API may be updated with
+    // std::string_view, NameToLabel itself may still throw std::bad_alloc when
+    // creating a new LabelId mapping and we need to handle that.
+    label = v->graph->impl->NameToLabel(name);
+  } catch (...) {
+    LOG(ERROR) << "Unable to allocate a LabelId mapping";
+    // If we need to allocate a new mapping, then the vertex does not have such
+    // a label, so return 0.
+    return 0;
+  }
+  auto maybe_has_label = v->impl.HasLabel(v->graph->view, label);
+  if (maybe_has_label.HasError()) {
+    switch (maybe_has_label.GetError()) {
+      case storage::Error::DELETED_OBJECT:
+        return 0;
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+        LOG(ERROR) << "Unexpected error when checking vertex has label.";
+        return 0;
+    }
+  }
+  return *maybe_has_label;
+}
+
+int mgp_vertex_has_label(const mgp_vertex *v, mgp_label label) {
+  return mgp_vertex_has_label_named(v, label.name);
+}
+
+mgp_value *mgp_vertex_get_property(const mgp_vertex *v, const char *name,
+                                   mgp_memory *memory) {
+  try {
+    const auto &key = v->graph->impl->NameToProperty(name);
+    auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted vertex as having no properties.
+          return new_mgp_object<mgp_value>(memory);
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting vertex property";
+          return nullptr;
+      }
+    }
+    return new_mgp_object<mgp_value>(memory, std::move(*maybe_prop));
+  } catch (...) {
+    // In case NameToProperty or GetProperty throw an exception, most likely
+    // std::bad_alloc.
+    return nullptr;
+  }
+}
+
+mgp_properties_iterator *mgp_vertex_iter_properties(const mgp_vertex *v,
+                                                    mgp_memory *memory) {
+  // NOTE: This copies the whole properties into the iterator.
+  // TODO: Think of a good way to avoid the copy which doesn't just rely on some
+  // assumption that storage may return a pointer to the property store. This
+  // will probably require a different API in storage.
+  try {
+    auto maybe_props = v->impl.Properties(v->graph->view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted vertex as having no properties.
+          return new_mgp_object<mgp_properties_iterator>(memory, v->graph);
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting vertex properties";
+          return nullptr;
+      }
+    }
+    return new_mgp_object<mgp_properties_iterator>(memory, v->graph,
+                                                   std::move(*maybe_props));
+  } catch (...) {
+    // Since we are copying stuff, we may get std::bad_alloc. Hopefully, no
+    // other exceptions are possible, but catch them all just in case.
+    return nullptr;
+  }
+}
+
+void mgp_edges_iterator_destroy(mgp_edges_iterator *it) {
+  delete_mgp_object(it);
+}
+
+mgp_edges_iterator *mgp_vertex_iter_in_edges(const mgp_vertex *v,
+                                             mgp_memory *memory) {
+  auto *it = new_mgp_object<mgp_edges_iterator>(memory, *v);
+  if (!it) return nullptr;
+  try {
+    auto maybe_edges = v->impl.InEdges(v->graph->view);
+    if (maybe_edges.HasError()) {
+      switch (maybe_edges.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted vertex as having no edges.
+          return it;
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting in edges";
+          mgp_edges_iterator_destroy(it);
+          return nullptr;
+      }
+    }
+    it->in.emplace(std::move(*maybe_edges));
+    it->in_it.emplace(it->in->begin());
+    if (*it->in_it != it->in->end()) {
+      it->current_e.emplace(**it->in_it, v->graph, it->GetMemoryResource());
+    }
+  } catch (...) {
+    // We are probably copying edges, and that may throw std::bad_alloc.
+    mgp_edges_iterator_destroy(it);
+    return nullptr;
+  }
+  return it;
+}
+
+mgp_edges_iterator *mgp_vertex_iter_out_edges(const mgp_vertex *v,
+                                              mgp_memory *memory) {
+  auto *it = new_mgp_object<mgp_edges_iterator>(memory, *v);
+  if (!it) return nullptr;
+  try {
+    auto maybe_edges = v->impl.OutEdges(v->graph->view);
+    if (maybe_edges.HasError()) {
+      switch (maybe_edges.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted vertex as having no edges.
+          return it;
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting out edges";
+          mgp_edges_iterator_destroy(it);
+          return nullptr;
+      }
+    }
+    it->out.emplace(std::move(*maybe_edges));
+    it->out_it.emplace(it->out->begin());
+    if (*it->out_it != it->out->end()) {
+      it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
+    }
+  } catch (...) {
+    // We are probably copying edges, and that may throw std::bad_alloc.
+    mgp_edges_iterator_destroy(it);
+    return nullptr;
+  }
+  return it;
+}
+
+const mgp_edge *mgp_edges_iterator_get(const mgp_edges_iterator *it) {
+  if (it->current_e) return &*it->current_e;
+  return nullptr;
+}
+
+const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
+  if (!it->in && !it->out) return nullptr;
+  auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
+    if (*impl_it == end) {
+      CHECK(!it->current_e) << "Iteration is already done, so it->current_e "
+                               "should have been set to std::nullopt";
+      return nullptr;
+    }
+    if (++(*impl_it) == end) {
+      it->current_e = std::nullopt;
+      return nullptr;
+    }
+    it->current_e.emplace(**impl_it, it->source_vertex.graph,
+                          it->GetMemoryResource());
+    return &*it->current_e;
+  };
+  try {
+    if (it->in_it) {
+      return next(&*it->in_it, it->in->end());
+    } else {
+      return next(&*it->out_it, it->out->end());
+    }
+  } catch (...) {
+    // Just to be sure that operator++ or anything else has thrown something.
+    it->current_e = std::nullopt;
+    return nullptr;
+  }
+}
+
+mgp_edge *mgp_edge_copy(const mgp_edge *v, mgp_memory *memory) {
+  return new_mgp_object<mgp_edge>(memory, v->impl, v->from.graph);
+}
+
+void mgp_edge_destroy(mgp_edge *e) { delete_mgp_object(e); }
+
+mgp_edge_type mgp_edge_get_type(const mgp_edge *e) {
+  const auto &name = e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType());
+  static_assert(
+      std::is_lvalue_reference_v<decltype(
+          e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType()))>,
+      "Expected EdgeTypeToName to return a pointer or reference, so we "
+      "don't have to take a copy and manage memory.");
+  return mgp_edge_type{name.c_str()};
+}
+
+const mgp_vertex *mgp_edge_get_from(const mgp_edge *e) { return &e->from; }
+
+const mgp_vertex *mgp_edge_get_to(const mgp_edge *e) { return &e->to; }
+
+mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name,
+                                 mgp_memory *memory) {
+  try {
+    const auto &key = e->from.graph->impl->NameToProperty(name);
+    auto view = e->from.graph->view;
+    auto maybe_prop = e->impl.GetProperty(view, key);
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted edge as having no properties.
+          return new_mgp_object<mgp_value>(memory);
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting edge property";
+          return nullptr;
+      }
+    }
+    return new_mgp_object<mgp_value>(memory, std::move(*maybe_prop));
+  } catch (...) {
+    // In case NameToProperty or GetProperty throw an exception, most likely
+    // std::bad_alloc.
+    return nullptr;
+  }
+}
+
+mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e,
+                                                  mgp_memory *memory) {
+  // NOTE: This copies the whole properties into iterator.
+  // TODO: Think of a good way to avoid the copy which doesn't just rely on some
+  // assumption that storage may return a pointer to the property store. This
+  // will probably require a different API in storage.
+  try {
+    auto view = e->from.graph->view;
+    auto maybe_props = e->impl.Properties(view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          // Treat deleted edge as having no properties.
+          return new_mgp_object<mgp_properties_iterator>(memory, e->from.graph);
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::SERIALIZATION_ERROR:
+          LOG(ERROR) << "Unexpected error when getting edge properties";
+          return nullptr;
+      }
+    }
+    return new_mgp_object<mgp_properties_iterator>(memory, e->from.graph,
+                                                   std::move(*maybe_props));
+  } catch (...) {
+    // Since we are copying stuff, we may get std::bad_alloc. Hopefully, no
+    // other exceptions are possible, but catch them all just in case.
+    return nullptr;
+  }
+}
+
+void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) {
+  delete_mgp_object(it);
+}
+
+mgp_vertices_iterator *mgp_graph_iter_vertices(const mgp_graph *graph,
+                                               mgp_memory *memory) {
+  try {
+    return new_mgp_object<mgp_vertices_iterator>(memory, graph);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
+  if (it->current_v) return &*it->current_v;
+  return nullptr;
+}
+
+const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
+  try {
+    if (it->current_it == it->vertices.end()) {
+      CHECK(!it->current_v) << "Iteration is already done, so it->current_v "
+                               "should have been set to std::nullopt";
+      return nullptr;
+    }
+    if (++it->current_it == it->vertices.end()) {
+      it->current_v = std::nullopt;
+      return nullptr;
+    }
+    it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
+    return &*it->current_v;
+  } catch (...) {
+    // VerticesIterable::Iterator::operator++ may throw
+    it->current_v = std::nullopt;
+    return nullptr;
+  }
 }
