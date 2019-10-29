@@ -299,27 +299,14 @@ class Storage final {
   EdgeTypeId NameToEdgeType(const std::string &name);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return indices_.label_index.CreateIndex(label, vertices_.access());
-  }
+  bool CreateIndex(LabelId label);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return indices_.label_property_index.CreateIndex(label, property,
-                                                     vertices_.access());
-  }
+  bool CreateIndex(LabelId label, PropertyId property);
 
-  bool DropIndex(LabelId label) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return indices_.label_index.DropIndex(label);
-  }
+  bool DropIndex(LabelId label);
 
-  bool DropIndex(LabelId label, PropertyId property) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return indices_.label_property_index.DropIndex(label, property);
-  }
+  bool DropIndex(LabelId label, PropertyId property);
 
   bool LabelIndexExists(LabelId label) const {
     return indices_.label_index.IndexExists(label);
@@ -342,18 +329,11 @@ class Storage final {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   utils::BasicResult<ExistenceConstraintViolation, bool>
-  CreateExistenceConstraint(LabelId label, PropertyId property) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return ::storage::CreateExistenceConstraint(&constraints_, label, property,
-                                                vertices_.access());
-  }
+  CreateExistenceConstraint(LabelId label, PropertyId property);
 
   /// Removes a unique constraint. Returns true if the constraint was removed,
   /// and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property) {
-    std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-    return ::storage::DropExistenceConstraint(&constraints_, label, property);
-  }
+  bool DropExistenceConstraint(LabelId label, PropertyId property);
 
   ConstraintsInfo ListAllConstraints() const {
     return {ListExistenceConstraints(constraints_)};

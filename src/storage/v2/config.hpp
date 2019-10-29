@@ -21,16 +21,26 @@ struct Config {
   } items;
 
   struct Durability {
-    enum class SnapshotType { NONE, PERIODIC };
+    enum class SnapshotWalMode {
+      DISABLED,
+      PERIODIC_SNAPSHOT,
+      PERIODIC_SNAPSHOT_WITH_WAL
+    };
 
     std::filesystem::path storage_directory{"storage"};
 
     bool recover_on_startup{false};
 
-    SnapshotType snapshot_type{SnapshotType::NONE};
+    SnapshotWalMode snapshot_wal_mode{SnapshotWalMode::DISABLED};
+
     std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};
     uint64_t snapshot_retention_count{3};
+
+    uint64_t wal_file_size_kibibytes{20 * 1024};
+    uint64_t wal_file_flush_every_n_tx{100000};
+
     bool snapshot_on_exit{false};
+
   } durability;
 };
 

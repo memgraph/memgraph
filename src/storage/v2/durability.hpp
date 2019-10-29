@@ -3,10 +3,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <list>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -353,12 +355,23 @@ class Durability final {
 
   void Finalize();
 
+  void AppendToWal(const Transaction &transaction,
+                   uint64_t final_commit_timestamp);
+
+  void AppendToWal(StorageGlobalOperation operation, LabelId label,
+                   std::optional<PropertyId> property,
+                   uint64_t final_commit_timestamp);
+
  private:
   void CreateSnapshot(Transaction *transaction);
 
   std::optional<RecoveryInfo> RecoverData();
 
   RecoveryInfo LoadSnapshot(const std::filesystem::path &path);
+
+  bool InitializeWalFile();
+
+  void FinalizeWalFile();
 
   Config::Durability config_;
 
@@ -373,10 +386,17 @@ class Durability final {
       execute_with_transaction_;
 
   std::filesystem::path snapshot_directory_;
+  std::filesystem::path wal_directory_;
+
   utils::Scheduler snapshot_runner_;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;
+  // Sequence number used to keep track of the chain of WALs.
+  uint64_t wal_seq_num_{0};
+
+  std::optional<WalFile> wal_file_;
+  uint64_t wal_unsynced_transactions_{0};
 };
 
 }  // namespace storage

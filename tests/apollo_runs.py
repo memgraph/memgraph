@@ -50,6 +50,10 @@ for test in tests:
     if name.startswith("benchmark") or name.startswith("concurrent"):
         prefix = "TIMEOUT=600 "
 
+    # larger timeout for storage_v2_durability unit test
+    if name.endswith("storage_v2_durability"):
+        prefix = "TIMEOUT=300 "
+
     outfile_paths = []
     if name.startswith("unit"):
         dirname = dirname.replace("/build_debug/", "/build_coverage/")

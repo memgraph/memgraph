@@ -669,6 +669,15 @@ Storage::Accessor::Commit() {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       commit_timestamp = storage_->timestamp_++;
 
+      // Write transaction to WAL while holding the engine lock to make sure
+      // that committed transactions are sorted by the commit timestamp in the
+      // WAL files. We supply the new commit timestamp to the function so that
+      // it knows what will be the final commit timestamp. The WAL must be
+      // written before actually committing the transaction (before setting the
+      // commit timestamp) so that no other transaction can see the
+      // modifications before they are written to disk.
+      storage_->durability_.AppendToWal(transaction_, commit_timestamp);
+
       // Take committed_transactions lock while holding the engine lock to
       // make sure that committed transactions are sorted by the commit
       // timestamp in the list.
@@ -910,6 +919,79 @@ PropertyId Storage::NameToProperty(const std::string &name) {
 
 EdgeTypeId Storage::NameToEdgeType(const std::string &name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+bool Storage::CreateIndex(LabelId label) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_index.CreateIndex(label, vertices_.access()))
+    return false;
+  // Here it is safe to use `timestamp_` as the final commit timestamp of this
+  // operation even though this operation isn't transactional. The `timestamp_`
+  // variable holds the next timestamp that will be used. Because the above
+  // `storage_guard` ensures that no transactions are currently active, the
+  // value of `timestamp_` is guaranteed to be used as a start timestamp for the
+  // next regular transaction after this operation. This prevents collisions of
+  // commit timestamps between non-transactional operations and transactional
+  // operations.
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_CREATE, label,
+                          std::nullopt, timestamp_);
+  return true;
+}
+
+bool Storage::CreateIndex(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_property_index.CreateIndex(label, property,
+                                                 vertices_.access()))
+    return false;
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
+                          label, property, timestamp_);
+  return true;
+}
+
+bool Storage::DropIndex(LabelId label) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_index.DropIndex(label)) return false;
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_DROP, label,
+                          std::nullopt, timestamp_);
+  return true;
+}
+
+bool Storage::DropIndex(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_property_index.DropIndex(label, property)) return false;
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
+                          label, property, timestamp_);
+  return true;
+}
+
+utils::BasicResult<ExistenceConstraintViolation, bool>
+Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = ::storage::CreateExistenceConstraint(&constraints_, label,
+                                                  property, vertices_.access());
+  if (ret.HasError() || !ret.GetValue()) return ret;
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
+                          label, property, timestamp_);
+  return true;
+}
+
+bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!::storage::DropExistenceConstraint(&constraints_, label, property))
+    return false;
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
+                          label, property, timestamp_);
+  return true;
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {

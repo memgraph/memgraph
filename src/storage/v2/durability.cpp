@@ -1,6 +1,7 @@
 #include "storage/v2/durability.hpp"
 
 #include <algorithm>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1265,6 +1266,7 @@ Durability::Durability(Config::Durability config,
       constraints_(constraints),
       items_(items),
       snapshot_directory_(config_.storage_directory / kSnapshotDirectory),
+      wal_directory_(config_.storage_directory / kWalDirectory),
       uuid_(utils::GenerateUUID()) {}
 
 std::optional<Durability::RecoveryInfo> Durability::Initialize(
@@ -1275,7 +1277,8 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
   if (config_.recover_on_startup) {
     ret = RecoverData();
   }
-  if (config_.snapshot_type == Config::Durability::SnapshotType::PERIODIC ||
+  if (config_.snapshot_wal_mode !=
+          Config::Durability::SnapshotWalMode::DISABLED ||
       config_.snapshot_on_exit) {
     // Create the directory initially to crash the database in case of
     // permission errors. This is done early to crash the database on startup
@@ -1283,7 +1286,13 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
     // could be an unpleasant surprise).
     utils::EnsureDirOrDie(snapshot_directory_);
   }
-  if (config_.snapshot_type == Config::Durability::SnapshotType::PERIODIC) {
+  if (config_.snapshot_wal_mode ==
+      Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
+    // Same reasoning as above.
+    utils::EnsureDirOrDie(wal_directory_);
+  }
+  if (config_.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.snapshot_interval, [this] {
       execute_with_transaction_(
           [this](Transaction *transaction) { CreateSnapshot(transaction); });
@@ -1293,13 +1302,180 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
 }
 
 void Durability::Finalize() {
-  if (config_.snapshot_type == Config::Durability::SnapshotType::PERIODIC) {
+  wal_file_ = std::nullopt;
+  if (config_.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
   }
   if (config_.snapshot_on_exit) {
     execute_with_transaction_(
         [this](Transaction *transaction) { CreateSnapshot(transaction); });
   }
+}
+
+void Durability::AppendToWal(const Transaction &transaction,
+                             uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) return;
+  // Traverse deltas and append them to the WAL file.
+  // A single transaction will always be contained in a single WAL file.
+  auto current_commit_timestamp =
+      transaction.commit_timestamp->load(std::memory_order_acq_rel);
+  // Helper lambda that traverses the delta chain on order to find the first
+  // delta that should be processed and then appends all discovered deltas.
+  auto find_and_apply_deltas = [&](const auto *delta, auto *parent,
+                                   auto filter) {
+    while (true) {
+      auto older = delta->next.load(std::memory_order_acq_rel);
+      if (older == nullptr ||
+          older->timestamp->load(std::memory_order_acq_rel) !=
+              current_commit_timestamp)
+        break;
+      delta = older;
+    }
+    while (true) {
+      if (filter(delta->action)) {
+        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
+      }
+      auto prev = delta->prev.Get();
+      if (prev.type != PreviousPtr::Type::DELTA) break;
+      delta = prev.delta;
+    }
+  };
+
+  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
+  // don't traverse them in that order. That is because for each delta we need
+  // information about the vertex or edge they belong to and that information
+  // isn't stored in the deltas themselves. In order to find out information
+  // about the corresponding vertex or edge it is necessary to traverse the
+  // delta chain for each delta until a vertex or edge is encountered. This
+  // operation is very expensive as the chain grows.
+  // Instead, we traverse the edges until we find a vertex or edge and traverse
+  // their delta chains. This approach has a drawback because we lose the
+  // correct order of the operations. Because of that, we need to traverse the
+  // deltas several times and we have to manually ensure that the stored deltas
+  // will be ordered correctly.
+
+  // 1. Process all Vertex deltas and store all operations that create vertices
+  // and modify vertex data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+          return true;
+
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 2. Process all Vertex deltas and store all operations that create edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+          return false;
+      }
+    });
+  }
+  // 3. Process all Edge deltas and store all operations that modify edge data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::EDGE) continue;
+    find_and_apply_deltas(&delta, prev.edge, [](auto action) {
+      switch (action) {
+        case Delta::Action::SET_PROPERTY:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 4. Process all Vertex deltas and store all operations that delete edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::ADD_OUT_EDGE:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 5. Process all Vertex deltas and store all operations that delete vertices.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::RECREATE_OBJECT:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+
+  // Add a delta that indicates that the transaction is fully written to the WAL
+  // file.
+  wal_file_->AppendTransactionEnd(final_commit_timestamp);
+
+  FinalizeWalFile();
+}
+
+void Durability::AppendToWal(StorageGlobalOperation operation, LabelId label,
+                             std::optional<PropertyId> property,
+                             uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) return;
+  wal_file_->AppendOperation(operation, label, property,
+                             final_commit_timestamp);
+  FinalizeWalFile();
 }
 
 void Durability::CreateSnapshot(Transaction *transaction) {
@@ -1545,37 +1721,92 @@ void Durability::CreateSnapshot(Transaction *transaction) {
   LOG(INFO) << "Snapshot creation successful!";
 
   // Ensure exactly `snapshot_retention_count` snapshots exist.
-  std::vector<std::filesystem::path> old_snapshot_files;
-  std::error_code error_code;
-  for (auto &item :
-       std::filesystem::directory_iterator(snapshot_directory_, error_code)) {
-    if (!item.is_regular_file()) continue;
-    if (item.path() == path) continue;
-    try {
-      auto info = ReadSnapshotInfo(item.path());
-      if (info.uuid == uuid_) {
-        old_snapshot_files.push_back(item.path());
+  std::vector<std::pair<uint64_t, std::filesystem::path>> old_snapshot_files;
+  {
+    std::error_code error_code;
+    for (const auto &item :
+         std::filesystem::directory_iterator(snapshot_directory_, error_code)) {
+      if (!item.is_regular_file()) continue;
+      if (item.path() == path) continue;
+      try {
+        auto info = ReadSnapshotInfo(item.path());
+        if (info.uuid != uuid_) continue;
+        old_snapshot_files.emplace_back(info.start_timestamp, item.path());
+      } catch (const RecoveryFailure &e) {
+        LOG(WARNING) << "Found a corrupt snapshot file " << item.path()
+                     << " because of: " << e.what();
+        continue;
       }
-    } catch (const RecoveryFailure &e) {
-      LOG(WARNING) << "Found a corrupt snapshot file " << item.path()
-                   << " because of: " << e.what();
-      continue;
+    }
+    LOG_IF(ERROR, error_code)
+        << "Couldn't ensure that exactly " << config_.snapshot_retention_count
+        << " snapshots exist because an error occurred: "
+        << error_code.message() << "!";
+    std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
+    if (old_snapshot_files.size() > config_.snapshot_retention_count - 1) {
+      auto num_to_erase =
+          old_snapshot_files.size() - (config_.snapshot_retention_count - 1);
+      for (size_t i = 0; i < num_to_erase; ++i) {
+        const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
+        if (!utils::DeleteFile(snapshot_path)) {
+          LOG(WARNING) << "Couldn't delete snapshot file " << snapshot_path
+                       << "!";
+        }
+      }
+      old_snapshot_files.erase(old_snapshot_files.begin(),
+                               old_snapshot_files.begin() + num_to_erase);
     }
   }
-  if (error_code) {
-    LOG(ERROR) << "Couldn't ensure that exactly "
-               << config_.snapshot_retention_count
-               << " snapshots exist because an error occurred: "
-               << error_code.message() << "!";
-  }
-  if (old_snapshot_files.size() >= config_.snapshot_retention_count) {
-    std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
-    for (size_t i = 0;
-         i <= old_snapshot_files.size() - config_.snapshot_retention_count;
-         ++i) {
-      const auto &path = old_snapshot_files[i];
-      if (!utils::DeleteFile(path)) {
-        LOG(WARNING) << "Couldn't delete snapshot file " << path << "!";
+
+  // Ensure that only the absolutely necessary WAL files exist.
+  if (old_snapshot_files.size() == config_.snapshot_retention_count - 1 &&
+      utils::DirExists(wal_directory_)) {
+    std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
+        wal_files;
+    std::error_code error_code;
+    for (const auto &item :
+         std::filesystem::directory_iterator(wal_directory_, error_code)) {
+      if (!item.is_regular_file()) continue;
+      try {
+        auto info = ReadWalInfo(item.path());
+        if (info.uuid != uuid_) continue;
+        wal_files.emplace_back(info.seq_num, info.from_timestamp,
+                               info.to_timestamp, item.path());
+      } catch (const RecoveryFailure &e) {
+        continue;
+      }
+    }
+    LOG_IF(ERROR, error_code)
+        << "Couldn't ensure that only the absolutely necessary WAL files exist "
+           "because an error occurred: "
+        << error_code.message() << "!";
+    std::sort(wal_files.begin(), wal_files.end());
+    uint64_t snapshot_start_timestamp = transaction->start_timestamp;
+    if (!old_snapshot_files.empty()) {
+      snapshot_start_timestamp = old_snapshot_files.begin()->first;
+    }
+    std::optional<uint64_t> pos = 0;
+    for (uint64_t i = 0; i < wal_files.size(); ++i) {
+      const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
+          wal_files[i];
+      if (to_timestamp <= snapshot_start_timestamp) {
+        pos = i;
+      } else {
+        break;
+      }
+    }
+    if (pos && *pos > 0) {
+      // We need to leave at least one WAL file that contains deltas that were
+      // created before the oldest snapshot. Because we always leave at least
+      // one WAL file that contains deltas before the snapshot, this correctly
+      // handles the edge case when that one file is the current WAL file that
+      // is being appended to.
+      for (uint64_t i = 0; i < *pos; ++i) {
+        const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
+            wal_files[i];
+        if (!utils::DeleteFile(wal_path)) {
+          LOG(WARNING) << "Couldn't delete WAL file " << wal_path << "!";
+        }
       }
     }
   }
@@ -2016,6 +2247,29 @@ Durability::RecoveryInfo Durability::LoadSnapshot(
   success = true;
 
   return ret;
+}
+
+bool Durability::InitializeWalFile() {
+  if (config_.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
+    return false;
+  if (!wal_file_) {
+    wal_file_.emplace(wal_directory_, uuid_, items_, name_id_mapper_,
+                      wal_seq_num_++);
+  }
+  return true;
+}
+
+void Durability::FinalizeWalFile() {
+  ++wal_unsynced_transactions_;
+  if (wal_unsynced_transactions_ >= config_.wal_file_flush_every_n_tx) {
+    wal_file_->Sync();
+    wal_unsynced_transactions_ = 0;
+  }
+  if (wal_file_->GetSize() / 1024 >= config_.wal_file_size_kibibytes) {
+    wal_file_ = std::nullopt;
+    wal_unsynced_transactions_ = 0;
+  }
 }
 
 }  // namespace storage
