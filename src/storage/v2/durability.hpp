@@ -28,6 +28,7 @@ namespace storage {
 
 static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
+static const std::string kBackupDirectory{".backup"};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

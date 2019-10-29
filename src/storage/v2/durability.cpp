@@ -1302,6 +1302,37 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
   std::optional<Durability::RecoveryInfo> ret;
   if (config_.recover_on_startup) {
     ret = RecoverData();
+  } else if (config_.snapshot_wal_mode !=
+                 Config::Durability::SnapshotWalMode::DISABLED ||
+             config_.snapshot_on_exit) {
+    bool files_moved = false;
+    auto backup_root = config_.storage_directory / kBackupDirectory;
+    for (const auto &[path, dirname, what] :
+         {std::make_tuple(snapshot_directory_, kSnapshotDirectory, "snapshot"),
+          std::make_tuple(wal_directory_, kWalDirectory, "WAL")}) {
+      if (!utils::DirExists(path)) continue;
+      auto backup_curr = backup_root / dirname;
+      std::error_code error_code;
+      for (const auto &item :
+           std::filesystem::directory_iterator(path, error_code)) {
+        utils::EnsureDirOrDie(backup_root);
+        utils::EnsureDirOrDie(backup_curr);
+        std::error_code item_error_code;
+        std::filesystem::rename(
+            item.path(), backup_curr / item.path().filename(), item_error_code);
+        CHECK(!item_error_code)
+            << "Couldn't move " << what << " file " << item.path()
+            << " because of: " << item_error_code.message();
+        files_moved = true;
+      }
+      CHECK(!error_code) << "Couldn't backup " << what
+                         << " files bacause of: " << error_code.message();
+    }
+    LOG_IF(WARNING, files_moved)
+        << "Since Memgraph was not supposed to recover on startup and "
+           "durability is enabled, your current durability files will likely "
+           "be overriden. To prevent important data loss, Memgraph has stored "
+           "those files into a .backup directory inside the storage directory.";
   }
   if (config_.snapshot_wal_mode !=
           Config::Durability::SnapshotWalMode::DISABLED ||

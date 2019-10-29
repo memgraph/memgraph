@@ -579,8 +579,36 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     return GetFilesList(storage_directory / storage::kSnapshotDirectory);
   }
 
+  std::vector<std::filesystem::path> GetBackupSnapshotsList() {
+    return GetFilesList(storage_directory / storage::kBackupDirectory /
+                        storage::kSnapshotDirectory);
+  }
+
   std::vector<std::filesystem::path> GetWalsList() {
     return GetFilesList(storage_directory / storage::kWalDirectory);
+  }
+
+  std::vector<std::filesystem::path> GetBackupWalsList() {
+    return GetFilesList(storage_directory / storage::kBackupDirectory /
+                        storage::kWalDirectory);
+  }
+
+  void RestoreBackups() {
+    {
+      auto backup_snapshots = GetBackupSnapshotsList();
+      for (const auto &item : backup_snapshots) {
+        std::filesystem::rename(
+            item,
+            storage_directory / storage::kSnapshotDirectory / item.filename());
+      }
+    }
+    {
+      auto backup_wals = GetBackupWalsList();
+      for (const auto &item : backup_wals) {
+        std::filesystem::rename(
+            item, storage_directory / storage::kWalDirectory / item.filename());
+      }
+    }
   }
 
   std::filesystem::path storage_directory{
@@ -671,7 +699,9 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -704,7 +734,9 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -739,7 +771,9 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Destroy last snapshot.
   {
@@ -780,7 +814,9 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Get unrelated UUID.
   std::string unrelated_uuid;
@@ -805,8 +841,18 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
-  ASSERT_GE(GetSnapshotsList().size(), 2);
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 1);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Restore unrelated snapshots.
+  RestoreBackups();
+
+  ASSERT_GE(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Destroy all current snapshots.
   {
@@ -849,7 +895,9 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Create snapshot.
   {
@@ -860,13 +908,17 @@ TEST_P(DurabilityTest, SnapshotRetention) {
                             SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(2000),
                         .snapshot_retention_count = 3}});
+    // Restore unrelated snapshots after the database has been started.
+    RestoreBackups();
     CreateBaseDataset(&store, GetParam());
     // Allow approximately 5 snapshots to be created.
     std::this_thread::sleep_for(std::chrono::milliseconds(10000));
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1 + 3);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Verify that exactly 3 snapshots and 1 unrelated snapshot exist.
   {
@@ -917,7 +969,9 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   {
@@ -938,8 +992,18 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
   }
 
-  ASSERT_EQ(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 1);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Restore unrelated snapshot.
+  RestoreBackups();
+
+  ASSERT_EQ(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -958,6 +1022,42 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, SnapshotBackup) {
+  // Create snapshot.
+  {
+    storage::Storage store(
+        {.items = {.properties_on_edges = GetParam()},
+         .durability = {.storage_directory = storage_directory,
+                        .snapshot_on_exit = true}});
+    auto acc = store.Access();
+    for (uint64_t i = 0; i < 1000; ++i) {
+      acc.CreateVertex();
+    }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Start storage without recovery.
+  {
+    storage::Storage store(
+        {.items = {.properties_on_edges = GetParam()},
+         .durability = {.storage_directory = storage_directory,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_interval = std::chrono::minutes(20)}});
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 1);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DurabilityTest,
        SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnEdges) {
   // Create snapshot.
@@ -973,7 +1073,9 @@ TEST_F(DurabilityTest,
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = true},
@@ -1007,7 +1109,9 @@ TEST_F(DurabilityTest,
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   ASSERT_DEATH(
@@ -1065,7 +1169,9 @@ TEST_F(DurabilityTest,
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = false},
@@ -1099,7 +1205,9 @@ TEST_P(DurabilityTest, WalBasic) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1118,6 +1226,47 @@ TEST_P(DurabilityTest, WalBasic) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, WalBackup) {
+  // Create WALs.
+  {
+    storage::Storage store(
+        {.items = {.properties_on_edges = GetParam()},
+         .durability = {.storage_directory = storage_directory,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_interval = std::chrono::minutes(20),
+                        .wal_file_size_kibibytes = 1,
+                        .wal_file_flush_every_n_tx = kFlushWalEvery}});
+    auto acc = store.Access();
+    for (uint64_t i = 0; i < 1000; ++i) {
+      acc.CreateVertex();
+    }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  auto num_wals = GetWalsList().size();
+  ASSERT_GE(num_wals, 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Start storage without recovery.
+  {
+    storage::Storage store(
+        {.items = {.properties_on_edges = GetParam()},
+         .durability = {.storage_directory = storage_directory,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_interval = std::chrono::minutes(20)}});
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), num_wals);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalAppendToExisting) {
   // Create WALs.
   {
@@ -1132,7 +1281,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   {
@@ -1157,7 +1308,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1218,7 +1371,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1352,7 +1507,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1440,7 +1597,9 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Verify WAL data.
   {
@@ -1557,7 +1716,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1610,7 +1771,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs and create more WALs.
   const uint64_t kExtraItems = 1000;
@@ -1643,7 +1806,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1689,7 +1854,9 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   uint64_t unrelated_wals = GetWalsList().size();
 
@@ -1725,7 +1892,17 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_GE(GetBackupWalsList().size(), 1);
+
+  // Restore unrelated WALs.
+  RestoreBackups();
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Remove second WAL.
   {
@@ -1767,7 +1944,9 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   uint64_t unrelated_wals = GetWalsList().size();
 
@@ -1803,7 +1982,17 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_GE(GetBackupWalsList().size(), 1);
+
+  // Restore unrelated WALs.
+  RestoreBackups();
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Destroy second WAL.
   {
@@ -1841,7 +2030,9 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Destroy last transaction in the latest WAL.
   {
@@ -1939,7 +2130,9 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -1982,7 +2175,9 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -2012,7 +2207,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   {
@@ -2037,7 +2234,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -2067,7 +2266,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
   {
@@ -2092,7 +2293,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs and create more WALs.
   storage::Gid vertex_gid;
@@ -2119,7 +2322,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
@@ -2174,7 +2379,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   uint64_t unrelated_wals = GetWalsList().size();
 
@@ -2190,6 +2397,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                         .snapshot_interval = std::chrono::seconds(2),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = 1}});
+    // Restore unrelated snapshots after the database has been started.
+    RestoreBackups();
     utils::Timer timer;
     // Allow at least 6 snapshots to be created.
     while (timer.Elapsed().count() < 13.0) {
@@ -2201,7 +2410,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 3);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), unrelated_wals + 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   auto snapshots = GetSnapshotsList();
   ASSERT_EQ(snapshots.size(), 3);
@@ -2258,7 +2469,9 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   }
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Create snapshot and WALs.
   {
@@ -2274,8 +2487,18 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_GE(GetBackupSnapshotsList().size(), 1);
+  ASSERT_GE(GetWalsList().size(), 1);
+  ASSERT_GE(GetBackupWalsList().size(), 1);
+
+  // Restore unrelated snapshots and WALs.
+  RestoreBackups();
+
   ASSERT_GE(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
