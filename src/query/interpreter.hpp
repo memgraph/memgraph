@@ -28,6 +28,8 @@ namespace query {
 
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
+enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
+
 /**
  * `AnyStream` can wrap *any* type implementing the `Stream` concept into a
  * single type.
@@ -79,7 +81,7 @@ class AnyStream final {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<bool(AnyStream *stream)> query_handler;
+  std::function<QueryHandlerResult(AnyStream *stream)> query_handler;
 };
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -252,7 +254,7 @@ class Interpreter final {
   bool expect_rollback_{false};
   utils::MonotonicBufferResource execution_memory_{kExecutionMemoryBlockSize};
 
-  void PrepareTransactionQuery(std::string_view query_upper);
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
   void AbortCommand();
@@ -260,23 +262,37 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
-  // If we don't have any results (eg. a transaction command preceeded),
-  // return an empty summary.
-  if (!prepared_query_) return {};
+  CHECK(prepared_query_) << "Trying to call PullAll without a prepared query";
 
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &execution_memory_};
-    bool commit = prepared_query_->query_handler(&stream);
+    QueryHandlerResult res = prepared_query_->query_handler(&stream);
+    // Erase the prepared query in order to enforce that every call to `PullAll`
+    // must be preceded by a call to `Prepare`.
+    prepared_query_ = std::nullopt;
 
     if (!in_explicit_transaction_) {
-      if (commit) {
-        Commit();
-      } else {
-        Abort();
+      switch (res) {
+        case QueryHandlerResult::COMMIT:
+          Commit();
+          break;
+        case QueryHandlerResult::ABORT:
+          Abort();
+          break;
+        case QueryHandlerResult::NOTHING:
+          // The only cases in which we have nothing to do are those where we're
+          // either in an explicit transaction or the query is such that a
+          // transaction wasn't started on a call to `Prepare()`.
+          CHECK(in_explicit_transaction_ || !db_accessor_);
+          break;
       }
     }
+  } catch (const ExplicitTransactionUsageException &) {
+    // Just let the exception propagate for error reporting purposes, but don't
+    // abort the current command.
+    throw;
 #ifdef MG_SINGLE_NODE_HA
   } catch (const query::HintedAbortError &) {
     AbortCommand();

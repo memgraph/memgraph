@@ -272,10 +272,10 @@ TEST_F(InterpreterTest, Bfs) {
 }
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
-  interpreter_.Prepare("BEGIN", {});
-  ASSERT_THROW(interpreter_.Prepare("CREATE INDEX ON :X(y)", {}),
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"),
                query::IndexInMulticommandTxException);
-  interpreter_.Prepare("ROLLBACK", {});
+  Interpret("ROLLBACK");
 }
 
 // Test shortest path end to end.

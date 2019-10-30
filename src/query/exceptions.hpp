@@ -59,9 +59,9 @@ class TypeMismatchError : public SemanticException {
  public:
   TypeMismatchError(const std::string &name, const std::string &datum,
                     const std::string &expected)
-      : SemanticException(fmt::format(
-            "Type mismatch: {} already defined as {}, expected {}.",
-            name, datum, expected)) {}
+      : SemanticException(
+            fmt::format("Type mismatch: {} already defined as {}, expected {}.",
+                        name, datum, expected)) {}
 };
 
 class UnprovidedParameterError : public QueryException {
@@ -104,6 +104,11 @@ class HintedAbortError : public utils::BasicException {
             "Transaction was asked to abort, most likely because it was "
             "executing longer than time specified by "
             "--query-execution-time-sec flag.") {}
+};
+
+class ExplicitTransactionUsageException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
 };
 
 class ReconstructionException : public QueryException {
