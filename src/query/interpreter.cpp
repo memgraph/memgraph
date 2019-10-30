@@ -520,7 +520,9 @@ ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
     }
   }
 
-  summary->insert_or_assign("plan_execution_time", timer.Elapsed().count());
+  auto execution_time = timer.Elapsed();
+  ctx.profile_execution_time = execution_time;
+  summary->insert_or_assign("plan_execution_time", execution_time.count());
   cursor->Shutdown();
 
   return ctx;
@@ -709,29 +711,16 @@ PreparedQuery PrepareExplainQuery(
   summary->insert_or_assign(
       "explain", plan::PlanToJson(*dba, &cypher_query_plan->plan()).dump());
 
-  SymbolTable symbol_table;
-  auto query_plan_symbol = symbol_table.CreateSymbol("QUERY PLAN", false);
-  std::vector<Symbol> output_symbols{query_plan_symbol};
+  return PreparedQuery{
+      {"QUERY PLAN"},
+      std::move(parsed_query.required_privileges),
+      [rows = std::move(printed_plan_rows)](AnyStream *stream) {
+        for (const auto &row : rows) {
+          stream->Result(row);
+        }
 
-  auto output_plan =
-      std::make_unique<plan::OutputTable>(output_symbols, printed_plan_rows);
-
-  auto plan =
-      std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-          std::move(output_plan), 0.0, AstStorage{}, symbol_table));
-
-  std::vector<std::string> header{query_plan_symbol.name()};
-
-  return PreparedQuery{std::move(header),
-                       std::move(parsed_query.required_privileges),
-                       [plan = std::move(plan),
-                        parameters = std::move(parsed_inner_query.parameters),
-                        output_symbols = std::move(output_symbols), summary,
-                        dba, execution_memory](AnyStream *stream) {
-                         PullAllPlan(stream, *plan, parameters, output_symbols,
-                                     false, summary, dba, execution_memory);
-                         return QueryHandlerResult::COMMIT;
-                       }};
+        return QueryHandlerResult::ABORT;
+      }};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -774,57 +763,20 @@ PreparedQuery PrepareProfileQuery(
       utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
       &interpreter_context->plan_cache, dba);
 
-  // Copy the symbol table and add our own symbols (used by the `OutputTable`
-  // operator below)
-  SymbolTable symbol_table(cypher_query_plan->symbol_table());
-
-  auto operator_symbol = symbol_table.CreateSymbol("OPERATOR", false);
-  auto actual_hits_symbol = symbol_table.CreateSymbol("ACTUAL HITS", false);
-  auto relative_time_symbol = symbol_table.CreateSymbol("RELATIVE TIME", false);
-  auto absolute_time_symbol = symbol_table.CreateSymbol("ABSOLUTE TIME", false);
-
-  std::vector<Symbol> output_symbols = {operator_symbol, actual_hits_symbol,
-                                        relative_time_symbol,
-                                        absolute_time_symbol};
-  std::vector<std::string> header{
-      operator_symbol.name(), actual_hits_symbol.name(),
-      relative_time_symbol.name(), absolute_time_symbol.name()};
-
-  auto output_plan = std::make_unique<plan::OutputTable>(
-      output_symbols,
-      [cypher_query_plan](Frame *frame, ExecutionContext *context) {
-        utils::MonotonicBufferResource execution_memory(1 * 1024 * 1024);
-        auto cursor = cypher_query_plan->plan().MakeCursor(&execution_memory);
-
-        // We are pulling from another plan, so set up the EvaluationContext
-        // correctly. The rest of the context should be good for sharing.
-        context->evaluation_context.properties = NamesToProperties(
-            cypher_query_plan->ast_storage().properties_, context->db_accessor);
-        context->evaluation_context.labels = NamesToLabels(
-            cypher_query_plan->ast_storage().labels_, context->db_accessor);
-
-        // Pull everything to profile the execution
-        utils::Timer timer;
-        while (cursor->Pull(*frame, *context)) continue;
-        auto execution_time = timer.Elapsed();
-
-        context->profile_execution_time = execution_time;
-
-        return ProfilingStatsToTable(context->stats, execution_time);
-      });
-
-  auto plan =
-      std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-          std::move(output_plan), 0.0, AstStorage{}, symbol_table));
-
   return PreparedQuery{
-      std::move(header), std::move(parsed_query.required_privileges),
-      [plan = std::move(plan),
-       parameters = std::move(parsed_inner_query.parameters),
-       output_symbols = std::move(output_symbols), summary, dba,
+      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+      std::move(parsed_query.required_privileges),
+      [plan = std::move(cypher_query_plan),
+       parameters = std::move(parsed_query.parameters), summary, dba,
        execution_memory](AnyStream *stream) {
-        auto ctx = PullAllPlan(stream, *plan, parameters, output_symbols, true,
-                               summary, dba, execution_memory);
+        // No output symbols are given so that nothing is streamed.
+        auto ctx = PullAllPlan(stream, *plan, parameters, {}, true, summary,
+                               dba, execution_memory);
+
+        for (const auto &row :
+             ProfilingStatsToTable(ctx.stats, ctx.profile_execution_time)) {
+          stream->Result(row);
+        }
 
         summary->insert_or_assign(
             "profile",
