@@ -298,6 +298,18 @@ enum class StorageGlobalOperation {
   EXISTENCE_CONSTRAINT_DROP,
 };
 
+/// Structure used to track indices and constraints during recovery.
+struct RecoveredIndicesAndConstraints {
+  struct {
+    std::vector<LabelId> label;
+    std::vector<std::pair<LabelId, PropertyId>> label_property;
+  } indices;
+
+  struct {
+    std::vector<std::pair<LabelId, PropertyId>> existence;
+  } constraints;
+};
+
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
@@ -340,9 +352,15 @@ class WalFile {
 class Durability final {
  public:
   struct RecoveryInfo {
-    uint64_t next_vertex_id;
-    uint64_t next_edge_id;
-    uint64_t next_timestamp;
+    uint64_t next_vertex_id{0};
+    uint64_t next_edge_id{0};
+    uint64_t next_timestamp{0};
+  };
+
+  struct RecoveredSnapshot {
+    SnapshotInfo snapshot_info;
+    RecoveryInfo recovery_info;
+    RecoveredIndicesAndConstraints indices_constraints;
   };
 
   Durability(Config::Durability config, utils::SkipList<Vertex> *vertices,
@@ -367,7 +385,11 @@ class Durability final {
 
   std::optional<RecoveryInfo> RecoverData();
 
-  RecoveryInfo LoadSnapshot(const std::filesystem::path &path);
+  RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path);
+
+  RecoveryInfo LoadWal(const std::filesystem::path &path,
+                       RecoveredIndicesAndConstraints *indices_constraints,
+                       std::optional<uint64_t> snapshot_timestamp);
 
   bool InitializeWalFile();
 
