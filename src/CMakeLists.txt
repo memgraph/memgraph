@@ -105,6 +105,10 @@ target_link_libraries(mg-single-node ${MG_SINGLE_NODE_LIBS})
 add_dependencies(mg-single-node generate_opencypher_parser)
 add_dependencies(mg-single-node generate_lcp_single_node)
 target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
+# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
+# should be dynamically exported, so that `dlopen` can correctly link the
+# symbols in custom procedure module libraries.
+target_link_libraries(mg-single-node "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node
@@ -161,6 +165,10 @@ add_dependencies(mg-single-node-v2 generate_lcp_common)
 target_compile_definitions(mg-single-node-v2 PUBLIC MG_SINGLE_NODE_V2)
 add_executable(memgraph-v2 memgraph.cpp)
 target_link_libraries(memgraph-v2 mg-single-node-v2 kvstore_lib telemetry_lib)
+# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
+# should be dynamically exported, so that `dlopen` can correctly link the
+# symbols in custom procedure module libraries.
+target_link_libraries(mg-single-node-v2 "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node v2
@@ -250,6 +258,12 @@ target_link_libraries(mg-single-node-ha ${MG_SINGLE_NODE_HA_LIBS})
 add_dependencies(mg-single-node-ha generate_opencypher_parser)
 add_dependencies(mg-single-node-ha generate_lcp_single_node_ha)
 target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
+# TODO: Make these symbols visible once we add support for custom procedure
+# modules in HA.
+# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
+# should be dynamically exported, so that `dlopen` can correctly link the
+# symbols in custom procedure module libraries.
+# target_link_libraries(mg-single-node-ha "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node High Availability
@@ -306,6 +320,9 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # we cannot use the recommended `install(TARGETS ...)`.
 install(PROGRAMS $<TARGET_FILE:memgraph>
         DESTINATION lib/memgraph RENAME memgraph)
+# Install the include file for writing custom procedures.
+install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
+        DESTINATION include/memgraph)
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)

@@ -198,6 +198,7 @@ option(EXPERIMENTAL "Build experimental binaries" OFF)
 option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
+option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(MG_COMMUNITY "Build Memgraph Community Edition" OFF)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
@@ -294,6 +295,10 @@ add_subdirectory(tests)
 
 if(TOOLS)
   add_subdirectory(tools)
+endif()
+
+if(QUERY_MODULES)
+  add_subdirectory(query_modules)
 endif()
 
 # -----------------------------------------------------------------------------

@@ -18,7 +18,10 @@
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+
+#include "query/procedure/module.hpp"
 
 // General purpose flags.
 DEFINE_string(interface, "0.0.0.0",
@@ -87,6 +90,16 @@ DEFINE_VALIDATED_int32(
     audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
     "Interval (in milliseconds) used for flushing the audit log buffer.",
     FLAG_IN_RANGE(10, INT32_MAX));
+
+DEFINE_VALIDATED_string(
+    query_modules_directory, "",
+    "Directory where modules with custom query procedures are stored", {
+      if (value.empty()) return true;
+      if (utils::DirExists(value)) return true;
+      std::cout << "Expected --" << flagname << " to point to a directory."
+                << std::endl;
+      return false;
+    });
 
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
@@ -168,6 +181,16 @@ void SingleNodeMain() {
   query::InterpreterContext interpreter_context{&db};
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
+  // Register modules
+  if (!FLAGS_query_modules_directory.empty()) {
+    for (const auto &entry :
+         std::filesystem::directory_iterator(FLAGS_query_modules_directory)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".so")
+        query::procedure::gModuleRegistry.LoadModuleLibrary(entry.path());
+    }
+  }
+  // Register modules END
+
   interpreter_context.auth = &auth;
 
   ServerContext context;
@@ -205,6 +228,7 @@ void SingleNodeMain() {
 
   CHECK(server.Start()) << "Couldn't start the Bolt server!";
   server.AwaitShutdown();
+  query::procedure::gModuleRegistry.UnloadAllModules();
 }
 
 int main(int argc, char **argv) { return WithInit(argc, argv, SingleNodeMain); }
