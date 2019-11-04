@@ -45,6 +45,13 @@ bool CopyFile(const std::filesystem::path &src,
 bool RenamePath(const std::filesystem::path &src,
                 const std::filesystem::path &dst);
 
+/// Buffer size used for `InputFile` and `OutputFile` implementations. Using
+/// system calls is very expensive and we can't afford to call either `read` or
+/// `write` for each of our (very small) logical reads/writes. Because of that,
+/// `read` or `write` is only called when the buffer is full and/or needs
+/// emptying.
+const size_t kFileBufferSize = 262144;
+
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes
 /// handling of binary data extremely tedious.
@@ -89,13 +96,11 @@ class InputFile {
   /// doesn't change the current position in the file.
   bool Peek(uint8_t *data, size_t size);
 
-  /// This method gets the size of the file. On failure it returns
-  /// `std::nullopt`.
-  std::optional<size_t> GetSize();
+  /// This method gets the size of the file.
+  size_t GetSize();
 
-  /// This method gets the current absolute position in the file. On failure it
-  /// returns `std::nullopt`.
-  std::optional<size_t> GetPosition();
+  /// This method gets the current absolute position in the file.
+  size_t GetPosition();
 
   /// This method sets the current position in the file and returns the absolute
   /// set position in the file. The position is set to `offset` with the
@@ -107,8 +112,17 @@ class InputFile {
   void Close() noexcept;
 
  private:
+  bool LoadBuffer();
+
   int fd_{-1};
   std::filesystem::path path_;
+  size_t file_size_{0};
+  size_t file_position_{0};
+
+  uint8_t buffer_[kFileBufferSize];
+  std::optional<size_t> buffer_start_;
+  size_t buffer_size_{0};
+  size_t buffer_position_{0};
 };
 
 /// This class implements a file handler that is used for mission critical files
@@ -171,8 +185,8 @@ class OutputFile {
 
   /// Writes data to the currently opened file. On failure and misuse it crashes
   /// the program.
-  void Write(const char *data, size_t size);
   void Write(const uint8_t *data, size_t size);
+  void Write(const char *data, size_t size);
   void Write(const std::string_view &data);
 
   /// This method gets the current absolute position in the file. On failure and
@@ -194,9 +208,13 @@ class OutputFile {
   void Close() noexcept;
 
  private:
+  void FlushBuffer(bool force_flush);
+
   int fd_{-1};
   size_t written_since_last_sync_{0};
   std::filesystem::path path_;
+  uint8_t buffer_[kFileBufferSize];
+  size_t buffer_position_{0};
 };
 
 }  // namespace utils
