@@ -23,12 +23,15 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -3659,6 +3662,160 @@ class OutputTableStreamCursor : public Cursor {
 UniqueCursorPtr OutputTableStream::MakeCursor(
     utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this);
+}
+
+CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input,
+                             std::string name, std::vector<Expression *> args,
+                             std::vector<std::string> fields,
+                             std::vector<Symbol> symbols)
+    : input_(input ? input : std::make_shared<Once>()),
+      procedure_name_(name),
+      arguments_(args),
+      result_fields_(fields),
+      result_symbols_(symbols) {}
+
+ACCEPT_WITH_INPUT(CallProcedure);
+
+std::vector<Symbol> CallProcedure::OutputSymbols(const SymbolTable &) const {
+  return result_symbols_;
+}
+
+std::vector<Symbol> CallProcedure::ModifiedSymbols(
+    const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), result_symbols_.begin(), result_symbols_.end());
+  return symbols;
+}
+
+namespace {
+
+void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
+                         const std::vector<Expression *> &args,
+                         storage::View graph_view, const ExecutionContext &ctx,
+                         Frame *frame, mgp_result *result) {
+  // Use evaluation memory, as invoking a procedure is akin to a simple
+  // evaluation of an expression.
+  // TODO: This will probably need to be changed when we add support for
+  // generator like procedures which yield a new result on each invocation.
+  auto *memory = ctx.evaluation_context.memory;
+  utils::pmr::vector<std::string_view> name_parts(memory);
+  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  // First try to handle special procedure invocations for loading a module.
+  // TODO: When we add registering multiple procedures in a single module, it
+  // might be a good idea to simply register these special procedures just like
+  // regular procedures. That way we won't have to have any special case logic.
+  if (name_parts.size() > 1U) {
+    auto pos = fully_qualified_procedure_name.find_last_of('.');
+    CHECK(pos != std::string_view::npos);
+    const auto &module_name = fully_qualified_procedure_name.substr(0, pos);
+    const auto &proc_name = name_parts.back();
+    if (proc_name == "__reload__") {
+      procedure::gModuleRegistry.ReloadModuleNamed(module_name);
+      return;
+    }
+  }
+  const auto &module_name = fully_qualified_procedure_name;
+  if (module_name == "reload-all-modules") {
+    procedure::gModuleRegistry.ReloadAllModules();
+    return;
+  }
+  auto module = procedure::gModuleRegistry.GetModuleNamed(module_name);
+  if (!module) throw QueryRuntimeException("'{}' isn't loaded!", module_name);
+  static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
+                "Expected mgp_value to use custom allocator and makes STL "
+                "containers aware of that");
+  mgp_graph graph{ctx.db_accessor, graph_view};
+  mgp_list module_args(memory);
+  module_args.elems.reserve(args.size());
+  ExpressionEvaluator evaluator(frame, ctx.symbol_table, ctx.evaluation_context,
+                                ctx.db_accessor, graph_view);
+  for (auto *arg : args) {
+    module_args.elems.emplace_back(arg->Accept(evaluator), &graph);
+  }
+  // TODO: Add syntax for controlling procedure memory limits.
+  utils::LimitedMemoryResource limited_mem(memory,
+                                           100 * 1024 * 1024 /* 100 MB */);
+  mgp_memory proc_memory{&limited_mem};
+  // TODO: What about cross library boundary exceptions? OMG C++?!
+  module->main_fn(&module_args, &graph, result, &proc_memory);
+  size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+  LOG_IF(WARNING, leaked_bytes > 0U)
+      << "Query procedure '" << fully_qualified_procedure_name << "' leaked "
+      << leaked_bytes << " *tracked* bytes";
+}
+
+}  // namespace
+
+class CallProcedureCursor : public Cursor {
+  const CallProcedure *self_;
+  UniqueCursorPtr input_cursor_;
+  mgp_result result_;
+  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+
+ public:
+  CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self_->input_->MakeCursor(mem)),
+        // result_ needs to live throughout multiple Pull evaluations, until all
+        // rows are produced. Therefore, we use the memory dedicated for the
+        // whole execution.
+        result_(mem) {
+    CHECK(self_->result_fields_.size() == self_->result_symbols_.size())
+        << "Incorrectly constructed CallProcedure";
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CallProcedure");
+
+    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+
+    // We need to fetch new procedure results after pulling from input.
+    // TODO: Look into openCypher's distinction between procedures returning an
+    // empty result set vs procedures which return `void`. We currently don't
+    // have procedures registering what they return.
+    // This `while` loop will skip over empty results.
+    while (result_row_it_ == result_.rows.end()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      result_.rows.clear();
+      result_.error_msg.reset();
+      // TODO: When we add support for write and eager procedures, we will need
+      // to plan this operator with Accumulate and pass in storage::View::NEW.
+      auto graph_view = storage::View::OLD;
+      CallCustomProcedure(self_->procedure_name_, self_->arguments_, graph_view,
+                          context, &frame, &result_);
+      if (result_.error_msg) {
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_,
+                                    *result_.error_msg);
+      }
+      result_row_it_ = result_.rows.begin();
+    }
+
+    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
+      const auto &values = result_row_it_->values;
+      std::string_view field_name(self_->result_fields_[i]);
+      auto result_it = values.find(field_name);
+      if (result_it == values.end()) {
+        throw QueryRuntimeException(
+            "Procedure '{}' does not yield a record with '{}' field.",
+            self_->procedure_name_, field_name);
+      }
+      frame[self_->result_symbols_[i]] = result_it->second;
+    }
+    ++result_row_it_;
+    return true;
+  }
+
+  void Reset() override {
+    result_.rows.clear();
+    result_.error_msg.reset();
+    input_cursor_->Reset();
+  }
+
+  void Shutdown() override {}
+};
+
+UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
 
 }  // namespace query::plan

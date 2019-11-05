@@ -209,6 +209,21 @@ class RuleBasedPlanner {
           input_op = std::make_unique<plan::Unwind>(
               std::move(input_op), unwind->named_expression_->expression_,
               symbol);
+        } else if (auto *call_proc =
+                       utils::Downcast<query::CallProcedure>(clause)) {
+          std::vector<Symbol> result_symbols;
+          result_symbols.reserve(call_proc->result_identifiers_.size());
+          for (const auto *ident : call_proc->result_identifiers_) {
+            const auto &sym = context.symbol_table->at(*ident);
+            context.bound_symbols.insert(sym);
+            result_symbols.push_back(sym);
+          }
+          // TODO: When we add support for write and eager procedures, we will
+          // need to plan this operator with Accumulate and pass in
+          // storage::View::NEW.
+          input_op = std::make_unique<plan::CallProcedure>(
+              std::move(input_op), call_proc->procedure_name_,
+              call_proc->arguments_, call_proc->result_fields_, result_symbols);
         } else {
           throw utils::NotYetImplemented(
               "clause '{}' conversion to operator(s)",

@@ -114,14 +114,15 @@ class Unwind;
 class Distinct;
 class Union;
 class Cartesian;
+class CallProcedure;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
     ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian>;
+    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
+    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once>;
 
@@ -162,9 +163,9 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
    /** Return @c Symbol vector where the query results will be stored.
     *
-    * Currently, output symbols are generated in @c Produce and @c Union
-    * operators. @c Skip, @c Limit, @c OrderBy and @c Distinct propagate the
-    * symbols from @c Produce (if it exists as input operator).
+    * Currently, output symbols are generated in @c Produce @c Union and
+    * @c CallProcedure operators. @c Skip, @c Limit, @c OrderBy and @c Distinct
+    * propagate the symbols from @c Produce (if it exists as input operator).
     *
     *  @param SymbolTable used to find symbols for expressions.
     *  @return std::vector<Symbol> used for results.
@@ -2055,6 +2056,38 @@ at once. Instead, each call of the callback should return a single row of the ta
    std::shared_ptr<LogicalOperator> input() const override;
    void set_input(std::shared_ptr<LogicalOperator> input) override;
    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class call-procedure (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (procedure-name "std::string" :scope :public)
+   (arguments "std::vector<Expression *>"
+              :scope :public
+              :slk-save #'slk-save-ast-vector
+              :slk-load (slk-load-ast-vector "Expression"))
+   (result-fields "std::vector<std::string>" :scope :public)
+   (result-symbols "std::vector<Symbol>" :scope :public))
+  (:public
+    #>cpp
+    CallProcedure() = default;
+    CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name,
+                  std::vector<Expression *> arguments,
+                  std::vector<std::string> fields, std::vector<Symbol> symbols);
+
+    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+    bool HasSingleInput() const override { return true; }
+    std::shared_ptr<LogicalOperator> input() const override { return input_; }
+    void set_input(std::shared_ptr<LogicalOperator> input) override {
+      input_ = input;
+    }
+    cpp<#)
   (:serialize (:slk))
   (:clone))
 

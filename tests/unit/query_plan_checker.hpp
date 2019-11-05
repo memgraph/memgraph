@@ -90,6 +90,8 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  PRE_VISIT(CallProcedure);
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -323,6 +325,34 @@ class ExpectCartesian : public OpChecker<Cartesian> {
  private:
   const std::list<std::unique_ptr<BaseOpChecker>> &left_;
   const std::list<std::unique_ptr<BaseOpChecker>> &right_;
+};
+
+class ExpectCallProcedure : public OpChecker<CallProcedure> {
+ public:
+  ExpectCallProcedure(const std::string &name,
+                      const std::vector<query::Expression *> &args,
+                      const std::vector<std::string> &fields,
+                      const std::vector<Symbol> &result_syms)
+      : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
+
+  void ExpectOp(CallProcedure &op, const SymbolTable &symbol_table) override {
+    EXPECT_EQ(op.procedure_name_, name_);
+    EXPECT_EQ(op.arguments_.size(), args_.size());
+    for (size_t i = 0; i < args_.size(); ++i) {
+      const auto *op_arg = op.arguments_[i];
+      const auto *expected_arg = args_[i];
+      // TODO: Proper expression equality
+      EXPECT_EQ(op_arg->GetTypeInfo(), expected_arg->GetTypeInfo());
+    }
+    EXPECT_EQ(op.result_fields_, fields_);
+    EXPECT_EQ(op.result_symbols_, result_syms_);
+  }
+
+ private:
+  std::string name_;
+  std::vector<query::Expression *> args_;
+  std::vector<std::string> fields_;
+  std::vector<Symbol> result_syms_;
 };
 
 template <class T>

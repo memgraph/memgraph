@@ -133,34 +133,8 @@ add_unit_test(query_plan_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-single-node kvstore_dummy_lib)
 
 # Storage V2 in query execution
-define_add_lcp(add_lcp_query_plan_v2_create_set_remove_delete
-  lcp_query_plan_v2_create_set_remove_delete
-  generated_lcp_query_plan_v2_create_set_remove_delete_files)
-
-add_lcp_query_plan_v2_create_set_remove_delete(
-  ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/ast.lcp)
-add_lcp_query_plan_v2_create_set_remove_delete(
-  ${CMAKE_SOURCE_DIR}/src/query/frontend/semantic/symbol.lcp)
-add_lcp_query_plan_v2_create_set_remove_delete(
-  ${CMAKE_SOURCE_DIR}/src/query/plan/operator.lcp)
-
-add_custom_target(generate_lcp_query_plan_v2_create_set_remove_delete DEPENDS
-  ${generated_lcp_query_plan_v2_create_set_remove_delete_files})
-
-add_unit_test(query_plan_v2_create_set_remove_delete.cpp
-  ${lcp_query_plan_v2_create_set_remove_delete}
-  ${CMAKE_SOURCE_DIR}/src/query/common.cpp
-  # ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/ast.lcp.cpp
-  ${CMAKE_SOURCE_DIR}/src/query/frontend/ast/pretty_print.cpp
-  ${CMAKE_SOURCE_DIR}/src/query/plan/operator.cpp
-  # ${CMAKE_SOURCE_DIR}/src/query/plan/operator.lcp.cpp
-  ${CMAKE_SOURCE_DIR}/src/query/typed_value.cpp)
-target_compile_definitions(${test_prefix}query_plan_v2_create_set_remove_delete PUBLIC MG_SINGLE_NODE_V2)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete glog cppitertools)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-storage-v2)
-add_dependencies(${test_prefix}query_plan_v2_create_set_remove_delete
-  generate_lcp_query_plan_v2_create_set_remove_delete)
-
+add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-single-node-v2 mg-auth kvstore_dummy_lib)
 # END Storage V2 in query execution
 
 add_unit_test(query_plan_edge_cases.cpp)

@@ -201,6 +201,8 @@ set(mg_single_node_ha_sources
     query/plan/rewrite/index_lookup.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
+    query/procedure/mg_procedure_impl.cpp
+    query/procedure/module.cpp
     query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
@@ -243,6 +245,7 @@ if (READLINE_FOUND)
 endif()
 
 add_library(mg-single-node-ha STATIC ${mg_single_node_ha_sources})
+target_include_directories(mg-single-node-ha PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-single-node-ha ${MG_SINGLE_NODE_HA_LIBS})
 add_dependencies(mg-single-node-ha generate_opencypher_parser)
 add_dependencies(mg-single-node-ha generate_lcp_single_node_ha)

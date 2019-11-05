@@ -1470,4 +1470,50 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
       ExpectFilter(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, CallProcedureStandalone) {
+  // Test CALL proc(1,2,3) YIELD field AS result
+  AstStorage storage;
+  auto *ast_call = storage.Create<query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->arguments_ = {LITERAL(1), LITERAL(2), LITERAL(3)};
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("result")};
+  auto *query = QUERY(SINGLE_QUERY(ast_call));
+  auto symbol_table = query::MakeSymbolTable(query);
+  std::vector<Symbol> result_syms;
+  result_syms.reserve(ast_call->result_identifiers_.size());
+  for (const auto *ident : ast_call->result_identifiers_) {
+    result_syms.push_back(symbol_table.at(*ident));
+  }
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
+                                ast_call->result_fields_, result_syms));
+}
+
+TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
+  // Test MATCH (n) CALL proc(n) YIELD field AS result RETURN result
+  AstStorage storage;
+  auto *ast_call = storage.Create<query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->arguments_ = {IDENT("n")};
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("result")};
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ast_call, RETURN("result")));
+  auto symbol_table = query::MakeSymbolTable(query);
+  std::vector<Symbol> result_syms;
+  result_syms.reserve(ast_call->result_identifiers_.size());
+  for (const auto *ident : ast_call->result_identifiers_) {
+    result_syms.push_back(symbol_table.at(*ident));
+  }
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
+                                ast_call->result_fields_, result_syms),
+            ExpectProduce());
+}
+
 }  // namespace
