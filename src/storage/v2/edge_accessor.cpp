@@ -55,6 +55,27 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
   return !existed;
 }
 
+Result<bool> EdgeAccessor::ClearProperties() {
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr))
+    return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  bool removed = !edge_.ptr->properties.empty();
+  for (const auto &property : edge_.ptr->properties) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
+                       property.first, property.second);
+  }
+
+  edge_.ptr->properties.clear();
+
+  return removed;
+}
+
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                                                 View view) const {
   if (!config_.properties_on_edges) return PropertyValue();

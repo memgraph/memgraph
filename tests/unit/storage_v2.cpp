@@ -1,8 +1,11 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <limits>
 
 #include "storage/v2/storage.hpp"
+
+using testing::UnorderedElementsAre;
 
 size_t CountVertices(storage::Storage::Accessor *storage_accessor,
                      storage::View view) {
@@ -2142,4 +2145,114 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
 
   ASSERT_FALSE(acc.Commit().HasError());
+}
+
+TEST(StorageV2, VertexPropertyClear) {
+  storage::Storage store;
+  storage::Gid gid;
+  auto property1 = store.NameToProperty("property1");
+  auto property2 = store.NameToProperty("property2");
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+
+    auto res = vertex.SetProperty(property1, storage::PropertyValue("value"));
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(),
+              "value");
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::OLD)->IsNull());
+    ASSERT_THAT(vertex->Properties(storage::View::OLD).GetValue(),
+                UnorderedElementsAre(
+                    std::pair(property1, storage::PropertyValue("value"))));
+
+    {
+      auto ret = vertex->ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(vertex->GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetValue().size(), 0);
+
+    {
+      auto ret = vertex->ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_FALSE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(vertex->GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetValue().size(), 0);
+
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    auto res = vertex->SetProperty(property2, storage::PropertyValue(42));
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(),
+              "value");
+    ASSERT_EQ(vertex->GetProperty(property2, storage::View::OLD)->ValueInt(),
+              42);
+    ASSERT_THAT(vertex->Properties(storage::View::OLD).GetValue(),
+                UnorderedElementsAre(
+                    std::pair(property1, storage::PropertyValue("value")),
+                    std::pair(property2, storage::PropertyValue(42))));
+
+    {
+      auto ret = vertex->ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(vertex->GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetValue().size(), 0);
+
+    {
+      auto ret = vertex->ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_FALSE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(vertex->GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetValue().size(), 0);
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    ASSERT_TRUE(vertex->GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetValue().size(), 0);
+
+    acc.Abort();
+  }
 }

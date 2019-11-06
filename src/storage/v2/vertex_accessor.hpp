@@ -54,6 +54,11 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
 
+  /// Remove all properties and return `true` if any removal took place.
+  /// `false` is returned if there were no properties to remove.
+  /// @throw std::bad_alloc
+  Result<bool> ClearProperties();
+
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 

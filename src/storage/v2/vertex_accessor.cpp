@@ -221,6 +221,27 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
   return !existed;
 }
 
+Result<bool> VertexAccessor::ClearProperties() {
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_))
+    return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  bool removed = !vertex_->properties.empty();
+  for (const auto &property : vertex_->properties) {
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(),
+                       property.first, property.second);
+    UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_,
+                        *transaction_);
+  }
+
+  vertex_->properties.clear();
+
+  return removed;
+}
+
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                                                   View view) const {
   bool deleted = false;

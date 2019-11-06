@@ -5,6 +5,8 @@
 
 #include "storage/v2/storage.hpp"
 
+using testing::UnorderedElementsAre;
+
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
 
 INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest,
@@ -5108,6 +5110,124 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
   }
 }
 
+TEST(StorageWithProperties, EdgePropertyClear) {
+  storage::Storage store({.items = {.properties_on_edges = true}});
+  storage::Gid gid;
+  auto property1 = store.NameToProperty("property1");
+  auto property2 = store.NameToProperty("property2");
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto et = acc.NameToEdgeType("et5");
+    auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
+    ASSERT_EQ(edge.EdgeType(), et);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+
+    auto res = edge.SetProperty(property1, storage::PropertyValue("value"));
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(),
+              "value");
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::OLD)->IsNull());
+    ASSERT_THAT(edge.Properties(storage::View::OLD).GetValue(),
+                UnorderedElementsAre(
+                    std::pair(property1, storage::PropertyValue("value"))));
+
+    {
+      auto ret = edge.ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetValue().size(), 0);
+
+    {
+      auto ret = edge.ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_FALSE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetValue().size(), 0);
+
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    auto res = edge.SetProperty(property2, storage::PropertyValue(42));
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(),
+              "value");
+    ASSERT_EQ(edge.GetProperty(property2, storage::View::OLD)->ValueInt(), 42);
+    ASSERT_THAT(edge.Properties(storage::View::OLD).GetValue(),
+                UnorderedElementsAre(
+                    std::pair(property1, storage::PropertyValue("value")),
+                    std::pair(property2, storage::PropertyValue(42))));
+
+    {
+      auto ret = edge.ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetValue().size(), 0);
+
+    {
+      auto ret = edge.ClearProperties();
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_FALSE(ret.GetValue());
+    }
+
+    ASSERT_TRUE(edge.GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetValue().size(), 0);
+
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    ASSERT_TRUE(edge.GetProperty(property1, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(edge.GetProperty(property2, storage::View::NEW)->IsNull());
+    ASSERT_EQ(edge.Properties(storage::View::NEW).GetValue().size(), 0);
+
+    acc.Abort();
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithoutProperties, EdgePropertyAbort) {
   storage::Storage store({.items = {.properties_on_edges = false}});
@@ -5174,6 +5294,33 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
 
     ASSERT_TRUE(edge.GetProperty(other_property, storage::View::OLD)->IsNull());
     ASSERT_TRUE(edge.GetProperty(other_property, storage::View::NEW)->IsNull());
+
+    acc.Abort();
+  }
+}
+
+TEST(StorageWithoutProperties, EdgePropertyClear) {
+  storage::Storage store({.items = {.properties_on_edges = false}});
+  storage::Gid gid;
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    auto et = acc.NameToEdgeType("et5");
+    auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
+    ASSERT_EQ(edge.EdgeType(), et);
+    ASSERT_EQ(edge.FromVertex(), vertex);
+    ASSERT_EQ(edge.ToVertex(), vertex);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+    auto edge = vertex->OutEdges({}, storage::View::NEW).GetValue()[0];
+
+    ASSERT_EQ(edge.ClearProperties().GetError(),
+              storage::Error::PROPERTIES_DISABLED);
 
     acc.Abort();
   }

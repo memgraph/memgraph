@@ -52,7 +52,9 @@ class EdgeAccessor final {
   }
 
   utils::BasicResult<storage::Error, void> ClearProperties() {
-    throw utils::NotYetImplemented("ClearProperties");
+    auto ret = impl_.ClearProperties();
+    if (ret.HasError()) return ret.GetError();
+    return {};
   }
 
   VertexAccessor To() const;
@@ -118,7 +120,9 @@ class VertexAccessor final {
   }
 
   utils::BasicResult<storage::Error, void> ClearProperties() {
-    throw utils::NotYetImplemented("ClearProperties");
+    auto ret = impl_.ClearProperties();
+    if (ret.HasError()) return ret.GetError();
+    return {};
   }
 
   auto InEdges(storage::View view,
