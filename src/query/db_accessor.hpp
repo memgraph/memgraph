@@ -522,27 +522,6 @@ class DbAccessor final {
     Iterator end() { return Iterator(iterable_.end()); }
   };
 
-  class EdgesIterable final {
-   public:
-    class Iterator final {
-     public:
-      EdgeAccessor operator*() const {
-        throw utils::NotYetImplemented("operator*");
-      }
-
-      Iterator &operator++() { throw utils::NotYetImplemented("operator++"); }
-
-      bool operator==(const Iterator &other) const {
-        throw utils::NotYetImplemented("operator==");
-      }
-
-      bool operator!=(const Iterator &other) const { return !(other == *this); }
-    };
-
-    Iterator begin() { throw utils::NotYetImplemented("begin"); }
-    Iterator end() { throw utils::NotYetImplemented("end"); }
-  };
-
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor)
       : accessor_(accessor) {}
@@ -567,10 +546,6 @@ class DbAccessor final {
       const std::optional<utils::Bound<PropertyValue>> &upper) {
     return VerticesIterable(
         accessor_->Vertices(label, property, lower, upper, view));
-  }
-
-  EdgesIterable Edges(storage::View view) {
-    throw utils::NotYetImplemented("Edges");
   }
 
   VertexAccessor InsertVertex() {
@@ -783,12 +758,6 @@ class DbAccessor final {
     auto vertices = dba_->Vertices(label, property, lower, upper,
                                    view == storage::View::NEW);
     return VerticesIterable<decltype(vertices)>(std::move(vertices));
-  }
-
-  auto Edges(storage::View view) {
-    // TODO: Exceptions?
-    return iter::imap([](const auto &e) { return EdgeAccessor(e); },
-                      dba_->Edges(view == storage::View::NEW));
   }
 
   storage::Property NameToProperty(const std::string_view &name) {

@@ -54,7 +54,7 @@ class CypherDumpGenerator {
 
     bool ReachedEnd() const { return current_ == end_; }
 
-    // Returns true iff the container is empty.
+    // Returns true if the container is empty.
     bool Empty() const { return empty_; }
 
    private:
@@ -65,6 +65,44 @@ class CypherDumpGenerator {
     TIterator end_;
 
     bool empty_;
+  };
+
+  class EdgesState {
+   private:
+    using TVertices = decltype(std::declval<query::DbAccessor>().Vertices(
+        std::declval<storage::View>()));
+
+   public:
+    explicit EdgesState(TVertices vertices)
+        : vertices_state_(std::move(vertices)) {
+      FindNext();
+    }
+
+    EdgesState(const EdgesState &other) = delete;
+    // NOLINTNEXTLINE(hicpp-noexcept-move,performance-noexcept-move-constructor)
+    EdgesState(EdgesState &&other) = default;
+    EdgesState &operator=(const EdgesState &other) = delete;
+    EdgesState &operator=(EdgesState &&other) = delete;
+    ~EdgesState() = default;
+
+    auto GetCurrentAndAdvance() {
+      auto edge = *current_edge_;
+      FindNext();
+      return edge;
+    }
+
+    bool ReachedEnd() const { return !current_edge_; }
+
+    // Returns true if the container is empty.
+    bool Empty() const { return !current_edge_; }
+
+   private:
+    void FindNext();
+
+    std::optional<ContainerState<TVertices>> vertices_state_;
+    std::optional<ContainerState<std::vector<query::EdgeAccessor>>>
+        edges_list_state_;
+    std::optional<query::EdgeAccessor> current_edge_;
   };
 
   query::DbAccessor *dba_;
@@ -82,8 +120,7 @@ class CypherDumpGenerator {
 #endif
   std::optional<ContainerState<decltype(dba_->Vertices(storage::View::OLD))>>
       vertices_state_;
-  std::optional<ContainerState<decltype(dba_->Edges(storage::View::OLD))>>
-      edges_state_;
+  std::optional<EdgesState> edges_state_;
 };
 
 }  // namespace database

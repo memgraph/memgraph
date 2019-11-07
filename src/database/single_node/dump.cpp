@@ -199,7 +199,7 @@ CypherDumpGenerator::CypherDumpGenerator(query::DbAccessor *dba)
   unique_constraints_state_.emplace(dba->ListUniqueConstraints());
 #endif
   vertices_state_.emplace(dba->Vertices(storage::View::OLD));
-  edges_state_.emplace(dba->Edges(storage::View::OLD));
+  edges_state_.emplace(dba->Vertices(storage::View::OLD));
 }
 
 bool CypherDumpGenerator::NextQuery(std::ostream *os) {
@@ -225,7 +225,7 @@ bool CypherDumpGenerator::NextQuery(std::ostream *os) {
     DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
     return true;
   } else if (!edges_state_->ReachedEnd()) {
-    DumpEdge(os, dba_, *edges_state_->GetCurrentAndAdvance());
+    DumpEdge(os, dba_, edges_state_->GetCurrentAndAdvance());
     return true;
   } else if (!vertices_state_->Empty() && !cleaned_internal_index_) {
     *os << "DROP INDEX ON :" << kInternalVertexLabel << "("
@@ -240,6 +240,31 @@ bool CypherDumpGenerator::NextQuery(std::ostream *os) {
   }
 
   return false;
+}
+
+void CypherDumpGenerator::EdgesState::FindNext() {
+  current_edge_ = std::nullopt;
+  if (edges_list_state_ && !edges_list_state_->ReachedEnd()) {
+    current_edge_ = *edges_list_state_->GetCurrentAndAdvance();
+    return;
+  }
+  while (!vertices_state_->ReachedEnd()) {
+    auto vertex = *vertices_state_->GetCurrentAndAdvance();
+    auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+    CHECK(maybe_edges.HasValue()) << "Invalid database state!";
+    auto &edges = maybe_edges.GetValue();
+    // We convert the itertools object to a list of edge accessors here because
+    // itertools have suspicious object lifetime handling.
+    std::vector<query::EdgeAccessor> edges_list;
+    for (auto edge : edges) {
+      edges_list.push_back(edge);
+    }
+    if (!edges_list.empty()) {
+      edges_list_state_.emplace(std::move(edges_list));
+      current_edge_ = *edges_list_state_->GetCurrentAndAdvance();
+      break;
+    }
+  }
 }
 
 }  // namespace database
