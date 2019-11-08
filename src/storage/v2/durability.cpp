@@ -1376,15 +1376,15 @@ void Durability::AppendToWal(const Transaction &transaction,
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp =
-      transaction.commit_timestamp->load(std::memory_order_acq_rel);
+      transaction.commit_timestamp->load(std::memory_order_acquire);
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, auto *parent,
                                    auto filter) {
     while (true) {
-      auto older = delta->next.load(std::memory_order_acq_rel);
+      auto older = delta->next.load(std::memory_order_acquire);
       if (older == nullptr ||
-          older->timestamp->load(std::memory_order_acq_rel) !=
+          older->timestamp->load(std::memory_order_acquire) !=
               current_commit_timestamp)
         break;
       delta = older;
