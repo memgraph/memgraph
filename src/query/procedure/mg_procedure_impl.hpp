@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "query/db_accessor.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
@@ -454,4 +455,10 @@ struct mgp_vertices_iterator {
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
 
+};
+
+struct mgp_type {
+  query::procedure::CypherTypePtr impl;
+  // Optional for globally allocated mgp_type.
+  utils::MemoryResource *memory{nullptr};
 };

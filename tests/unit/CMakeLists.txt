@@ -146,6 +146,12 @@ target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-nod
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-single-node kvstore_dummy_lib)
 
+# Test query/procedure
+add_unit_test(query_procedure_mgp_type.cpp)
+target_link_libraries(${test_prefix}query_procedure_mgp_type mg-single-node kvstore_dummy_lib)
+target_include_directories(${test_prefix}query_procedure_mgp_type PRIVATE ${CMAKE_SOURCE_DIR}/include)
+# END query/procedure
+
 add_unit_test(query_required_privileges.cpp)
 target_link_libraries(${test_prefix}query_required_privileges mg-single-node kvstore_dummy_lib)
 
