@@ -1004,7 +1004,24 @@ PreparedQuery PrepareInfoQuery(
       break;
     case InfoQuery::InfoType::INDEX:
 #ifdef MG_SINGLE_NODE_V2
-      throw utils::NotYetImplemented("IndexInfo");
+      header = {"index type", "label", "property"};
+      handler = [interpreter_context] {
+        auto *db = interpreter_context->db;
+        auto info = db->ListAllIndices();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(info.label.size() + info.label_property.size());
+        for (const auto &item : info.label) {
+          results.push_back({TypedValue("label"),
+                             TypedValue(db->LabelToName(item)), TypedValue()});
+        }
+        for (const auto &item : info.label_property) {
+          results.push_back({TypedValue("label+property"),
+                             TypedValue(db->LabelToName(item.first)),
+                             TypedValue(db->PropertyToName(item.second))});
+        }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+      break;
 #else
       header = {"created index"};
       handler = [dba] {
@@ -1020,7 +1037,20 @@ PreparedQuery PrepareInfoQuery(
 #endif
     case InfoQuery::InfoType::CONSTRAINT:
 #ifdef MG_SINGLE_NODE_V2
-      throw utils::NotYetImplemented("ConstraintInfo");
+      header = {"constraint type", "label", "properties"};
+      handler = [interpreter_context] {
+        auto *db = interpreter_context->db;
+        auto info = db->ListAllConstraints();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(info.existence.size());
+        for (const auto &item : info.existence) {
+          results.push_back({TypedValue("exists"),
+                             TypedValue(db->LabelToName(item.first)),
+                             TypedValue(db->PropertyToName(item.second))});
+        }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+      break;
 #else
       header = {"constraint type", "label", "properties"};
       handler = [dba] {
