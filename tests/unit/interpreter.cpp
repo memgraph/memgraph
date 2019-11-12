@@ -329,3 +329,104 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   Interpret("MATCH (n:A{a:2, b:2}) DETACH DELETE n");
   Interpret("CREATE (n:A{a:2, b:2})");
 }
+
+TEST_F(InterpreterTest, ExplainQuery) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
+                                         " * Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 1U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for EXPLAIN ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, ExplainQueryWithParams) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
+                          {{"id", PropertyValue(42)}});
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
+  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter",
+                                         " * ScanAll (n)", " * Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 1U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for EXPLAIN ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
+            {{"id", PropertyValue("something else")}});
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, ProfileQuery) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Interpret("PROFILE MATCH (n) RETURN *;");
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
+                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  EXPECT_EQ(stream.GetHeader(), expected_header);
+  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 4U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for PROFILE ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, ProfileQueryWithParams) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
+                          {{"id", PropertyValue(42)}});
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
+                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  EXPECT_EQ(stream.GetHeader(), expected_header);
+  std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll",
+                                         "* Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 4U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for PROFILE ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
+            {{"id", PropertyValue("something else")}});
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}

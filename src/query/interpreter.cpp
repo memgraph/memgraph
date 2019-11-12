@@ -696,9 +696,9 @@ PreparedQuery PrepareExplainQuery(
       << "Cypher grammar should not allow other queries in EXPLAIN";
 
   auto cypher_query_plan = CypherQueryToPlan(
-      parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage),
-      utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
-      &interpreter_context->plan_cache, dba);
+      parsed_inner_query.stripped_query.hash(),
+      std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -739,7 +739,7 @@ PreparedQuery PrepareProfileQuery(
     throw ProfileInMulticommandTxException();
   }
 
-  if (interpreter_context->is_tsc_available) {
+  if (!interpreter_context->is_tsc_available) {
     throw QueryException("TSC support is missing for PROFILE");
   }
 
@@ -759,9 +759,9 @@ PreparedQuery PrepareProfileQuery(
       << "Cypher grammar should not allow other queries in PROFILE";
 
   auto cypher_query_plan = CypherQueryToPlan(
-      parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage),
-      utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
-      &interpreter_context->plan_cache, dba);
+      parsed_inner_query.stripped_query.hash(),
+      std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
 
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
