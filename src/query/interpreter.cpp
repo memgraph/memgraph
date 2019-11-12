@@ -5,11 +5,11 @@
 #include <glog/logging.h>
 
 #include "auth/auth.hpp"
-#ifndef MG_SINGLE_NODE_HA
-#include "database/single_node/dump.hpp"
-#endif
 #include "glue/auth.hpp"
 #include "glue/communication.hpp"
+#ifndef MG_SINGLE_NODE_HA
+#include "query/dump.hpp"
+#endif
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -797,13 +797,7 @@ PreparedQuery PrepareDumpQuery(
       [interpreter_context](AnyStream *stream) {
         auto dba = interpreter_context->db->Access();
         query::DbAccessor query_dba{&dba};
-        std::ostringstream oss;
-        database::CypherDumpGenerator dump_generator{&query_dba};
-
-        while (dump_generator.NextQuery(&oss)) {
-          stream->Result({TypedValue(oss.str())});
-        }
-
+        DumpDatabaseToCypherQueries(&query_dba, stream);
         return QueryHandlerResult::NOTHING;
       }};
 #else

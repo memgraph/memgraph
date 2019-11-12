@@ -36,9 +36,6 @@ target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
 
-add_unit_test(database_dump.cpp)
-target_link_libraries(${test_prefix}database_dump mg-single-node kvstore_dummy_lib)
-
 add_unit_test(database_key_index.cpp)
 target_link_libraries(${test_prefix}database_key_index mg-single-node kvstore_dummy_lib)
 
@@ -116,6 +113,9 @@ target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kv
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-single-node kvstore_dummy_lib)
+
+add_unit_test(query_dump.cpp)
+target_link_libraries(${test_prefix}query_dump mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-single-node kvstore_dummy_lib)

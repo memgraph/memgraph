@@ -36,7 +36,6 @@ set(mg_single_node_sources
     audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node/config.cpp
-    database/single_node/dump.cpp
     database/single_node/graph_db.cpp
     database/single_node/graph_db_accessor.cpp
     durability/single_node/state_delta.cpp
@@ -47,6 +46,7 @@ set(mg_single_node_sources
     glue/auth.cpp
     glue/communication.cpp
     query/common.cpp
+    query/dump.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/ast/pretty_print.cpp
     query/frontend/parsing.cpp
@@ -120,10 +120,10 @@ target_link_libraries(mg-single-node "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/inc
 set(mg_single_node_v2_sources
     ${lcp_common_cpp_files}
     audit/log.cpp
-    database/single_node/dump.cpp
     glue/auth.cpp
     glue/communication.cpp
     query/common.cpp
+    query/dump.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/ast/pretty_print.cpp
     query/frontend/parsing.cpp

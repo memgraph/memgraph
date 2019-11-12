@@ -1,4 +1,4 @@
-#include "database/single_node/dump.hpp"
+#include "query/dump.hpp"
 
 #include <iomanip>
 #include <limits>
@@ -14,7 +14,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 
-namespace database {
+namespace query {
 
 namespace {
 
@@ -164,9 +164,28 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
   *os << "]->(v);";
 }
 
-#ifndef MG_SINGLE_NODE_V2
+#ifdef MG_SINGLE_NODE_V2
+void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba,
+                    const storage::LabelId label) {
+  *os << "CREATE INDEX ON :" << dba->LabelToName(label) << ";";
+}
+
+void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba,
+                            storage::LabelId label,
+                            storage::PropertyId property) {
+  *os << "CREATE INDEX ON :" << dba->LabelToName(label) << "("
+      << dba->PropertyToName(property) << ");";
+}
+
+void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba,
+                             storage::LabelId label,
+                             storage::PropertyId property) {
+  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(label)
+      << ") ASSERT EXISTS (u." << dba->PropertyToName(property) << ");";
+}
+#else
 void DumpIndexKey(std::ostream *os, query::DbAccessor *dba,
-                  const LabelPropertyIndex::Key &key) {
+                  const database::LabelPropertyIndex::Key &key) {
   *os << "CREATE INDEX ON :" << dba->LabelToName(key.label_) << "("
       << dba->PropertyToName(key.property_) << ");";
 }
@@ -186,85 +205,79 @@ void DumpUniqueConstraint(
 
 }  // namespace
 
-CypherDumpGenerator::CypherDumpGenerator(query::DbAccessor *dba)
-    : dba_(dba),
-      created_internal_index_(false),
-      cleaned_internal_index_(false),
-      cleaned_internal_label_property_(false) {
-  CHECK(dba);
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
 #ifdef MG_SINGLE_NODE_V2
-  throw utils::NotYetImplemented("Dumping indices and constraints");
-#else
-  indices_state_.emplace(dba->GetIndicesKeys());
-  unique_constraints_state_.emplace(dba->ListUniqueConstraints());
-#endif
-  vertices_state_.emplace(dba->Vertices(storage::View::OLD));
-  edges_state_.emplace(dba->Vertices(storage::View::OLD));
-}
-
-bool CypherDumpGenerator::NextQuery(std::ostream *os) {
-#ifdef MG_SINGLE_NODE_V2
-  if (!vertices_state_->Empty() && !created_internal_index_) {
-#else
-  if (!indices_state_->ReachedEnd()) {
-    DumpIndexKey(os, dba_, *indices_state_->GetCurrentAndAdvance());
-    return true;
-  } else if (!vertices_state_->Empty() && !created_internal_index_) {
-#endif
-    *os << "CREATE INDEX ON :" << kInternalVertexLabel << "("
-        << kInternalPropertyId << ");";
-    created_internal_index_ = true;
-    return true;
-#ifndef MG_SINGLE_NODE_V2
-  } else if (!unique_constraints_state_->ReachedEnd()) {
-    DumpUniqueConstraint(os, dba_,
-                         *unique_constraints_state_->GetCurrentAndAdvance());
-    return true;
-#endif
-  } else if (!vertices_state_->ReachedEnd()) {
-    DumpVertex(os, dba_, *vertices_state_->GetCurrentAndAdvance());
-    return true;
-  } else if (!edges_state_->ReachedEnd()) {
-    DumpEdge(os, dba_, edges_state_->GetCurrentAndAdvance());
-    return true;
-  } else if (!vertices_state_->Empty() && !cleaned_internal_index_) {
-    *os << "DROP INDEX ON :" << kInternalVertexLabel << "("
-        << kInternalPropertyId << ");";
-    cleaned_internal_index_ = true;
-    return true;
-  } else if (!vertices_state_->Empty() && !cleaned_internal_label_property_) {
-    *os << "MATCH (u) REMOVE u:" << kInternalVertexLabel << ", u."
-        << kInternalPropertyId << ";";
-    cleaned_internal_label_property_ = true;
-    return true;
+  {
+    auto info = dba->ListAllIndices();
+    for (const auto &item : info.label) {
+      std::ostringstream os;
+      DumpLabelIndex(&os, dba, item);
+      stream->Result({TypedValue(os.str())});
+    }
+    for (const auto &item : info.label_property) {
+      std::ostringstream os;
+      DumpLabelPropertyIndex(&os, dba, item.first, item.second);
+      stream->Result({TypedValue(os.str())});
+    }
   }
-
-  return false;
-}
-
-void CypherDumpGenerator::EdgesState::FindNext() {
-  current_edge_ = std::nullopt;
-  if (edges_list_state_ && !edges_list_state_->ReachedEnd()) {
-    current_edge_ = *edges_list_state_->GetCurrentAndAdvance();
-    return;
+  {
+    auto info = dba->ListAllConstraints();
+    for (const auto &item : info.existence) {
+      std::ostringstream os;
+      DumpExistenceConstraint(&os, dba, item.first, item.second);
+      stream->Result({TypedValue(os.str())});
+    }
   }
-  while (!vertices_state_->ReachedEnd()) {
-    auto vertex = *vertices_state_->GetCurrentAndAdvance();
+#else
+  for (const auto &item : dba->GetIndicesKeys()) {
+    std::ostringstream os;
+    DumpIndexKey(&os, dba, item);
+    stream->Result({TypedValue(os.str())});
+  }
+  for (const auto &item : dba->ListUniqueConstraints()) {
+    std::ostringstream os;
+    DumpUniqueConstraint(&os, dba, item);
+    stream->Result({TypedValue(os.str())});
+  }
+#endif
+
+  auto vertices = dba->Vertices(storage::View::OLD);
+  bool internal_index_created = false;
+  if (vertices.begin() != vertices.end()) {
+    std::ostringstream os;
+    os << "CREATE INDEX ON :" << kInternalVertexLabel << "("
+       << kInternalPropertyId << ");";
+    stream->Result({TypedValue(os.str())});
+    internal_index_created = true;
+  }
+  for (const auto &vertex : vertices) {
+    std::ostringstream os;
+    DumpVertex(&os, dba, vertex);
+    stream->Result({TypedValue(os.str())});
+  }
+  for (const auto &vertex : vertices) {
     auto maybe_edges = vertex.OutEdges(storage::View::OLD);
     CHECK(maybe_edges.HasValue()) << "Invalid database state!";
-    auto &edges = maybe_edges.GetValue();
-    // We convert the itertools object to a list of edge accessors here because
-    // itertools have suspicious object lifetime handling.
-    std::vector<query::EdgeAccessor> edges_list;
-    for (auto edge : edges) {
-      edges_list.push_back(edge);
+    for (const auto &edge : *maybe_edges) {
+      std::ostringstream os;
+      DumpEdge(&os, dba, edge);
+      stream->Result({TypedValue(os.str())});
     }
-    if (!edges_list.empty()) {
-      edges_list_state_.emplace(std::move(edges_list));
-      current_edge_ = *edges_list_state_->GetCurrentAndAdvance();
-      break;
+  }
+  if (internal_index_created) {
+    {
+      std::ostringstream os;
+      os << "DROP INDEX ON :" << kInternalVertexLabel << "("
+         << kInternalPropertyId << ");";
+      stream->Result({TypedValue(os.str())});
+    }
+    {
+      std::ostringstream os;
+      os << "MATCH (u) REMOVE u:" << kInternalVertexLabel << ", u."
+         << kInternalPropertyId << ";";
+      stream->Result({TypedValue(os.str())});
     }
   }
 }
 
-}  // namespace database
+}  // namespace query

@@ -11,6 +11,7 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/stream.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -29,51 +30,6 @@ namespace query {
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
-
-/**
- * `AnyStream` can wrap *any* type implementing the `Stream` concept into a
- * single type.
- *
- * The type erasure technique is used. The original type which an `AnyStream`
- * was constructed from is "erased", as `AnyStream` is not a class template and
- * doesn't use the type in any way. Client code can then program just for
- * `AnyStream`, rather than using static polymorphism to handle any type
- * implementing the `Stream` concept.
- */
-class AnyStream final {
- public:
-  template <class TStream>
-  AnyStream(TStream *stream, utils::MemoryResource *memory_resource)
-      : content_{utils::Allocator<GenericWrapper<TStream>>{memory_resource}
-                     .template new_object<GenericWrapper<TStream>>(stream),
-                 [memory_resource](Wrapper *ptr) {
-                   utils::Allocator<GenericWrapper<TStream>>{memory_resource}
-                       .template delete_object<GenericWrapper<TStream>>(
-                           static_cast<GenericWrapper<TStream> *>(ptr));
-                 }} {}
-
-  void Result(const std::vector<TypedValue> &values) {
-    content_->Result(values);
-  }
-
- private:
-  struct Wrapper {
-    virtual void Result(const std::vector<TypedValue> &values) = 0;
-  };
-
-  template <class TStream>
-  struct GenericWrapper final : public Wrapper {
-    explicit GenericWrapper(TStream *stream) : stream_{stream} {}
-
-    void Result(const std::vector<TypedValue> &values) override {
-      stream_->Result(values);
-    }
-
-    TStream *stream_;
-  };
-
-  std::unique_ptr<Wrapper, std::function<void(Wrapper *)>> content_;
-};
 
 /**
  * A container for data related to the preparation of a query.

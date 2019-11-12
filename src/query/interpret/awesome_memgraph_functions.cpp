@@ -7,9 +7,6 @@
 #include <functional>
 #include <random>
 
-#ifndef MG_SINGLE_NODE_V2
-#include "database/single_node/dump.hpp"
-#endif
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
