@@ -966,6 +966,12 @@ bool Storage::DropIndex(LabelId label, PropertyId property) {
   return true;
 }
 
+IndicesInfo Storage::ListAllIndices() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {indices_.label_index.ListIndices(),
+          indices_.label_property_index.ListIndices()};
+}
+
 utils::BasicResult<ExistenceConstraintViolation, bool>
 Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -988,6 +994,11 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
   durability_.AppendToWal(StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
                           label, property, timestamp_);
   return true;
+}
+
+ConstraintsInfo Storage::ListAllConstraints() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {ListExistenceConstraints(constraints_)};
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {

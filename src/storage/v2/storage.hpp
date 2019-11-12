@@ -264,6 +264,24 @@ class Storage final {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(const std::string &name);
 
+    bool LabelIndexExists(LabelId label) const {
+      return storage_->indices_.label_index.IndexExists(label);
+    }
+
+    bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
+      return storage_->indices_.label_property_index.IndexExists(label,
+                                                                 property);
+    }
+
+    IndicesInfo ListAllIndices() const {
+      return {storage_->indices_.label_index.ListIndices(),
+              storage_->indices_.label_property_index.ListIndices()};
+    }
+
+    ConstraintsInfo ListAllConstraints() const {
+      return {ListExistenceConstraints(storage_->constraints_)};
+    }
+
     void AdvanceCommand();
 
     /// Commit returns `ExistenceConstraintViolation` if the changes made by
@@ -308,18 +326,7 @@ class Storage final {
 
   bool DropIndex(LabelId label, PropertyId property);
 
-  bool LabelIndexExists(LabelId label) const {
-    return indices_.label_index.IndexExists(label);
-  }
-
-  bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
-    return indices_.label_property_index.IndexExists(label, property);
-  }
-
-  IndicesInfo ListAllIndices() const {
-    return {indices_.label_index.ListIndices(),
-            indices_.label_property_index.ListIndices()};
-  }
+  IndicesInfo ListAllIndices() const;
 
   /// Creates a unique constraint`. Returns true if the constraint was
   /// successfuly added, false if it already exists and an
@@ -335,9 +342,7 @@ class Storage final {
   /// and false if it doesn't exist.
   bool DropExistenceConstraint(LabelId label, PropertyId property);
 
-  ConstraintsInfo ListAllConstraints() const {
-    return {ListExistenceConstraints(constraints_)};
-  }
+  ConstraintsInfo ListAllConstraints() const;
 
  private:
   Transaction CreateTransaction();
@@ -352,7 +357,7 @@ class Storage final {
   // creation of new accessors by taking a unique lock. This is used when doing
   // operations on storage that affect the global state, for example index
   // creation.
-  utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
+  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;

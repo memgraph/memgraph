@@ -50,7 +50,10 @@ class IndexTest : public testing::Test {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexCreate) {
-  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelIndexExists(label1));
+  }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
@@ -136,7 +139,10 @@ TEST_F(IndexTest, LabelIndexCreate) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexDrop) {
-  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelIndexExists(label1));
+  }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
@@ -159,11 +165,17 @@ TEST_F(IndexTest, LabelIndexDrop) {
   }
 
   EXPECT_TRUE(storage.DropIndex(label1));
-  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelIndexExists(label1));
+  }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   EXPECT_FALSE(storage.DropIndex(label1));
-  EXPECT_FALSE(storage.LabelIndexExists(label1));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelIndexExists(label1));
+  }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
@@ -176,7 +188,10 @@ TEST_F(IndexTest, LabelIndexDrop) {
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
-  EXPECT_TRUE(storage.LabelIndexExists(label1));
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(acc.LabelIndexExists(label1));
+  }
   EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1));
 
   {
@@ -375,28 +390,43 @@ TEST_F(IndexTest, LabelIndexCountEstimate) {
 TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
-  EXPECT_TRUE(storage.LabelPropertyIndexExists(label1, prop_id));
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(acc.LabelPropertyIndexExists(label1, prop_id));
+  }
   EXPECT_THAT(storage.ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(label1, prop_id)));
-  EXPECT_FALSE(storage.LabelPropertyIndexExists(label2, prop_id));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
+  }
   EXPECT_FALSE(storage.CreateIndex(label1, prop_id));
   EXPECT_THAT(storage.ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(label1, prop_id)));
 
   EXPECT_TRUE(storage.CreateIndex(label2, prop_id));
-  EXPECT_TRUE(storage.LabelPropertyIndexExists(label2, prop_id));
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(acc.LabelPropertyIndexExists(label2, prop_id));
+  }
   EXPECT_THAT(storage.ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(label1, prop_id),
                                    std::make_pair(label2, prop_id)));
 
   EXPECT_TRUE(storage.DropIndex(label1, prop_id));
-  EXPECT_FALSE(storage.LabelPropertyIndexExists(label1, prop_id));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
+  }
   EXPECT_THAT(storage.ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(label2, prop_id)));
   EXPECT_FALSE(storage.DropIndex(label1, prop_id));
 
   EXPECT_TRUE(storage.DropIndex(label2, prop_id));
-  EXPECT_FALSE(storage.LabelPropertyIndexExists(label2, prop_id));
+  {
+    auto acc = storage.Access();
+    EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
+  }
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
 }
 

@@ -604,20 +604,13 @@ class DbAccessor final {
 
   bool MustAbort() const { return false; }
 
-  // TODO: Index manipulation should not go through Accessor
-  bool CreateIndex(storage::Label label, storage::Property prop) {
-    throw utils::NotYetImplemented("CreateIndex");
+  bool LabelIndexExists(storage::Label label) const {
+    return accessor_->LabelIndexExists(label);
   }
 
-  bool DropIndex(storage::Label label, storage::Property prop) {
-    throw utils::NotYetImplemented("DropIndex");
-  }
-
-  // TODO: Querying information should probably be in some kind of StorageInfo
-  // class instead of here in Accessor.
   bool LabelPropertyIndexExists(storage::Label label,
                                 storage::Property prop) const {
-    throw utils::NotYetImplemented("LabelPropertyIndexExists");
+    return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
@@ -643,15 +636,12 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
-  // TODO: Constraints manipulation should not go through Accessor
-  utils::BasicResult<storage::ExistenceConstraintViolation, bool>
-  CreateExistenceConstraint(storage::Label label, storage::Property property) {
-    throw utils::NotYetImplemented("CreateExistenceConstraint");
+  storage::IndicesInfo ListAllIndices() const {
+    return accessor_->ListAllIndices();
   }
 
-  bool DropExistenceConstraint(storage::Label label,
-                               storage::Property property) {
-    throw utils::NotYetImplemented("DropExistenceConstraint");
+  storage::ConstraintsInfo ListAllConstraints() const {
+    return accessor_->ListAllConstraints();
   }
 };
 #else
@@ -808,6 +798,11 @@ class DbAccessor final {
       // TODO: What do we do with this? This cannot happen in v2
       throw;
     }
+  }
+
+  bool LabelIndexExists(storage::Label label) const {
+    // Label indices exist for all labels in the v1 storage.
+    return true;
   }
 
   bool LabelPropertyIndexExists(storage::Label label,
