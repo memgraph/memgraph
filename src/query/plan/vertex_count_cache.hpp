@@ -69,6 +69,10 @@ class VertexCountCache {
     return bounds_vertex_count.at(bounds);
   }
 
+  bool LabelIndexExists(storage::Label label) {
+    return db_->LabelIndexExists(label);
+  }
+
   bool LabelPropertyIndexExists(storage::Label label,
                                 storage::Property property) {
     return db_->LabelPropertyIndexExists(label, property);

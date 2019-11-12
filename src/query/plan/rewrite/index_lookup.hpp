@@ -435,14 +435,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return db_->NameToProperty(prop.name);
   }
 
-  LabelIx FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
+  std::optional<LabelIx> FindBestLabelIndex(
+      const std::unordered_set<LabelIx> &labels) {
     CHECK(!labels.empty())
         << "Trying to find the best label without any labels.";
-    return *std::min_element(labels.begin(), labels.end(),
-                             [this](const auto &label1, const auto &label2) {
-                               return db_->VerticesCount(GetLabel(label1)) <
-                                      db_->VerticesCount(GetLabel(label2));
-                             });
+    std::optional<LabelIx> best_label;
+    for (const auto &label : labels) {
+      if (!db_->LabelIndexExists(GetLabel(label))) continue;
+      if (!best_label) {
+        best_label = label;
+        continue;
+      }
+      if (db_->VerticesCount(GetLabel(label)) <
+          db_->VerticesCount(GetLabel(*best_label)))
+        best_label = label;
+    }
+    return best_label;
   }
 
   // Finds the label-property combination which has indexed the lowest amount of
@@ -560,7 +568,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             prop_filter.value_, view);
       }
     }
-    auto label = FindBestLabelIndex(labels);
+    auto maybe_label = FindBestLabelIndex(labels);
+    if (!maybe_label) return nullptr;
+    const auto &label = *maybe_label;
     if (max_vertex_count &&
         db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
       // Don't create an indexed lookup, since we have more labeled vertices

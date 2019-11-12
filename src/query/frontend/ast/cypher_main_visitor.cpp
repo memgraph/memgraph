@@ -154,8 +154,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(ctx->labelName()->accept(this));
-  PropertyIx name_key = ctx->propertyKeyName()->accept(this);
-  index_query->properties_ = {name_key};
+  if (ctx->propertyKeyName()) {
+    PropertyIx name_key = ctx->propertyKeyName()->accept(this);
+    index_query->properties_ = {name_key};
+  }
   return index_query;
 }
 
@@ -163,8 +165,10 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(
     MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
-  PropertyIx key = ctx->propertyKeyName()->accept(this);
-  index_query->properties_ = {key};
+  if (ctx->propertyKeyName()) {
+    PropertyIx key = ctx->propertyKeyName()->accept(this);
+    index_query->properties_ = {key};
+  }
   index_query->label_ = AddLabel(ctx->labelName()->accept(this));
   return index_query;
 }

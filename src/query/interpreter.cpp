@@ -850,15 +850,21 @@ PreparedQuery PrepareIndexQuery(
 #ifdef MG_SINGLE_NODE_V2
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
-        CHECK(properties.size() == 1);
-        interpreter_context->db->CreateIndex(label, properties[0]);
+        if (properties.empty()) {
+          interpreter_context->db->CreateIndex(label);
+        } else {
+          CHECK(properties.size() == 1U);
+          interpreter_context->db->CreateIndex(label, properties[0]);
+        }
         invalidate_plan_cache();
       };
 #else
       handler = [dba, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
+        // Old storage creates label index by default.
+        if (properties.empty()) return;
         try {
-          CHECK(properties.size() == 1);
+          CHECK(properties.size() == 1U);
           dba->CreateIndex(label, properties[0]);
           invalidate_plan_cache();
         } catch (const database::ConstraintViolationException &e) {
@@ -876,15 +882,21 @@ PreparedQuery PrepareIndexQuery(
 #ifdef MG_SINGLE_NODE_V2
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
-        CHECK(properties.size() == 1);
-        interpreter_context->db->DropIndex(label, properties[0]);
+        if (properties.empty()) {
+          interpreter_context->db->DropIndex(label);
+        } else {
+          CHECK(properties.size() == 1U);
+          interpreter_context->db->DropIndex(label, properties[0]);
+        }
         invalidate_plan_cache();
       };
 #else
       handler = [dba, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
+        if (properties.empty())
+          throw QueryRuntimeException("Label index cannot be dropped!");
         try {
-          CHECK(properties.size() == 1);
+          CHECK(properties.size() == 1U);
           dba->DropIndex(label, properties[0]);
           invalidate_plan_cache();
         } catch (const database::TransactionException &e) {

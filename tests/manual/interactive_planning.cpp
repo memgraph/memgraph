@@ -200,6 +200,8 @@ class InteractiveDbAccessor {
                            "' in range " + range_string.str());
   }
 
+  bool LabelIndexExists(storage::Label label) { return true; }
+
   bool LabelPropertyIndexExists(storage::Label label_id,
                                 storage::Property property_id) {
     auto label = dba_->LabelName(label_id);

@@ -397,6 +397,10 @@ class FakeDbAccessor {
     return 0;
   }
 
+  bool LabelIndexExists(storage::Label label) const {
+    return label_index_.find(label) != label_index_.end();
+  }
+
   bool LabelPropertyIndexExists(storage::Label label,
                                 storage::Property property) const {
     for (auto &index : label_property_index_) {

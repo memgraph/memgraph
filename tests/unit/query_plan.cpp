@@ -167,10 +167,21 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
-  auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-            ExpectProduce());
+  {
+    // Without created label index
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
+              ExpectProduce());
+  }
+  {
+    // With created label index
+    dba.SetIndexCount(dba.Label(label), 0);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
+              ExpectProduce());
+  }
 }
 
 TYPED_TEST(TestPlanner, MatchPathReturn) {
@@ -1130,6 +1141,7 @@ TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto property = dba.Property("property");
+  dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, property, 0);
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(
@@ -1149,6 +1161,7 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
+  dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, dba.Property("property"), 0);
   AstStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", property);
@@ -1296,6 +1309,7 @@ TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
   // Test MATCH (n) -[r]- (m :label) RETURN r
   FakeDbAccessor dba;
   auto label = "label";
+  dba.SetIndexCount(dba.Label(label), 0);
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r")));
