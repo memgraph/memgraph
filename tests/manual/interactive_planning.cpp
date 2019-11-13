@@ -26,8 +26,7 @@ DEFINE_string(load_mock_db_file, "",
               "File from which the mock database should be loaded");
 
 #ifdef HAS_READLINE
-// TODO: This is copied from src/query/repl.cpp
-// It should probably be moved to some utils file.
+// TODO: This should probably be moved to some utils file.
 
 #include "readline/history.h"
 #include "readline/readline.h"
@@ -514,8 +513,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
     if (line->empty()) continue;
     try {
       query::AstStorage ast;
-      auto *query =
-          dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast));
+      auto *query = dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast));
       if (!query) {
         throw utils::BasicException(
             "Interactive planning is only avaialable for regular openCypher "

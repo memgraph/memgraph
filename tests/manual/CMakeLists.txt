@@ -45,12 +45,12 @@ target_link_libraries(${test_prefix}query_hash mg-single-node kvstore_dummy_lib)
 
 add_manual_test(query_planner.cpp interactive_planning.cpp)
 target_link_libraries(${test_prefix}query_planner mg-single-node kvstore_dummy_lib)
+if (READLINE_FOUND)
+  target_link_libraries(${test_prefix}query_planner readline)
+endif()
 
 add_manual_test(expression_pretty_printer.cpp)
 target_link_libraries(${test_prefix}expression_pretty_printer mg-single-node kvstore_dummy_lib)
-
-add_manual_test(repl.cpp)
-target_link_libraries(${test_prefix}repl mg-single-node kvstore_dummy_lib)
 
 add_manual_test(single_query.cpp)
 target_link_libraries(${test_prefix}single_query mg-single-node kvstore_dummy_lib)

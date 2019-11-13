@@ -64,7 +64,6 @@ set(mg_single_node_sources
     query/plan/variable_start_planner.cpp
     query/procedure/mg_procedure_impl.cpp
     query/procedure/module.cpp
-    query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
     storage/common/constraints/unique_constraints.cpp
@@ -93,10 +92,6 @@ if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_LIBS ltalloc)
   # TODO(mferencevic): Enable this when clang is updated on apollo.
   # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
-
-if (READLINE_FOUND)
-  list(APPEND MG_SINGLE_NODE_LIBS readline)
 endif()
 
 add_library(mg-single-node STATIC ${mg_single_node_sources})
@@ -211,7 +206,6 @@ set(mg_single_node_ha_sources
     query/plan/variable_start_planner.cpp
     query/procedure/mg_procedure_impl.cpp
     query/procedure/module.cpp
-    query/repl.cpp
     query/typed_value.cpp
     storage/common/constraints/record.cpp
     storage/common/constraints/unique_constraints.cpp
@@ -246,10 +240,6 @@ if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)
   # TODO(mferencevic): Enable this when clang is updated on apollo.
   # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
-
-if (READLINE_FOUND)
-  list(APPEND MG_SINGLE_NODE_HA_LIBS readline)
 endif()
 
 add_library(mg-single-node-ha STATIC ${mg_single_node_ha_sources})
