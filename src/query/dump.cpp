@@ -104,6 +104,9 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException(
             "Trying to get labels from a deleted node.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw query::QueryRuntimeException(
+            "Trying to get labels from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
@@ -121,6 +124,9 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException(
             "Trying to get properties from a deleted object.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw query::QueryRuntimeException(
+            "Trying to get properties from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
@@ -150,6 +156,9 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException(
             "Trying to get properties from a deleted object.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw query::QueryRuntimeException(
+            "Trying to get properties from an edge that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:

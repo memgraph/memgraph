@@ -870,7 +870,8 @@ size_t mgp_vertex_labels_count(const mgp_vertex *v) {
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        // Treat deleted vertex as having no labels.
+      case storage::Error::NONEXISTENT_OBJECT:
+        // Treat deleted/nonexistent vertex as having no labels.
         return 0;
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
@@ -888,6 +889,7 @@ mgp_label mgp_vertex_label_at(const mgp_vertex *v, size_t i) {
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
+      case storage::Error::NONEXISTENT_OBJECT:
         return mgp_label{nullptr};
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
@@ -925,6 +927,7 @@ int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
   if (maybe_has_label.HasError()) {
     switch (maybe_has_label.GetError()) {
       case storage::Error::DELETED_OBJECT:
+      case storage::Error::NONEXISTENT_OBJECT:
         return 0;
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
@@ -948,7 +951,8 @@ mgp_value *mgp_vertex_get_property(const mgp_vertex *v, const char *name,
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted vertex as having no properties.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent vertex as having no properties.
           return new_mgp_object<mgp_value>(memory);
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -976,7 +980,8 @@ mgp_properties_iterator *mgp_vertex_iter_properties(const mgp_vertex *v,
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted vertex as having no properties.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent vertex as having no properties.
           return new_mgp_object<mgp_properties_iterator>(memory, v->graph);
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1007,7 +1012,8 @@ mgp_edges_iterator *mgp_vertex_iter_in_edges(const mgp_vertex *v,
     if (maybe_edges.HasError()) {
       switch (maybe_edges.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted vertex as having no edges.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent vertex as having no edges.
           return it;
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1039,7 +1045,8 @@ mgp_edges_iterator *mgp_vertex_iter_out_edges(const mgp_vertex *v,
     if (maybe_edges.HasError()) {
       switch (maybe_edges.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted vertex as having no edges.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent vertex as having no edges.
           return it;
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1125,7 +1132,8 @@ mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name,
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted edge as having no properties.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent edge as having no properties.
           return new_mgp_object<mgp_value>(memory);
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1154,7 +1162,8 @@ mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e,
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          // Treat deleted edge as having no properties.
+        case storage::Error::NONEXISTENT_OBJECT:
+          // Treat deleted/nonexistent edge as having no properties.
           return new_mgp_object<mgp_properties_iterator>(memory, e->from.graph);
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:

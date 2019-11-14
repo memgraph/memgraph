@@ -86,6 +86,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 }
 
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
+  bool exists = true;
   bool deleted = false;
   bool has_label = false;
   Delta *delta = nullptr;
@@ -96,44 +97,47 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
                           label) != vertex_->labels.end();
     delta = vertex_->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view,
-                     [&deleted, &has_label, label](const Delta &delta) {
-                       switch (delta.action) {
-                         case Delta::Action::REMOVE_LABEL: {
-                           if (delta.label == label) {
-                             CHECK(has_label) << "Invalid database state!";
-                             has_label = false;
-                           }
-                           break;
-                         }
-                         case Delta::Action::ADD_LABEL: {
-                           if (delta.label == label) {
-                             CHECK(!has_label) << "Invalid database state!";
-                             has_label = true;
-                           }
-                           break;
-                         }
-                         case Delta::Action::DELETE_OBJECT: {
-                           LOG(FATAL) << "Invalid accessor!";
-                           break;
-                         }
-                         case Delta::Action::RECREATE_OBJECT: {
-                           deleted = false;
-                           break;
-                         }
-                         case Delta::Action::SET_PROPERTY:
-                         case Delta::Action::ADD_IN_EDGE:
-                         case Delta::Action::ADD_OUT_EDGE:
-                         case Delta::Action::REMOVE_IN_EDGE:
-                         case Delta::Action::REMOVE_OUT_EDGE:
-                           break;
-                       }
-                     });
+  ApplyDeltasForRead(
+      transaction_, delta, view,
+      [&exists, &deleted, &has_label, label](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::REMOVE_LABEL: {
+            if (delta.label == label) {
+              CHECK(has_label) << "Invalid database state!";
+              has_label = false;
+            }
+            break;
+          }
+          case Delta::Action::ADD_LABEL: {
+            if (delta.label == label) {
+              CHECK(!has_label) << "Invalid database state!";
+              has_label = true;
+            }
+            break;
+          }
+          case Delta::Action::DELETE_OBJECT: {
+            exists = false;
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            deleted = false;
+            break;
+          }
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+      });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return has_label;
 }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
+  bool exists = true;
   bool deleted = false;
   std::vector<LabelId> labels;
   Delta *delta = nullptr;
@@ -144,7 +148,8 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&deleted, &labels](const Delta &delta) {
+      transaction_, delta, view,
+      [&exists, &deleted, &labels](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::REMOVE_LABEL: {
             // Remove the label because we don't see the addition.
@@ -162,7 +167,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
             break;
           }
           case Delta::Action::DELETE_OBJECT: {
-            LOG(FATAL) << "Invalid accessor!";
+            exists = false;
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
@@ -177,6 +182,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
             break;
         }
       });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return std::move(labels);
 }
@@ -244,6 +250,7 @@ Result<bool> VertexAccessor::ClearProperties() {
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                                                   View view) const {
+  bool exists = true;
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
@@ -257,7 +264,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
-                     [&deleted, &value, property](const Delta &delta) {
+                     [&exists, &deleted, &value, property](const Delta &delta) {
                        switch (delta.action) {
                          case Delta::Action::SET_PROPERTY: {
                            if (delta.property.key == property) {
@@ -266,7 +273,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                            break;
                          }
                          case Delta::Action::DELETE_OBJECT: {
-                           LOG(FATAL) << "Invalid accessor!";
+                           exists = false;
                            break;
                          }
                          case Delta::Action::RECREATE_OBJECT: {
@@ -282,14 +289,16 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
                            break;
                        }
                      });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
     View view) const {
-  std::map<PropertyId, PropertyValue> properties;
+  bool exists = true;
   bool deleted = false;
+  std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -297,51 +306,52 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
     properties = vertex_->properties;
     delta = vertex_->delta;
   }
-  ApplyDeltasForRead(
-      transaction_, delta, view, [&deleted, &properties](const Delta &delta) {
-        switch (delta.action) {
-          case Delta::Action::SET_PROPERTY: {
-            auto it = properties.find(delta.property.key);
-            if (it != properties.end()) {
-              if (delta.property.value.IsNull()) {
-                // remove the property
-                properties.erase(it);
-              } else {
-                // set the value
-                it->second = delta.property.value;
-              }
-            } else if (!delta.property.value.IsNull()) {
-              properties.emplace(delta.property.key, delta.property.value);
-            }
-            break;
-          }
-          case Delta::Action::DELETE_OBJECT: {
-            LOG(FATAL) << "Invalid accessor!";
-            break;
-          }
-          case Delta::Action::RECREATE_OBJECT: {
-            deleted = false;
-            break;
-          }
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            break;
-        }
-      });
-  if (deleted) {
-    return Error::DELETED_OBJECT;
-  }
+  ApplyDeltasForRead(transaction_, delta, view,
+                     [&exists, &deleted, &properties](const Delta &delta) {
+                       switch (delta.action) {
+                         case Delta::Action::SET_PROPERTY: {
+                           auto it = properties.find(delta.property.key);
+                           if (it != properties.end()) {
+                             if (delta.property.value.IsNull()) {
+                               // remove the property
+                               properties.erase(it);
+                             } else {
+                               // set the value
+                               it->second = delta.property.value;
+                             }
+                           } else if (!delta.property.value.IsNull()) {
+                             properties.emplace(delta.property.key,
+                                                delta.property.value);
+                           }
+                           break;
+                         }
+                         case Delta::Action::DELETE_OBJECT: {
+                           exists = false;
+                           break;
+                         }
+                         case Delta::Action::RECREATE_OBJECT: {
+                           deleted = false;
+                           break;
+                         }
+                         case Delta::Action::ADD_LABEL:
+                         case Delta::Action::REMOVE_LABEL:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
+                           break;
+                       }
+                     });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
     const std::vector<EdgeTypeId> &edge_types, View view) const {
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  bool exists = true;
   bool deleted = false;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -350,7 +360,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&deleted, &in_edges](const Delta &delta) {
+      transaction_, delta, view,
+      [&exists, &deleted, &in_edges](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
             // Add the edge because we don't see the removal.
@@ -374,7 +385,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
             break;
           }
           case Delta::Action::DELETE_OBJECT: {
-            LOG(FATAL) << "Invalid accessor!";
+            exists = false;
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
@@ -389,9 +400,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
             break;
         }
       });
-  if (deleted) {
-    return Error::DELETED_OBJECT;
-  }
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (deleted) return Error::DELETED_OBJECT;
   std::vector<EdgeAccessor> ret;
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
@@ -407,8 +417,9 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
     const std::vector<EdgeTypeId> &edge_types, View view) const {
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  bool exists = true;
   bool deleted = false;
+  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -417,7 +428,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&deleted, &out_edges](const Delta &delta) {
+      transaction_, delta, view,
+      [&exists, &deleted, &out_edges](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
             // Add the edge because we don't see the removal.
@@ -441,7 +453,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
             break;
           }
           case Delta::Action::DELETE_OBJECT: {
-            LOG(FATAL) << "Invalid accessor!";
+            exists = false;
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
@@ -456,9 +468,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
             break;
         }
       });
-  if (deleted) {
-    return Error::DELETED_OBJECT;
-  }
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (deleted) return Error::DELETED_OBJECT;
   std::vector<EdgeAccessor> ret;
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
@@ -473,8 +484,9 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
-  size_t degree = 0;
+  bool exists = true;
   bool deleted = false;
+  size_t degree = 0;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -483,7 +495,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
-                     [&deleted, &degree](const Delta &delta) {
+                     [&exists, &deleted, &degree](const Delta &delta) {
                        switch (delta.action) {
                          case Delta::Action::ADD_IN_EDGE:
                            ++degree;
@@ -492,7 +504,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
                            --degree;
                            break;
                          case Delta::Action::DELETE_OBJECT:
-                           LOG(FATAL) << "Invalid accessor!";
+                           exists = false;
                            break;
                          case Delta::Action::RECREATE_OBJECT:
                            deleted = false;
@@ -505,13 +517,15 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
                            break;
                        }
                      });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
-  size_t degree = 0;
+  bool exists = true;
   bool deleted = false;
+  size_t degree = 0;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -520,7 +534,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
-                     [&deleted, &degree](const Delta &delta) {
+                     [&exists, &deleted, &degree](const Delta &delta) {
                        switch (delta.action) {
                          case Delta::Action::ADD_OUT_EDGE:
                            ++degree;
@@ -529,7 +543,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
                            --degree;
                            break;
                          case Delta::Action::DELETE_OBJECT:
-                           LOG(FATAL) << "Invalid accessor!";
+                           exists = false;
                            break;
                          case Delta::Action::RECREATE_OBJECT:
                            deleted = false;
@@ -542,6 +556,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
                            break;
                        }
                      });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return degree;
 }

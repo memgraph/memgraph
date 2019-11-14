@@ -2256,3 +2256,80 @@ TEST(StorageV2, VertexPropertyClear) {
     acc.Abort();
   }
 }
+
+TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
+  storage::Storage store;
+
+  auto label = store.NameToLabel("label");
+  auto property = store.NameToProperty("property");
+
+  auto acc = store.Access();
+  auto vertex = acc.CreateVertex();
+
+  // Check state before (OLD view).
+  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges({}, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges({}, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+
+  // Check state before (NEW view).
+  ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.HasLabel(label, storage::View::NEW), false);
+  ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
+            storage::PropertyValue());
+  ASSERT_EQ(vertex.InEdges({}, storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.OutEdges({}, storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 0);
+  ASSERT_EQ(*vertex.OutDegree(storage::View::NEW), 0);
+
+  // Modify vertex.
+  ASSERT_TRUE(vertex.AddLabel(label).HasValue());
+  ASSERT_TRUE(
+      vertex.SetProperty(property, storage::PropertyValue("value")).HasValue());
+  ASSERT_TRUE(
+      acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge")).HasValue());
+
+  // Check state after (OLD view).
+  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges({}, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges({}, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+
+  // Check state after (NEW view).
+  ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.HasLabel(label, storage::View::NEW), true);
+  ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
+            storage::PropertyValue("value"));
+  ASSERT_EQ(vertex.InEdges({}, storage::View::NEW)->size(), 1);
+  ASSERT_EQ(vertex.OutEdges({}, storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 1);
+  ASSERT_EQ(*vertex.OutDegree(storage::View::NEW), 1);
+
+  ASSERT_FALSE(acc.Commit().HasError());
+}

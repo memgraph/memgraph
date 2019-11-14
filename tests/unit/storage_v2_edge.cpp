@@ -5325,3 +5325,42 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
     acc.Abort();
   }
 }
+
+TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
+  storage::Storage store({.items = {.properties_on_edges = true}});
+
+  auto property = store.NameToProperty("property");
+
+  auto acc = store.Access();
+  auto vertex = acc.CreateVertex();
+  auto edge = acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge"));
+  ASSERT_TRUE(edge.HasValue());
+
+  // Check state before (OLD view).
+  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+
+  // Check state before (NEW view).
+  ASSERT_EQ(edge->Properties(storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW),
+            storage::PropertyValue());
+
+  // Modify edge.
+  ASSERT_TRUE(
+      edge->SetProperty(property, storage::PropertyValue("value")).HasValue());
+
+  // Check state after (OLD view).
+  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(),
+            storage::Error::NONEXISTENT_OBJECT);
+
+  // Check state after (NEW view).
+  ASSERT_EQ(edge->Properties(storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW),
+            storage::PropertyValue("value"));
+
+  ASSERT_FALSE(acc.Commit().HasError());
+}

@@ -98,6 +98,7 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
           case storage::Error::SERIALIZATION_ERROR:
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
             throw communication::bolt::ClientError(
                 "Unexpected storage error when streaming summary.");
         }
@@ -150,6 +151,9 @@ void BoltSession::TypedValueResultStream::Result(
         case storage::Error::DELETED_OBJECT:
           throw communication::bolt::ClientError(
               "Returning a deleted object as a result.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw communication::bolt::ClientError(
+              "Returning a nonexistent object as a result.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::PROPERTIES_DISABLED:

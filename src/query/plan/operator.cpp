@@ -137,6 +137,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
               "Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
@@ -236,6 +237,7 @@ void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba,
             "Trying to create an edge on a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::NONEXISTENT_OBJECT:
         throw QueryRuntimeException("Unexpected error when creating an edge.");
     }
   }
@@ -493,6 +495,9 @@ auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException(
             "Trying to get relationships of a deleted node.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw query::QueryRuntimeException(
+            "Trying to get relationships from a node that doesn't exist.");
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::PROPERTIES_DISABLED:
@@ -699,6 +704,9 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
     switch (maybe_degree.GetError()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw query::QueryRuntimeException(
+            "Trying to get degree from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
@@ -1911,6 +1919,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           case storage::Error::DELETED_OBJECT:
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException(
                 "Unexpected error when deleting an edge.");
         }
@@ -1934,6 +1943,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
+              case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException(
                     "Unexpected error when deleting a node.");
             }
@@ -1949,6 +1959,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
               case storage::Error::PROPERTIES_DISABLED:
+              case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException(
                     "Unexpected error when deleting a node.");
             }
@@ -2077,6 +2088,7 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
           throw QueryRuntimeException(
               "Can't set property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
               "Unexpected error when setting properties.");
       }
@@ -2090,6 +2102,9 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException(
               "Trying to get properties from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException(
+              "Trying to get properties from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -2115,6 +2130,7 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
             throw QueryRuntimeException(
                 "Can't set property because properties are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException(
                 "Unexpected error when setting properties.");
         }
@@ -2223,6 +2239,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
               "Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
@@ -2280,6 +2297,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
           throw QueryRuntimeException(
               "Can't remove property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
               "Unexpected error when removing property.");
       }
@@ -2352,6 +2370,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
               "Trying to remove labels from a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
               "Unexpected error when removing labels from a node.");
       }

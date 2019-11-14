@@ -89,6 +89,7 @@ void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
           throw QueryRuntimeException(
               "Can't set property because properties are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
               "Unexpected error when setting a property.");
       }

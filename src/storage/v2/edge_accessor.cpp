@@ -79,6 +79,7 @@ Result<bool> EdgeAccessor::ClearProperties() {
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                                                 View view) const {
   if (!config_.properties_on_edges) return PropertyValue();
+  bool exists = true;
   bool deleted = false;
   PropertyValue value;
   Delta *delta = nullptr;
@@ -92,7 +93,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
-                     [&deleted, &value, property](const Delta &delta) {
+                     [&exists, &deleted, &value, property](const Delta &delta) {
                        switch (delta.action) {
                          case Delta::Action::SET_PROPERTY: {
                            if (delta.property.key == property) {
@@ -101,7 +102,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                            break;
                          }
                          case Delta::Action::DELETE_OBJECT: {
-                           LOG(FATAL) << "Invalid accessor!";
+                           exists = false;
                            break;
                          }
                          case Delta::Action::RECREATE_OBJECT: {
@@ -117,6 +118,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
                            break;
                        }
                      });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
@@ -125,8 +127,9 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
     View view) const {
   if (!config_.properties_on_edges)
     return std::map<PropertyId, PropertyValue>{};
-  std::map<PropertyId, PropertyValue> properties;
+  bool exists = true;
   bool deleted = false;
+  std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -134,44 +137,44 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
     properties = edge_.ptr->properties;
     delta = edge_.ptr->delta;
   }
-  ApplyDeltasForRead(
-      transaction_, delta, view, [&deleted, &properties](const Delta &delta) {
-        switch (delta.action) {
-          case Delta::Action::SET_PROPERTY: {
-            auto it = properties.find(delta.property.key);
-            if (it != properties.end()) {
-              if (delta.property.value.IsNull()) {
-                // remove the property
-                properties.erase(it);
-              } else {
-                // set the value
-                it->second = delta.property.value;
-              }
-            } else if (!delta.property.value.IsNull()) {
-              properties.emplace(delta.property.key, delta.property.value);
-            }
-            break;
-          }
-          case Delta::Action::DELETE_OBJECT: {
-            LOG(FATAL) << "Invalid accessor!";
-            break;
-          }
-          case Delta::Action::RECREATE_OBJECT: {
-            deleted = false;
-            break;
-          }
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            break;
-        }
-      });
-  if (deleted) {
-    return Error::DELETED_OBJECT;
-  }
+  ApplyDeltasForRead(transaction_, delta, view,
+                     [&exists, &deleted, &properties](const Delta &delta) {
+                       switch (delta.action) {
+                         case Delta::Action::SET_PROPERTY: {
+                           auto it = properties.find(delta.property.key);
+                           if (it != properties.end()) {
+                             if (delta.property.value.IsNull()) {
+                               // remove the property
+                               properties.erase(it);
+                             } else {
+                               // set the value
+                               it->second = delta.property.value;
+                             }
+                           } else if (!delta.property.value.IsNull()) {
+                             properties.emplace(delta.property.key,
+                                                delta.property.value);
+                           }
+                           break;
+                         }
+                         case Delta::Action::DELETE_OBJECT: {
+                           exists = false;
+                           break;
+                         }
+                         case Delta::Action::RECREATE_OBJECT: {
+                           deleted = false;
+                           break;
+                         }
+                         case Delta::Action::ADD_LABEL:
+                         case Delta::Action::REMOVE_LABEL:
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
+                           break;
+                       }
+                     });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
