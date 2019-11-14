@@ -3717,46 +3717,55 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   // TODO: This will probably need to be changed when we add support for
   // generator like procedures which yield a new result on each invocation.
   auto *memory = ctx.evaluation_context.memory;
-  utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
-  // First try to handle special procedure invocations for loading a module.
-  // TODO: When we add registering multiple procedures in a single module, it
-  // might be a good idea to simply register these special procedures just like
-  // regular procedures. That way we won't have to have any special case logic.
-  if (name_parts.size() > 1U) {
-    auto pos = fully_qualified_procedure_name.find_last_of('.');
-    CHECK(pos != std::string_view::npos);
-    const auto &module_name = fully_qualified_procedure_name.substr(0, pos);
-    const auto &proc_name = name_parts.back();
-    if (proc_name == "__reload__") {
-      procedure::gModuleRegistry.ReloadModuleNamed(module_name);
-      return;
-    }
-  }
-  const auto &module_name = fully_qualified_procedure_name;
-  if (module_name == "reload-all-modules") {
+  // First try to handle special procedure invocations for (re)loading modules.
+  // It would be great to simply register `reload_all_modules` as a
+  // regular procedure on a `mg` module, so we don't have a special case here.
+  // Unfortunately, reloading requires taking a write lock, and we would
+  // acquire a read lock by getting the module.
+  if (fully_qualified_procedure_name == "mg.reload_all_modules") {
     procedure::gModuleRegistry.ReloadAllModules();
     return;
   }
-  auto module = procedure::gModuleRegistry.GetModuleNamed(module_name);
+  utils::pmr::vector<std::string_view> name_parts(memory);
+  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  if (name_parts.size() == 1U) {
+    throw QueryRuntimeException("There's no top-level procedure '{}'",
+                                fully_qualified_procedure_name);
+  }
+  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
+  CHECK(last_dot_pos != std::string_view::npos);
+  const auto &module_name =
+      fully_qualified_procedure_name.substr(0, last_dot_pos);
+  const auto &proc_name = name_parts.back();
+  // This is a special case for the same reasons as `mg.reload_all_modules`.
+  if (proc_name == "__reload__") {
+    procedure::gModuleRegistry.ReloadModuleNamed(module_name);
+    return;
+  }
+  const auto &module = procedure::gModuleRegistry.GetModuleNamed(module_name);
   if (!module) throw QueryRuntimeException("'{}' isn't loaded!", module_name);
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
+  const auto &proc_it = module->procedures.find(proc_name);
+  if (proc_it == module->procedures.end())
+    throw QueryRuntimeException("'{}' does not have a procedure named '{}'",
+                                module_name, proc_name);
   mgp_graph graph{ctx.db_accessor, graph_view};
-  mgp_list module_args(memory);
-  module_args.elems.reserve(args.size());
+  mgp_list proc_args(memory);
+  proc_args.elems.reserve(args.size());
   ExpressionEvaluator evaluator(frame, ctx.symbol_table, ctx.evaluation_context,
                                 ctx.db_accessor, graph_view);
   for (auto *arg : args) {
-    module_args.elems.emplace_back(arg->Accept(evaluator), &graph);
+    proc_args.elems.emplace_back(arg->Accept(evaluator), &graph);
   }
   // TODO: Add syntax for controlling procedure memory limits.
   utils::LimitedMemoryResource limited_mem(memory,
                                            100 * 1024 * 1024 /* 100 MB */);
   mgp_memory proc_memory{&limited_mem};
   // TODO: What about cross library boundary exceptions? OMG C++?!
-  module->main_fn(&module_args, &graph, result, &proc_memory);
+  // TODO: Type check both arguments and results against procedure signature.
+  proc_it->second.cb(&proc_args, &graph, result, &proc_memory);
   size_t leaked_bytes = limited_mem.GetAllocatedBytes();
   LOG_IF(WARNING, leaked_bytes > 0U)
       << "Query procedure '" << fully_qualified_procedure_name << "' leaked "

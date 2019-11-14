@@ -650,6 +650,111 @@ const struct mgp_type *mgp_type_list(const struct mgp_type *element_type);
 /// NULL is returned if unable to allocate the new type.
 const struct mgp_type *mgp_type_nullable(const struct mgp_type *type);
 ///@}
+
+/// @name Query Module & Procedures
+///
+/// The following structures and functions are used to build a query module. You
+/// will receive an empty instance of mgp_module through your
+/// `int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory)`
+/// function. Each shared library that wishes to provide a query module needs to
+/// have the said function. Inside you can fill the module with procedures,
+/// which can then be called through openCypher.
+///
+/// Arguments to `mgp_init_module` will not live longer than the function's
+/// execution, so you must not store them globally. Additionally, you must not
+/// use the passed in mgp_memory to allocate global resources.
+///@{
+
+/// Stores information on your query module.
+struct mgp_module;
+
+/// Describes a procedure of a query module.
+struct mgp_proc;
+
+/// Entry-point for a query module procedure, invoked through openCypher.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *,
+                            struct mgp_result *, struct mgp_memory *);
+
+/// Register a read-only procedure with a module.
+///
+/// The `name` must be a sequence of digits, underscores, lowercase and
+/// uppercase Latin letters. The name must begin with a non-digit character.
+/// Note that Unicode characters are not allowed. Additionally, names are
+/// case-sensitive.
+///
+/// NULL is returned if unable to allocate memory for mgp_proc; if `name` is
+/// not valid or a procedure with the same name was already registered.
+struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module,
+                                               const char *name,
+                                               mgp_proc_cb cb);
+
+/// Add a required argument to a procedure.
+///
+/// The order of adding arguments will correspond to the order the procedure
+/// must receive them through openCypher. Required arguments will be followed by
+/// optional arguments.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Passed in `type` describes what kind of values can be used as the argument.
+///
+/// 0 is returned if unable to allocate memory for an argument; if invoking this
+/// function after setting an optional argument or if `name` is not valid.
+/// Non-zero is returned on success.
+int mgp_proc_add_arg(struct mgp_proc *proc, const char *name,
+                     const struct mgp_type *type);
+
+/// Add an optional argument with a default value to a procedure.
+///
+/// The order of adding arguments will correspond to the order the procedure
+/// must receive them through openCypher. Optional arguments must follow the
+/// required arguments.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure `name` in mgp_module_add_read_procedure.
+///
+/// Passed in `type` describes what kind of values can be used as the argument.
+///
+/// `default_value` is copied and set as the default value for the argument.
+/// Don't forget to call mgp_value_destroy when you are done using
+/// `default_value`. When the procedure is called, if this argument is not
+/// provided, `default_value` will be used instead. `default_value` must satisfy
+/// the given `type`.
+///
+/// 0 is returned if unable to allocate memory for an argument; if `name` is
+/// not valid or `default_value` does not satisfy `type`. Non-zero is returned
+/// on success.
+int mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name,
+                         const struct mgp_type *type,
+                         const struct mgp_value *default_value);
+
+/// Add a result field to a procedure.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure `name` in mgp_module_add_read_procedure.
+///
+/// Passed in `type` describes what kind of values can be returned through the
+/// result field.
+///
+/// 0 is returned if unable to allocate memory for a result field; if
+/// `name` is not valid or if a result field with the same name was already
+/// added. Non-zero is returned on success.
+int mgp_proc_add_result(struct mgp_proc *proc, const char *name,
+                        const struct mgp_type *type);
+
+/// Add a result field to a procedure and mark it as deprecated.
+///
+/// This is the same as mgp_proc_add_result, but the result field will be marked
+/// as deprecated.
+int mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name,
+                                   const struct mgp_type *type);
+///@}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

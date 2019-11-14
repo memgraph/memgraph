@@ -21,31 +21,32 @@ std::optional<Module> LoadModuleFromSharedLibrary(std::filesystem::path path) {
     LOG(ERROR) << "Unable to load module " << path << "; " << dlerror();
     return std::nullopt;
   }
-  // Get required mgp_main
-  module.main_fn = reinterpret_cast<void (*)(
-      const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)>(
-      dlsym(module.handle, "mgp_main"));
+  // Get required mgp_init_module
+  module.init_fn = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(
+      dlsym(module.handle, "mgp_init_module"));
   const char *error = dlerror();
-  if (!module.main_fn || error) {
+  if (!module.init_fn || error) {
     LOG(ERROR) << "Unable to load module " << path << "; " << error;
     dlclose(module.handle);
     return std::nullopt;
   }
-  // Get optional mgp_init_module
-  module.init_fn =
-      reinterpret_cast<int (*)()>(dlsym(module.handle, "mgp_init_module"));
-  error = dlerror();
-  if (error) LOG(WARNING) << "When loading module " << path << "; " << error;
+  // We probably don't need more than 256KB for module initialazation.
+  constexpr size_t stack_bytes = 256 * 1024;
+  unsigned char stack_memory[stack_bytes];
+  utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
+  mgp_memory memory{&monotonic_memory};
+  mgp_module module_def{memory.impl};
   // Run mgp_init_module which must succeed.
-  if (module.init_fn) {
-    int init_res = module.init_fn();
-    if (init_res != 0) {
-      LOG(ERROR) << "Unable to load module " << path
-                 << "; mgp_init_module returned " << init_res;
-      dlclose(module.handle);
-      return std::nullopt;
-    }
+  int init_res = module.init_fn(&module_def, &memory);
+  if (init_res != 0) {
+    LOG(ERROR) << "Unable to load module " << path
+               << "; mgp_init_module returned " << init_res;
+    dlclose(module.handle);
+    return std::nullopt;
   }
+  // Copy procedures into our memory.
+  for (const auto &proc : module_def.procedures)
+    module.procedures.emplace(proc);
   // Get optional mgp_shutdown_module
   module.shutdown_fn =
       reinterpret_cast<int (*)()>(dlsym(module.handle, "mgp_shutdown_module"));

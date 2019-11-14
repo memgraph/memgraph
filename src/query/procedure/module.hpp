@@ -9,12 +9,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/rw_lock.hpp"
-
-struct mgp_graph;
-struct mgp_list;
-struct mgp_memory;
-struct mgp_result;
 
 namespace query::procedure {
 
@@ -23,14 +19,12 @@ struct Module final {
   std::filesystem::path file_path;
   /// System handle to shared library.
   void *handle;
-  /// Entry-point for module's custom procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
-                     mgp_memory *)>
-      main_fn;
-  /// Optional initialization function called on module load.
-  std::function<int()> init_fn;
+  /// Required initialization function called on module load.
+  std::function<int(mgp_module *, mgp_memory *)> init_fn;
   /// Optional shutdown function called on module unload.
   std::function<int()> shutdown_fn;
+  /// Registered procedures
+  std::map<std::string, mgp_proc, std::less<>> procedures;
 };
 
 /// Proxy for a registered Module, acquires a read lock from ModuleRegistry.

@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <regex>
 #include <type_traits>
 
 #include <glog/logging.h>
 
+#include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
 // This file contains implementation of top level C API functions, but this is
@@ -1290,6 +1292,7 @@ const mgp_type *mgp_type_path() {
 }
 
 const mgp_type *mgp_type_list(const mgp_type *type) {
+  if (!type) return nullptr;
   // Maps `type` to corresponding instance of ListType.
   static utils::pmr::map<const mgp_type *, mgp_type> list_types(
       utils::NewDeleteResource());
@@ -1314,6 +1317,7 @@ const mgp_type *mgp_type_list(const mgp_type *type) {
 }
 
 const mgp_type *mgp_type_nullable(const mgp_type *type) {
+  if (!type) return nullptr;
   // Maps `type` to corresponding instance of NullableType.
   static utils::pmr::map<const mgp_type *, mgp_type> gNullableTypes(
       utils::NewDeleteResource());
@@ -1332,3 +1336,109 @@ const mgp_type *mgp_type_nullable(const mgp_type *type) {
     return nullptr;
   }
 }
+
+namespace {
+bool IsValidIdentifierName(const char *name) {
+  if (!name) return false;
+  std::regex regex("[_[:alpha:]][_[:alnum:]]*");
+  return std::regex_match(name, regex);
+}
+}  // namespace
+
+mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name,
+                                        mgp_proc_cb cb) {
+  if (!module || !cb) return nullptr;
+  if (!IsValidIdentifierName(name)) return nullptr;
+  if (module->procedures.find(name) != module->procedures.end()) return nullptr;
+  try {
+    auto *memory = module->procedures.get_allocator().GetMemoryResource();
+    // May throw std::bad_alloc, std::length_error
+    return &module->procedures.emplace(name, mgp_proc(name, cb, memory))
+                .first->second;
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+int mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {
+  if (!proc || !type) return 0;
+  if (!proc->opt_args.empty()) return 0;
+  if (!IsValidIdentifierName(name)) return 0;
+  try {
+    proc->args.emplace_back(name, type->impl.get());
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
+int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type,
+                         const mgp_value *default_value) {
+  if (!proc || !type || !default_value) return 0;
+  if (!IsValidIdentifierName(name)) return 0;
+  // TODO: Check `default_value` satisfies `type`.
+  auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
+  try {
+    proc->opt_args.emplace_back(utils::pmr::string(name, memory),
+                                type->impl.get(),
+                                ToTypedValue(*default_value, memory));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
+namespace {
+
+int AddResultToProc(mgp_proc *proc, const char *name, const mgp_type *type,
+                    bool is_deprecated) {
+  if (!proc || !type) return 0;
+  if (!IsValidIdentifierName(name)) return 0;
+  if (proc->results.find(name) != proc->results.end()) return 0;
+  try {
+    auto *memory = proc->results.get_allocator().GetMemoryResource();
+    proc->results.emplace(utils::pmr::string(name, memory),
+                          std::make_pair(type->impl.get(), is_deprecated));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
+}  // namespace
+
+int mgp_proc_add_result(mgp_proc *proc, const char *name,
+                        const mgp_type *type) {
+  return AddResultToProc(proc, name, type, false);
+}
+
+int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name,
+                                   const mgp_type *type) {
+  return AddResultToProc(proc, name, type, true);
+}
+
+namespace query::procedure {
+
+void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
+  (*stream) << proc.name << "(";
+  utils::PrintIterable(
+      *stream, proc.args, ", ", [](auto &stream, const auto &arg) {
+        stream << arg.first << " :: " << arg.second->GetPresentableName();
+      });
+  if (!proc.opt_args.empty()) (*stream) << ", ";
+  utils::PrintIterable(
+      *stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
+        stream << std::get<0>(arg) << " = " << std::get<2>(arg)
+               << " :: " << std::get<1>(arg)->GetPresentableName();
+      });
+  (*stream) << ") :: (";
+  utils::PrintIterable(
+      *stream, proc.results, ", ", [](auto &stream, const auto &name_result) {
+        const auto &[type, is_deprecated] = name_result.second;
+        if (is_deprecated) stream << "DEPRECATED ";
+        stream << name_result.first << " :: " << type->GetPresentableName();
+      });
+  (*stream) << ")";
+}
+
+}  // namespace query::procedure

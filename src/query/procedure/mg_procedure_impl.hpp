@@ -6,6 +6,7 @@
 #include "mg_procedure.h"
 
 #include <optional>
+#include <ostream>
 
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -460,3 +461,89 @@ struct mgp_vertices_iterator {
 struct mgp_type {
   query::procedure::CypherTypePtr impl;
 };
+
+struct mgp_proc {
+  using allocator_type = utils::Allocator<mgp_proc>;
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const mgp_proc &other, utils::MemoryResource *memory)
+      : name(other.name, memory),
+        cb(other.cb),
+        args(other.args, memory),
+        opt_args(other.opt_args, memory),
+        results(other.results, memory) {}
+
+  mgp_proc(mgp_proc &&other, utils::MemoryResource *memory)
+      : name(std::move(other.name), memory),
+        cb(std::move(other.cb)),
+        args(std::move(other.args), memory),
+        opt_args(std::move(other.opt_args), memory),
+        results(std::move(other.results), memory) {}
+
+  mgp_proc(const mgp_proc &other) = default;
+  mgp_proc(mgp_proc &&other) = default;
+
+  mgp_proc &operator=(const mgp_proc &) = delete;
+  mgp_proc &operator=(mgp_proc &&) = delete;
+
+  ~mgp_proc() = default;
+
+  /// Name of the procedure.
+  utils::pmr::string name;
+  /// Entry-point for the procedure.
+  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
+                     mgp_memory *)>
+      cb;
+  /// Required, positional arguments as a (name, type) pair.
+  utils::pmr::vector<
+      std::pair<utils::pmr::string, const query::procedure::CypherType *>>
+      args;
+  /// Optional positional arguments as a (name, type, default_value) tuple.
+  utils::pmr::vector<
+      std::tuple<utils::pmr::string, const query::procedure::CypherType *,
+                 query::TypedValue>>
+      opt_args;
+  /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
+  utils::pmr::map<utils::pmr::string,
+                  std::pair<const query::procedure::CypherType *, bool>>
+      results;
+};
+
+struct mgp_module {
+  using allocator_type = utils::Allocator<mgp_module>;
+
+  explicit mgp_module(utils::MemoryResource *memory) : procedures(memory) {}
+
+  mgp_module(const mgp_module &other, utils::MemoryResource *memory)
+      : procedures(other.procedures, memory) {}
+
+  mgp_module(mgp_module &&other, utils::MemoryResource *memory)
+      : procedures(std::move(other.procedures), memory) {}
+
+  mgp_module(const mgp_module &) = default;
+  mgp_module(mgp_module &&) = default;
+
+  mgp_module &operator=(const mgp_module &) = delete;
+  mgp_module &operator=(mgp_module &&) = delete;
+
+  ~mgp_module() = default;
+
+  utils::pmr::map<utils::pmr::string, mgp_proc> procedures;
+};
+
+namespace query::procedure {
+
+/// @throw anything std::ostream::operator<< may throw.
+void PrintProcSignature(const mgp_proc &, std::ostream *);
+
+}  // namespace query::procedure
