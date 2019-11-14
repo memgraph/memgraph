@@ -587,42 +587,32 @@ const struct mgp_vertex *mgp_vertices_iterator_next(
 /// procedure signature for use with openCypher. Memgraph will use the built
 /// procedure signature to perform various static and dynamic checks when the
 /// custom procedure is invoked.
-///
-/// Building a type may perform allocations, so you need to release the instance
-/// with mgp_type_destroy. For easier usage, all of the API which takes
-/// non-const `struct mgp_type *` as an argument will take the ownership, so you
-/// don't have to call mgp_type_destroy on such arguments. In most cases, you
-/// will only need to release mgp_type that is the final instance which you
-/// haven't passed to a function.
 ///@{
 
 /// A type for values in openCypher.
 struct mgp_type;
 
-/// Free the memory used by the given mgp_type instance.
-void mgp_type_destroy(struct mgp_type *type);
-
 /// Get the type representing any value that isn't `null`.
 ///
 /// The ANY type is the parent type of all types.
-struct mgp_type *mgp_type_any();
+const struct mgp_type *mgp_type_any();
 
 /// Get the type representing boolean values.
-struct mgp_type *mgp_type_bool();
+const struct mgp_type *mgp_type_bool();
 
 /// Get the type representing character string values.
-struct mgp_type *mgp_type_string();
+const struct mgp_type *mgp_type_string();
 
 /// Get the type representing integer values.
-struct mgp_type *mgp_type_int();
+const struct mgp_type *mgp_type_int();
 
 /// Get the type representing floating-point values.
-struct mgp_type *mgp_type_float();
+const struct mgp_type *mgp_type_float();
 
 /// Get the type representing any number value.
 ///
 /// This is the parent type for numeric types, i.e. INTEGER and FLOAT.
-struct mgp_type *mgp_type_number();
+const struct mgp_type *mgp_type_number();
 
 /// Get the type representing map values.
 ///
@@ -633,50 +623,32 @@ struct mgp_type *mgp_type_number();
 ///
 /// @sa mgp_type_node
 /// @sa mgp_type_relationship
-struct mgp_type *mgp_type_map();
+const struct mgp_type *mgp_type_map();
 
 /// Get the type representing graph node values.
 ///
 /// Since a node contains a map of properties, the node itself is also of MAP
 /// type.
-struct mgp_type *mgp_type_node();
+const struct mgp_type *mgp_type_node();
 
 /// Get the type representing graph relationship values.
 ///
 /// Since a relationship contains a map of properties, the relationship itself
 /// is also of MAP type.
-struct mgp_type *mgp_type_relationship();
+const struct mgp_type *mgp_type_relationship();
 
 /// Get the type representing a graph path (walk) from one node to another.
-struct mgp_type *mgp_type_path();
+const struct mgp_type *mgp_type_path();
 
 /// Build a type representing a list of values of given `element_type`.
 ///
-/// `element_type` will be transferred to the new instance, and you must not use
-/// `element_type` after the function successfully returns.
-///
-/// Instantiating this type will perform an allocation. If you do not give
-/// ownership of the returned instance to someone else, you need to release the
-/// memory explicitly using mgp_type_destroy.
-///
-/// NULL is returned if unable to allocate the new type. `element_type` is
-/// intact in such a case, so you will need to call mgp_type_destroy on it.
-struct mgp_type *mgp_type_list(struct mgp_type *element_type,
-                               struct mgp_memory *memory);
+/// NULL is returned if unable to allocate the new type.
+const struct mgp_type *mgp_type_list(const struct mgp_type *element_type);
 
 /// Build a type representing either a `null` value or a value of given `type`.
 ///
-/// `type` will be transferred to the new instance, and you must not use `type`
-/// after the function successfully returns.
-///
-/// Instantiating this type will perform an allocation. If you do not give
-/// ownership of the instance to someone else, you need to release the memory
-/// explicitly using mgp_type_destroy.
-///
-/// NULL is returned if unable to allocate the new type. `type` is intact in
-/// such a case, so you will need to call mgp_type_destroy on it.
-struct mgp_type *mgp_type_nullable(struct mgp_type *type,
-                                   struct mgp_memory *memory);
+/// NULL is returned if unable to allocate the new type.
+const struct mgp_type *mgp_type_nullable(const struct mgp_type *type);
 ///@}
 #ifdef __cplusplus
 }  // extern "C"

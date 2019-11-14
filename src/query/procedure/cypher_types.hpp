@@ -158,8 +158,7 @@ class NullableType : public CypherType {
       alloc.deallocate(nullable, 1);
       throw;
     }
-    return CypherTypePtr(nullable, [memory](CypherType *base_ptr) {
-      utils::Allocator<NullableType> alloc(memory);
+    return CypherTypePtr(nullable, [alloc](CypherType *base_ptr) mutable {
       alloc.delete_object(static_cast<NullableType *>(base_ptr));
     });
   }

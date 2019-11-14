@@ -17,55 +17,42 @@ TEST(CypherType, PresentableNameSimpleTypes) {
 }
 
 TEST(CypherType, PresentableNameCompositeTypes) {
-  mgp_memory memory{utils::NewDeleteResource()};
   {
-    auto *nullable_any = mgp_type_nullable(mgp_type_any(), &memory);
+    const auto *nullable_any = mgp_type_nullable(mgp_type_any());
     EXPECT_EQ(nullable_any->impl->GetPresentableName(), "ANY?");
-    mgp_type_destroy(nullable_any);
   }
   {
-    auto *nullable_any =
-        mgp_type_nullable(mgp_type_nullable(mgp_type_any(), &memory), &memory);
+    const auto *nullable_any =
+        mgp_type_nullable(mgp_type_nullable(mgp_type_any()));
     EXPECT_EQ(nullable_any->impl->GetPresentableName(), "ANY?");
-    mgp_type_destroy(nullable_any);
   }
   {
-    auto *nullable_list =
-        mgp_type_nullable(mgp_type_list(mgp_type_any(), &memory), &memory);
+    const auto *nullable_list =
+        mgp_type_nullable(mgp_type_list(mgp_type_any()));
     EXPECT_EQ(nullable_list->impl->GetPresentableName(), "LIST? OF ANY");
-    mgp_type_destroy(nullable_list);
   }
   {
-    auto *list_of_int = mgp_type_list(mgp_type_int(), &memory);
+    const auto *list_of_int = mgp_type_list(mgp_type_int());
     EXPECT_EQ(list_of_int->impl->GetPresentableName(), "LIST OF INTEGER");
-    mgp_type_destroy(list_of_int);
   }
   {
-    auto *list_of_nullable_path =
-        mgp_type_list(mgp_type_nullable(mgp_type_path(), &memory), &memory);
+    const auto *list_of_nullable_path =
+        mgp_type_list(mgp_type_nullable(mgp_type_path()));
     EXPECT_EQ(list_of_nullable_path->impl->GetPresentableName(),
               "LIST OF PATH?");
-    mgp_type_destroy(list_of_nullable_path);
   }
   {
-    auto *list_of_list_of_map =
-        mgp_type_list(mgp_type_list(mgp_type_map(), &memory), &memory);
+    const auto *list_of_list_of_map =
+        mgp_type_list(mgp_type_list(mgp_type_map()));
     EXPECT_EQ(list_of_list_of_map->impl->GetPresentableName(),
               "LIST OF LIST OF MAP");
-    mgp_type_destroy(list_of_list_of_map);
   }
   {
-    auto *nullable_list_of_nullable_list_of_nullable_string = mgp_type_nullable(
-        mgp_type_list(
-            mgp_type_nullable(
-                mgp_type_list(mgp_type_nullable(mgp_type_string(), &memory),
-                              &memory),
-                &memory),
-            &memory),
-        &memory);
+    const auto *nullable_list_of_nullable_list_of_nullable_string =
+        mgp_type_nullable(mgp_type_list(mgp_type_nullable(
+            mgp_type_list(mgp_type_nullable(mgp_type_string())))));
     EXPECT_EQ(nullable_list_of_nullable_list_of_nullable_string->impl
                   ->GetPresentableName(),
               "LIST? OF LIST? OF STRING?");
-    mgp_type_destroy(nullable_list_of_nullable_list_of_nullable_string);
   }
 }

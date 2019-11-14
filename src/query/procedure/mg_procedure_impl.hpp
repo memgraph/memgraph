@@ -459,6 +459,4 @@ struct mgp_vertices_iterator {
 
 struct mgp_type {
   query::procedure::CypherTypePtr impl;
-  // Optional for globally allocated mgp_type.
-  utils::MemoryResource *memory{nullptr};
 };

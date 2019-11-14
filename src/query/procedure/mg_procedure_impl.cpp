@@ -1220,140 +1220,115 @@ const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
 }
 
 /// Type System
+///
+/// All types are allocated globally, so that we simplify the API and minimize
+/// allocations done for types.
 
 namespace {
 void NoOpCypherTypeDeleter(CypherType *) {}
 }  // namespace
 
-void mgp_type_destroy(mgp_type *type) {
-  if (!type || !type->memory) return;
-  utils::Allocator<mgp_type> alloc(type->memory);
-  alloc.delete_object(type);
-}
-
-mgp_type *mgp_type_any() {
+const mgp_type *mgp_type_any() {
   static AnyType impl;
   static mgp_type any_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &any_type;
 }
 
-mgp_type *mgp_type_bool() {
+const mgp_type *mgp_type_bool() {
   static BoolType impl;
   static mgp_type bool_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &bool_type;
 }
 
-mgp_type *mgp_type_string() {
+const mgp_type *mgp_type_string() {
   static StringType impl;
   static mgp_type string_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &string_type;
 }
 
-mgp_type *mgp_type_int() {
+const mgp_type *mgp_type_int() {
   static IntType impl;
   static mgp_type int_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &int_type;
 }
 
-mgp_type *mgp_type_float() {
+const mgp_type *mgp_type_float() {
   static FloatType impl;
   static mgp_type float_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &float_type;
 }
 
-mgp_type *mgp_type_number() {
+const mgp_type *mgp_type_number() {
   static NumberType impl;
   static mgp_type number_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &number_type;
 }
 
-mgp_type *mgp_type_map() {
+const mgp_type *mgp_type_map() {
   static MapType impl;
   static mgp_type map_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &map_type;
 }
 
-mgp_type *mgp_type_node() {
+const mgp_type *mgp_type_node() {
   static NodeType impl;
   static mgp_type node_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &node_type;
 }
 
-mgp_type *mgp_type_relationship() {
+const mgp_type *mgp_type_relationship() {
   static RelationshipType impl;
   static mgp_type relationship_type{
       CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &relationship_type;
 }
 
-mgp_type *mgp_type_path() {
+const mgp_type *mgp_type_path() {
   static PathType impl;
   static mgp_type path_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
   return &path_type;
 }
 
-mgp_type *mgp_type_list(mgp_type *type, mgp_memory *memory) {
-  utils::Allocator<mgp_type> alloc(memory->impl);
-  // We allocate seperately, because we want to correctly release the passed in
-  // `type` w.r.t. to exceptions. This way if our allocation fails, nothing
-  // happens to `type`. But when we take ownership of it below with
-  // alloc.new_object<ListType>, then we need to make sure that everything after
-  // that point is exception-free so that `type` is released.
-  mgp_type *list_type;
+const mgp_type *mgp_type_list(const mgp_type *type) {
+  // Maps `type` to corresponding instance of ListType.
+  static utils::pmr::map<const mgp_type *, mgp_type> list_types(
+      utils::NewDeleteResource());
+  static utils::SpinLock lock;
+  std::lock_guard<utils::SpinLock> guard(lock);
+  auto found_it = list_types.find(type);
+  if (found_it != list_types.end()) return &found_it->second;
   try {
-    list_type = alloc.allocate(1);
+    auto alloc = list_types.get_allocator();
+    CypherTypePtr impl(
+        alloc.new_object<ListType>(
+            // Just obtain the pointer to original impl, don't own it.
+            CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter),
+            alloc.GetMemoryResource()),
+        [alloc](CypherType *base_ptr) mutable {
+          alloc.delete_object(static_cast<ListType *>(base_ptr));
+        });
+    return &list_types.emplace(type, mgp_type{std::move(impl)}).first->second;
   } catch (const std::bad_alloc &) {
-    return nullptr;
-  }
-  try {
-    auto *impl = alloc.new_object<ListType>(
-        type->memory ? std::move(type->impl)
-                     // It would be an error to move the globally allocated
-                     // mgp_type, instead just copy the pointer.
-                     : CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter),
-        memory->impl);
-    // Everything below should not throw anything.
-    new (list_type) mgp_type{
-        CypherTypePtr(impl,
-                      [memory](CypherType *base_ptr) {
-                        utils::Allocator<ListType> alloc(memory->impl);
-                        alloc.delete_object(static_cast<ListType *>(base_ptr));
-                      }),
-        memory->impl};
-    mgp_type_destroy(type);
-    return list_type;
-  } catch (const std::bad_alloc &) {
-    alloc.deallocate(list_type, 1);
     return nullptr;
   }
 }
 
-mgp_type *mgp_type_nullable(mgp_type *type, mgp_memory *memory) {
-  utils::Allocator<mgp_type> alloc(memory->impl);
-  // We allocate seperately, because we want to correctly release the passed in
-  // `type` w.r.t. to exceptions. This way if our allocation fails, nothing
-  // happens to `type`. But when we take ownership of it below with
-  // NullableType::Create, then we need to make sure that everything after that
-  // point is exception-free so that `type` is released.
-  mgp_type *nullable_type;
+const mgp_type *mgp_type_nullable(const mgp_type *type) {
+  // Maps `type` to corresponding instance of NullableType.
+  static utils::pmr::map<const mgp_type *, mgp_type> gNullableTypes(
+      utils::NewDeleteResource());
+  static utils::SpinLock lock;
+  std::lock_guard<utils::SpinLock> guard(lock);
+  auto found_it = gNullableTypes.find(type);
+  if (found_it != gNullableTypes.end()) return &found_it->second;
   try {
-    nullable_type = alloc.allocate(1);
-  } catch (const std::bad_alloc &) {
-    return nullptr;
-  }
-  try {
+    auto alloc = gNullableTypes.get_allocator();
     auto impl = NullableType::Create(
-        type->memory ? std::move(type->impl)
-                     // It would be an error to move the globally allocated
-                     // mgp_type, instead just copy the pointer.
-                     : CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter),
-        memory->impl);
-    // Everything below should not throw anything.
-    new (nullable_type) mgp_type{std::move(impl), memory->impl};
-    mgp_type_destroy(type);
-    return nullable_type;
+        CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter),
+        alloc.GetMemoryResource());
+    return &gNullableTypes.emplace(type, mgp_type{std::move(impl)})
+                .first->second;
   } catch (const std::bad_alloc &) {
-    alloc.deallocate(nullable_type, 1);
     return nullptr;
   }
 }
