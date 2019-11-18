@@ -137,7 +137,16 @@ class VertexAccessor final {
                const VertexAccessor &dest) const
       -> storage::Result<decltype(
           iter::imap(MakeEdgeAccessor, *impl_.InEdges(edge_types, view)))> {
-    throw utils::NotYetImplemented("InEdges with set destination");
+    auto maybe_edges = impl_.InEdges(edge_types, view);
+    if (maybe_edges.HasError()) return maybe_edges.GetError();
+    std::vector<storage::EdgeAccessor> reduced_edges;
+    reduced_edges.reserve(maybe_edges->size());
+    for (auto &edge : *maybe_edges) {
+      if (edge.FromVertex() == dest.impl_) {
+        reduced_edges.push_back(edge);
+      }
+    }
+    return iter::imap(MakeEdgeAccessor, std::move(reduced_edges));
   }
 
   auto OutEdges(storage::View view,
@@ -156,7 +165,16 @@ class VertexAccessor final {
                 const VertexAccessor &dest) const
       -> storage::Result<decltype(
           iter::imap(MakeEdgeAccessor, *impl_.OutEdges(edge_types, view)))> {
-    throw utils::NotYetImplemented("OutEdges with set destination");
+    auto maybe_edges = impl_.OutEdges(edge_types, view);
+    if (maybe_edges.HasError()) return maybe_edges.GetError();
+    std::vector<storage::EdgeAccessor> reduced_edges;
+    reduced_edges.reserve(maybe_edges->size());
+    for (auto &edge : *maybe_edges) {
+      if (edge.ToVertex() == dest.impl_) {
+        reduced_edges.push_back(edge);
+      }
+    }
+    return iter::imap(MakeEdgeAccessor, std::move(reduced_edges));
   }
 
   storage::Result<size_t> InDegree(storage::View view) const {
