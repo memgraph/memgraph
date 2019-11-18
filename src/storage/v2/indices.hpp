@@ -214,6 +214,7 @@ class LabelPropertyIndex {
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    bool bounds_valid_{true};
     View view_;
     Transaction *transaction_;
     Indices *indices_;

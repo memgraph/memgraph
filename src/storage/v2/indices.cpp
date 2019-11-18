@@ -6,34 +6,6 @@ namespace storage {
 
 namespace {
 
-/// We treat doubles and integers the same for label property indices, so
-/// special comparison operators are needed.
-bool PropertyValueLess(const PropertyValue &lhs, const PropertyValue &rhs) {
-  if (lhs.type() == rhs.type()) {
-    return lhs < rhs;
-  }
-  if (lhs.IsInt() && rhs.IsDouble()) {
-    return lhs.ValueInt() < rhs.ValueDouble();
-  }
-  if (lhs.IsDouble() && rhs.IsInt()) {
-    return lhs.ValueDouble() < rhs.ValueInt();
-  }
-  return lhs.type() < rhs.type();
-}
-
-bool PropertyValueEqual(const PropertyValue &lhs, const PropertyValue &rhs) {
-  if (lhs.type() == rhs.type()) {
-    return lhs == rhs;
-  }
-  if (lhs.IsInt() && rhs.IsDouble()) {
-    return lhs.ValueInt() == rhs.ValueDouble();
-  }
-  if (lhs.IsDouble() && rhs.IsInt()) {
-    return lhs.ValueDouble() == rhs.ValueInt();
-  }
-  return false;
-}
-
 /// Traverses deltas visible from transaction with start timestamp greater than
 /// the provided timestamp, and calls the provided callback function for each
 /// delta. If the callback ever returns true, traversal is stopped and the
@@ -129,7 +101,7 @@ bool AnyVersionHasLabelProperty(Vertex *vertex, LabelId label, PropertyId key,
     delta = vertex->delta;
   }
 
-  if (!deleted && has_label && PropertyValueEqual(current_value, value)) {
+  if (!deleted && has_label && current_value == value) {
     return true;
   }
 
@@ -171,8 +143,7 @@ bool AnyVersionHasLabelProperty(Vertex *vertex, LabelId label, PropertyId key,
           case Delta::Action::REMOVE_OUT_EDGE:
             break;
         }
-        return !deleted && has_label &&
-               PropertyValueEqual(current_value, value);
+        return !deleted && has_label && current_value == value;
       });
 }
 
@@ -288,7 +259,7 @@ bool CurrentVersionHasLabelProperty(Vertex *vertex, LabelId label,
             break;
         }
       });
-  return !deleted && has_label && PropertyValueEqual(current_value, value);
+  return !deleted && has_label && current_value == value;
 }
 
 }  // namespace
@@ -394,10 +365,10 @@ LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
       config_(config) {}
 
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
-  if (PropertyValueLess(value, rhs.value)) {
+  if (value < rhs.value) {
     return true;
   }
-  if (PropertyValueLess(rhs.value, value)) {
+  if (rhs.value < value) {
     return false;
   }
   return std::make_tuple(vertex, timestamp) <
@@ -405,16 +376,16 @@ bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
 }
 
 bool LabelPropertyIndex::Entry::operator==(const Entry &rhs) {
-  return PropertyValueEqual(value, rhs.value) && vertex == rhs.vertex &&
+  return value == rhs.value && vertex == rhs.vertex &&
          timestamp == rhs.timestamp;
 }
 
 bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) {
-  return PropertyValueLess(value, rhs);
+  return value < rhs;
 }
 
 bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) {
-  return PropertyValueEqual(value, rhs);
+  return value == rhs;
 }
 
 void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
@@ -507,7 +478,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(
       }
 
       if ((next_it != index_acc.end() && it->vertex == next_it->vertex &&
-           PropertyValueEqual(it->value, next_it->value)) ||
+           it->value == next_it->value) ||
           !AnyVersionHasLabelProperty(it->vertex, label_property.first,
                                       label_property.second, it->value,
                                       oldest_active_start_timestamp)) {
@@ -541,25 +512,21 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
 
     if (self_->lower_bound_) {
-      if (PropertyValueLess(index_iterator_->value,
-                            self_->lower_bound_->value())) {
+      if (index_iterator_->value < self_->lower_bound_->value()) {
         continue;
       }
       if (!self_->lower_bound_->IsInclusive() &&
-          PropertyValueEqual(index_iterator_->value,
-                             self_->lower_bound_->value())) {
+          index_iterator_->value == self_->lower_bound_->value()) {
         continue;
       }
     }
     if (self_->upper_bound_) {
-      if (PropertyValueLess(self_->upper_bound_->value(),
-                            index_iterator_->value)) {
+      if (self_->upper_bound_->value() < index_iterator_->value) {
         index_iterator_ = self_->index_accessor_.end();
         break;
       }
       if (!self_->upper_bound_->IsInclusive() &&
-          PropertyValueEqual(index_iterator_->value,
-                             self_->upper_bound_->value())) {
+          index_iterator_->value == self_->upper_bound_->value()) {
         index_iterator_ = self_->index_accessor_.end();
         break;
       }
@@ -577,6 +544,19 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
+// These constants represent the smallest possible value of each type that is
+// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
+// treated as the same "type" in `PropertyValue`.
+const PropertyValue kSmallestBool = PropertyValue(false);
+static_assert(-std::numeric_limits<double>::infinity() <
+              std::numeric_limits<int64_t>::min());
+const PropertyValue kSmallestNumber =
+    PropertyValue(-std::numeric_limits<double>::infinity());
+const PropertyValue kSmallestString = PropertyValue("");
+const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
+const PropertyValue kSmallestMap =
+    PropertyValue(std::map<std::string, PropertyValue>());
+
 LabelPropertyIndex::Iterable::Iterable(
     utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
     PropertyId property,
@@ -591,9 +571,101 @@ LabelPropertyIndex::Iterable::Iterable(
       view_(view),
       transaction_(transaction),
       indices_(indices),
-      config_(config) {}
+      config_(config) {
+  // We have to fix the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+
+  // First we statically verify that our assumptions about the `PropertyValue`
+  // type ordering holds.
+  static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
+  static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
+  static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
+  static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
+  static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
+
+  // Remove any bounds that are set to `Null` because that isn't a valid value.
+  if (lower_bound_ && lower_bound_->value().IsNull()) {
+    lower_bound_ = std::nullopt;
+  }
+  if (upper_bound_ && upper_bound_->value().IsNull()) {
+    upper_bound_ = std::nullopt;
+  }
+
+  // Check whether the bounds are of comparable types if both are supplied.
+  if (lower_bound_ && upper_bound_ &&
+      !PropertyValue::AreComparableTypes(lower_bound_->value().type(),
+                                         upper_bound_->value().type())) {
+    bounds_valid_ = false;
+    return;
+  }
+
+  // Set missing bounds.
+  if (lower_bound_ && !upper_bound_) {
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    switch (lower_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG(FATAL) << "Invalid database state!";
+        break;
+      case PropertyValue::Type::Bool:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::String:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::List:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
+        break;
+      case PropertyValue::Type::Map:
+        // This is the last type in the order so we leave the upper bound empty.
+        break;
+    }
+  }
+  if (upper_bound_ && !lower_bound_) {
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    switch (upper_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG(FATAL) << "Invalid database state!";
+        break;
+      case PropertyValue::Type::Bool:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::String:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::List:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::Map:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
+        // This is the last type in the order so we leave the upper bound empty.
+        break;
+    }
+  }
+}
 
 LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
+  // If the bounds are set and don't have comparable types we don't yield any
+  // items from the index.
+  if (!bounds_valid_) return Iterator(this, index_accessor_.end());
   auto index_iterator = index_accessor_.begin();
   if (lower_bound_) {
     index_iterator =

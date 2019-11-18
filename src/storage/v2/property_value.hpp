@@ -27,6 +27,11 @@ class PropertyValue {
   /// A value type, each type corresponds to exactly one C++ type.
   enum class Type : unsigned char { Null, Bool, Int, Double, String, List, Map };
 
+  static bool AreComparableTypes(Type a, Type b) {
+    return (a == b) || (a == Type::Int && b == Type::Double) ||
+           (a == Type::Double && b == Type::Int);
+  }
+
   /// Make a Null value
   PropertyValue() : type_(Type::Null) {}
 
@@ -241,16 +246,25 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
 // comparison
 inline bool operator==(const PropertyValue &first,
                        const PropertyValue &second) noexcept {
-  if (first.type() != second.type()) return false;
+  if (!PropertyValue::AreComparableTypes(first.type(), second.type()))
+    return false;
   switch (first.type()) {
     case PropertyValue::Type::Null:
       return true;
     case PropertyValue::Type::Bool:
       return first.ValueBool() == second.ValueBool();
     case PropertyValue::Type::Int:
-      return first.ValueInt() == second.ValueInt();
+      if (second.type() == PropertyValue::Type::Double) {
+        return first.ValueInt() == second.ValueDouble();
+      } else {
+        return first.ValueInt() == second.ValueInt();
+      }
     case PropertyValue::Type::Double:
-      return first.ValueDouble() == second.ValueDouble();
+      if (second.type() == PropertyValue::Type::Double) {
+        return first.ValueDouble() == second.ValueDouble();
+      } else {
+        return first.ValueDouble() == second.ValueInt();
+      }
     case PropertyValue::Type::String:
       return first.ValueString() == second.ValueString();
     case PropertyValue::Type::List:
@@ -262,16 +276,25 @@ inline bool operator==(const PropertyValue &first,
 
 inline bool operator<(const PropertyValue &first,
                       const PropertyValue &second) noexcept {
-  if (first.type() != second.type()) return first.type() < second.type();
+  if (!PropertyValue::AreComparableTypes(first.type(), second.type()))
+    return first.type() < second.type();
   switch (first.type()) {
     case PropertyValue::Type::Null:
       return false;
     case PropertyValue::Type::Bool:
       return first.ValueBool() < second.ValueBool();
     case PropertyValue::Type::Int:
-      return first.ValueInt() < second.ValueInt();
+      if (second.type() == PropertyValue::Type::Double) {
+        return first.ValueInt() < second.ValueDouble();
+      } else {
+        return first.ValueInt() < second.ValueInt();
+      }
     case PropertyValue::Type::Double:
-      return first.ValueDouble() < second.ValueDouble();
+      if (second.type() == PropertyValue::Type::Double) {
+        return first.ValueDouble() < second.ValueDouble();
+      } else {
+        return first.ValueDouble() < second.ValueInt();
+      }
     case PropertyValue::Type::String:
       return first.ValueString() < second.ValueString();
     case PropertyValue::Type::List:

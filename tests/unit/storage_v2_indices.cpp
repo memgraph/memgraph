@@ -697,3 +697,228 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
                 utils::MakeBoundInclusive(PropertyValue(6))),
             2 + 3 + 4 + 5 + 6);
 }
+
+TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
+  storage.CreateIndex(label1, prop_val);
+
+  std::vector<PropertyValue> values = {
+      PropertyValue(false),
+      PropertyValue(true),
+      PropertyValue(-std::numeric_limits<double>::infinity()),
+      PropertyValue(std::numeric_limits<int64_t>::min()),
+      PropertyValue(-1),
+      PropertyValue(-0.5),
+      PropertyValue(0),
+      PropertyValue(0.5),
+      PropertyValue(1),
+      PropertyValue(1.5),
+      PropertyValue(2),
+      PropertyValue(std::numeric_limits<int64_t>::max()),
+      PropertyValue(std::numeric_limits<double>::infinity()),
+      PropertyValue(""),
+      PropertyValue("a"),
+      PropertyValue("b"),
+      PropertyValue("c"),
+      PropertyValue(std::vector<PropertyValue>()),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
+      PropertyValue(std::map<std::string, PropertyValue>()),
+      PropertyValue(
+          std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+      PropertyValue(
+          std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}}),
+  };
+
+  // Create vertices, each with one of the values above.
+  {
+    auto acc = storage.Access();
+    for (const auto &value : values) {
+      auto v = acc.CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label1).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_val, value).HasValue());
+    }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // Verify that all nodes are in the index.
+  {
+    auto acc = storage.Access();
+    auto iterable = acc.Vertices(label1, prop_val, View::OLD);
+    auto it = iterable.begin();
+    for (const auto &value : values) {
+      ASSERT_NE(it, iterable.end());
+      auto vertex = *it;
+      auto maybe_value = vertex.GetProperty(prop_val, View::OLD);
+      ASSERT_TRUE(maybe_value.HasValue());
+      ASSERT_EQ(value, *maybe_value);
+      ++it;
+    }
+    ASSERT_EQ(it, iterable.end());
+  }
+
+  auto verify = [&](const std::optional<utils::Bound<PropertyValue>> &from,
+                    const std::optional<utils::Bound<PropertyValue>> &to,
+                    const std::vector<PropertyValue> &expected) {
+    auto acc = storage.Access();
+    auto iterable = acc.Vertices(label1, prop_val, from, to, View::OLD);
+    size_t i = 0;
+    for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
+      auto vertex = *it;
+      auto maybe_value = vertex.GetProperty(prop_val, View::OLD);
+      ASSERT_TRUE(maybe_value.HasValue());
+      ASSERT_EQ(*maybe_value, expected[i]);
+    }
+    ASSERT_EQ(i, expected.size());
+  };
+
+  // Range iteration with two specified bounds that have the same type should
+  // yield the naturally expected items.
+  verify(utils::MakeBoundExclusive(PropertyValue(false)),
+         utils::MakeBoundExclusive(PropertyValue(true)), {});
+  verify(utils::MakeBoundExclusive(PropertyValue(false)),
+         utils::MakeBoundInclusive(PropertyValue(true)), {PropertyValue(true)});
+  verify(utils::MakeBoundInclusive(PropertyValue(false)),
+         utils::MakeBoundExclusive(PropertyValue(true)),
+         {PropertyValue(false)});
+  verify(utils::MakeBoundInclusive(PropertyValue(false)),
+         utils::MakeBoundInclusive(PropertyValue(true)),
+         {PropertyValue(false), PropertyValue(true)});
+  verify(utils::MakeBoundExclusive(PropertyValue(0)),
+         utils::MakeBoundExclusive(PropertyValue(1.8)),
+         {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
+  verify(utils::MakeBoundExclusive(PropertyValue(0)),
+         utils::MakeBoundInclusive(PropertyValue(1.8)),
+         {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
+  verify(utils::MakeBoundInclusive(PropertyValue(0)),
+         utils::MakeBoundExclusive(PropertyValue(1.8)),
+         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1),
+          PropertyValue(1.5)});
+  verify(utils::MakeBoundInclusive(PropertyValue(0)),
+         utils::MakeBoundInclusive(PropertyValue(1.8)),
+         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1),
+          PropertyValue(1.5)});
+  verify(utils::MakeBoundExclusive(PropertyValue("b")),
+         utils::MakeBoundExclusive(PropertyValue("memgraph")),
+         {PropertyValue("c")});
+  verify(utils::MakeBoundExclusive(PropertyValue("b")),
+         utils::MakeBoundInclusive(PropertyValue("memgraph")),
+         {PropertyValue("c")});
+  verify(utils::MakeBoundInclusive(PropertyValue("b")),
+         utils::MakeBoundExclusive(PropertyValue("memgraph")),
+         {PropertyValue("b"), PropertyValue("c")});
+  verify(utils::MakeBoundInclusive(PropertyValue("b")),
+         utils::MakeBoundInclusive(PropertyValue("memgraph")),
+         {PropertyValue("b"), PropertyValue("c")});
+  verify(utils::MakeBoundExclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundExclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(utils::MakeBoundExclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundInclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(utils::MakeBoundInclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundExclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+          PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(utils::MakeBoundInclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundInclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+          PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(utils::MakeBoundExclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundExclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundExclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundInclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundInclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundExclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(
+              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+          PropertyValue(std::map<std::string, PropertyValue>{
+              {"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundInclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundInclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(
+              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+          PropertyValue(std::map<std::string, PropertyValue>{
+              {"id", PropertyValue(10)}})});
+
+  // Range iteration with one unspecified bound should only yield items that
+  // have the same type as the specified bound.
+  verify(utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt,
+         {PropertyValue(false), PropertyValue(true)});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(true)),
+         {PropertyValue(false)});
+  verify(utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt,
+         {PropertyValue(1), PropertyValue(1.5), PropertyValue(2),
+          PropertyValue(std::numeric_limits<int64_t>::max()),
+          PropertyValue(std::numeric_limits<double>::infinity())});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(0)),
+         {PropertyValue(-std::numeric_limits<double>::infinity()),
+          PropertyValue(std::numeric_limits<int64_t>::min()), PropertyValue(-1),
+          PropertyValue(-0.5)});
+  verify(utils::MakeBoundInclusive(PropertyValue("b")), std::nullopt,
+         {PropertyValue("b"), PropertyValue("c")});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue("b")),
+         {PropertyValue(""), PropertyValue("a")});
+  verify(utils::MakeBoundInclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(false)})),
+         std::nullopt,
+         {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
+          PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(std::nullopt,
+         utils::MakeBoundExclusive(
+             PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
+         {PropertyValue(std::vector<PropertyValue>()),
+          PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
+  verify(
+      utils::MakeBoundInclusive(PropertyValue(
+          std::map<std::string, PropertyValue>{{"id", PropertyValue(false)}})),
+      std::nullopt,
+      {PropertyValue(
+           std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+       PropertyValue(
+           std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(std::nullopt,
+         utils::MakeBoundExclusive(PropertyValue(
+             std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
+         {PropertyValue(std::map<std::string, PropertyValue>()),
+          PropertyValue(
+              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}})});
+
+  // Range iteration with two specified bounds that don't have the same type
+  // should yield no items.
+  for (size_t i = 0; i < values.size(); ++i) {
+    for (size_t j = i; j < values.size(); ++j) {
+      if (PropertyValue::AreComparableTypes(values[i].type(),
+                                            values[j].type())) {
+        verify(utils::MakeBoundInclusive(values[i]),
+               utils::MakeBoundInclusive(values[j]),
+               {values.begin() + i, values.begin() + j + 1});
+      } else {
+        verify(utils::MakeBoundInclusive(values[i]),
+               utils::MakeBoundInclusive(values[j]), {});
+      }
+    }
+  }
+
+  // Iteration without any bounds should return all items of the index.
+  verify(std::nullopt, std::nullopt, values);
+}

@@ -729,3 +729,51 @@ TEST(PropertyValue, Less) {
     }
   }
 }
+
+TEST(PropertyValue, NumeralTypesComparison) {
+  auto v_int = storage::PropertyValue(2);
+  auto v_double = storage::PropertyValue(2.0);
+  ASSERT_TRUE(v_int.IsInt());
+  ASSERT_TRUE(v_double.IsDouble());
+  ASSERT_TRUE(v_int == v_double);
+  ASSERT_FALSE(v_int < v_double);
+  ASSERT_FALSE(v_double < v_int);
+}
+
+TEST(PropertyValue, NestedNumeralTypesComparison) {
+  auto v1 = storage::PropertyValue(
+      std::vector<storage::PropertyValue>{storage::PropertyValue(1)});
+  auto v2 = storage::PropertyValue(
+      std::vector<storage::PropertyValue>{storage::PropertyValue(1.5)});
+  auto v3 = storage::PropertyValue(
+      std::vector<storage::PropertyValue>{storage::PropertyValue(2)});
+
+  auto v1alt = storage::PropertyValue(
+      std::vector<storage::PropertyValue>{storage::PropertyValue(1.0)});
+  auto v3alt = storage::PropertyValue(
+      std::vector<storage::PropertyValue>{storage::PropertyValue(2.0)});
+
+  ASSERT_TRUE(v1 == v1alt);
+  ASSERT_TRUE(v3 == v3alt);
+
+  ASSERT_FALSE(v1 == v2);
+  ASSERT_FALSE(v2 == v1);
+  ASSERT_FALSE(v2 == v3);
+  ASSERT_FALSE(v3 == v2);
+  ASSERT_FALSE(v1 == v3);
+  ASSERT_FALSE(v3 == v1);
+
+  ASSERT_TRUE(v1 < v2);
+  ASSERT_TRUE(v2 < v3);
+  ASSERT_TRUE(v1 < v3);
+  ASSERT_FALSE(v2 < v1);
+  ASSERT_FALSE(v3 < v2);
+  ASSERT_FALSE(v3 < v1);
+
+  ASSERT_TRUE(v1alt < v2);
+  ASSERT_TRUE(v2 < v3alt);
+  ASSERT_TRUE(v1alt < v3alt);
+  ASSERT_FALSE(v2 < v1alt);
+  ASSERT_FALSE(v3alt < v2);
+  ASSERT_FALSE(v3 < v1alt);
+}
