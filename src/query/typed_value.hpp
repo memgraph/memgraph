@@ -733,11 +733,4 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b);
 /** Output the TypedValue::Type value as a string */
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
 
-/**
- * Output the TypedValue value as a readable string.
- * Note that the primary use of this is for debugging and may not yield the
- * pretty results you want to display to the user.
- */
-std::ostream &operator<<(std::ostream &os, const TypedValue &value);
-
 }  // namespace query

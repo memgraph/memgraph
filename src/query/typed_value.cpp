@@ -9,7 +9,6 @@
 
 #include "glog/logging.h"
 
-#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
 
@@ -286,39 +285,6 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "path";
   }
   LOG(FATAL) << "Unsupported TypedValue::Type";
-}
-
-std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
-  switch (value.type()) {
-    case TypedValue::Type::Null:
-      return os << "Null";
-    case TypedValue::Type::Bool:
-      return os << (value.ValueBool() ? "true" : "false");
-    case TypedValue::Type::Int:
-      return os << value.ValueInt();
-    case TypedValue::Type::Double:
-      return os << value.ValueDouble();
-    case TypedValue::Type::String:
-      return os << value.ValueString();
-    case TypedValue::Type::List:
-      os << "[";
-      utils::PrintIterable(os, value.ValueList());
-      return os << "]";
-    case TypedValue::Type::Map:
-      os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) {
-                             stream << pair.first << ": " << pair.second;
-                           });
-      return os << "}";
-    case TypedValue::Type::Vertex:
-      return os << value.ValueVertex();
-    case TypedValue::Type::Edge:
-      return os << value.ValueEdge();
-    case TypedValue::Type::Path:
-      return os << value.ValuePath();
-  }
-  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 #define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, \

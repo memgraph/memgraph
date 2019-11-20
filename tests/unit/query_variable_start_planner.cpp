@@ -9,31 +9,38 @@
 
 #include "query_plan_common.hpp"
 
+#include "formatters.hpp"
+
 using namespace query::plan;
 using query::AstStorage;
 using Type = query::EdgeAtom::Type;
 using Direction = query::EdgeAtom::Direction;
 
-namespace std {
-
-// Overloads for printing resulting rows from a query.
-std::ostream &operator<<(std::ostream &stream,
-                         const std::vector<TypedValue> &row) {
-  utils::PrintIterable(stream, row);
-  return stream;
+// Functions for printing resulting rows from a query.
+template <class TAccessor>
+std::string ToString(const std::vector<TypedValue> &row, const TAccessor &acc) {
+  std::ostringstream os;
+  utils::PrintIterable(os, row, ", ", [&](auto &stream, const auto &item) {
+    stream << ToString(item, acc);
+  });
+  return os.str();
 }
-std::ostream &operator<<(std::ostream &stream,
-                         const std::vector<std::vector<TypedValue>> &rows) {
-  utils::PrintIterable(stream, rows, "\n");
-  return stream;
+template <class TAccessor>
+std::string ToString(const std::vector<std::vector<TypedValue>> &rows,
+                     const TAccessor &acc) {
+  std::ostringstream os;
+  utils::PrintIterable(os, rows, "\n", [&](auto &stream, const auto &item) {
+    stream << ToString(item, acc);
+  });
+  return os.str();
 }
-
-}  // namespace std
 
 namespace {
 
+template <class TAccessor>
 void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
-                std::vector<std::vector<TypedValue>> expected) {
+                std::vector<std::vector<TypedValue>> expected,
+                const TAccessor &acc) {
   auto row_equal = [](const auto &row1, const auto &row2) {
     if (row1.size() != row2.size()) {
       return false;
@@ -51,19 +58,18 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
   ASSERT_TRUE(std::is_permutation(datum.begin(), datum.end(), expected.begin(),
                                   expected.end(), row_equal))
       << "Actual rows:" << std::endl
-      << datum << std::endl
+      << ToString(datum, acc) << std::endl
       << "Expected rows:" << std::endl
-      << expected;
+      << ToString(expected, acc);
 };
 
 void CheckPlansProduce(
     size_t expected_plan_count, query::CypherQuery *query, AstStorage &storage,
-    database::GraphDbAccessor *dba,
+    query::DbAccessor *dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = query::MakeSymbolTable(query);
-  query::DbAccessor execution_dba(dba);
   auto planning_context =
-      MakePlanningContext(&storage, &symbol_table, query, &execution_dba);
+      MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
   auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
@@ -73,7 +79,7 @@ void CheckPlansProduce(
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());
     ASSERT_TRUE(produce);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, dba);
     auto results = CollectProduce(*produce, &context);
     check(results);
   }
@@ -93,10 +99,13 @@ TEST(TestVariableStartPlanner, MatchReturn) {
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       RETURN("n")));
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
-  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
-    // We expect to produce only a single (v1) node.
-    AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(
+      2, query, storage, &execution_dba, [&](const auto &results) {
+        // We expect to produce only a single (v1) node.
+        AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
+                   execution_dba);
+      });
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
@@ -117,10 +126,13 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
                       EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
-    CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
-      // We expect to produce only a single (v1) node.
-      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}});
-    });
+    query::DbAccessor execution_dba(&dba);
+    CheckPlansProduce(
+        3, query, storage, &execution_dba, [&](const auto &results) {
+          // We expect to produce only a single (v1) node.
+          AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
+                     execution_dba);
+        });
   }
   {
     // Equivalent to `MATCH (n) -[r]-> (m), (m) -[e]-> (l) RETURN n`.
@@ -129,9 +141,12 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
         MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
               PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
-    CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
-      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}});
-    });
+    query::DbAccessor execution_dba(&dba);
+    CheckPlansProduce(
+        3, query, storage, &execution_dba, [&](const auto &results) {
+          AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
+                     execution_dba);
+        });
   }
 }
 
@@ -153,15 +168,18 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
       RETURN("n", "l")));
   // We have 2 nodes `n` and `m` from which we could start the MATCH, and 2
   // nodes for OPTIONAL MATCH. This should produce 2 * 2 plans.
-  CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
-    // We expect to produce 2 rows:
-    //   * (v1), (v3)
-    //   * (v2), null
-    AssertRows(results,
-               {{TypedValue(query::VertexAccessor(v1)),
-                 TypedValue(query::VertexAccessor(v3))},
-                {TypedValue(query::VertexAccessor(v2)), TypedValue()}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(
+      4, query, storage, &execution_dba, [&](const auto &results) {
+        // We expect to produce 2 rows:
+        //   * (v1), (v3)
+        //   * (v2), null
+        AssertRows(results,
+                   {{TypedValue(query::VertexAccessor(v1)),
+                     TypedValue(query::VertexAccessor(v3))},
+                    {TypedValue(query::VertexAccessor(v2)), TypedValue()}},
+                   execution_dba);
+      });
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
@@ -185,11 +203,15 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
       RETURN("n", "m", "l", "u", "v")));
   // Since MATCH, OPTIONAL MATCH and MERGE each have 2 nodes from which we can
   // start, we generate 2 * 2 * 2 plans.
-  CheckPlansProduce(8, query, storage, &dba, [&](const auto &results) {
-    // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
-    AssertRows(results, {{TypedValue(v1), TypedValue(v2), TypedValue(),
-                          TypedValue(v1), TypedValue(v2)}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(8, query, storage, &execution_dba,
+                    [&](const auto &results) {
+                      // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
+                      AssertRows(results,
+                                 {{TypedValue(v1), TypedValue(v2), TypedValue(),
+                                   TypedValue(v1), TypedValue(v2)}},
+                                 execution_dba);
+                    });
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
@@ -209,10 +231,13 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
       RETURN("n", "m", "l")));
   // We can start from 2 nodes in each match. Since WITH separates query parts,
   // we expect to get 2 plans for each, which totals 2 * 2.
-  CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
-    // We expect to produce a single row: (v1), (v1), (v2)
-    AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(
+      4, query, storage, &execution_dba, [&](const auto &results) {
+        // We expect to produce a single row: (v1), (v1), (v2)
+        AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}},
+                   execution_dba);
+      });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
@@ -236,9 +261,12 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   // [r1, r2]
   TypedValue r1_r2_list(
       std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(2, query, storage, &execution_dba,
+                    [&](const auto &results) {
+                      AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}},
+                                 execution_dba);
+                    });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
@@ -266,9 +294,11 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});
   // [r2] (v2 -[*..2]-> v3)
   TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});
-  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r2_list}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(
+      2, query, storage, &execution_dba, [&](const auto &results) {
+        AssertRows(results, {{r1_list}, {r2_list}}, execution_dba);
+      });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
@@ -295,9 +325,11 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   // [r1, r2]
   TypedValue r1_r2_list(
       std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r1_r2_list}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(
+      2, query, storage, &execution_dba, [&](const auto &results) {
+        AssertRows(results, {{r1_list}, {r1_r2_list}}, execution_dba);
+      });
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
@@ -327,9 +359,11 @@ TEST(TestVariableStartPlanner, MatchBfs) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
-  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}});
-  });
+  query::DbAccessor execution_dba(&dba);
+  CheckPlansProduce(2, query, storage, &execution_dba,
+                    [&](const auto &results) {
+                      AssertRows(results, {{r1_list}}, execution_dba);
+                    });
 }
 
 }  // namespace

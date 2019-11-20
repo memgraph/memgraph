@@ -138,21 +138,6 @@ class Path {
     return vertices_ == other.vertices_ && edges_ == other.edges_;
   }
 
-  friend std::ostream &operator<<(std::ostream &os, const Path &path) {
-    DCHECK(path.vertices_.size() > 0U)
-        << "Attempting to stream out an invalid path";
-    os << path.vertices_[0];
-    for (int i = 0; i < static_cast<int>(path.edges_.size()); i++) {
-      bool arrow_to_left = path.vertices_[i] == path.edges_[i].To();
-      if (arrow_to_left) os << "<";
-      os << "-" << path.edges_[i] << "-";
-      if (!arrow_to_left) os << ">";
-      os << path.vertices_[i + 1];
-    }
-
-    return os;
-  }
-
  private:
   // Contains all the vertices in the path.
   utils::pmr::vector<VertexAccessor> vertices_;

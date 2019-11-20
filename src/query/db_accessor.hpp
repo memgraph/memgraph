@@ -70,10 +70,6 @@ class EdgeAccessor final {
   bool operator==(const EdgeAccessor &e) const { return impl_ == e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const { return !(*this == e); }
-
-  friend std::ostream &operator<<(std::ostream &s, const EdgeAccessor &e) {
-    throw utils::NotYetImplemented("operator<<");
-  }
 };
 
 class VertexAccessor final {
@@ -178,10 +174,6 @@ class VertexAccessor final {
   bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
 
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
-
-  friend std::ostream &operator<<(std::ostream &s, const VertexAccessor &v) {
-    throw utils::NotYetImplemented("operator<<");
-  }
 };
 
 inline VertexAccessor EdgeAccessor::To() const {
@@ -285,10 +277,6 @@ class EdgeAccessor final {
   bool operator==(const EdgeAccessor &e) const { return impl_ == e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const { return !(*this == e); }
-
-  friend std::ostream &operator<<(std::ostream &s, const EdgeAccessor &e) {
-    return s << e.impl_;
-  }
 };
 
 class VertexAccessor final {
@@ -471,10 +459,6 @@ class VertexAccessor final {
   bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
 
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
-
-  friend std::ostream &operator<<(std::ostream &s, const VertexAccessor &v) {
-    return s << v.impl_;
-  }
 };
 
 inline VertexAccessor EdgeAccessor::To() const {

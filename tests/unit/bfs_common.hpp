@@ -8,6 +8,8 @@
 #include "query/plan/operator.hpp"
 #include "query_common.hpp"
 
+#include "formatters.hpp"
+
 namespace query {
 void PrintTo(const query::EdgeAtom::Direction &dir, std::ostream *os) {
   switch (dir) {
@@ -436,7 +438,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
            query::TypedValue::BoolEqual{}(results[j][3], blocked))
       ++j;
 
-    SCOPED_TRACE(fmt::format("blocked entity = {}", blocked));
+    SCOPED_TRACE(
+        fmt::format("blocked entity = {}", ToString(blocked, execution_dba)));
 
     // When an edge is blocked, it is blocked in both directions so we remove
     // it before modifying edge list to account for direction and edge types;

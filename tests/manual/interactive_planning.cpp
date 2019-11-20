@@ -17,6 +17,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
 DEFINE_string(save_mock_db_file, "",
@@ -168,15 +169,14 @@ class InteractiveDbAccessor {
       return 0;
     }
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    query::TypedValue tv_value(value);
-    if (value_vertex_count.find(tv_value) == value_vertex_count.end()) {
+    if (value_vertex_count.find(value) == value_vertex_count.end()) {
       std::stringstream ss;
-      ss << tv_value;
+      ss << value;
       int64_t count = ReadVertexCount("label '" + label + "' and property '" +
                                       property + "' value '" + ss.str() + "'");
-      value_vertex_count[tv_value] = count;
+      value_vertex_count[value] = count;
     }
-    return value_vertex_count.at(tv_value);
+    return value_vertex_count.at(value);
   }
 
   int64_t VerticesCount(
@@ -301,7 +301,7 @@ class InteractiveDbAccessor {
       }
       DLOG(INFO) << "Load " << label << " " << property << " " << value_count;
       for (int v = 0; v < value_count; ++v) {
-        auto value = LoadTypedValue(in);
+        auto value = LoadPropertyValue(in);
         int64_t count;
         in >> count;
         if (in.fail()) {
@@ -324,10 +324,8 @@ class InteractiveDbAccessor {
   std::map<std::pair<std::string, std::string>, int64_t>
       label_property_vertex_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
-  std::map<
-      std::pair<std::string, std::string>,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
-                         query::TypedValue::BoolEqual>>
+  std::map<std::pair<std::string, std::string>,
+           std::map<storage::PropertyValue, int64_t>>
       property_value_vertex_count_;
   // TODO: Cache faked index counts by range.
 
@@ -336,27 +334,27 @@ class InteractiveDbAccessor {
         [&message]() { return ReadInt("Vertices with " + message + ": "); });
   }
 
-  query::TypedValue LoadTypedValue(std::istream &in) {
+  storage::PropertyValue LoadPropertyValue(std::istream &in) {
     std::string type;
     in >> type;
     if (type == "bool") {
-      return LoadTypedValue<bool>(in);
+      return LoadPropertyValue<bool>(in);
     } else if (type == "int") {
-      return LoadTypedValue<int64_t>(in);
+      return LoadPropertyValue<int64_t>(in);
     } else if (type == "double") {
-      return LoadTypedValue<double>(in);
+      return LoadPropertyValue<double>(in);
     } else if (type == "string") {
-      return LoadTypedValue<std::string>(in);
+      return LoadPropertyValue<std::string>(in);
     } else {
       throw utils::BasicException("Unable to read type '{}'", type);
     }
   }
 
   template <typename T>
-  query::TypedValue LoadTypedValue(std::istream &in) {
+  storage::PropertyValue LoadPropertyValue(std::istream &in) {
     T val;
     in >> val;
-    return query::TypedValue(val);
+    return storage::PropertyValue(val);
   }
 };
 
