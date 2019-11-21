@@ -1656,9 +1656,8 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   auto dba = db.Access();
   ASSERT_EQ(14, CountIterable(dba.Vertices(false)));
 
-  auto check = [&dba, label, prop](TypedValue lower, Bound::Type lower_type,
-                                   TypedValue upper, Bound::Type upper_type,
-                                   const std::vector<TypedValue> &expected) {
+  auto run_scan_all = [&](const TypedValue &lower, Bound::Type lower_type,
+                          const TypedValue &upper, Bound::Type upper_type) {
     AstStorage storage;
     SymbolTable symbol_table;
     auto scan_all = MakeScanAllByLabelPropertyRange(
@@ -1670,7 +1669,13 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     auto produce = MakeProduce(scan_all.op_, output);
     query::DbAccessor execution_dba(&dba);
     auto context = MakeContext(storage, symbol_table, &execution_dba);
-    auto results = CollectProduce(*produce, &context);
+    return CollectProduce(*produce, &context);
+  };
+
+  auto check = [&](TypedValue lower, Bound::Type lower_type, TypedValue upper,
+                   Bound::Type upper_type,
+                   const std::vector<TypedValue> &expected) {
+    auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
@@ -1682,10 +1687,6 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   };
 
   // normal ranges that return something
-  check(TypedValue(false), Bound::Type::INCLUSIVE, TypedValue(true),
-        Bound::Type::EXCLUSIVE, {TypedValue(false)});
-  check(TypedValue(false), Bound::Type::EXCLUSIVE, TypedValue(true),
-        Bound::Type::INCLUSIVE, {TypedValue(true)});
   check(TypedValue("a"), Bound::Type::EXCLUSIVE, TypedValue("c"),
         Bound::Type::EXCLUSIVE, {TypedValue("b")});
   check(TypedValue(0), Bound::Type::EXCLUSIVE, TypedValue(2),
@@ -1693,11 +1694,6 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
         {TypedValue(0.5), TypedValue(1), TypedValue(1.5), TypedValue(2)});
   check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5),
         Bound::Type::INCLUSIVE, {TypedValue(2), TypedValue(2.5)});
-  check(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}),
-        Bound::Type::EXCLUSIVE,
-        TypedValue(std::vector<TypedValue>{TypedValue(1.5)}),
-        Bound::Type::INCLUSIVE,
-        {TypedValue(std::vector<TypedValue>{TypedValue(1)})});
 
   auto are_comparable = [](PropertyValue::Type a, PropertyValue::Type b) {
     auto is_numeric = [](const PropertyValue::Type t) {
@@ -1707,15 +1703,40 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     return a == b || (is_numeric(a) && is_numeric(b));
   };
 
+  auto is_orderable = [](const PropertyValue &t) {
+    return t.IsNull() || t.IsInt() || t.IsDouble() || t.IsString();
+  };
+
   // when a range contains different types, nothing should get returned
-  for (const auto &value_a : values)
+  for (const auto &value_a : values) {
     for (const auto &value_b : values) {
       if (are_comparable(static_cast<PropertyValue>(value_a).type(),
                          static_cast<PropertyValue>(value_b).type()))
         continue;
-      check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
-            Bound::Type::INCLUSIVE, {});
+      if (is_orderable(value_a) && is_orderable(value_b)) {
+        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
+              Bound::Type::INCLUSIVE, {});
+      } else {
+        EXPECT_THROW(run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE,
+                                  TypedValue(value_b), Bound::Type::INCLUSIVE),
+                     QueryRuntimeException);
+      }
     }
+  }
+  // These should all raise an exception due to type mismatch when using
+  // `operator<`.
+  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::INCLUSIVE,
+                            TypedValue(true), Bound::Type::EXCLUSIVE),
+               QueryRuntimeException);
+  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::EXCLUSIVE,
+                            TypedValue(true), Bound::Type::INCLUSIVE),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      run_scan_all(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}),
+                   Bound::Type::EXCLUSIVE,
+                   TypedValue(std::vector<TypedValue>{TypedValue(1.5)}),
+                   Bound::Type::INCLUSIVE),
+      QueryRuntimeException);
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {

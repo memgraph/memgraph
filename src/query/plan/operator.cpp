@@ -402,7 +402,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
       property_name_(property_name),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
-  DCHECK(lower_bound_ || upper_bound_) << "Only one bound can be left out";
+  CHECK(lower_bound_ || upper_bound_) << "Only one bound can be left out";
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
@@ -420,10 +420,28 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
         [&evaluator](
             const auto &bound) -> std::optional<utils::Bound<PropertyValue>> {
       if (!bound) return std::nullopt;
-      auto value = bound->value()->Accept(evaluator);
+      const auto &value = bound->value()->Accept(evaluator);
       try {
-        return std::make_optional(
-            utils::Bound<PropertyValue>(PropertyValue(value), bound->type()));
+        const auto &property_value = PropertyValue(value);
+        switch (property_value.type()) {
+          case storage::PropertyValue::Type::Bool:
+          case storage::PropertyValue::Type::List:
+          case storage::PropertyValue::Type::Map:
+            // Prevent indexed lookup with something that would fail if we did
+            // the original filter with `operator<`. Note, for some reason,
+            // Cypher does not support comparing boolean values.
+            throw QueryRuntimeException("Invalid type {} for '<'.",
+                                        value.type());
+          case storage::PropertyValue::Type::Null:
+          case storage::PropertyValue::Type::Int:
+          case storage::PropertyValue::Type::Double:
+          case storage::PropertyValue::Type::String:
+            // These are all fine, there's also Point, Date and Time data types
+            // which were added to Cypher, but we don't have support for those
+            // yet.
+            return std::make_optional(
+                utils::Bound<PropertyValue>(property_value, bound->type()));
+        }
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                     value.type());
