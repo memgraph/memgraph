@@ -109,7 +109,7 @@ add_unit_test(query_cost_estimator.cpp)
 target_link_libraries(${test_prefix}query_cost_estimator mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_expression_evaluator.cpp)
-target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-single-node-v2 mg-auth kvstore_dummy_lib)
@@ -124,7 +124,7 @@ add_unit_test(query_profile.cpp)
 target_link_libraries(${test_prefix}query_profile mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_bag_semantics.cpp)
 target_link_libraries(${test_prefix}query_plan_bag_semantics mg-single-node-v2 mg-auth kvstore_dummy_lib)
@@ -141,7 +141,7 @@ add_unit_test(query_plan_edge_cases.cpp)
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-single-node-v2 mg-auth kvstore_dummy_lib)

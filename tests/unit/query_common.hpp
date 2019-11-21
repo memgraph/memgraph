@@ -32,14 +32,8 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "utils/string.hpp"
-
-#ifdef MG_SINGLE_NODE_V2
 #include "storage/v2/id_types.hpp"
-#else
-// TODO (mferencevic): Remove once all cpp tests are migrated to v2.
-#include "storage/common/types/types.hpp"
-#endif
+#include "utils/string.hpp"
 
 namespace query {
 
@@ -121,7 +115,6 @@ auto GetOrderBy(T... exprs) {
 /// Create PropertyLookup with given name and property.
 ///
 /// Name is used to create the Identifier which is used for property lookup.
-#ifdef MG_SINGLE_NODE_V2
 template <class TDbAccessor>
 auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba,
                        const std::string &name, storage::PropertyId property) {
@@ -129,31 +122,13 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba,
       storage.Create<Identifier>(name),
       storage.GetPropertyIx(dba.PropertyToName(property)));
 }
-#else
-template <class TDbAccessor>
-auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba,
-                       const std::string &name, storage::Property property) {
-  return storage.Create<PropertyLookup>(
-      storage.Create<Identifier>(name),
-      storage.GetPropertyIx(dba.PropertyName(property)));
-}
-#endif
 
-#ifdef MG_SINGLE_NODE_V2
 template <class TDbAccessor>
 auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
                        storage::PropertyId property) {
   return storage.Create<PropertyLookup>(
       expr, storage.GetPropertyIx(dba.PropertyToName(property)));
 }
-#else
-template <class TDbAccessor>
-auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
-                       storage::Property property) {
-  return storage.Create<PropertyLookup>(
-      expr, storage.GetPropertyIx(dba.PropertyName(property)));
-}
-#endif
 
 template <class TDbAccessor>
 auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
@@ -164,11 +139,7 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
 template <class TDbAccessor>
 auto GetPropertyLookup(
     AstStorage &storage, TDbAccessor &, const std::string &name,
-#ifdef MG_SINGLE_NODE_V2
     const std::pair<std::string, storage::PropertyId> &prop_pair) {
-#else
-    const std::pair<std::string, storage::Property> &prop_pair) {
-#endif
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         storage.GetPropertyIx(prop_pair.first));
 }
@@ -176,11 +147,7 @@ auto GetPropertyLookup(
 template <class TDbAccessor>
 auto GetPropertyLookup(
     AstStorage &storage, TDbAccessor &, Expression *expr,
-#ifdef MG_SINGLE_NODE_V2
     const std::pair<std::string, storage::PropertyId> &prop_pair) {
-#else
-    const std::pair<std::string, storage::Property> &prop_pair) {
-#endif
   return storage.Create<PropertyLookup>(expr,
                                         storage.GetPropertyIx(prop_pair.first));
 }
@@ -572,13 +539,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define MAP(...)                     \
   storage.Create<query::MapLiteral>( \
       std::unordered_map<query::PropertyIx, query::Expression *>{__VA_ARGS__})
-#ifdef MG_SINGLE_NODE_V2
 #define PROPERTY_PAIR(property_name) \
   std::make_pair(property_name, dba.NameToProperty(property_name))
-#else
-#define PROPERTY_PAIR(property_name) \
-  std::make_pair(property_name, dba.Property(property_name))
-#endif
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
 #define PARAMETER_LOOKUP(token_position) \
