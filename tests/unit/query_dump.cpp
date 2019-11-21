@@ -7,14 +7,10 @@
 #include <glog/logging.h>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/types/property_value.hpp"
-
-using database::GraphDbAccessor;
+#include "storage/v2/storage.hpp"
 
 const char *kPropertyId = "property_id";
 
@@ -40,20 +36,20 @@ struct DatabaseState {
     std::map<std::string, PropertyValue> props;
   };
 
-  struct IndexKey {
+  struct LabelItem {
+    std::string label;
+  };
+
+  struct LabelPropertyItem {
     std::string label;
     std::string property;
   };
 
-  struct UniqueConstraint {
-    std::string label;
-    std::set<std::string> props;
-  };
-
   std::set<Vertex> vertices;
   std::set<Edge> edges;
-  std::set<IndexKey> indices;
-  std::set<UniqueConstraint> constraints;
+  std::set<LabelItem> label_indices;
+  std::set<LabelPropertyItem> label_property_indices;
+  std::set<LabelPropertyItem> existence_constraints;
 };
 
 bool operator<(const DatabaseState::Vertex &first,
@@ -72,16 +68,15 @@ bool operator<(const DatabaseState::Edge &first,
   return first.props < second.props;
 }
 
-bool operator<(const DatabaseState::IndexKey &first,
-               const DatabaseState::IndexKey &second) {
-  if (first.label != second.label) return first.label < second.label;
-  return first.property < second.property;
+bool operator<(const DatabaseState::LabelItem &first,
+               const DatabaseState::LabelItem &second) {
+  return first.label < second.label;
 }
 
-bool operator<(const DatabaseState::UniqueConstraint &first,
-               const DatabaseState::UniqueConstraint &second) {
+bool operator<(const DatabaseState::LabelPropertyItem &first,
+               const DatabaseState::LabelPropertyItem &second) {
   if (first.label != second.label) return first.label < second.label;
-  return first.props < second.props;
+  return first.property < second.property;
 }
 
 bool operator==(const DatabaseState::Vertex &first,
@@ -96,78 +91,98 @@ bool operator==(const DatabaseState::Edge &first,
          first.edge_type == second.edge_type && first.props == second.props;
 }
 
-bool operator==(const DatabaseState::IndexKey &first,
-                const DatabaseState::IndexKey &second) {
-  return first.label == second.label && first.property == second.property;
+bool operator==(const DatabaseState::LabelItem &first,
+                const DatabaseState::LabelItem &second) {
+  return first.label == second.label;
 }
 
-bool operator==(const DatabaseState::UniqueConstraint &first,
-                const DatabaseState::UniqueConstraint &second) {
-  return first.label == second.label && first.props == second.props;
+bool operator==(const DatabaseState::LabelPropertyItem &first,
+                const DatabaseState::LabelPropertyItem &second) {
+  return first.label == second.label && first.property == second.property;
 }
 
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
-         first.indices == second.indices;
+         first.label_indices == second.label_indices &&
+         first.label_property_indices == second.label_property_indices &&
+         first.existence_constraints == second.existence_constraints;
 }
 
-DatabaseState GetState(database::GraphDb *db) {
+DatabaseState GetState(storage::Storage *db) {
   // Capture all vertices
   std::map<storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access();
-  for (const auto &vertex : dba.Vertices(false)) {
+  for (const auto &vertex : dba.Vertices(storage::View::NEW)) {
     std::set<std::string> labels;
-    for (const auto &label : vertex.labels()) {
-      labels.insert(dba.LabelName(label));
+    auto maybe_labels = vertex.Labels(storage::View::NEW);
+    CHECK(maybe_labels.HasValue());
+    for (const auto &label : *maybe_labels) {
+      labels.insert(dba.LabelToName(label));
     }
     std::map<std::string, PropertyValue> props;
-    for (const auto &kv : vertex.Properties()) {
-      props.emplace(dba.PropertyName(kv.first), kv.second);
+    auto maybe_properties = vertex.Properties(storage::View::NEW);
+    CHECK(maybe_properties.HasValue());
+    for (const auto &kv : *maybe_properties) {
+      props.emplace(dba.PropertyToName(kv.first), kv.second);
     }
     CHECK(props.count(kPropertyId) == 1);
     const auto id = props[kPropertyId].ValueInt();
-    gid_mapping[vertex.gid()] = id;
+    gid_mapping[vertex.Gid()] = id;
     vertices.insert({id, labels, props});
   }
 
   // Capture all edges
   std::set<DatabaseState::Edge> edges;
-  for (const auto &edge : dba.Edges(false)) {
-    const auto &edge_type_name = dba.EdgeTypeName(edge.EdgeType());
-    std::map<std::string, PropertyValue> props;
-    for (const auto &kv : edge.Properties()) {
-      props.emplace(dba.PropertyName(kv.first), kv.second);
+  for (const auto &vertex : dba.Vertices(storage::View::NEW)) {
+    auto maybe_edges = vertex.OutEdges({}, storage::View::NEW);
+    CHECK(maybe_edges.HasValue());
+    for (const auto &edge : *maybe_edges) {
+      const auto &edge_type_name = dba.EdgeTypeToName(edge.EdgeType());
+      std::map<std::string, PropertyValue> props;
+      auto maybe_properties = edge.Properties(storage::View::NEW);
+      CHECK(maybe_properties.HasValue());
+      for (const auto &kv : *maybe_properties) {
+        props.emplace(dba.PropertyToName(kv.first), kv.second);
+      }
+      const auto from = gid_mapping[edge.FromVertex().Gid()];
+      const auto to = gid_mapping[edge.ToVertex().Gid()];
+      edges.insert({from, to, edge_type_name, props});
     }
-    const auto from = gid_mapping[edge.from().gid()];
-    const auto to = gid_mapping[edge.to().gid()];
-    edges.insert({from, to, edge_type_name, props});
   }
 
   // Capture all indices
-  std::set<DatabaseState::IndexKey> indices;
-  for (const auto &key : dba.GetIndicesKeys()) {
-    indices.insert(
-        {dba.LabelName(key.label_), dba.PropertyName(key.property_)});
-  }
-
-  // Capture all unique constraints
-  std::set<DatabaseState::UniqueConstraint> constraints;
-  for (const auto &constraint : dba.ListUniqueConstraints()) {
-    std::set<std::string> props;
-    for (const auto &prop : constraint.properties) {
-      props.insert(dba.PropertyName(prop));
+  std::set<DatabaseState::LabelItem> label_indices;
+  std::set<DatabaseState::LabelPropertyItem> label_property_indices;
+  {
+    auto info = dba.ListAllIndices();
+    for (const auto &item : info.label) {
+      label_indices.insert({dba.LabelToName(item)});
     }
-    constraints.insert({dba.LabelName(constraint.label), props});
+    for (const auto &item : info.label_property) {
+      label_property_indices.insert(
+          {dba.LabelToName(item.first), dba.PropertyToName(item.second)});
+    }
   }
 
-  return {vertices, edges, indices, constraints};
+  // Capture all constraints
+  std::set<DatabaseState::LabelPropertyItem> existence_constraints;
+  {
+    auto info = dba.ListAllConstraints();
+    for (const auto &item : info.existence) {
+      existence_constraints.insert(
+          {dba.LabelToName(item.first), dba.PropertyToName(item.second)});
+    }
+  }
+
+  return {vertices, edges, label_indices, label_property_indices,
+          existence_constraints};
 }
 
-auto Execute(database::GraphDb *db, const std::string &query) {
+auto Execute(storage::Storage *db, const std::string &query) {
   query::InterpreterContext context(db);
   query::Interpreter interpreter(&context);
-  ResultStreamFaker stream;
+  ResultStreamFaker stream(db);
 
   auto [header, _] = interpreter.Prepare(query, {});
   stream.Header(header);
@@ -177,39 +192,45 @@ auto Execute(database::GraphDb *db, const std::string &query) {
   return stream;
 }
 
-VertexAccessor CreateVertex(GraphDbAccessor *dba,
+VertexAccessor CreateVertex(storage::Storage::Accessor *dba,
                             const std::vector<std::string> &labels,
                             const std::map<std::string, PropertyValue> &props,
                             bool add_property_id = true) {
   CHECK(dba);
-  auto vertex = dba->InsertVertex();
+  auto vertex = dba->CreateVertex();
   for (const auto &label_name : labels) {
-    vertex.add_label(dba->Label(label_name));
+    CHECK(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
   }
   for (const auto &kv : props) {
-    vertex.PropsSet(dba->Property(kv.first), kv.second);
+    CHECK(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second)
+              .HasValue());
   }
   if (add_property_id) {
-    vertex.PropsSet(dba->Property(kPropertyId),
-                    PropertyValue(vertex.gid().AsInt()));
+    CHECK(vertex
+              .SetProperty(dba->NameToProperty(kPropertyId),
+                           PropertyValue(vertex.Gid().AsInt()))
+              .HasValue());
   }
   return vertex;
 }
 
-EdgeAccessor CreateEdge(GraphDbAccessor *dba, VertexAccessor from,
-                        VertexAccessor to, const std::string &edge_type_name,
+EdgeAccessor CreateEdge(storage::Storage::Accessor *dba, VertexAccessor *from,
+                        VertexAccessor *to, const std::string &edge_type_name,
                         const std::map<std::string, PropertyValue> &props,
                         bool add_property_id = true) {
   CHECK(dba);
-  auto edge = dba->InsertEdge(from, to, dba->EdgeType(edge_type_name));
+  auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
+  CHECK(edge.HasValue());
   for (const auto &kv : props) {
-    edge.PropsSet(dba->Property(kv.first), kv.second);
+    CHECK(
+        edge->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
-    edge.PropsSet(dba->Property(kPropertyId),
-                  PropertyValue(edge.gid().AsInt()));
+    CHECK(edge->SetProperty(dba->NameToProperty(kPropertyId),
+                            PropertyValue(edge->Gid().AsInt()))
+              .HasValue());
   }
-  return edge;
+  return *edge;
 }
 
 template <class... TArgs>
@@ -229,8 +250,8 @@ void VerifyQueries(
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, EmptyGraph) {
-  database::GraphDb db;
-  ResultStreamFaker stream;
+  storage::Storage db;
+  ResultStreamFaker stream(&db);
   query::AnyStream query_stream(&stream, utils::NewDeleteResource());
   {
     auto acc = db.Access();
@@ -242,15 +263,15 @@ TEST(DumpTest, EmptyGraph) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleVertex) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {}, {}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -265,15 +286,15 @@ TEST(DumpTest, SingleVertex) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithSingleLabel) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label1"}, {}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -288,15 +309,15 @@ TEST(DumpTest, VertexWithSingleLabel) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithMultipleLabels) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label1", "Label2"}, {}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -311,15 +332,15 @@ TEST(DumpTest, VertexWithMultipleLabels) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, VertexWithSingleProperty) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {}, {{"prop", PropertyValue(42)}}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -334,17 +355,17 @@ TEST(DumpTest, VertexWithSingleProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, MultipleVertices) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {}, {}, false);
     CreateVertex(&dba, {}, {}, false);
     CreateVertex(&dba, {}, {}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -361,17 +382,17 @@ TEST(DumpTest, MultipleVertices) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleEdge) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {}, {}, false);
     auto v = CreateVertex(&dba, {}, {}, false);
-    CreateEdge(&dba, u, v, "EdgeType", {}, false);
-    dba.Commit();
+    CreateEdge(&dba, &u, &v, "EdgeType", {}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -390,20 +411,20 @@ TEST(DumpTest, SingleEdge) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, MultipleEdges) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {}, {}, false);
     auto v = CreateVertex(&dba, {}, {}, false);
     auto w = CreateVertex(&dba, {}, {}, false);
-    CreateEdge(&dba, u, v, "EdgeType", {}, false);
-    CreateEdge(&dba, v, u, "EdgeType", {}, false);
-    CreateEdge(&dba, v, w, "EdgeType", {}, false);
-    dba.Commit();
+    CreateEdge(&dba, &u, &v, "EdgeType", {}, false);
+    CreateEdge(&dba, &v, &u, "EdgeType", {}, false);
+    CreateEdge(&dba, &v, &w, "EdgeType", {}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -427,17 +448,17 @@ TEST(DumpTest, MultipleEdges) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, EdgeWithProperties) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {}, {}, false);
     auto v = CreateVertex(&dba, {}, {}, false);
-    CreateEdge(&dba, u, v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
-    dba.Commit();
+    CreateEdge(&dba, &u, &v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -456,17 +477,19 @@ TEST(DumpTest, EdgeWithProperties) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, IndicesKeys) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label1", "Label2"}, {{"p", PropertyValue(1)}}, false);
-    dba.BuildIndex(dba.Label("Label1"), dba.Property("prop"));
-    dba.BuildIndex(dba.Label("Label2"), dba.Property("prop"));
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
+  ASSERT_TRUE(
+      db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")));
+  ASSERT_TRUE(
+      db.CreateIndex(db.NameToLabel("Label2"), db.NameToProperty("prop")));
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -481,39 +504,39 @@ TEST(DumpTest, IndicesKeys) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(DumpTest, UniqueConstraints) {
-  database::GraphDb db;
+TEST(DumpTest, ExistenceConstraints) {
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {"Label"}, {{"prop", PropertyValue(1)}}, false);
-    dba.BuildUniqueConstraint(dba.Label("Label"), {dba.Property("prop")});
-    // Create one with multiple properties.
-    dba.BuildUniqueConstraint(dba.Label("Label"),
-                              {dba.Property("prop1"), dba.Property("prop2")});
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto res = db.CreateExistenceConstraint(db.NameToLabel("Label"),
+                                            db.NameToProperty("prop"));
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
   }
 
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(),
-        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop IS UNIQUE;",
-        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop1, u.prop2 IS UNIQUE;",
-        kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  "CREATE CONSTRAINT ON (u:Label) ASSERT EXISTS (u.prop);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     std::map<std::string, PropertyValue> prop1 = {
@@ -521,12 +544,12 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     CreateVertex(
         &dba, {"Label1", "Label2"},
         {{"prop1", PropertyValue(prop1)}, {"prop2", PropertyValue("$'\t'")}});
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
-  database::GraphDb db_dump;
+  storage::Storage db_dump;
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -546,7 +569,7 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateSimpleGraph) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {"Person"}, {{"name", PropertyValue("Ivan")}});
@@ -557,28 +580,31 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     auto z = CreateVertex(
         &dba, {"Person"},
         {{"name", PropertyValue("Buha")}, {"id", PropertyValue(1)}});
-    CreateEdge(&dba, u, v, "Knows", {});
-    CreateEdge(&dba, v, w, "Knows", {{"how_long", PropertyValue(5)}});
-    CreateEdge(&dba, w, u, "Knows", {{"how", PropertyValue("distant past")}});
-    CreateEdge(&dba, v, u, "Knows", {});
-    CreateEdge(&dba, v, u, "Likes", {});
-    CreateEdge(&dba, z, u, "Knows", {});
-    CreateEdge(&dba, w, z, "Knows", {{"how", PropertyValue("school")}});
-    CreateEdge(&dba, w, z, "Likes", {{"how", PropertyValue("very much")}});
-    dba.Commit();
+    CreateEdge(&dba, &u, &v, "Knows", {});
+    CreateEdge(&dba, &v, &w, "Knows", {{"how_long", PropertyValue(5)}});
+    CreateEdge(&dba, &w, &u, "Knows", {{"how", PropertyValue("distant past")}});
+    CreateEdge(&dba, &v, &u, "Knows", {});
+    CreateEdge(&dba, &v, &u, "Likes", {});
+    CreateEdge(&dba, &z, &u, "Knows", {});
+    CreateEdge(&dba, &w, &z, "Knows", {{"how", PropertyValue("school")}});
+    CreateEdge(&dba, &w, &z, "Likes", {{"how", PropertyValue("very much")}});
+    ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto dba = db.Access();
-    dba.BuildUniqueConstraint(dba.Label("Person"), {dba.Property("name")});
-    dba.BuildIndex(dba.Label("Person"), dba.Property("id"));
-    dba.BuildIndex(dba.Label("Person"), dba.Property("unexisting_property"));
-    dba.Commit();
+    auto ret = db.CreateExistenceConstraint(db.NameToLabel("Person"),
+                                            db.NameToProperty("name"));
+    ASSERT_TRUE(ret.HasValue());
+    ASSERT_TRUE(ret.GetValue());
   }
+  ASSERT_TRUE(
+      db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")));
+  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"),
+                             db.NameToProperty("unexisting_property")));
 
   const auto &db_initial_state = GetState(&db);
-  database::GraphDb db_dump;
+  storage::Storage db_dump;
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db);
     query::AnyStream query_stream(&stream, utils::NewDeleteResource());
     {
       auto acc = db.Access();
@@ -602,11 +628,11 @@ TEST(DumpTest, CheckStateSimpleGraph) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, ExecuteDumpDatabase) {
-  database::GraphDb db;
+  storage::Storage db;
   {
     auto dba = db.Access();
     CreateVertex(&dba, {}, {}, false);
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   {

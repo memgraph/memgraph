@@ -2,12 +2,11 @@
 
 #include <benchmark/benchmark_api.h>
 
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "storage/v2/storage.hpp"
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
 static query::CypherQuery *AddChainedMatches(int num_matches,
@@ -34,17 +33,17 @@ static query::CypherQuery *AddChainedMatches(int num_matches,
 }
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   while (state.KeepRunning()) {
     state.PauseTiming();
     query::AstStorage storage;
     int num_matches = state.range(0);
     auto *query = AddChainedMatches(num_matches, storage);
     auto symbol_table = query::MakeSymbolTable(query);
-    query::DbAccessor exec_dba(&dba);
-    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                &exec_dba);
+    auto ctx =
+        query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
     state.ResumeTiming();
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
@@ -91,30 +90,31 @@ static query::CypherQuery *AddIndexedMatches(int num_matches,
 }
 
 static auto CreateIndexedVertices(int index_count, int vertex_count,
-                                  database::GraphDb &db) {
-  auto label = db.Access().Label("label");
-  auto prop = db.Access().Property("prop");
-  db.Access().BuildIndex(label, prop);
-  auto dba = db.Access();
+                                  storage::Storage *db) {
+  auto label = db->NameToLabel("label");
+  auto prop = db->NameToProperty("prop");
+  db->CreateIndex(label, prop);
+  auto dba = db->Access();
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
-      auto vertex = dba.InsertVertex();
-      vertex.add_label(label);
-      vertex.PropsSet(prop, PropertyValue(index));
+      auto vertex = dba.CreateVertex();
+      CHECK(vertex.AddLabel(label).HasValue());
+      CHECK(vertex.SetProperty(prop, PropertyValue(index)).HasValue());
     }
   }
-  dba.Commit();
+  CHECK(!dba.Commit().HasError());
   return std::make_pair("label", "prop");
 }
 
 static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
-  database::GraphDb db;
+  storage::Storage db;
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
-  auto dba = db.Access();
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -122,9 +122,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
-    query::DbAccessor exec_dba(&dba);
-    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                &exec_dba);
+    auto ctx =
+        query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
     auto query_parts =
         query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
@@ -141,15 +140,15 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
 
 static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     benchmark::State &state) {
-  database::GraphDb db;
+  storage::Storage db;
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
-  auto dba = db.Access();
-  query::DbAccessor exec_dba(&dba);
-  auto vertex_counts = query::plan::MakeVertexCountCache(&exec_dba);
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto vertex_counts = query::plan::MakeVertexCountCache(&dba);
   query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();

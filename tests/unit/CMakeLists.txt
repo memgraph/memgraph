@@ -19,7 +19,7 @@ function(add_unit_test test_cpp)
 endfunction(add_unit_test)
 
 add_unit_test(bolt_encoder.cpp)
-target_link_libraries(${test_prefix}bolt_encoder mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bolt_encoder mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
@@ -34,7 +34,7 @@ add_unit_test(concurrent_map.cpp)
 target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_lib)
 
 add_unit_test(cypher_main_visitor.cpp)
-target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(database_key_index.cpp)
 target_link_libraries(${test_prefix}database_key_index mg-single-node kvstore_dummy_lib)
@@ -73,7 +73,7 @@ add_unit_test(graph_db.cpp)
 target_link_libraries(${test_prefix}graph_db mg-single-node kvstore_dummy_lib)
 
 add_unit_test(interpreter.cpp)
-target_link_libraries(${test_prefix}interpreter mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}interpreter mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
@@ -106,22 +106,22 @@ add_unit_test(replication_log.cpp)
 target_link_libraries(${test_prefix}replication_log mg-single-node-ha kvstore_lib glog)
 
 add_unit_test(query_cost_estimator.cpp)
-target_link_libraries(${test_prefix}query_cost_estimator mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_cost_estimator mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kvstore_dummy_lib)
 
 add_unit_test(plan_pretty_print.cpp)
-target_link_libraries(${test_prefix}plan_pretty_print mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}plan_pretty_print mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_dump.cpp)
-target_link_libraries(${test_prefix}query_dump mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_dump mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_pretty_print.cpp)
-target_link_libraries(${test_prefix}query_pretty_print mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_pretty_print mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_profile.cpp)
-target_link_libraries(${test_prefix}query_profile mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_profile mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node kvstore_dummy_lib)
@@ -138,13 +138,13 @@ target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-si
 # END Storage V2 in query execution
 
 add_unit_test(query_plan_edge_cases.cpp)
-target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan.cpp)
-target_link_libraries(${test_prefix}query_plan mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
@@ -157,10 +157,10 @@ target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CM
 # END query/procedure
 
 add_unit_test(query_required_privileges.cpp)
-target_link_libraries(${test_prefix}query_required_privileges mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_required_privileges mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_semantic.cpp)
-target_link_libraries(${test_prefix}query_semantic mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_semantic mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_variable_start_planner.cpp)
 target_link_libraries(${test_prefix}query_variable_start_planner mg-single-node kvstore_dummy_lib)
@@ -212,13 +212,13 @@ add_unit_test(storage_stat.cpp)
 target_link_libraries(${test_prefix}storage_stat mg-single-node kvstore_dummy_lib)
 
 add_unit_test(stripped.cpp)
-target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(transaction_engine_single_node.cpp)
 target_link_libraries(${test_prefix}transaction_engine_single_node mg-single-node kvstore_dummy_lib)
 
 add_unit_test(typed_value.cpp)
-target_link_libraries(${test_prefix}typed_value mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}typed_value mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(unique_constraints.cpp)
 target_link_libraries(${test_prefix}unique_constraints mg-single-node kvstore_dummy_lib)

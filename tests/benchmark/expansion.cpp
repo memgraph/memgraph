@@ -3,55 +3,56 @@
 #include <glog/logging.h>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/storage.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
-  // GraphDb shouldn't be global constructed/destructed. See
-  // documentation in database/single_node/graph_db.hpp for details.
-  std::optional<database::GraphDb> db_;
-  std::optional<query::InterpreterContext> interpreter_context_;
-  std::optional<query::Interpreter> interpreter_;
+  std::optional<storage::Storage> db;
+  std::optional<query::InterpreterContext> interpreter_context;
+  std::optional<query::Interpreter> interpreter;
 
   void SetUp(const benchmark::State &state) override {
-    db_.emplace();
-    auto dba = db_->Access();
-    for (int i = 0; i < state.range(0); i++) dba.InsertVertex();
+    db.emplace();
 
-    // the fixed part is one vertex expanding to 1000 others
-    auto start = dba.InsertVertex();
-    start.add_label(dba.Label("Starting"));
-    auto edge_type = dba.EdgeType("edge_type");
-    for (int i = 0; i < 1000; i++) {
-      auto dest = dba.InsertVertex();
-      dba.InsertEdge(start, dest, edge_type);
+    auto label = db->NameToLabel("Starting");
+
+    {
+      auto dba = db->Access();
+      for (int i = 0; i < state.range(0); i++) dba.CreateVertex();
+
+      // the fixed part is one vertex expanding to 1000 others
+      auto start = dba.CreateVertex();
+      CHECK(start.AddLabel(label).HasValue());
+      auto edge_type = dba.NameToEdgeType("edge_type");
+      for (int i = 0; i < 1000; i++) {
+        auto dest = dba.CreateVertex();
+        CHECK(dba.CreateEdge(&start, &dest, edge_type).HasValue());
+      }
+      CHECK(!dba.Commit().HasError());
     }
-    dba.Commit();
 
-    interpreter_context_.emplace(&*db_);
-    interpreter_.emplace(&*interpreter_context_);
+    CHECK(db->CreateIndex(label));
+
+    interpreter_context.emplace(&*db);
+    interpreter.emplace(&*interpreter_context);
   }
 
   void TearDown(const benchmark::State &) override {
-    auto dba = db_->Access();
-    for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
-    dba.Commit();
-    db_ = std::nullopt;
+    interpreter = std::nullopt;
+    interpreter_context = std::nullopt;
+    db = std::nullopt;
   }
-
-  auto &interpreter() { return *interpreter_; }
 };
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results;
-    interpreter().Prepare(query, {});
-    interpreter().PullAll(&results);
+    ResultStreamFaker results(&*db);
+    interpreter->Prepare(query, {});
+    interpreter->PullAll(&results);
   }
 }
 
@@ -64,9 +65,9 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results;
-    interpreter().Prepare(query, {});
-    interpreter().PullAll(&results);
+    ResultStreamFaker results(&*db);
+    interpreter->Prepare(query, {});
+    interpreter->PullAll(&results);
   }
 }
 

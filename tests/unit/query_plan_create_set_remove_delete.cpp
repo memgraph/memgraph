@@ -5,7 +5,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/result_stream_faker.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/frame.hpp"

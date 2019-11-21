@@ -429,7 +429,8 @@ class FakeDbAccessor {
   storage::Label NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
-    return labels_.emplace(name, storage::Label(labels_.size())).first->second;
+    return labels_.emplace(name, storage::Label::FromUint(labels_.size()))
+        .first->second;
   }
 
   storage::Label Label(const std::string &name) { return NameToLabel(name); }
@@ -437,14 +438,16 @@ class FakeDbAccessor {
   storage::EdgeType NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
-    return edge_types_.emplace(name, storage::EdgeType(edge_types_.size()))
+    return edge_types_
+        .emplace(name, storage::EdgeType::FromUint(edge_types_.size()))
         .first->second;
   }
 
   storage::Property NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
-    return properties_.emplace(name, storage::Property(properties_.size()))
+    return properties_
+        .emplace(name, storage::Property::FromUint(properties_.size()))
         .first->second;
   }
 

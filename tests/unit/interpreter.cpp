@@ -2,7 +2,6 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -28,7 +27,7 @@ auto ToEdgeList(const communication::bolt::Value &v) {
 
 class InterpreterTest : public ::testing::Test {
  protected:
-  database::GraphDb db_;
+  storage::Storage db_;
   query::InterpreterContext interpreter_context_{&db_};
   query::Interpreter interpreter_{&interpreter_context_};
 
@@ -39,7 +38,7 @@ class InterpreterTest : public ::testing::Test {
    */
   auto Interpret(const std::string &query,
                  const std::map<std::string, PropertyValue> &params = {}) {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&db_);
 
     auto [header, _] = interpreter_.Prepare(query, params);
     stream.Header(header);
@@ -169,24 +168,29 @@ TEST_F(InterpreterTest, Bfs) {
   const auto kReachable = "reachable";
   const auto kId = "id";
 
-  std::vector<std::vector<VertexAccessor>> levels(kNumLevels);
+  std::vector<std::vector<query::VertexAccessor>> levels(kNumLevels);
   int id = 0;
 
   // Set up.
   {
-    auto dba = db_.Access();
+    auto storage_dba = db_.Access();
+    query::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      node.PropsSet(dba.Property(kId), PropertyValue(id++));
-      node.PropsSet(dba.Property(kReachable), PropertyValue(reachable));
+      CHECK(node.SetProperty(dba.NameToProperty(kId), PropertyValue(id++))
+                .HasValue());
+      CHECK(node.SetProperty(dba.NameToProperty(kReachable),
+                             PropertyValue(reachable))
+                .HasValue());
       levels[level].push_back(node);
       return node;
     };
 
-    auto add_edge = [&](VertexAccessor &v1, VertexAccessor &v2,
-                        bool reachable) {
-      auto edge = dba.InsertEdge(v1, v2, dba.EdgeType("edge"));
-      edge.PropsSet(dba.Property(kReachable), PropertyValue(reachable));
+    auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
+      auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
+      CHECK(edge->SetProperty(dba.NameToProperty(kReachable),
+                              PropertyValue(reachable))
+                .HasValue());
     };
 
     // Add source node.
@@ -224,7 +228,7 @@ TEST_F(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    dba.Commit();
+    ASSERT_FALSE(dba.Commit().HasError());
   }
 
   auto stream = Interpret(
@@ -318,16 +322,15 @@ TEST_F(InterpreterTest, ShortestPath) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(InterpreterTest, UniqueConstraintTest) {
-  Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
-  Interpret("CREATE (:A{a:1, b:1})");
-  Interpret("CREATE (:A{a:2, b:2})");
-  ASSERT_THROW(Interpret("CREATE (:A{a:1, b:1})"),
-               query::QueryRuntimeException);
-  Interpret("MATCH (n:A{a:2, b:2}) SET n.a=1");
-  Interpret("CREATE (:A{a:2, b:2})");
-  Interpret("MATCH (n:A{a:2, b:2}) DETACH DELETE n");
-  Interpret("CREATE (n:A{a:2, b:2})");
+TEST_F(InterpreterTest, ExistenceConstraintTest) {
+  Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a);");
+  Interpret("CREATE (:A{a:1})");
+  Interpret("CREATE (:A{a:2})");
+  ASSERT_THROW(Interpret("CREATE (:A)"), query::QueryException);
+  Interpret("MATCH (n:A{a:2}) SET n.a=3");
+  Interpret("CREATE (:A{a:2})");
+  Interpret("MATCH (n:A{a:2}) DETACH DELETE n");
+  Interpret("CREATE (n:A{a:2})");
 }
 
 TEST_F(InterpreterTest, ExplainQuery) {

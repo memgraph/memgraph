@@ -9,8 +9,8 @@
 
 #include "gtest/gtest.h"
 
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/storage.hpp"
 
 using query::TypedValue;
 using query::TypedValueException;
@@ -18,8 +18,9 @@ using query::TypedValueException;
 class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
-  database::GraphDb db_;
-  database::GraphDbAccessor dba_{db_.Access()};
+  storage::Storage db;
+  storage::Storage::Accessor storage_dba{db.Access()};
+  query::DbAccessor dba{&storage_dba};
 
   void SetUp() override {
     values_.emplace_back(TypedValue());
@@ -36,12 +37,11 @@ class AllTypesFixture : public testing::Test {
                                           {"c", TypedValue(42)},
                                           {"d", TypedValue(0.5)},
                                           {"e", TypedValue()}});
-    auto vertex = dba_.InsertVertex();
-    values_.emplace_back(query::VertexAccessor(vertex));
-    values_.emplace_back(query::EdgeAccessor(
-        dba_.InsertEdge(vertex, vertex, dba_.EdgeType("et"))));
+    auto vertex = dba.InsertVertex();
+    values_.emplace_back(vertex);
     values_.emplace_back(
-        query::Path(query::VertexAccessor(dba_.InsertVertex())));
+        *dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et")));
+    values_.emplace_back(query::Path(dba.InsertVertex()));
   }
 };
 

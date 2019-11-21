@@ -1,7 +1,6 @@
 #include "communication/result_stream_faker.hpp"
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/storage.hpp"
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -12,11 +11,11 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  database::GraphDb db;
+  storage::Storage db;
   query::InterpreterContext interpreter_context{&db};
   query::Interpreter interpreter{&interpreter_context};
 
-  ResultStreamFaker stream;
+  ResultStreamFaker stream(&db);
   auto [header, _] = interpreter.Prepare(argv[1], {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

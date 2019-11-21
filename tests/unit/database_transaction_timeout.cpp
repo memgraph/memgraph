@@ -1,7 +1,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "communication/result_stream_faker.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 

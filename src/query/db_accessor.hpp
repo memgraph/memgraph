@@ -604,6 +604,12 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
+  utils::BasicResult<storage::ExistenceConstraintViolation, void> Commit() {
+    return accessor_->Commit();
+  }
+
+  void Abort() { accessor_->Abort(); }
+
   bool MustAbort() const { return false; }
 
   bool LabelIndexExists(storage::Label label) const {

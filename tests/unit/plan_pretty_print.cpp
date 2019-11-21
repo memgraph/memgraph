@@ -31,8 +31,8 @@ class PrintToJsonTest : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  database::GraphDb db;
-  database::GraphDbAccessor dba;
+  storage::Storage db;
+  storage::Storage::Accessor dba;
 
   Symbol GetSymbol(std::string name) {
     return symbol_table.CreateSymbol(name, true);
@@ -69,7 +69,7 @@ TEST_F(PrintToJsonTest, ScanAll) {
 TEST_F(PrintToJsonTest, ScanAllByLabel) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabel>(nullptr, GetSymbol("node"),
-                                             dba.Label("Label"));
+                                             dba.NameToLabel("Label"));
 
   Check(last_op.get(), R"(
         {
@@ -84,8 +84,9 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
-        "prop", utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+        nullptr, GetSymbol("node"), dba.NameToLabel("Label"),
+        dba.NameToProperty("prop"), "prop",
+        utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
         utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     Check(last_op.get(), R"(
@@ -108,8 +109,8 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
-        "prop", std::nullopt,
+        nullptr, GetSymbol("node"), dba.NameToLabel("Label"),
+        dba.NameToProperty("prop"), "prop", std::nullopt,
         utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     Check(last_op.get(), R"(
@@ -129,9 +130,9 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-        nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
-        "prop", utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
-        std::nullopt);
+        nullptr, GetSymbol("node"), dba.NameToLabel("Label"),
+        dba.NameToProperty("prop"), "prop",
+        utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt);
 
     Check(last_op.get(), R"(
         {
@@ -152,8 +153,8 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
 TEST_F(PrintToJsonTest, ScanAllByLabelPropertyValue) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelPropertyValue>(
-      nullptr, GetSymbol("node"), dba.Label("Label"), dba.Property("prop"),
-      "prop", ADD(LITERAL(21), LITERAL(21)));
+      nullptr, GetSymbol("node"), dba.NameToLabel("Label"),
+      dba.NameToProperty("prop"), "prop", ADD(LITERAL(21), LITERAL(21)));
 
   Check(last_op.get(), R"sep(
         {
@@ -170,10 +171,11 @@ TEST_F(PrintToJsonTest, CreateNode) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<CreateNode>(
       nullptr,
-      NodeCreationInfo{GetSymbol("node"),
-                       {dba.Label("Label1"), dba.Label("Label2")},
-                       {{dba.Property("prop1"), LITERAL(5)},
-                        {dba.Property("prop2"), LITERAL("some cool stuff")}}});
+      NodeCreationInfo{
+          GetSymbol("node"),
+          {dba.NameToLabel("Label1"), dba.NameToLabel("Label2")},
+          {{dba.NameToProperty("prop1"), LITERAL(5)},
+           {dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}});
 
   Check(last_op.get(), R"(
           {
@@ -195,13 +197,14 @@ TEST_F(PrintToJsonTest, CreateExpand) {
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, GetSymbol("node1"));
   last_op = std::make_shared<CreateExpand>(
-      NodeCreationInfo{GetSymbol("node2"),
-                       {dba.Label("Label1"), dba.Label("Label2")},
-                       {{dba.Property("prop1"), LITERAL(5)},
-                        {dba.Property("prop2"), LITERAL("some cool stuff")}}},
+      NodeCreationInfo{
+          GetSymbol("node2"),
+          {dba.NameToLabel("Label1"), dba.NameToLabel("Label2")},
+          {{dba.NameToProperty("prop1"), LITERAL(5)},
+           {dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}},
       EdgeCreationInfo{GetSymbol("edge"),
-                       {{dba.Property("weight"), LITERAL(5.32)}},
-                       dba.EdgeType("edge_type"),
+                       {{dba.NameToProperty("weight"), LITERAL(5.32)}},
+                       dba.NameToEdgeType("edge_type"),
                        EdgeAtom::Direction::OUT},
       last_op, node1_sym, false);
 
@@ -241,8 +244,8 @@ TEST_F(PrintToJsonTest, Expand) {
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"),
       EdgeAtom::Direction::BOTH,
-      std::vector<storage::EdgeType>{dba.EdgeType("EdgeType1"),
-                                     dba.EdgeType("EdgeType2")},
+      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"),
+                                       dba.NameToEdgeType("EdgeType2")},
       false, storage::View::OLD);
 
   Check(last_op.get(), R"(
@@ -269,11 +272,12 @@ TEST_F(PrintToJsonTest, ExpandVariable) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"),
       EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{dba.EdgeType("EdgeType1"),
-                                     dba.EdgeType("EdgeType2")},
+      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"),
+                                       dba.NameToEdgeType("EdgeType2")},
       false, LITERAL(2), LITERAL(5), false,
-      ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
-                      PROPERTY_LOOKUP("inner_node", dba.Property("unblocked"))},
+      ExpansionLambda{
+          GetSymbol("inner_node"), GetSymbol("inner_edge"),
+          PROPERTY_LOOKUP("inner_node", dba.NameToProperty("unblocked"))},
       std::nullopt, std::nullopt);
 
   Check(last_op.get(), R"sep(
@@ -305,13 +309,14 @@ TEST_F(PrintToJsonTest, ExpandVariableWsp) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"),
       EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{dba.EdgeType("EdgeType1"),
-                                     dba.EdgeType("EdgeType2")},
+      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"),
+                                       dba.NameToEdgeType("EdgeType2")},
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
                       nullptr},
-      ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
-                      PROPERTY_LOOKUP("inner_edge", dba.Property("weight"))},
+      ExpansionLambda{
+          GetSymbol("inner_node"), GetSymbol("inner_edge"),
+          PROPERTY_LOOKUP("inner_edge", dba.NameToProperty("weight"))},
       GetSymbol("total"));
 
   Check(last_op.get(), R"sep(
@@ -349,10 +354,10 @@ TEST_F(PrintToJsonTest, ConstructNamedPath) {
       std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
   last_op = std::make_shared<Expand>(
       last_op, node2_sym, node3_sym, edge2_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
   last_op = std::make_shared<ConstructNamedPath>(
       last_op, GetSymbol("path"),
       std::vector<Symbol>{node1_sym, edge1_sym, node2_sym, edge2_sym,
@@ -393,7 +398,8 @@ TEST_F(PrintToJsonTest, Filter) {
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, GetSymbol("node1"));
   last_op = std::make_shared<Filter>(
-      last_op, EQ(PROPERTY_LOOKUP("node1", dba.Property("prop")), LITERAL(5)));
+      last_op,
+      EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
 
   Check(last_op.get(), R"sep(
           {
@@ -436,7 +442,7 @@ TEST_F(PrintToJsonTest, Delete) {
       std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<Expand>(
       last_op, node_sym, GetSymbol("node2"), GetSymbol("edge"),
-      EdgeAtom::Direction::BOTH, std::vector<storage::EdgeType>{}, false,
+      EdgeAtom::Direction::BOTH, std::vector<storage::EdgeTypeId>{}, false,
       storage::View::OLD);
   last_op = std::make_shared<plan::Delete>(
       last_op, std::vector<Expression *>{IDENT("node2")}, true);
@@ -464,7 +470,7 @@ TEST_F(PrintToJsonTest, Delete) {
 }
 
 TEST_F(PrintToJsonTest, SetProperty) {
-  storage::Property prop = dba.Property("prop");
+  storage::PropertyId prop = dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, GetSymbol("node"));
@@ -516,7 +522,8 @@ TEST_F(PrintToJsonTest, SetLabels) {
       std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::SetLabels>(
       last_op, node_sym,
-      std::vector<storage::Label>{dba.Label("label1"), dba.Label("label2")});
+      std::vector<storage::LabelId>{dba.NameToLabel("label1"),
+                                    dba.NameToLabel("label2")});
 
   Check(last_op.get(), R"(
           {
@@ -536,8 +543,8 @@ TEST_F(PrintToJsonTest, RemoveProperty) {
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::RemoveProperty>(
-      last_op, dba.Property("prop"),
-      PROPERTY_LOOKUP("node", dba.Property("prop")));
+      last_op, dba.NameToProperty("prop"),
+      PROPERTY_LOOKUP("node", dba.NameToProperty("prop")));
 
   Check(last_op.get(), R"sep(
           {
@@ -558,7 +565,8 @@ TEST_F(PrintToJsonTest, RemoveLabels) {
       std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::RemoveLabels>(
       last_op, node_sym,
-      std::vector<storage::Label>{dba.Label("label1"), dba.Label("label2")});
+      std::vector<storage::LabelId>{dba.NameToLabel("label1"),
+                                    dba.NameToLabel("label2")});
 
   Check(last_op.get(), R"(
           {
@@ -586,11 +594,11 @@ TEST_F(PrintToJsonTest, EdgeUniquenessFilter) {
       std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
-      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
   last_op = std::make_shared<Expand>(
       last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(
       last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
@@ -630,7 +638,7 @@ TEST_F(PrintToJsonTest, EdgeUniquenessFilter) {
 }
 
 TEST_F(PrintToJsonTest, Accumulate) {
-  storage::Property prop = dba.Property("prop");
+  storage::PropertyId prop = dba.NameToProperty("prop");
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, node_sym);
@@ -660,9 +668,9 @@ TEST_F(PrintToJsonTest, Accumulate) {
 }
 
 TEST_F(PrintToJsonTest, Aggregate) {
-  storage::Property value = dba.Property("value");
-  storage::Property color = dba.Property("color");
-  storage::Property type = dba.Property("type");
+  storage::PropertyId value = dba.NameToProperty("value");
+  storage::PropertyId color = dba.NameToProperty("color");
+  storage::PropertyId type = dba.NameToProperty("type");
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, node_sym);
@@ -745,8 +753,8 @@ TEST_F(PrintToJsonTest, Limit) {
 
 TEST_F(PrintToJsonTest, OrderBy) {
   Symbol node_sym = GetSymbol("node");
-  storage::Property value = dba.Property("value");
-  storage::Property color = dba.Property("color");
+  storage::PropertyId value = dba.NameToProperty("value");
+  storage::PropertyId color = dba.NameToProperty("color");
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<OrderBy>(
@@ -779,7 +787,7 @@ TEST_F(PrintToJsonTest, OrderBy) {
 
 TEST_F(PrintToJsonTest, Merge) {
   Symbol node_sym = GetSymbol("node");
-  storage::Label label = dba.Label("label");
+  storage::LabelId label = dba.NameToLabel("label");
 
   std::shared_ptr<LogicalOperator> match =
       std::make_shared<ScanAllByLabel>(nullptr, node_sym, label);
@@ -822,7 +830,7 @@ TEST_F(PrintToJsonTest, Optional) {
 
   std::shared_ptr<LogicalOperator> expand = std::make_shared<Expand>(
       nullptr, node1_sym, node2_sym, edge_sym, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{}, false, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Optional>(
       input, expand, std::vector<Symbol>{node2_sym, edge_sym});

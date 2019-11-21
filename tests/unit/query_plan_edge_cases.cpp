@@ -8,15 +8,14 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::optional<database::GraphDb> db_;
+  std::optional<storage::Storage> db_;
   std::optional<query::InterpreterContext> interpreter_context_;
   std::optional<query::Interpreter> interpreter_;
 
@@ -38,7 +37,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream;
+    ResultStreamFaker stream(&*db_);
 
     auto [header, _] = interpreter_->Prepare(query, {});
     stream.Header(header);

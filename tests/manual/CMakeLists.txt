@@ -53,7 +53,7 @@ add_manual_test(expression_pretty_printer.cpp)
 target_link_libraries(${test_prefix}expression_pretty_printer mg-single-node kvstore_dummy_lib)
 
 add_manual_test(single_query.cpp)
-target_link_libraries(${test_prefix}single_query mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}single_query mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_manual_test(sl_position_and_count.cpp)
 target_link_libraries(${test_prefix}sl_position_and_count mg-single-node kvstore_dummy_lib)

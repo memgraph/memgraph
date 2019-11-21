@@ -7,7 +7,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "glue/communication.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
 
 // TODO: Why is this here?! It's only used in tests and query/repl.cpp
@@ -20,7 +20,8 @@
  */
 class ResultStreamFaker {
  public:
-  ResultStreamFaker() = default;
+  explicit ResultStreamFaker(storage::Storage *store) : store_(store) {}
+
   ResultStreamFaker(const ResultStreamFaker &) = delete;
   ResultStreamFaker &operator=(const ResultStreamFaker &) = delete;
   ResultStreamFaker(ResultStreamFaker &&) = default;
@@ -36,7 +37,9 @@ class ResultStreamFaker {
     std::vector<communication::bolt::Value> bvalues;
     bvalues.reserve(values.size());
     for (const auto &value : values) {
-      bvalues.push_back(glue::ToBoltValue(value, storage::View::NEW));
+      auto maybe_value = glue::ToBoltValue(value, *store_, storage::View::NEW);
+      CHECK(maybe_value.HasValue());
+      bvalues.push_back(std::move(*maybe_value));
     }
     results_.push_back(std::move(bvalues));
   }
@@ -49,8 +52,10 @@ class ResultStreamFaker {
   void Summary(const std::map<std::string, query::TypedValue> &summary) {
     std::map<std::string, communication::bolt::Value> bsummary;
     for (const auto &item : summary) {
-      bsummary.insert(
-          {item.first, glue::ToBoltValue(item.second, storage::View::NEW)});
+      auto maybe_value =
+          glue::ToBoltValue(item.second, *store_, storage::View::NEW);
+      CHECK(maybe_value.HasValue());
+      bsummary.insert({item.first, std::move(*maybe_value)});
     }
     summary_ = std::move(bsummary);
   }
@@ -129,6 +134,7 @@ class ResultStreamFaker {
   }
 
  private:
+  storage::Storage *store_;
   // the data that the record stream can accept
   std::vector<std::string> header_;
   std::vector<std::vector<communication::bolt::Value>> results_;

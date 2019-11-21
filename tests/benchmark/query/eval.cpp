@@ -3,6 +3,7 @@
 #include "query/db_accessor.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/storage.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
@@ -26,9 +27,9 @@ static void MapLiteral(benchmark::State &state) {
   query::SymbolTable symbol_table;
   TMemory memory;
   query::Frame frame(symbol_table.max_position(), memory.get());
-  database::GraphDb db;
-  auto dba = db.Access();
-  query::DbAccessor execution_dba(&dba);
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   std::unordered_map<query::PropertyIx, query::Expression *> elements;
   for (int64_t i = 0; i < state.range(0); ++i) {
     elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)),
@@ -37,9 +38,9 @@ static void MapLiteral(benchmark::State &state) {
   auto *expr = ast.Create<query::MapLiteral>(elements);
   query::EvaluationContext evaluation_context{memory.get()};
   evaluation_context.properties =
-      query::NamesToProperties(ast.properties_, &execution_dba);
+      query::NamesToProperties(ast.properties_, &dba);
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &execution_dba, storage::View::NEW);
+                                       &dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -61,17 +62,17 @@ static void AdditionOperator(benchmark::State &state) {
   query::SymbolTable symbol_table;
   TMemory memory;
   query::Frame frame(symbol_table.max_position(), memory.get());
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   query::Expression *expr = ast.Create<query::PrimitiveLiteral>(0);
   for (int64_t i = 0; i < state.range(0); ++i) {
     expr = ast.Create<query::AdditionOperator>(
         expr, ast.Create<query::PrimitiveLiteral>(i));
   }
   query::EvaluationContext evaluation_context{memory.get()};
-  query::DbAccessor execution_dba(&dba);
   query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                       &execution_dba, storage::View::NEW);
+                                       &dba, storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

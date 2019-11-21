@@ -6,7 +6,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/result_stream_faker.hpp"
 #include "database/single_node/graph_db.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"

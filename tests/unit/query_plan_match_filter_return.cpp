@@ -13,7 +13,6 @@
 #include <cppitertools/range.hpp>
 #include <cppitertools/repeat.hpp>
 
-#include "communication/result_stream_faker.hpp"
 #include "database/single_node/graph_db.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"

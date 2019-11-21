@@ -3,7 +3,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
 #include "query_common.hpp"
@@ -17,10 +16,9 @@ using testing::UnorderedElementsAre;
 namespace {
 
 struct ExpressionPrettyPrinterTest : public ::testing::Test {
-  ExpressionPrettyPrinterTest() : dba{db.Access()} {}
-
-  database::GraphDb db;
-  database::GraphDbAccessor dba;
+  storage::Storage db;
+  storage::Storage::Accessor storage_dba{db.Access()};
+  query::DbAccessor dba{&storage_dba};
   AstStorage storage;
 };
 
@@ -62,7 +60,7 @@ TEST_F(ExpressionPrettyPrinterTest, Identifiers) {
 
 TEST_F(ExpressionPrettyPrinterTest, Reducing) {
   // all(x in list where x.prop = 42)
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<PropertyValue>{}),
                          WHERE(EQ(PROPERTY_LOOKUP("x", prop), LITERAL(42))))),
             "(All (Identifier \"x\") [] (== (PropertyLookup "

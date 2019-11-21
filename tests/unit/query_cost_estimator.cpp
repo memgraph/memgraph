@@ -1,20 +1,19 @@
 #include <gtest/gtest.h>
 #include <memory>
 
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "storage/v2/storage.hpp"
 
 using namespace query;
 using namespace query::plan;
 
-using CardParam = CostEstimator<database::GraphDbAccessor>::CardParam;
-using CostParam = CostEstimator<database::GraphDbAccessor>::CostParam;
-using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
+using CardParam = CostEstimator<query::DbAccessor>::CardParam;
+using CostParam = CostEstimator<query::DbAccessor>::CostParam;
+using MiscParam = CostEstimator<query::DbAccessor>::MiscParam;
 
 /** A fixture for cost estimation. Sets up the database
  * and accessor (adds some vertices). Provides convenience
@@ -23,10 +22,11 @@ using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  database::GraphDb db;
-  database::GraphDbAccessor dba{db.Access()};
-  storage::Label label = dba.Label("label");
-  storage::Property property = dba.Property("property");
+  storage::Storage db;
+  std::optional<storage::Storage::Accessor> storage_dba;
+  std::optional<query::DbAccessor> dba;
+  storage::LabelId label = db.NameToLabel("label");
+  storage::PropertyId property = db.NameToProperty("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -38,9 +38,10 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    // create the index in the current db accessor and then swap it to a new one
-    dba.BuildIndex(label, property);
-    dba = db.Access();
+    ASSERT_TRUE(db.CreateIndex(label));
+    ASSERT_TRUE(db.CreateIndex(label, property));
+    storage_dba.emplace(db.Access());
+    dba.emplace(&*storage_dba);
   }
 
   Symbol NextSymbol() {
@@ -53,16 +54,21 @@ class QueryCostEstimator : public ::testing::Test {
   void AddVertices(int vertex_count, int labeled_count,
                    int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
-      auto vertex = dba.InsertVertex();
-      if (i < labeled_count) vertex.add_label(label);
-      if (i < property_count) vertex.PropsSet(property, PropertyValue(i));
+      auto vertex = dba->InsertVertex();
+      if (i < labeled_count) {
+        ASSERT_TRUE(vertex.AddLabel(label).HasValue());
+      }
+      if (i < property_count) {
+        ASSERT_TRUE(
+            vertex.SetProperty(property, storage::PropertyValue(i)).HasValue());
+      }
     }
 
-    dba.AdvanceCommand();
+    dba->AdvanceCommand();
   }
 
   auto Cost() {
-    CostEstimator<database::GraphDbAccessor> cost_estimator(&dba, parameters_);
+    CostEstimator<query::DbAccessor> cost_estimator(&*dba, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -166,7 +172,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
-                 EdgeAtom::Direction::IN, std::vector<storage::EdgeType>{},
+                 EdgeAtom::Direction::IN, std::vector<storage::EdgeTypeId>{},
                  false, storage::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
@@ -174,7 +180,7 @@ TEST_F(QueryCostEstimator, Expand) {
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
                          EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
-                         std::vector<storage::EdgeType>{}, false, nullptr,
+                         std::vector<storage::EdgeTypeId>{}, false, nullptr,
                          nullptr, false,
                          ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
                          std::nullopt, std::nullopt);
@@ -197,9 +203,8 @@ TEST_F(QueryCostEstimator, Filter) {
 
 TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {
   TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(),
-                                         std::vector<Symbol>()),
-          CostParam::kEdgeUniquenessFilter,
-          CardParam::kEdgeUniquenessFilter);
+                                       std::vector<Symbol>()),
+          CostParam::kEdgeUniquenessFilter, CardParam::kEdgeUniquenessFilter);
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {

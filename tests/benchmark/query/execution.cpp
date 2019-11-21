@@ -4,13 +4,12 @@
 #include <benchmark/benchmark.h>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/planner.hpp"
+#include "storage/v2/storage.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
@@ -40,46 +39,53 @@ class PoolResource final {
   void Reset() { memory_.Release(); }
 };
 
-static void AddVertices(database::GraphDb *db, int vertex_count) {
+static void AddVertices(storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
-  for (int i = 0; i < vertex_count; i++) dba.InsertVertex();
-  dba.Commit();
+  for (int i = 0; i < vertex_count; i++) dba.CreateVertex();
+  CHECK(!dba.Commit().HasError());
 }
 
 static const char *kStartLabel = "start";
 
-static void AddStarGraph(database::GraphDb *db, int spoke_count, int depth) {
-  auto dba = db->Access();
-  VertexAccessor center_vertex = dba.InsertVertex();
-  center_vertex.add_label(dba.Label(kStartLabel));
-  for (int i = 0; i < spoke_count; ++i) {
-    VertexAccessor prev_vertex = center_vertex;
-    for (int j = 0; j < depth; ++j) {
-      auto dest = dba.InsertVertex();
-      dba.InsertEdge(prev_vertex, dest, dba.EdgeType("Type"));
-      prev_vertex = dest;
+static void AddStarGraph(storage::Storage *db, int spoke_count, int depth) {
+  {
+    auto dba = db->Access();
+    auto center_vertex = dba.CreateVertex();
+    CHECK(center_vertex.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
+    for (int i = 0; i < spoke_count; ++i) {
+      auto prev_vertex = center_vertex;
+      for (int j = 0; j < depth; ++j) {
+        auto dest = dba.CreateVertex();
+        CHECK(dba.CreateEdge(&prev_vertex, &dest, dba.NameToEdgeType("Type"))
+                  .HasValue());
+        prev_vertex = dest;
+      }
     }
+    CHECK(!dba.Commit().HasError());
   }
-  dba.Commit();
+  CHECK(db->CreateIndex(db->NameToLabel(kStartLabel)));
 }
 
-static void AddTree(database::GraphDb *db, int vertex_count) {
-  auto dba = db->Access();
-  std::vector<VertexAccessor> vertices;
-  vertices.reserve(vertex_count);
-  auto root = dba.InsertVertex();
-  root.add_label(dba.Label(kStartLabel));
-  vertices.push_back(root);
-  // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
-  std::mt19937_64 rg(42);
-  for (int i = 1; i < vertex_count; ++i) {
-    auto v = dba.InsertVertex();
-    std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
-    auto &parent = vertices.at(dis(rg));
-    dba.InsertEdge(parent, v, dba.EdgeType("Type"));
-    vertices.push_back(v);
+static void AddTree(storage::Storage *db, int vertex_count) {
+  {
+    auto dba = db->Access();
+    std::vector<storage::VertexAccessor> vertices;
+    vertices.reserve(vertex_count);
+    auto root = dba.CreateVertex();
+    CHECK(root.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
+    vertices.push_back(root);
+    // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
+    std::mt19937_64 rg(42);
+    for (int i = 1; i < vertex_count; ++i) {
+      auto v = dba.CreateVertex();
+      std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
+      auto &parent = vertices.at(dis(rg));
+      CHECK(dba.CreateEdge(&parent, &v, dba.NameToEdgeType("Type")).HasValue());
+      vertices.push_back(v);
+    }
+    CHECK(!dba.Commit().HasError());
   }
-  dba.Commit();
+  CHECK(db->CreateIndex(db->NameToLabel(kStartLabel)));
 }
 
 static query::CypherQuery *ParseCypherQuery(const std::string &query_string,
@@ -98,23 +104,23 @@ template <class TMemory>
 static void Distinct(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddVertices(&db, state.range(0));
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   auto query_string = "MATCH (s) RETURN DISTINCT s";
   auto *cypher_query = ParseCypherQuery(query_string, &ast);
   auto symbol_table = query::MakeSymbolTable(cypher_query);
-  query::DbAccessor execution_dba(&dba);
-  auto context = query::plan::MakePlanningContext(&ast, &symbol_table,
-                                                  cypher_query, &execution_dba);
+  auto context =
+      query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba);
   auto plan_and_cost =
       query::plan::MakeLogicalPlan(&context, parameters, false);
-  ResultStreamFaker results;
+  ResultStreamFaker results(&db);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -158,23 +164,24 @@ template <class TMemory>
 static void ExpandVariable(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddStarGraph(&db, state.range(0), state.range(1));
   query::SymbolTable symbol_table;
   auto expand_variable =
       MakeExpandVariable(query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
+    for (const auto &v :
+         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame[expand_variable.input_symbol_] =
           query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
@@ -200,23 +207,24 @@ template <class TMemory>
 static void ExpandBfs(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
   auto expand_variable =
       MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
+    for (const auto &v :
+         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame[expand_variable.input_symbol_] =
           query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
@@ -242,28 +250,30 @@ template <class TMemory>
 static void ExpandShortest(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
   auto expand_variable =
       MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   expand_variable.common_.existing_node = true;
   auto dest_symbol = expand_variable.common_.node_symbol;
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
+    for (const auto &v :
+         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame[expand_variable.input_symbol_] =
           query::TypedValue(query::VertexAccessor(v));
-      for (const auto &dest : dba.Vertices(false)) {
+      for (const auto &dest :
+           dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
@@ -289,7 +299,7 @@ template <class TMemory>
 static void ExpandWeightedShortest(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
   auto expand_variable = MakeExpandVariable(
@@ -300,21 +310,23 @@ static void ExpandWeightedShortest(benchmark::State &state) {
                                    symbol_table.CreateSymbol("vertex", false),
                                    ast.Create<query::PrimitiveLiteral>(1)};
   auto dest_symbol = expand_variable.common_.node_symbol;
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(dba.Label(kStartLabel), false)) {
+    for (const auto &v :
+         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame[expand_variable.input_symbol_] =
           query::TypedValue(query::VertexAccessor(v));
-      for (const auto &dest : dba.Vertices(false)) {
+      for (const auto &dest :
+           dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
@@ -340,7 +352,7 @@ template <class TMemory>
 static void Accumulate(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
   auto scan_all = std::make_shared<query::plan::ScanAll>(
@@ -352,13 +364,13 @@ static void Accumulate(benchmark::State &state) {
   }
   query::plan::Accumulate accumulate(scan_all, symbols,
                                      /* advance_command= */ false);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -385,7 +397,7 @@ template <class TMemory>
 static void Aggregate(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
   auto scan_all = std::make_shared<query::plan::ScanAll>(
@@ -406,13 +418,13 @@ static void Aggregate(benchmark::State &state) {
          symbol_table.CreateSymbol("out" + std::to_string(i), false)});
   }
   query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -443,7 +455,7 @@ template <class TMemory>
 static void OrderBy(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
   auto scan_all = std::make_shared<query::plan::ScanAll>(
@@ -461,13 +473,13 @@ static void OrderBy(benchmark::State &state) {
                           ast.Create<query::PrimitiveLiteral>(rand_value)});
   }
   query::plan::OrderBy order_by(scan_all, sort_items, symbols);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
@@ -494,7 +506,7 @@ template <class TMemory>
 static void Unwind(benchmark::State &state) {
   query::AstStorage ast;
   query::Parameters parameters;
-  database::GraphDb db;
+  storage::Storage db;
   AddVertices(&db, state.range(0));
   query::SymbolTable symbol_table;
   auto scan_all = std::make_shared<query::plan::ScanAll>(
@@ -503,13 +515,13 @@ static void Unwind(benchmark::State &state) {
   auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
   query::plan::Unwind unwind(scan_all, list_expr, out_sym);
-  auto dba = db.Access();
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::DbAccessor execution_dba(&dba);
-    query::ExecutionContext execution_context{&execution_dba, symbol_table,
+    query::ExecutionContext execution_context{&dba, symbol_table,
                                               evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());

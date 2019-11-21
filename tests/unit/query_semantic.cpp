@@ -3,8 +3,6 @@
 
 #include "gtest/gtest.h"
 
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -15,8 +13,9 @@ using namespace query;
 
 class TestSymbolGenerator : public ::testing::Test {
  protected:
-  database::GraphDb db;
-  database::GraphDbAccessor dba{db.Access()};
+  storage::Storage db;
+  storage::Storage::Accessor storage_dba{db.Access()};
+  query::DbAccessor dba{&storage_dba};
   AstStorage storage;
 };
 
@@ -240,7 +239,7 @@ TEST_F(TestSymbolGenerator, MatchWithReturnUnbound) {
 
 TEST_F(TestSymbolGenerator, MatchWithWhere) {
   // Test MATCH (old) WITH old AS n WHERE n.prop < 42
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto node = NODE("old");
   auto old_ident = IDENT("old");
   auto with_as_n = AS("n");
@@ -262,7 +261,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
 
 TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
       WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
@@ -325,7 +324,7 @@ TEST_F(TestSymbolGenerator, CreateExpandProperty) {
 
 TEST_F(TestSymbolGenerator, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto node = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto as_result = AS("result");
@@ -344,7 +343,7 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
 
 TEST_F(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
@@ -353,7 +352,7 @@ TEST_F(TestSymbolGenerator, NestedAggregation) {
 
 TEST_F(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
       WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
@@ -534,7 +533,7 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
   //      ON CREATE SET m.prop = 42 RETURN r AS r
   auto rel = "rel";
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
   auto edge_r = EDGE("r", EdgeAtom::Direction::BOTH, {rel});
@@ -630,7 +629,7 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
 
 TEST_F(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   // MATCH (n) -[e]- (m) WITH * RETURN *, n.prop
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto ret = RETURN(n_prop, AS("n.prop"));
   ret->body_.all_identifiers = true;
@@ -697,7 +696,7 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
 
 TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m), (l) RETURN r
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
@@ -718,7 +717,7 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
 
 TEST_F(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m) MATCH (l) RETURN r
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
@@ -762,7 +761,7 @@ TEST_F(TestSymbolGenerator, VariablePathSameIdentifier) {
   // Test MATCH (n) -[r *r.prop..]-> (m) RETURN r raises UnboundVariableError.
   // `r` cannot be used inside the range expression, since it is bound by the
   // variable expansion itself.
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto edge =
       EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
@@ -890,7 +889,7 @@ TEST_F(TestSymbolGenerator, WithReturnExtract) {
 
 TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   // Test MATCH (n) -[r *bfs..n.prop] (r, n | r.prop)]-> (m) RETURN r AS r
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP("r", prop);
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
@@ -995,8 +994,8 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
 TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
   // Test MATCH (n) -[r *wShortest (r, n | r.weight) (r, n | r.filter)]-> (m)
   // RETURN r AS r
-  auto weight = dba.Property("weight");
-  auto filter = dba.Property("filter");
+  auto weight = dba.NameToProperty("weight");
+  auto filter = dba.NameToProperty("filter");
   auto *node_n = NODE("n");
   auto *r_weight = PROPERTY_LOOKUP("r", weight);
   auto *r_filter = PROPERTY_LOOKUP("r", filter);
@@ -1188,4 +1187,3 @@ TEST_F(TestSymbolGenerator, CallProcedureUnboundArgument) {
   auto query = QUERY(SINGLE_QUERY(call));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
-
