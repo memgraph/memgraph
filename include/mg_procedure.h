@@ -723,8 +723,9 @@ int mgp_proc_add_arg(struct mgp_proc *proc, const char *name,
 /// `default_value` is copied and set as the default value for the argument.
 /// Don't forget to call mgp_value_destroy when you are done using
 /// `default_value`. When the procedure is called, if this argument is not
-/// provided, `default_value` will be used instead. `default_value` must satisfy
-/// the given `type`.
+/// provided, `default_value` will be used instead. `default_value` must not be
+/// a graph element (node, relationship, path) and it must satisfy the given
+/// `type`.
 ///
 /// 0 is returned if unable to allocate memory for an argument; if `name` is
 /// not valid or `default_value` does not satisfy `type`. Non-zero is returned

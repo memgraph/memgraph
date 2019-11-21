@@ -10,6 +10,7 @@
 
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
+#include "utils/string.hpp"
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
@@ -1376,6 +1377,21 @@ int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type,
                          const mgp_value *default_value) {
   if (!proc || !type || !default_value) return 0;
   if (!IsValidIdentifierName(name)) return 0;
+  switch (mgp_value_get_type(default_value)) {
+    case MGP_VALUE_TYPE_VERTEX:
+    case MGP_VALUE_TYPE_EDGE:
+    case MGP_VALUE_TYPE_PATH:
+      // default_value must not be a graph element.
+      return 0;
+    case MGP_VALUE_TYPE_NULL:
+    case MGP_VALUE_TYPE_BOOL:
+    case MGP_VALUE_TYPE_INT:
+    case MGP_VALUE_TYPE_DOUBLE:
+    case MGP_VALUE_TYPE_STRING:
+    case MGP_VALUE_TYPE_LIST:
+    case MGP_VALUE_TYPE_MAP:
+      break;
+  }
   // TODO: Check `default_value` satisfies `type`.
   auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
   try {
@@ -1419,6 +1435,47 @@ int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name,
 
 namespace query::procedure {
 
+namespace {
+
+// Print the value in user presentable fashion.
+// @throw std::bad_alloc
+// @throw std::length_error
+std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      return (*stream) << "Null";
+    case TypedValue::Type::Bool:
+      return (*stream) << (value.ValueBool() ? "true" : "false");
+    case TypedValue::Type::Int:
+      return (*stream) << value.ValueInt();
+    case TypedValue::Type::Double:
+      return (*stream) << value.ValueDouble();
+    case TypedValue::Type::String:
+      // String value should be escaped, this allocates a new string.
+      return (*stream) << utils::Escape(value.ValueString());
+    case TypedValue::Type::List:
+      (*stream) << "[";
+      utils::PrintIterable(
+          *stream, value.ValueList(), ", ",
+          [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
+      return (*stream) << "]";
+    case TypedValue::Type::Map:
+      (*stream) << "{";
+      utils::PrintIterable(*stream, value.ValueMap(), ", ",
+                           [](auto &stream, const auto &item) {
+                             // Map keys are not escaped strings.
+                             stream << item.first << ": ";
+                             PrintValue(item.second, &stream);
+                           });
+      return (*stream) << "}";
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      LOG(FATAL) << "value must not be a graph element";
+  }
+}
+
+}  // namespace
 void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
   (*stream) << proc.name << "(";
   utils::PrintIterable(
@@ -1428,8 +1485,9 @@ void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
   if (!proc.opt_args.empty()) (*stream) << ", ";
   utils::PrintIterable(
       *stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
-        stream << std::get<0>(arg) << " = " << std::get<2>(arg)
-               << " :: " << std::get<1>(arg)->GetPresentableName();
+        stream << std::get<0>(arg) << " = ";
+        PrintValue(std::get<2>(arg), &stream)
+            << " :: " << std::get<1>(arg)->GetPresentableName();
       });
   (*stream) << ") :: (";
   utils::PrintIterable(

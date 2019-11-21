@@ -77,17 +77,16 @@ TEST(Module, ProcedureSignature) {
   CheckSignature(proc,
                  "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: "
                  "(res1 :: LIST OF INTEGER)");
-  mgp_proc_add_opt_arg(proc, "opt2", mgp_type_int(),
-                       mgp_value_make_int(42, &memory));
-  CheckSignature(
-      proc,
-      "proc(arg1 :: NUMBER, opt1 = Null :: ANY?, opt2 = 42 :: INTEGER) :: "
-      "(res1 :: LIST OF INTEGER)");
   mgp_proc_add_deprecated_result(proc, "res2", mgp_type_string());
-  CheckSignature(
-      proc,
-      "proc(arg1 :: NUMBER, opt1 = Null :: ANY?, opt2 = 42 :: INTEGER) :: "
-      "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
+  CheckSignature(proc,
+                 "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: "
+                 "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
   EXPECT_FALSE(mgp_proc_add_result(proc, "res2", mgp_type_any()));
   EXPECT_FALSE(mgp_proc_add_deprecated_result(proc, "res1", mgp_type_any()));
+  mgp_proc_add_opt_arg(proc, "opt2", mgp_type_string(),
+                       mgp_value_make_string("string=\"value\"", &memory));
+  CheckSignature(proc,
+                 "proc(arg1 :: NUMBER, opt1 = Null :: ANY?, "
+                 "opt2 = \"string=\\\"value\\\"\" :: STRING) :: "
+                 "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
 }

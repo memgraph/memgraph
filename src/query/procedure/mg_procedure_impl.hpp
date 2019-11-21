@@ -543,6 +543,8 @@ struct mgp_module {
 
 namespace query::procedure {
 
+/// @throw std::bad_alloc
+/// @throw std::length_error
 /// @throw anything std::ostream::operator<< may throw.
 void PrintProcSignature(const mgp_proc &, std::ostream *);
 
