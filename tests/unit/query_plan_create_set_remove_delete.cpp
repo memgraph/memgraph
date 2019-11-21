@@ -16,10 +16,11 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
-  storage::Label label = dba.Label("Person");
+  storage::Label label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("prop");
 
   AstStorage storage;
@@ -31,20 +32,26 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   node.properties.emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   PullAll(*create, &context);
   dba.AdvanceCommand();
 
   // count the number of vertices
   int vertex_count = 0;
-  for (auto vertex : dba.Vertices(false)) {
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
     vertex_count++;
-    EXPECT_EQ(vertex.labels().size(), 1);
-    EXPECT_EQ(*vertex.labels().begin(), label);
-    EXPECT_EQ(vertex.Properties().size(), 1);
-    auto prop_eq =
-        TypedValue(vertex.PropsAt(property.second)) == TypedValue(42);
+    auto maybe_labels = vertex.Labels(storage::View::OLD);
+    ASSERT_TRUE(maybe_labels.HasValue());
+    const auto &labels = *maybe_labels;
+    EXPECT_EQ(labels.size(), 1);
+    EXPECT_EQ(*labels.begin(), label);
+    auto maybe_properties = vertex.Properties(storage::View::OLD);
+    ASSERT_TRUE(maybe_properties.HasValue());
+    const auto &properties = *maybe_properties;
+    EXPECT_EQ(properties.size(), 1);
+    auto maybe_prop = vertex.GetProperty(storage::View::OLD, property.second);
+    ASSERT_TRUE(maybe_prop.HasValue());
+    auto prop_eq = TypedValue(*maybe_prop) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.ValueBool());
   }
@@ -53,10 +60,11 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
-  storage::Label label = dba.Label("Person");
+  storage::Label label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("property");
 
   AstStorage storage;
@@ -77,38 +85,38 @@ TEST(QueryPlan, CreateReturn) {
           ->MapTo(symbol_table.CreateSymbol("named_expr_n_p", true));
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(2, results[0].size());
   EXPECT_EQ(TypedValue::Type::Vertex, results[0][0].type());
-  auto maybe_labels = results[0][0].ValueVertex().Labels(storage::View::OLD);
+  auto maybe_labels = results[0][0].ValueVertex().Labels(storage::View::NEW);
   EXPECT_EQ(1, maybe_labels->size());
   EXPECT_EQ(label, (*maybe_labels)[0]);
   EXPECT_EQ(TypedValue::Type::Int, results[0][1].type());
   EXPECT_EQ(42, results[0][1].ValueInt());
 
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
 }
 
 TEST(QueryPlan, CreateExpand) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
-  storage::Label label_node_1 = dba.Label("Node1");
-  storage::Label label_node_2 = dba.Label("Node2");
+  storage::Label label_node_1 = dba.NameToLabel("Node1");
+  storage::Label label_node_2 = dba.NameToLabel("Node2");
   auto property = PROPERTY_PAIR("property");
-  storage::EdgeType edge_type = dba.EdgeType("edge_type");
+  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
-    int before_v = CountIterable(dba.Vertices(false));
-    int before_e = CountIterable(dba.Edges(false));
+    int before_v = CountIterable(dba.Vertices(storage::View::OLD));
+    int before_e = CountEdges(&dba, storage::View::OLD);
 
     // data for the first node
     NodeCreationInfo n;
@@ -130,44 +138,57 @@ TEST(QueryPlan, CreateExpand) {
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand =
         std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
 
-    EXPECT_EQ(CountIterable(dba.Vertices(false)) - before_v,
+    EXPECT_EQ(CountIterable(dba.Vertices(storage::View::OLD)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba.Edges(false)) - before_e,
+    EXPECT_EQ(CountEdges(&dba, storage::View::OLD) - before_e,
               expected_edges_created);
   };
 
   test_create_path(false, 2, 1);
   test_create_path(true, 1, 1);
 
-  for (auto vertex : dba.Vertices(false)) {
-    EXPECT_EQ(vertex.labels().size(), 1);
-    storage::Label label = vertex.labels()[0];
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+    auto maybe_labels = vertex.Labels(storage::View::OLD);
+    CHECK(maybe_labels.HasValue());
+    const auto &labels = *maybe_labels;
+    EXPECT_EQ(labels.size(), 1);
+    storage::Label label = labels[0];
     if (label == label_node_1) {
       // node created by first op
-      EXPECT_EQ(vertex.PropsAt(property.second).ValueInt(), 1);
+      EXPECT_EQ(
+          vertex.GetProperty(storage::View::OLD, property.second)->ValueInt(),
+          1);
     } else if (label == label_node_2) {
       // node create by expansion
-      EXPECT_EQ(vertex.PropsAt(property.second).ValueInt(), 2);
+      EXPECT_EQ(
+          vertex.GetProperty(storage::View::OLD, property.second)->ValueInt(),
+          2);
     } else {
       // should not happen
       FAIL();
     }
 
-    for (auto edge : dba.Edges(false)) {
-      EXPECT_EQ(edge.EdgeType(), edge_type);
-      EXPECT_EQ(edge.PropsAt(property.second).ValueInt(), 3);
+    for (auto vertex : dba.Vertices(storage::View::OLD)) {
+      auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+      CHECK(maybe_edges.HasValue());
+      for (auto edge : *maybe_edges) {
+        EXPECT_EQ(edge.EdgeType(), edge_type);
+        EXPECT_EQ(
+            edge.GetProperty(storage::View::OLD, property.second)->ValueInt(),
+            3);
+      }
     }
   }
 }
 
 TEST(QueryPlan, MatchCreateNode) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -186,17 +207,17 @@ TEST(QueryPlan, MatchCreateNode) {
   // creation op
   auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
 
-  EXPECT_EQ(CountIterable(dba.Vertices(false)), 3);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  EXPECT_EQ(CountIterable(dba.Vertices(storage::View::OLD)), 3);
+  auto context = MakeContext(storage, symbol_table, &dba);
   PullAll(*create_node, &context);
   dba.AdvanceCommand();
-  EXPECT_EQ(CountIterable(dba.Vertices(false)), 6);
+  EXPECT_EQ(CountIterable(dba.Vertices(storage::View::OLD)), 6);
 }
 
 TEST(QueryPlan, MatchCreateExpand) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -204,18 +225,18 @@ TEST(QueryPlan, MatchCreateExpand) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  //  storage::Label label_node_1 = dba.Label("Node1");
-  //  storage::Label label_node_2 = dba.Label("Node2");
-  //  storage::Property property = dba.Label("prop");
-  storage::EdgeType edge_type = dba.EdgeType("edge_type");
+  //  storage::Label label_node_1 = dba.NameToLabel("Node1");
+  //  storage::Label label_node_2 = dba.NameToLabel("Node2");
+  //  storage::Property property = dba.NameToLabel("prop");
+  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
-    int before_v = CountIterable(dba.Vertices(false));
-    int before_e = CountIterable(dba.Edges(false));
+    int before_v = CountIterable(dba.Vertices(storage::View::OLD));
+    int before_e = CountEdges(&dba, storage::View::OLD);
 
     // data for the first node
     auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -231,14 +252,13 @@ TEST(QueryPlan, MatchCreateExpand) {
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_,
                                                         n_scan_all.sym_, cycle);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
 
-    EXPECT_EQ(CountIterable(dba.Vertices(false)) - before_v,
+    EXPECT_EQ(CountIterable(dba.Vertices(storage::View::OLD)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba.Edges(false)) - before_e,
+    EXPECT_EQ(CountEdges(&dba, storage::View::OLD) - before_e,
               expected_edges_created);
   };
 
@@ -247,20 +267,21 @@ TEST(QueryPlan, MatchCreateExpand) {
 }
 
 TEST(QueryPlan, Delete) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
-  std::vector<::VertexAccessor> vertices;
+  std::vector<query::VertexAccessor> vertices;
   for (int i = 0; i < 4; ++i) vertices.push_back(dba.InsertVertex());
-  auto type = dba.EdgeType("type");
+  auto type = dba.NameToEdgeType("type");
   for (int j = 0; j < 4; ++j)
     for (int k = j + 1; k < 4; ++k)
-      dba.InsertEdge(vertices[j], vertices[k], type);
+      ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).HasValue());
 
   dba.AdvanceCommand();
-  EXPECT_EQ(4, CountIterable(dba.Vertices(false)));
-  EXPECT_EQ(6, CountIterable(dba.Edges(false)));
+  EXPECT_EQ(4, CountIterable(dba.Vertices(storage::View::OLD)));
+  EXPECT_EQ(6, CountEdges(&dba, storage::View::OLD));
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -271,12 +292,11 @@ TEST(QueryPlan, Delete) {
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*delete_op, &context), QueryRuntimeException);
     dba.AdvanceCommand();
-    EXPECT_EQ(4, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(6, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(4, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(6, CountEdges(&dba, storage::View::OLD));
   }
 
   // detach delete a single vertex
@@ -286,12 +306,11 @@ TEST(QueryPlan, Delete) {
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     delete_op->MakeCursor(utils::NewDeleteResource())->Pull(frame, context);
     dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(3, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(3, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(3, CountEdges(&dba, storage::View::OLD));
   }
 
   // delete all remaining edges
@@ -303,12 +322,11 @@ TEST(QueryPlan, Delete) {
     auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{r_get}, false);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(0, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(3, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(0, CountEdges(&dba, storage::View::OLD));
   }
 
   // delete all remaining vertices
@@ -317,12 +335,11 @@ TEST(QueryPlan, Delete) {
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(0, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(0, CountEdges(&dba, storage::View::OLD));
   }
 }
 
@@ -339,15 +356,16 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [](bool detach) {
-    database::GraphDb db;
-    auto dba = db.Access();
+    storage::Storage db;
+    auto storage_dba = db.Access();
+    query::DbAccessor dba(&storage_dba);
 
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
-    dba.InsertEdge(v1, v2, dba.EdgeType("T"));
+    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
     dba.AdvanceCommand();
-    EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(1, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(1, CountEdges(&dba, storage::View::OLD));
 
     AstStorage storage;
     SymbolTable symbol_table;
@@ -364,12 +382,11 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(2, PullAll(*delete_op, &context));
     dba.AdvanceCommand();
-    EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-    EXPECT_EQ(0, CountIterable(dba.Edges(false)));
+    EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    EXPECT_EQ(0, CountEdges(&dba, storage::View::OLD));
   };
 
   test_delete(true);
@@ -377,19 +394,20 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 }
 
 TEST(QueryPlan, DeleteReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   auto prop = PROPERTY_PAIR("property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
-    va.PropsSet(prop.second, PropertyValue(42));
+    ASSERT_TRUE(va.SetProperty(prop.second, PropertyValue(42)).HasValue());
   }
 
   dba.AdvanceCommand();
-  EXPECT_EQ(4, CountIterable(dba.Vertices(false)));
-  EXPECT_EQ(0, CountIterable(dba.Edges(false)));
+  EXPECT_EQ(4, CountIterable(dba.Vertices(storage::View::OLD)));
+  EXPECT_EQ(0, CountEdges(&dba, storage::View::OLD));
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -405,26 +423,22 @@ TEST(QueryPlan, DeleteReturn) {
                  ->MapTo(symbol_table.CreateSymbol("bla", true));
   auto produce = MakeProduce(delete_op, n_p);
 
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
-  auto results = CollectProduce(*produce, &context);
-  EXPECT_EQ(4, results.size());
-  dba.AdvanceCommand();
-  EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
+  auto context = MakeContext(storage, symbol_table, &dba);
+  ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
 
   auto once = std::make_shared<Once>();
   auto delete_op = std::make_shared<plan::Delete>(
       once, std::vector<Expression *>{LITERAL(TypedValue())}, false);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
 
@@ -434,7 +448,7 @@ TEST(QueryPlan, DeleteAdvance) {
   // MATCH (n) DELETE n WITH n ...
   // this fails only if the deleted record `n` is actually used in subsequent
   // clauses, which is compatible with Neo's behavior.
-  database::GraphDb db;
+  storage::Storage db;
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -447,31 +461,31 @@ TEST(QueryPlan, DeleteAdvance) {
       delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
   {
-    auto dba = db.Access();
+    auto storage_dba = db.Access();
+    query::DbAccessor dba(&storage_dba);
     dba.InsertVertex();
     dba.AdvanceCommand();
-    query::DbAccessor execution_dba(&dba);
     auto produce =
         MakeProduce(advance, NEXPR("res", LITERAL(42))->MapTo(res_sym));
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(1, PullAll(*produce, &context));
-    dba.Abort();
   }
   {
-    auto dba = db.Access();
+    auto storage_dba = db.Access();
+    query::DbAccessor dba(&storage_dba);
     dba.InsertVertex();
     dba.AdvanceCommand();
-    query::DbAccessor execution_dba(&dba);
-    auto n_prop = PROPERTY_LOOKUP(n_get, dba.Property("prop"));
+    auto n_prop = PROPERTY_LOOKUP(n_get, dba.NameToProperty("prop"));
     auto produce = MakeProduce(advance, NEXPR("res", n_prop)->MapTo(res_sym));
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
-    EXPECT_THROW(PullAll(*produce, &context), ReconstructionException);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    EXPECT_THROW(PullAll(*produce, &context), QueryRuntimeException);
   }
 }
 
 TEST(QueryPlan, SetProperty) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
@@ -480,9 +494,9 @@ TEST(QueryPlan, SetProperty) {
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto v4 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("edge_type");
-  dba.InsertEdge(v1, v3, edge_type);
-  dba.InsertEdge(v2, v4, edge_type);
+  auto edge_type = dba.NameToEdgeType("edge_type");
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -495,7 +509,7 @@ TEST(QueryPlan, SetProperty) {
                  EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
 
   // set prop1 to 42 on n and r
-  auto prop1 = dba.Property("prop1");
+  auto prop1 = dba.NameToProperty("prop1");
   auto literal = LITERAL(42);
 
   auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
@@ -505,38 +519,45 @@ TEST(QueryPlan, SetProperty) {
   auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p =
       std::make_shared<plan::SetProperty>(set_n_p, prop1, r_p, literal);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
-  EXPECT_EQ(CountIterable(dba.Edges(false)), 2);
-  for (auto edge : dba.Edges(false)) {
-    ASSERT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Int);
-    EXPECT_EQ(edge.PropsAt(prop1).ValueInt(), 42);
-    auto from = edge.from();
-    auto to = edge.to();
-    ASSERT_EQ(from.PropsAt(prop1).type(), PropertyValue::Type::Int);
-    EXPECT_EQ(from.PropsAt(prop1).ValueInt(), 42);
-    ASSERT_EQ(to.PropsAt(prop1).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(CountEdges(&dba, storage::View::OLD), 2);
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+    auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+    ASSERT_TRUE(maybe_edges.HasValue());
+    for (auto edge : *maybe_edges) {
+      ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Int);
+      EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop1)->ValueInt(), 42);
+      auto from = edge.From();
+      auto to = edge.To();
+      ASSERT_EQ(from.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Int);
+      EXPECT_EQ(from.GetProperty(storage::View::OLD, prop1)->ValueInt(), 42);
+      ASSERT_EQ(to.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Null);
+    }
   }
 }
 
 TEST(QueryPlan, SetProperties) {
   auto test_set_properties = [](bool update) {
-    database::GraphDb db;
-    auto dba = db.Access();
+    storage::Storage db;
+    auto storage_dba = db.Access();
+    query::DbAccessor dba(&storage_dba);
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
-    auto prop_a = dba.Property("a");
-    auto prop_b = dba.Property("b");
-    auto prop_c = dba.Property("c");
+    auto prop_a = dba.NameToProperty("a");
+    auto prop_b = dba.NameToProperty("b");
+    auto prop_c = dba.NameToProperty("c");
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
-    auto e = dba.InsertEdge(v1, v2, dba.EdgeType("R"));
-    v1.PropsSet(prop_a, PropertyValue(0));
-    e.PropsSet(prop_b, PropertyValue(1));
-    v2.PropsSet(prop_c, PropertyValue(2));
+    auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("R"));
+    ASSERT_TRUE(v1.SetProperty(prop_a, PropertyValue(0)).HasValue());
+    ASSERT_TRUE(e->SetProperty(prop_b, PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop_c, PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     AstStorage storage;
@@ -558,34 +579,44 @@ TEST(QueryPlan, SetProperties) {
         std::make_shared<plan::SetProperties>(r_m.op_, n.sym_, r_ident, op);
     auto set_m_to_r = std::make_shared<plan::SetProperties>(
         set_r_to_n, r_m.edge_sym_, m_ident, op);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(1, PullAll(*set_m_to_r, &context));
     dba.AdvanceCommand();
 
-    EXPECT_EQ(CountIterable(dba.Edges(false)), 1);
-    for (auto edge : dba.Edges(false)) {
-      auto from = edge.from();
-      EXPECT_EQ(from.Properties().size(), update ? 2 : 1);
-      if (update) {
-        ASSERT_EQ(from.PropsAt(prop_a).type(), PropertyValue::Type::Int);
-        EXPECT_EQ(from.PropsAt(prop_a).ValueInt(), 0);
-      }
-      ASSERT_EQ(from.PropsAt(prop_b).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(from.PropsAt(prop_b).ValueInt(), 1);
+    EXPECT_EQ(CountEdges(&dba, storage::View::OLD), 1);
+    for (auto vertex : dba.Vertices(storage::View::OLD)) {
+      auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+      ASSERT_TRUE(maybe_edges.HasValue());
+      for (auto edge : *maybe_edges) {
+        auto from = edge.From();
+        EXPECT_EQ(from.Properties(storage::View::OLD)->size(), update ? 2 : 1);
+        if (update) {
+          ASSERT_EQ(from.GetProperty(storage::View::OLD, prop_a)->type(),
+                    PropertyValue::Type::Int);
+          EXPECT_EQ(from.GetProperty(storage::View::OLD, prop_a)->ValueInt(),
+                    0);
+        }
+        ASSERT_EQ(from.GetProperty(storage::View::OLD, prop_b)->type(),
+                  PropertyValue::Type::Int);
+        EXPECT_EQ(from.GetProperty(storage::View::OLD, prop_b)->ValueInt(), 1);
 
-      EXPECT_EQ(edge.Properties().size(), update ? 2 : 1);
-      if (update) {
-        ASSERT_EQ(edge.PropsAt(prop_b).type(), PropertyValue::Type::Int);
-        EXPECT_EQ(edge.PropsAt(prop_b).ValueInt(), 1);
-      }
-      ASSERT_EQ(edge.PropsAt(prop_c).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(edge.PropsAt(prop_c).ValueInt(), 2);
+        EXPECT_EQ(edge.Properties(storage::View::OLD)->size(), update ? 2 : 1);
+        if (update) {
+          ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop_b)->type(),
+                    PropertyValue::Type::Int);
+          EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop_b)->ValueInt(),
+                    1);
+        }
+        ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop_c)->type(),
+                  PropertyValue::Type::Int);
+        EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop_c)->ValueInt(), 2);
 
-      auto to = edge.to();
-      EXPECT_EQ(to.Properties().size(), 1);
-      ASSERT_EQ(to.PropsAt(prop_c).type(), PropertyValue::Type::Int);
-      EXPECT_EQ(to.PropsAt(prop_c).ValueInt(), 2);
+        auto to = edge.To();
+        EXPECT_EQ(to.Properties(storage::View::OLD)->size(), 1);
+        ASSERT_EQ(to.GetProperty(storage::View::OLD, prop_c)->type(),
+                  PropertyValue::Type::Int);
+        EXPECT_EQ(to.GetProperty(storage::View::OLD, prop_c)->ValueInt(), 2);
+      }
     }
   };
 
@@ -594,14 +625,15 @@ TEST(QueryPlan, SetProperties) {
 }
 
 TEST(QueryPlan, SetLabels) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
-  auto label1 = dba.Label("label1");
-  auto label2 = dba.Label("label2");
-  auto label3 = dba.Label("label3");
-  dba.InsertVertex().add_label(label1);
-  dba.InsertVertex().add_label(label1);
+  auto label1 = dba.NameToLabel("label1");
+  auto label2 = dba.NameToLabel("label2");
+  auto label3 = dba.NameToLabel("label3");
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -610,39 +642,42 @@ TEST(QueryPlan, SetLabels) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
       n.op_, n.sym_, std::vector<storage::Label>{label2, label3});
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_set, &context));
 
-  for (auto vertex : dba.Vertices(false)) {
-    vertex.SwitchNew();
-    EXPECT_EQ(3, vertex.labels().size());
-    EXPECT_TRUE(vertex.has_label(label2));
-    EXPECT_TRUE(vertex.has_label(label3));
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+    EXPECT_EQ(3, vertex.Labels(storage::View::NEW)->size());
+    EXPECT_TRUE(*vertex.HasLabel(storage::View::NEW, label2));
+    EXPECT_TRUE(*vertex.HasLabel(storage::View::NEW, label3));
   }
 }
 
 TEST(QueryPlan, RemoveProperty) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
   // have a property set
-  auto prop1 = dba.Property("prop1");
+  auto prop1 = dba.NameToProperty("prop1");
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto v4 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("edge_type");
-  dba.InsertEdge(v1, v3, edge_type).PropsSet(prop1, PropertyValue(42));
-  dba.InsertEdge(v2, v4, edge_type);
-  v2.PropsSet(prop1, PropertyValue(42));
-  v3.PropsSet(prop1, PropertyValue(42));
-  v4.PropsSet(prop1, PropertyValue(42));
-  auto prop2 = dba.Property("prop2");
-  v1.PropsSet(prop2, PropertyValue(0));
-  v2.PropsSet(prop2, PropertyValue(0));
+  auto edge_type = dba.NameToEdgeType("edge_type");
+  {
+    auto e = dba.InsertEdge(&v1, &v3, edge_type);
+    ASSERT_TRUE(e.HasValue());
+    ASSERT_TRUE(e->SetProperty(prop1, PropertyValue(42)).HasValue());
+  }
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
+  ASSERT_TRUE(v2.SetProperty(prop1, PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(prop1, PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v4.SetProperty(prop1, PropertyValue(42)).HasValue());
+  auto prop2 = dba.NameToProperty("prop2");
+  ASSERT_TRUE(v1.SetProperty(prop2, PropertyValue(0)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(prop2, PropertyValue(0)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -659,36 +694,44 @@ TEST(QueryPlan, RemoveProperty) {
 
   auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, prop1, r_p);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
-  EXPECT_EQ(CountIterable(dba.Edges(false)), 2);
-  for (auto edge : dba.Edges(false)) {
-    EXPECT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Null);
-    auto from = edge.from();
-    auto to = edge.to();
-    EXPECT_EQ(from.PropsAt(prop1).type(), PropertyValue::Type::Null);
-    EXPECT_EQ(from.PropsAt(prop2).type(), PropertyValue::Type::Int);
-    EXPECT_EQ(to.PropsAt(prop1).type(), PropertyValue::Type::Int);
+  EXPECT_EQ(CountEdges(&dba, storage::View::OLD), 2);
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+    auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+    ASSERT_TRUE(maybe_edges.HasValue());
+    for (auto edge : *maybe_edges) {
+      EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Null);
+      auto from = edge.From();
+      auto to = edge.To();
+      EXPECT_EQ(from.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Null);
+      EXPECT_EQ(from.GetProperty(storage::View::OLD, prop2)->type(),
+                PropertyValue::Type::Int);
+      EXPECT_EQ(to.GetProperty(storage::View::OLD, prop1)->type(),
+                PropertyValue::Type::Int);
+    }
   }
 }
 
 TEST(QueryPlan, RemoveLabels) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
-  auto label1 = dba.Label("label1");
-  auto label2 = dba.Label("label2");
-  auto label3 = dba.Label("label3");
+  auto label1 = dba.NameToLabel("label1");
+  auto label2 = dba.NameToLabel("label2");
+  auto label3 = dba.NameToLabel("label3");
   auto v1 = dba.InsertVertex();
-  v1.add_label(label1);
-  v1.add_label(label2);
-  v1.add_label(label3);
+  ASSERT_TRUE(v1.AddLabel(label1).HasValue());
+  ASSERT_TRUE(v1.AddLabel(label2).HasValue());
+  ASSERT_TRUE(v1.AddLabel(label3).HasValue());
   auto v2 = dba.InsertVertex();
-  v2.add_label(label1);
-  v2.add_label(label3);
+  ASSERT_TRUE(v2.AddLabel(label1).HasValue());
+  ASSERT_TRUE(v2.AddLabel(label3).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -697,30 +740,29 @@ TEST(QueryPlan, RemoveLabels) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_remove = std::make_shared<plan::RemoveLabels>(
       n.op_, n.sym_, std::vector<storage::Label>{label1, label2});
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_remove, &context));
 
-  for (auto vertex : dba.Vertices(false)) {
-    vertex.SwitchNew();
-    EXPECT_EQ(1, vertex.labels().size());
-    EXPECT_FALSE(vertex.has_label(label1));
-    EXPECT_FALSE(vertex.has_label(label2));
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+    EXPECT_EQ(1, vertex.Labels(storage::View::NEW)->size());
+    EXPECT_FALSE(*vertex.HasLabel(storage::View::NEW, label1));
+    EXPECT_FALSE(*vertex.HasLabel(storage::View::NEW, label2));
   }
 }
 
 TEST(QueryPlan, NodeFilterSet) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  v1.PropsSet(prop.second, PropertyValue(42));
+  ASSERT_TRUE(v1.SetProperty(prop.second, PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("Edge");
-  dba.InsertEdge(v1, v2, edge_type);
-  dba.InsertEdge(v1, v3, edge_type);
+  auto edge_type = dba.NameToEdgeType("Edge");
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and increment the
   // v1.prop. The expected result is two incremenentations, since v1 is matched
@@ -743,28 +785,28 @@ TEST(QueryPlan, NodeFilterSet) {
   auto add = ADD(set_prop, LITERAL(1));
   auto set = std::make_shared<plan::SetProperty>(node_filter, prop.second,
                                                  set_prop, add);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
-  v1.Reconstruct();
-  auto prop_eq = TypedValue(v1.PropsAt(prop.second)) == TypedValue(42 + 2);
+  auto prop_eq = TypedValue(*v1.GetProperty(storage::View::OLD, prop.second)) ==
+                 TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(prop_eq.ValueBool());
 }
 
 TEST(QueryPlan, FilterRemove) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  v1.PropsSet(prop.second, PropertyValue(42));
+  ASSERT_TRUE(v1.SetProperty(prop.second, PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("Edge");
-  dba.InsertEdge(v1, v2, edge_type);
-  dba.InsertEdge(v1, v3, edge_type);
+  auto edge_type = dba.NameToEdgeType("Edge");
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and remove v1.prop.
   // The expected result is two matches, for each edge of v1.
@@ -783,20 +825,20 @@ TEST(QueryPlan, FilterRemove) {
   auto rem_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem =
       std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*rem, &context));
   dba.AdvanceCommand();
-  v1.Reconstruct();
-  EXPECT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->type(),
+            PropertyValue::Type::Null);
 }
 
 TEST(QueryPlan, SetRemove) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   auto v = dba.InsertVertex();
-  auto label1 = dba.Label("label1");
-  auto label2 = dba.Label("label2");
+  auto label1 = dba.NameToLabel("label1");
+  auto label2 = dba.NameToLabel("label2");
   dba.AdvanceCommand();
   // Create operations which match (v) and set and remove v :label.
   // The expected result is single (v) as it was at the start.
@@ -808,13 +850,11 @@ TEST(QueryPlan, SetRemove) {
       scan_all.op_, scan_all.sym_, std::vector<storage::Label>{label1, label2});
   auto rem = std::make_shared<plan::RemoveLabels>(
       set, scan_all.sym_, std::vector<storage::Label>{label1, label2});
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*rem, &context));
   dba.AdvanceCommand();
-  v.Reconstruct();
-  EXPECT_FALSE(v.has_label(label1));
-  EXPECT_FALSE(v.has_label(label2));
+  EXPECT_FALSE(*v.HasLabel(storage::View::OLD, label1));
+  EXPECT_FALSE(*v.HasLabel(storage::View::OLD, label2));
 }
 
 TEST(QueryPlan, Merge) {
@@ -824,11 +864,12 @@ TEST(QueryPlan, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  dba.InsertEdge(v1, v2, dba.EdgeType("Type"));
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("Type")).HasValue());
   auto v3 = dba.InsertVertex();
   dba.AdvanceCommand();
 
@@ -852,27 +893,27 @@ TEST(QueryPlan, Merge) {
       std::make_shared<Once>(), prop.second, n_p, LITERAL(2));
 
   auto merge = std::make_shared<plan::Merge>(n.op_, m_set, n_set);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   ASSERT_EQ(3, PullAll(*merge, &context));
   dba.AdvanceCommand();
-  v1.Reconstruct();
-  v2.Reconstruct();
-  v3.Reconstruct();
 
-  ASSERT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v1.PropsAt(prop.second).ValueInt(), 1);
-  ASSERT_EQ(v2.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v2.PropsAt(prop.second).ValueInt(), 1);
-  ASSERT_EQ(v3.PropsAt(prop.second).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v3.PropsAt(prop.second).ValueInt(), 2);
+  ASSERT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->type(),
+            PropertyValue::Type::Int);
+  ASSERT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 1);
+  ASSERT_EQ(v2.GetProperty(storage::View::OLD, prop.second)->type(),
+            PropertyValue::Type::Int);
+  ASSERT_EQ(v2.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 1);
+  ASSERT_EQ(v3.GetProperty(storage::View::OLD, prop.second)->type(),
+            PropertyValue::Type::Int);
+  ASSERT_EQ(v3.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 2);
 }
 
 TEST(QueryPlan, MergeNoInput) {
   // merge with no input, creates a single node
 
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -881,18 +922,18 @@ TEST(QueryPlan, MergeNoInput) {
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
-  EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*merge, &context));
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
 }
 
 TEST(QueryPlan, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -902,15 +943,15 @@ TEST(QueryPlan, SetPropertyOnNull) {
   auto once = std::make_shared<Once>();
   auto set_op =
       std::make_shared<plan::SetProperty>(once, prop.second, n_prop, literal);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -919,17 +960,17 @@ TEST(QueryPlan, SetPropertiesOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetProperties>(
       optional, n.sym_, n_ident, plan::SetProperties::Op::REPLACE);
-  EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto label = dba.Label("label");
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto label = dba.NameToLabel("label");
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -937,16 +978,16 @@ TEST(QueryPlan, SetLabelsOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
       optional, n.sym_, std::vector<storage::Label>{label});
-  EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -955,16 +996,16 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   auto once = std::make_shared<Once>();
   auto remove_op =
       std::make_shared<plan::RemoveProperty>(once, prop.second, n_prop);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
 TEST(QueryPlan, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto label = dba.Label("label");
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto label = dba.NameToLabel("label");
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -972,19 +1013,19 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
       optional, n.sym_, std::vector<storage::Label>{label});
-  EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
 TEST(QueryPlan, DeleteSetProperty) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
   AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n.property = 42
@@ -996,18 +1037,18 @@ TEST(QueryPlan, DeleteSetProperty) {
   auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second,
                                                     n_prop, LITERAL(42));
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFromMap) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
   AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = {property: 42}
@@ -1023,22 +1064,23 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
         std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
 
-TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
-  database::GraphDb db;
-  auto dba = db.Access();
+TEST(QueryPlan, DeleteSetPropertiesFrom) {
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Add a single vertex.
   {
     auto v = dba.InsertVertex();
-    v.PropsSet(dba.Property("property"), PropertyValue(1));
+    ASSERT_TRUE(v.SetProperty(dba.NameToProperty("property"), PropertyValue(1))
+                    .HasValue());
   }
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
   AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = n
@@ -1051,19 +1093,19 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
         std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
 
 TEST(QueryPlan, DeleteRemoveLabels) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
   AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n :label
@@ -1071,20 +1113,20 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
-  std::vector<storage::Label> labels{dba.Label("label")};
+  std::vector<storage::Label> labels{dba.NameToLabel("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, DeleteRemoveProperty) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
   AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n.property
@@ -1096,7 +1138,6 @@ TEST(QueryPlan, DeleteRemoveProperty) {
   auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto rem_op =
       std::make_shared<plan::RemoveProperty>(delete_op, prop.second, n_prop);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }

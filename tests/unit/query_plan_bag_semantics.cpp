@@ -21,8 +21,9 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, Skip) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -30,8 +31,7 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -52,8 +52,9 @@ TEST(QueryPlan, Skip) {
 }
 
 TEST(QueryPlan, Limit) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -61,8 +62,7 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba.InsertVertex();
@@ -86,8 +86,9 @@ TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   dba.InsertVertex();
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -101,19 +102,19 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
   dba.AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(3, CountIterable(dba.Vertices(storage::View::OLD)));
 }
 
 TEST(QueryPlan, OrderBy) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
@@ -142,9 +143,10 @@ TEST(QueryPlan, OrderBy) {
     values.reserve(order_value_pair.second.size());
     for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
-    for (auto &vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
+    for (auto vertex : dba.Vertices(storage::View::OLD))
+      dba.DetachRemoveVertex(&vertex);
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(false)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
 
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
@@ -161,7 +163,9 @@ TEST(QueryPlan, OrderBy) {
 
     // create the vertices
     for (const auto &value : shuffled)
-      dba.InsertVertex().PropsSet(prop, PropertyValue(value));
+      ASSERT_TRUE(dba.InsertVertex()
+                      .SetProperty(prop, PropertyValue(value))
+                      .HasValue());
     dba.AdvanceCommand();
 
     // order by and collect results
@@ -173,8 +177,7 @@ TEST(QueryPlan, OrderBy) {
     auto n_p_ne =
         NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
     auto produce = MakeProduce(order_by, n_p_ne);
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j)
@@ -183,13 +186,14 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
 
-  auto p1 = dba.Property("p1");
-  auto p2 = dba.Property("p2");
+  auto p1 = dba.NameToProperty("p1");
+  auto p2 = dba.NameToProperty("p2");
 
   // create a bunch of vertices that in two properties
   // have all the variations (with repetition) of N values.
@@ -201,8 +205,8 @@ TEST(QueryPlan, OrderByMultiple) {
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
-    v.PropsSet(p1, PropertyValue(pair.first));
-    v.PropsSet(p2, PropertyValue(pair.second));
+    ASSERT_TRUE(v.SetProperty(p1, PropertyValue(pair.first)).HasValue());
+    ASSERT_TRUE(v.SetProperty(p2, PropertyValue(pair.second)).HasValue());
   }
   dba.AdvanceCommand();
 
@@ -226,8 +230,7 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p2_ne =
       NEXPR("n.p2", n_p2)->MapTo(symbol_table.CreateSymbol("n.p2", true));
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  query::DbAccessor execution_dba(&dba);
-  auto context = MakeContext(storage, symbol_table, &execution_dba);
+  auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
@@ -239,11 +242,12 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba.Property("prop");
+  auto prop = dba.NameToProperty("prop");
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
@@ -263,17 +267,19 @@ TEST(QueryPlan, OrderByExceptions) {
 
   for (const auto &pair : exception_pairs) {
     // empty database
-    for (auto &vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
+    for (auto vertex : dba.Vertices(storage::View::OLD))
+      dba.DetachRemoveVertex(&vertex);
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(false)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
 
     // make two vertices, and set values
-    dba.InsertVertex().PropsSet(prop, pair.first);
-    dba.InsertVertex().PropsSet(prop, pair.second);
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(2, CountIterable(dba.Vertices(false)));
-    for (const auto &va : dba.Vertices(false))
-      ASSERT_NE(va.PropsAt(prop).type(), PropertyValue::Type::Null);
+    ASSERT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
+    for (const auto &va : dba.Vertices(storage::View::OLD))
+      ASSERT_NE(va.GetProperty(storage::View::OLD, prop).GetValue().type(),
+                PropertyValue::Type::Null);
 
     // order by and expect an exception
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -281,8 +287,7 @@ TEST(QueryPlan, OrderByExceptions) {
     auto order_by = std::make_shared<plan::OrderBy>(
         n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});
-    query::DbAccessor execution_dba(&dba);
-    auto context = MakeContext(storage, symbol_table, &execution_dba);
+    auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
   }
 }

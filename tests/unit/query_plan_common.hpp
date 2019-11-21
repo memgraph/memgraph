@@ -10,6 +10,12 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 
+// TODO (mferencevic): Remove once all cpp tests are migrated to v2.
+#ifdef MG_SINGLE_NODE_V2
+#include "query/db_accessor.hpp"
+#include "storage/v2/storage.hpp"
+#endif
+
 #include "query_common.hpp"
 
 using namespace query;
@@ -196,7 +202,28 @@ UnwindTuple MakeUnwind(SymbolTable &symbol_table,
   return UnwindTuple{sym, op};
 }
 
+#ifdef MG_SINGLE_NODE_V2
+template <typename TIterable>
+auto CountIterable(TIterable &&iterable) {
+  uint64_t count = 0;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    ++count;
+  }
+  return count;
+}
+
+inline uint64_t CountEdges(query::DbAccessor *dba, storage::View view) {
+  uint64_t count = 0;
+  for (auto vertex : dba->Vertices(view)) {
+    auto maybe_edges = vertex.OutEdges(view);
+    CHECK(maybe_edges.HasValue());
+    count += CountIterable(*maybe_edges);
+  }
+  return count;
+}
+#else
 template <typename TIterable>
 auto CountIterable(TIterable iterable) {
   return std::distance(iterable.begin(), iterable.end());
 }
+#endif

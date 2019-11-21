@@ -52,7 +52,7 @@ add_unit_test(deferred_deleter.cpp)
 target_link_libraries(${test_prefix}deferred_deleter mg-single-node kvstore_dummy_lib)
 
 add_unit_test(bfs_single_node.cpp)
-target_link_libraries(${test_prefix}bfs_single_node mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bfs_single_node mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(durability.cpp)
 target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
@@ -127,10 +127,10 @@ add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}query_plan_bag_semantics mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_bag_semantics mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 # Storage V2 in query execution
 add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
@@ -163,7 +163,7 @@ add_unit_test(query_semantic.cpp)
 target_link_libraries(${test_prefix}query_semantic mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(query_variable_start_planner.cpp)
-target_link_libraries(${test_prefix}query_variable_start_planner mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_variable_start_planner mg-single-node-v2 mg-auth kvstore_dummy_lib)
 
 add_unit_test(queue.cpp)
 target_link_libraries(${test_prefix}queue mg-single-node kvstore_dummy_lib)

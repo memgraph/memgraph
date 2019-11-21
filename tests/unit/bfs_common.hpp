@@ -26,15 +26,6 @@ void PrintTo(const query::EdgeAtom::Direction &dir, std::ostream *os) {
 }
 }  // namespace query
 
-#ifdef MG_SINGLE_NODE
-using VertexAddress = mvcc::VersionList<Vertex> *;
-using EdgeAddress = mvcc::VersionList<Edge> *;
-#endif
-#ifdef MG_SINGLE_NODE_HA
-using VertexAddress = mvcc::VersionList<Vertex> *;
-using EdgeAddress = mvcc::VersionList<Edge> *;
-#endif
-
 const auto kVertexCount = 6;
 // Maps vertices to workers
 const std::vector<int> kVertexLocations = {0, 1, 1, 0, 2, 2};
@@ -203,8 +194,7 @@ enum class FilterLambdaType { NONE, USE_FRAME, USE_FRAME_NULL, USE_CTX, ERROR };
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
-  virtual std::unique_ptr<database::GraphDbAccessor> Access() = 0;
-  virtual void AdvanceCommand(tx::TransactionId tx_id) = 0;
+  virtual storage::Storage::Accessor Access() = 0;
   virtual std::unique_ptr<query::plan::LogicalOperator> MakeBfsOperator(
       query::Symbol source_sym, query::Symbol sink_sym, query::Symbol edge_sym,
       query::EdgeAtom::Direction direction,
@@ -213,9 +203,9 @@ class Database {
       bool existing_node, query::Expression *lower_bound,
       query::Expression *upper_bound,
       const query::plan::ExpansionLambda &filter_lambda) = 0;
-  virtual std::pair<std::vector<VertexAddress>, std::vector<EdgeAddress>>
-  BuildGraph(database::GraphDbAccessor *dba,
-             const std::vector<int> &vertex_locations,
+  virtual std::pair<std::vector<query::VertexAccessor>,
+                    std::vector<query::EdgeAccessor>>
+  BuildGraph(query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
 
   virtual ~Database() {}
@@ -224,14 +214,14 @@ class Database {
 // Returns an operator that yields vertices given by their address. We will also
 // include query::TypedValue() to account for the optional match case.
 std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
-    database::GraphDbAccessor *dba, std::vector<VertexAddress> vertices,
+    query::DbAccessor *dba, std::vector<query::VertexAccessor> vertices,
     query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   frames.push_back(std::vector<query::TypedValue>{query::TypedValue()});
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(
-        query::VertexAccessor(VertexAccessor(vertex, *dba)))});
+    frames.emplace_back(
+        std::vector<query::TypedValue>{query::TypedValue(vertex)});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
@@ -239,42 +229,31 @@ std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
 
 // Returns an operator that yields edges and vertices given by their address.
 std::unique_ptr<query::plan::LogicalOperator> YieldEntities(
-    database::GraphDbAccessor *dba, std::vector<VertexAddress> vertices,
-    std::vector<EdgeAddress> edges, query::Symbol symbol,
+    query::DbAccessor *dba, std::vector<query::VertexAccessor> vertices,
+    std::vector<query::EdgeAccessor> edges, query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(
-        query::VertexAccessor(VertexAccessor(vertex, *dba)))});
+    frames.emplace_back(
+        std::vector<query::TypedValue>{query::TypedValue(vertex)});
   }
   for (const auto &edge : edges) {
-    frames.emplace_back(std::vector<query::TypedValue>{
-        query::TypedValue(query::EdgeAccessor(EdgeAccessor(edge, *dba)))});
+    frames.emplace_back(
+        std::vector<query::TypedValue>{query::TypedValue(edge)});
   }
   return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol},
                                  frames);
 }
 
 template <class TRecord>
-auto GetProp(const RecordAccessor<TRecord> &rec, std::string prop,
-             database::GraphDbAccessor *dba) {
-  return rec.PropsAt(dba->Property(prop));
-}
-
-inline auto GetProp(const query::VertexAccessor &rec, std::string prop,
-                    database::GraphDbAccessor *dba) {
-  return GetProp(rec.impl_, prop, dba);
-}
-
-inline auto GetProp(const query::EdgeAccessor &rec, std::string prop,
-                    database::GraphDbAccessor *dba) {
-  return GetProp(rec.impl_, prop, dba);
+auto GetProp(const TRecord &rec, std::string prop, query::DbAccessor *dba) {
+  return *rec.GetProperty(storage::View::OLD, dba->NameToProperty(prop));
 }
 
 // Checks if the given path is actually a path from source to sink and if all
 // of its edges exist in the given edge list.
 template <class TPathAllocator>
-void CheckPath(database::GraphDbAccessor *dba, const query::VertexAccessor &source,
+void CheckPath(query::DbAccessor *dba, const query::VertexAccessor &source,
                const query::VertexAccessor &sink,
                const std::vector<query::TypedValue, TPathAllocator> &path,
                const std::vector<std::pair<int, int>> &edges) {
@@ -298,8 +277,7 @@ void CheckPath(database::GraphDbAccessor *dba, const query::VertexAccessor &sour
 // Given a list of BFS results of form (from, to, path, blocked entity),
 // checks if all paths are valid and returns the distance matrix.
 std::vector<std::vector<int>> CheckPathsAndExtractDistances(
-    database::GraphDbAccessor *dba,
-    const std::vector<std::pair<int, int>> edges,
+    query::DbAccessor *dba, const std::vector<std::pair<int, int>> edges,
     const std::vector<std::vector<query::TypedValue>> &results) {
   std::vector<std::vector<int>> distances(kVertexCount,
                                           std::vector<int>(kVertexCount, -1));
@@ -320,11 +298,10 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
              query::EdgeAtom::Direction direction,
              std::vector<std::string> edge_types, bool known_sink,
              FilterLambdaType filter_lambda_type) {
-  auto dba_ptr = db->Access();
-  auto &dba = *dba_ptr;
+  auto storage_dba = db->Access();
+  query::DbAccessor dba(&storage_dba);
   query::AstStorage storage;
-  query::DbAccessor execution_dba(&dba);
-  query::ExecutionContext context{&execution_dba};
+  query::ExecutionContext context{&dba};
   query::Symbol blocked_sym =
       context.symbol_table.CreateSymbol("blocked", true);
   query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
@@ -338,13 +315,12 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
   query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
   query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
 
-  std::vector<VertexAddress> vertices;
-  std::vector<EdgeAddress> edges;
+  std::vector<query::VertexAccessor> vertices;
+  std::vector<query::EdgeAccessor> edges;
 
-  std::tie(vertices, edges) =
-      db->BuildGraph(dba_ptr.get(), kVertexLocations, kEdges);
+  std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
 
-  db->AdvanceCommand(dba_ptr->transaction_id());
+  dba.AdvanceCommand();
 
   std::shared_ptr<query::plan::LogicalOperator> input_op;
 
@@ -361,14 +337,12 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       break;
     case FilterLambdaType::USE_FRAME:
       // We block each entity in the graph and run BFS.
-      input_op =
-          YieldEntities(dba_ptr.get(), vertices, edges, blocked_sym, nullptr);
+      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
       filter_expr = AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked));
       break;
     case FilterLambdaType::USE_FRAME_NULL:
       // We block each entity in the graph and run BFS.
-      input_op =
-          YieldEntities(dba_ptr.get(), vertices, edges, blocked_sym, nullptr);
+      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
       filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)),
                        LITERAL(true), LITERAL(PropertyValue()));
       break;
@@ -376,8 +350,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       // We only block vertex #5 and run BFS.
       input_op = std::make_shared<Yield>(
           nullptr, std::vector<query::Symbol>{blocked_sym},
-          std::vector<std::vector<query::TypedValue>>{{query::TypedValue(
-              query::VertexAccessor(VertexAccessor(vertices[5], *dba_ptr)))}});
+          std::vector<std::vector<query::TypedValue>>{
+              {query::TypedValue(vertices[5])}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
       context.evaluation_context.parameters.Add(0, PropertyValue(5));
@@ -390,17 +364,17 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
   }
 
   // We run BFS once from each vertex for each blocked entity.
-  input_op = YieldVertices(dba_ptr.get(), vertices, source_sym, input_op);
+  input_op = YieldVertices(&dba, vertices, source_sym, input_op);
 
   // If the sink is known, we run BFS for all posible combinations of source,
   // sink and blocked entity.
   if (known_sink) {
-    input_op = YieldVertices(dba_ptr.get(), vertices, sink_sym, input_op);
+    input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
   }
 
   std::vector<storage::EdgeType> storage_edge_types;
   for (const auto &t : edge_types) {
-    storage_edge_types.push_back(dba_ptr->EdgeType(t));
+    storage_edge_types.push_back(dba.NameToEdgeType(t));
   }
 
   input_op = db->MakeBfsOperator(
@@ -411,9 +385,9 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
                                    filter_expr});
 
   context.evaluation_context.properties =
-      query::NamesToProperties(storage.properties_, &execution_dba);
+      query::NamesToProperties(storage.properties_, &dba);
   context.evaluation_context.labels =
-      query::NamesToLabels(storage.labels_, &execution_dba);
+      query::NamesToLabels(storage.labels_, &dba);
   std::vector<std::vector<query::TypedValue>> results;
 
   // An exception should be thrown on one of the pulls.
@@ -438,17 +412,14 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
            query::TypedValue::BoolEqual{}(results[j][3], blocked))
       ++j;
 
-    SCOPED_TRACE(
-        fmt::format("blocked entity = {}", ToString(blocked, execution_dba)));
+    SCOPED_TRACE(fmt::format("blocked entity = {}", ToString(blocked, dba)));
 
     // When an edge is blocked, it is blocked in both directions so we remove
     // it before modifying edge list to account for direction and edge types;
     auto edges = kEdges;
     if (blocked.IsEdge()) {
-      int from =
-          GetProp(blocked.ValueEdge(), "from", dba_ptr.get()).ValueInt();
-      int to =
-          GetProp(blocked.ValueEdge(), "to", dba_ptr.get()).ValueInt();
+      int from = GetProp(blocked.ValueEdge(), "from", &dba).ValueInt();
+      int to = GetProp(blocked.ValueEdge(), "to", &dba).ValueInt();
       edges.erase(std::remove_if(edges.begin(), edges.end(),
                                  [from, to](const auto &e) {
                                    return std::get<0>(e) == from &&
@@ -462,8 +433,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
 
     // When a vertex is blocked, we remove all edges that lead into it.
     if (blocked.IsVertex()) {
-      int id =
-          GetProp(blocked.ValueVertex(), "id", dba_ptr.get()).ValueInt();
+      int id = GetProp(blocked.ValueVertex(), "id", &dba).ValueInt();
       edges_blocked.erase(
           std::remove_if(edges_blocked.begin(), edges_blocked.end(),
                          [id](const auto &e) { return e.second == id; }),
@@ -494,7 +464,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
     EXPECT_EQ(j - i, num_results);
 
     auto distances = CheckPathsAndExtractDistances(
-        dba_ptr.get(), edges_blocked,
+        &dba, edges_blocked,
         std::vector<std::vector<query::TypedValue>>(results.begin() + i,
                                                     results.begin() + j));
 
@@ -504,5 +474,5 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
     i = j;
   }
 
-  dba_ptr->Abort();
+  dba.Abort();
 }

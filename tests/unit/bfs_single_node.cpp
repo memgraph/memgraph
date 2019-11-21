@@ -7,16 +7,7 @@ class SingleNodeDb : public Database {
  public:
   SingleNodeDb() : db_() {}
 
-  std::unique_ptr<database::GraphDbAccessor> Access() override {
-    std::unique_ptr<database::GraphDbAccessor> dba =
-        std::make_unique<database::GraphDbAccessor>(db_.Access());
-    return dba;
-  }
-
-  void AdvanceCommand(tx::TransactionId tx_id) override {
-    auto dba = db_.Access(tx_id);
-    dba.AdvanceCommand();
-  }
+  storage::Storage::Accessor Access() override { return db_.Access(); }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(
       Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
@@ -31,36 +22,42 @@ class SingleNodeDb : public Database {
         filter_lambda, std::nullopt, std::nullopt);
   }
 
-  std::pair<std::vector<VertexAddress>, std::vector<EdgeAddress>> BuildGraph(
-      database::GraphDbAccessor *dba, const std::vector<int> &vertex_locations,
+  std::pair<std::vector<query::VertexAccessor>,
+            std::vector<query::EdgeAccessor>>
+  BuildGraph(
+      query::DbAccessor *dba, const std::vector<int> &vertex_locations,
       const std::vector<std::tuple<int, int, std::string>> &edges) override {
-    std::vector<VertexAddress> vertex_addr;
-    std::vector<EdgeAddress> edge_addr;
+    std::vector<query::VertexAccessor> vertex_addr;
+    std::vector<query::EdgeAccessor> edge_addr;
 
     for (size_t id = 0; id < vertex_locations.size(); ++id) {
       auto vertex = dba->InsertVertex();
-      vertex.PropsSet(dba->Property("id"),
-                      PropertyValue(static_cast<int64_t>(id)));
-      vertex_addr.push_back(vertex.address());
+      CHECK(vertex
+                .SetProperty(dba->NameToProperty("id"),
+                             PropertyValue(static_cast<int64_t>(id)))
+                .HasValue());
+      vertex_addr.push_back(vertex);
     }
 
     for (auto e : edges) {
       int u, v;
       std::string type;
       std::tie(u, v, type) = e;
-      ::VertexAccessor from(vertex_addr[u], *dba);
-      ::VertexAccessor to(vertex_addr[v], *dba);
-      auto edge = dba->InsertEdge(from, to, dba->EdgeType(type));
-      edge.PropsSet(dba->Property("from"), PropertyValue(u));
-      edge.PropsSet(dba->Property("to"), PropertyValue(v));
-      edge_addr.push_back(edge.address());
+      auto &from = vertex_addr[u];
+      auto &to = vertex_addr[v];
+      auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
+      CHECK(edge->SetProperty(dba->NameToProperty("from"), PropertyValue(u))
+                .HasValue());
+      CHECK(edge->SetProperty(dba->NameToProperty("to"), PropertyValue(v))
+                .HasValue());
+      edge_addr.push_back(*edge);
     }
 
     return std::make_pair(vertex_addr, edge_addr);
   }
 
  protected:
-  database::GraphDb db_;
+  storage::Storage db_;
 };
 
 class SingleNodeBfsTest

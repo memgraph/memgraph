@@ -86,12 +86,13 @@ void CheckPlansProduce(
 }
 
 TEST(TestVariableStartPlanner, MatchReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  dba.InsertEdge(v1, v2, dba.EdgeType("r"));
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   AstStorage storage;
@@ -99,24 +100,22 @@ TEST(TestVariableStartPlanner, MatchReturn) {
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       RETURN("n")));
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(
-      2, query, storage, &execution_dba, [&](const auto &results) {
-        // We expect to produce only a single (v1) node.
-        AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
-                   execution_dba);
-      });
+  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
+    // We expect to produce only a single (v1) node.
+    AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  dba.InsertEdge(v1, v2, dba.EdgeType("r"));
-  dba.InsertEdge(v2, v3, dba.EdgeType("r"));
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
   dba.AdvanceCommand();
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
@@ -126,13 +125,10 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
                       EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
-    query::DbAccessor execution_dba(&dba);
-    CheckPlansProduce(
-        3, query, storage, &execution_dba, [&](const auto &results) {
-          // We expect to produce only a single (v1) node.
-          AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
-                     execution_dba);
-        });
+    CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
+      // We expect to produce only a single (v1) node.
+      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+    });
   }
   {
     // Equivalent to `MATCH (n) -[r]-> (m), (m) -[e]-> (l) RETURN n`.
@@ -141,24 +137,22 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
         MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
               PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
-    query::DbAccessor execution_dba(&dba);
-    CheckPlansProduce(
-        3, query, storage, &execution_dba, [&](const auto &results) {
-          AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}},
-                     execution_dba);
-        });
+    CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
+      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+    });
   }
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  dba.InsertEdge(v1, v2, dba.EdgeType("r"));
-  dba.InsertEdge(v2, v3, dba.EdgeType("r"));
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
   AstStorage storage;
@@ -168,29 +162,28 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
       RETURN("n", "l")));
   // We have 2 nodes `n` and `m` from which we could start the MATCH, and 2
   // nodes for OPTIONAL MATCH. This should produce 2 * 2 plans.
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(
-      4, query, storage, &execution_dba, [&](const auto &results) {
-        // We expect to produce 2 rows:
-        //   * (v1), (v3)
-        //   * (v2), null
-        AssertRows(results,
-                   {{TypedValue(query::VertexAccessor(v1)),
-                     TypedValue(query::VertexAccessor(v3))},
-                    {TypedValue(query::VertexAccessor(v2)), TypedValue()}},
-                   execution_dba);
-      });
+  CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
+    // We expect to produce 2 rows:
+    //   * (v1), (v3)
+    //   * (v2), null
+    AssertRows(results,
+               {{TypedValue(query::VertexAccessor(v1)),
+                 TypedValue(query::VertexAccessor(v3))},
+                {TypedValue(query::VertexAccessor(v2)), TypedValue()}},
+               dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r]-> (v2)
   query::VertexAccessor v1(dba.InsertVertex());
   query::VertexAccessor v2(dba.InsertVertex());
   auto r_type_name = "r";
-  auto r_type = dba.EdgeType(r_type_name);
-  dba.InsertEdge(v1.impl_, v2.impl_, r_type);
+  auto r_type = dba.NameToEdgeType(r_type_name);
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
@@ -203,24 +196,23 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
       RETURN("n", "m", "l", "u", "v")));
   // Since MATCH, OPTIONAL MATCH and MERGE each have 2 nodes from which we can
   // start, we generate 2 * 2 * 2 plans.
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(8, query, storage, &execution_dba,
-                    [&](const auto &results) {
-                      // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
-                      AssertRows(results,
-                                 {{TypedValue(v1), TypedValue(v2), TypedValue(),
-                                   TypedValue(v1), TypedValue(v2)}},
-                                 execution_dba);
-                    });
+  CheckPlansProduce(8, query, storage, &dba, [&](const auto &results) {
+    // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
+    AssertRows(results,
+               {{TypedValue(v1), TypedValue(v2), TypedValue(), TypedValue(v1),
+                 TypedValue(v2)}},
+               dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r]-> (v2)
   query::VertexAccessor v1(dba.InsertVertex());
   query::VertexAccessor v2(dba.InsertVertex());
-  dba.InsertEdge(v1.impl_, v2.impl_, dba.EdgeType("r"));
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
   AstStorage storage;
@@ -231,24 +223,23 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
       RETURN("n", "m", "l")));
   // We can start from 2 nodes in each match. Since WITH separates query parts,
   // we expect to get 2 plans for each, which totals 2 * 2.
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(
-      4, query, storage, &execution_dba, [&](const auto &results) {
-        // We expect to produce a single row: (v1), (v1), (v2)
-        AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}},
-                   execution_dba);
-      });
+  CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
+    // We expect to produce a single row: (v1), (v1), (v2)
+    AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}},
+               dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  database::GraphDb db;
-  auto dba = db.Access();
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  query::EdgeAccessor r1(dba.InsertEdge(v1, v2, dba.EdgeType("r1")));
-  query::EdgeAccessor r2(dba.InsertEdge(v2, v3, dba.EdgeType("r2")));
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r*]-> (m) RETURN r
   AstStorage storage;
@@ -261,27 +252,25 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   // [r1, r2]
   TypedValue r1_r2_list(
       std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(2, query, storage, &execution_dba,
-                    [&](const auto &results) {
-                      AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}},
-                                 execution_dba);
-                    });
+  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}}, dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto id = dba.Property("id");
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, PropertyValue(1));
+  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  v2.PropsSet(id, PropertyValue(2));
+  ASSERT_TRUE(v2.SetProperty(id, PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  v3.PropsSet(id, PropertyValue(3));
-  query::EdgeAccessor r1(dba.InsertEdge(v1, v2, dba.EdgeType("r1")));
-  query::EdgeAccessor r2(dba.InsertEdge(v2, v3, dba.EdgeType("r2")));
+  ASSERT_TRUE(v3.SetProperty(id, PropertyValue(3)).HasValue());
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r*..n.id]-> (m) RETURN r
   AstStorage storage;
@@ -294,24 +283,23 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});
   // [r2] (v2 -[*..2]-> v3)
   TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(
-      2, query, storage, &execution_dba, [&](const auto &results) {
-        AssertRows(results, {{r1_list}, {r2_list}}, execution_dba);
-      });
+  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r2_list}}, dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto id = dba.Property("id");
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, PropertyValue(1));
+  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  query::EdgeAccessor r1(dba.InsertEdge(v1, v2, dba.EdgeType("r1")));
-  query::EdgeAccessor r2(dba.InsertEdge(v2, v3, dba.EdgeType("r2")));
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n {id:1}) -[r*]- (m) RETURN r
   AstStorage storage;
@@ -325,26 +313,25 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   // [r1, r2]
   TypedValue r1_r2_list(
       std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(
-      2, query, storage, &execution_dba, [&](const auto &results) {
-        AssertRows(results, {{r1_list}, {r1_r2_list}}, execution_dba);
-      });
+  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r1_r2_list}}, dba);
+  });
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto id = dba.Property("id");
+  storage::Storage db;
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  v1.PropsSet(id, PropertyValue(1));
+  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  v2.PropsSet(id, PropertyValue(2));
+  ASSERT_TRUE(v2.SetProperty(id, PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  v3.PropsSet(id, PropertyValue(3));
-  query::EdgeAccessor r1(dba.InsertEdge(v1, v2, dba.EdgeType("r1")));
-  dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
+  ASSERT_TRUE(v3.SetProperty(id, PropertyValue(3)).HasValue());
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   AstStorage storage;
@@ -359,11 +346,9 @@ TEST(TestVariableStartPlanner, MatchBfs) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
-  query::DbAccessor execution_dba(&dba);
-  CheckPlansProduce(2, query, storage, &execution_dba,
-                    [&](const auto &results) {
-                      AssertRows(results, {{r1_list}}, execution_dba);
-                    });
+  CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}}, dba);
+  });
 }
 
 }  // namespace
