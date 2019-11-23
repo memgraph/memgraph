@@ -33,10 +33,9 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const PropertyValue &AtTokenPosition(int position) const {
-    auto found = std::find_if(storage_.begin(), storage_.end(),
-                              [&](const std::pair<int, PropertyValue> a) {
-                                return a.first == position;
-                              });
+    auto found =
+        std::find_if(storage_.begin(), storage_.end(),
+                     [&](const auto &a) { return a.first == position; });
     CHECK(found != storage_.end())
         << "Token position must be present in container";
     return found->second;
