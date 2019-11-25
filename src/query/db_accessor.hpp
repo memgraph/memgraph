@@ -610,8 +610,6 @@ class DbAccessor final {
 
   void Abort() { accessor_->Abort(); }
 
-  bool MustAbort() const { return false; }
-
   bool LabelIndexExists(storage::Label label) const {
     return accessor_->LabelIndexExists(label);
   }
@@ -783,8 +781,6 @@ class DbAccessor final {
   }
 
   void AdvanceCommand() { dba_->AdvanceCommand(); }
-
-  bool MustAbort() const { return dba_->should_abort(); }
 
   bool CreateIndex(storage::Label label, storage::Property prop) {
     try {

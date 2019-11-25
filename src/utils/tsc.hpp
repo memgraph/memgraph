@@ -3,6 +3,12 @@
 #include <sys/prctl.h>
 #include <x86intrin.h>
 
+#include <chrono>
+#include <optional>
+#include <thread>
+
+#include "utils/timer.hpp"
+
 namespace utils {
 
 // TSC stands for Time-Stamp Counter
@@ -66,5 +72,52 @@ inline bool CheckAvailableTSC() {
   if (prctl(PR_GET_TSC, &ret) != 0) return false;
   return ret == PR_TSC_ENABLE;
 }
+
+/// This function calculates the frequency at which the TSC counter increments
+/// its value. The frequency is already metered by the Linux kernel, but the
+/// value isn't reliably exposed anywhere for us to read it.
+/// https://stackoverflow.com/questions/51919219/determine-tsc-frequency-on-linux
+/// https://stackoverflow.com/questions/35123379/getting-tsc-rate-in-x86-kernel
+/// Because of that, we determine the value ourselves. We read the value two
+/// times with a delay between the two reads. The duration of the delay is
+/// determined using system calls that themselves internally use the already
+/// calibrated TSC. Because of that we get a very accurate value of the TSC
+/// frequency.
+inline std::optional<double> GetTSCFrequency() {
+  if (!CheckAvailableTSC()) return std::nullopt;
+
+  utils::Timer timer;
+  auto start_value = utils::ReadTSC();
+  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  auto duration = timer.Elapsed().count();
+  auto stop_value = utils::ReadTSC();
+
+  auto delta = stop_value - start_value;
+  return static_cast<double>(delta) / duration;
+}
+
+/// Class that is used to measure elapsed time using the TSC directly. It has
+/// almost zero overhead and is appropriate for use in performance critical
+/// paths.
+class TSCTimer {
+ public:
+  TSCTimer() {}
+
+  explicit TSCTimer(std::optional<double> frequency) : frequency_(frequency) {
+    if (!frequency_) return;
+    start_value_ = ReadTSC();
+  }
+
+  double Elapsed() const {
+    if (!frequency_) return 0.0;
+    auto current_value = ReadTSC();
+    auto delta = current_value - start_value_;
+    return static_cast<double>(delta) / *frequency_;
+  }
+
+ private:
+  std::optional<double> frequency_;
+  unsigned long long start_value_{0};
+};
 
 }  // namespace utils

@@ -471,6 +471,7 @@ ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
                              bool is_profile_query,
                              std::map<std::string, TypedValue> *summary,
                              DbAccessor *dba,
+                             InterpreterContext *interpreter_context,
                              utils::MonotonicBufferResource *execution_memory) {
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame(plan.symbol_table().max_position(), execution_memory);
@@ -493,6 +494,9 @@ ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
       NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels =
       NamesToLabels(plan.ast_storage().labels_, dba);
+  ctx.execution_tsc_timer = utils::TSCTimer(interpreter_context->tsc_frequency);
+  ctx.max_execution_time_sec = interpreter_context->execution_timeout_sec;
+  ctx.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx.is_profile_query = is_profile_query;
 
   utils::Timer timer;
@@ -662,9 +666,9 @@ PreparedQuery PrepareCypherQuery(
       std::move(header), std::move(parsed_query.required_privileges),
       [plan = std::move(plan), parameters = std::move(parsed_query.parameters),
        output_symbols = std::move(output_symbols), summary, dba,
-       execution_memory](AnyStream *stream) {
+       interpreter_context, execution_memory](AnyStream *stream) {
         PullAllPlan(stream, *plan, parameters, output_symbols, false, summary,
-                    dba, execution_memory);
+                    dba, interpreter_context, execution_memory);
         return QueryHandlerResult::COMMIT;
       }};
 }
@@ -739,7 +743,7 @@ PreparedQuery PrepareProfileQuery(
     throw ProfileInMulticommandTxException();
   }
 
-  if (!interpreter_context->is_tsc_available) {
+  if (!interpreter_context->tsc_frequency) {
     throw QueryException("TSC support is missing for PROFILE");
   }
 
@@ -768,10 +772,10 @@ PreparedQuery PrepareProfileQuery(
       std::move(parsed_query.required_privileges),
       [plan = std::move(cypher_query_plan),
        parameters = std::move(parsed_inner_query.parameters), summary, dba,
-       execution_memory](AnyStream *stream) {
+       interpreter_context, execution_memory](AnyStream *stream) {
         // No output symbols are given so that nothing is streamed.
         auto ctx = PullAllPlan(stream, *plan, parameters, {}, true, summary,
-                               dba, execution_memory);
+                               dba, interpreter_context, execution_memory);
 
         for (const auto &row :
              ProfilingStatsToTable(ctx.stats, ctx.profile_execution_time)) {
@@ -957,9 +961,9 @@ PreparedQuery PrepareAuthQuery(
       [callback = std::move(callback), plan = std::move(plan),
        parameters = std::move(parsed_query.parameters),
        output_symbols = std::move(output_symbols), summary, dba,
-       execution_memory](AnyStream *stream) {
+       interpreter_context, execution_memory](AnyStream *stream) {
         PullAllPlan(stream, *plan, parameters, output_symbols, false, summary,
-                    dba, execution_memory);
+                    dba, interpreter_context, execution_memory);
         return callback.should_abort_query ? QueryHandlerResult::ABORT
                                            : QueryHandlerResult::COMMIT;
       }};

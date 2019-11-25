@@ -4,6 +4,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
+#include "utils/tsc.hpp"
 
 namespace query {
 
@@ -49,6 +50,9 @@ struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
+  utils::TSCTimer execution_tsc_timer;
+  double max_execution_time_sec{0.0};
+  std::atomic<bool> *is_shutting_down{nullptr};
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;

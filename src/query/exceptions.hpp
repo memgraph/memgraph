@@ -103,7 +103,7 @@ class HintedAbortError : public utils::BasicException {
       : utils::BasicException(
             "Transaction was asked to abort, most likely because it was "
             "executing longer than time specified by "
-            "--query-execution-time-sec flag.") {}
+            "--query-execution-timeout-sec flag.") {}
 };
 
 class ExplicitTransactionUsageException : public QueryRuntimeException {

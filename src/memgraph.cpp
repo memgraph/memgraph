@@ -91,6 +91,11 @@ DEFINE_VALIDATED_int32(
     "Interval (in milliseconds) used for flushing the audit log buffer.",
     FLAG_IN_RANGE(10, INT32_MAX));
 
+// Query flags.
+DEFINE_uint64(query_execution_timeout_sec, 180,
+              "Maximum allowed query execution time. Queries exceeding this "
+              "limit will be aborted. Value of 0 means no limit.");
+
 DEFINE_VALIDATED_string(
     query_modules_directory, "",
     "Directory where modules with custom query procedures are stored", {
@@ -179,6 +184,8 @@ void SingleNodeMain() {
   database::GraphDb db;
 #endif
   query::InterpreterContext interpreter_context{&db};
+  query::SetExecutionTimeout(&interpreter_context,
+                             FLAGS_query_execution_timeout_sec);
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 
   // Register modules
@@ -219,10 +226,13 @@ void SingleNodeMain() {
 #endif
 
   // Handler for regular termination signals
-  auto shutdown = [&server] {
+  auto shutdown = [&server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents a
     // race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
+    // After the server is notified to stop accepting and processing connections
+    // we tell the execution engine to stop processing all pending queries.
+    query::Shutdown(&interpreter_context);
   };
   InitSignalHandlers(shutdown);
 

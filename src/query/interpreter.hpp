@@ -139,13 +139,27 @@ struct InterpreterContext {
   // developers introduce more bugs in each version. Fortunately, we have
   // cache so this lock probably won't impact performance much...
   utils::SpinLock antlr_lock;
-  bool is_tsc_available{utils::CheckAvailableTSC()};
+  std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
+  std::atomic<bool> is_shutting_down{false};
+  // The default execution timeout is 3 minutes.
+  double execution_timeout_sec{180.0};
 
   auth::Auth *auth{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 };
+
+/// Function that is used to tell all active interpreters that they should stop
+/// their ongoing execution.
+inline void Shutdown(InterpreterContext *context) {
+  context->is_shutting_down.store(true, std::memory_order_release);
+}
+
+/// Function used to set the maximum execution timeout in seconds.
+inline void SetExecutionTimeout(InterpreterContext *context, double timeout) {
+  context->execution_timeout_sec = timeout;
+}
 
 class Interpreter final {
  public:

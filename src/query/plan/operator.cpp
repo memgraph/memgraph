@@ -89,6 +89,14 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
+bool MustAbort(const ExecutionContext &context) {
+  return (context.is_shutting_down &&
+          context.is_shutting_down->load(std::memory_order_acquire)) ||
+         (context.max_execution_time_sec > 0 &&
+          context.execution_tsc_timer.Elapsed() >=
+              context.max_execution_time_sec);
+}
+
 }  // namespace
 
 #define SCOPED_PROFILE_OP(name) \
@@ -314,7 +322,7 @@ class ScanAllCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ScanAll");
 
-    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -575,7 +583,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   };
 
   while (true) {
-    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -863,7 +871,7 @@ class ExpandVariableCursor : public Cursor {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
-      if (context.db_accessor->MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -943,7 +951,7 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
-      if (context.db_accessor->MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -1063,7 +1071,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
 
       if (FindPath(*context.db_accessor, source, sink, lower_bound, upper_bound,
-                   &frame, &evaluator)) {
+                   &frame, &evaluator, context)) {
         return true;
       }
     }
@@ -1124,7 +1132,8 @@ class STShortestPathCursor : public query::plan::Cursor {
   bool FindPath(const DbAccessor &dba, const VertexAccessor &source,
                 const VertexAccessor &sink, int64_t lower_bound,
                 int64_t upper_bound, Frame *frame,
-                ExpressionEvaluator *evaluator) {
+                ExpressionEvaluator *evaluator,
+                const ExecutionContext &context) {
     using utils::Contains;
 
     if (source == sink) return false;
@@ -1158,7 +1167,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     out_edge[sink] = std::nullopt;
 
     while (true) {
-      if (dba.MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       // Top-down step (expansion from the source).
       ++current_length;
       if (current_length > upper_bound) return false;
@@ -1335,7 +1344,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // do it all in a loop because we skip some elements
     while (true) {
-      if (context.db_accessor->MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       // if we have nothing to visit on the current depth, switch to next
       if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -1515,7 +1524,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     };
 
     while (true) {
-      if (context.db_accessor->MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       if (pq_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         const auto &vertex_value = frame[self_.input_symbol_];
@@ -1554,7 +1563,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       }
 
       while (!pq_.empty()) {
-        if (context.db_accessor->MustAbort()) throw HintedAbortError();
+        if (MustAbort(context)) throw HintedAbortError();
         auto current = pq_.top();
         double current_weight = std::get<0>(current);
         int current_depth = std::get<1>(current);
@@ -1926,7 +1935,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   // delete edges first
   for (TypedValue &expression_result : expression_results) {
-    if (dba.MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto maybe_error = dba.RemoveEdge(&expression_result.ValueEdge());
       if (maybe_error.HasError()) {
@@ -1947,7 +1956,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // delete vertices
   for (TypedValue &expression_result : expression_results) {
-    if (dba.MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
@@ -2509,7 +2518,7 @@ class AccumulateCursor : public Cursor {
       if (self_.advance_command_) dba.AdvanceCommand();
     }
 
-    if (dba.MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
@@ -3071,7 +3080,7 @@ class OrderByCursor : public Cursor {
 
     if (cache_it_ == cache_.end()) return false;
 
-    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
 
     // place the output values on the frame
     DCHECK(self_.output_symbols_.size() == cache_it_->remember.size())
@@ -3303,7 +3312,7 @@ class UnwindCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
-      if (context.db_accessor->MustAbort()) throw HintedAbortError();
+      if (MustAbort(context)) throw HintedAbortError();
       // if we reached the end of our list of values
       // pull from the input
       if (input_value_it_ == input_value_.end()) {
@@ -3561,7 +3570,7 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
 
     restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;
@@ -3813,7 +3822,7 @@ class CallProcedureCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CallProcedure");
 
-    if (context.db_accessor->MustAbort()) throw HintedAbortError();
+    if (MustAbort(context)) throw HintedAbortError();
 
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
