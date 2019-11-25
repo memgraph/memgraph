@@ -10,19 +10,19 @@ int main() {
   int n;
   int m;
   std::cin >> n >> m;
-  comdata::Graph G(n);
+  comdata::Graph graph(n);
   for (int i = 0; i < m; ++i) {
     int a;
     int b;
     double c;
     std::cin >> a >> b >> c;
-    G.AddEdge(a, b, c);
+    graph.AddEdge(a, b, c);
   }
 
-  algorithms::Louvain(&G);
+  algorithms::Louvain(&graph);
 
   for (int i = 0; i < n; ++i)
-    std::cout << i << G.Community(i) << "\n";
-  std::cout << G.Modularity() << "\n";
+    std::cout << i << graph.Community(i) << "\n";
+  std::cout << graph.Modularity() << "\n";
   return 0;
 }

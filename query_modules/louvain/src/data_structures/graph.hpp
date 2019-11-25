@@ -1,4 +1,4 @@
-/// @file graph.hpp
+/// @file
 
 #pragma once
 
@@ -21,9 +21,8 @@ public:
   /// Constructs a new graph with a given number of nodes and no edges between
   /// them.
   ///
-  /// At the moment, the implementation assumes (and enforces) that all nodes
-  /// are indexed from 0 to n_nodes - 1. This will be changed in the final
-  /// implementation. - TODO(ipaljak)
+  /// The implementation assumes (and enforces) that all nodes
+  /// are indexed from 0 to n_nodes.
   ///
   /// @param n_nodes Number of nodes in the graph.
   explicit Graph(uint32_t n_nodes);

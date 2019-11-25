@@ -7,21 +7,6 @@
 
 #include "data_structures/graph.hpp"
 
-/// This class is threadsafe
-class Timer {
- public:
-  Timer() : start_time_(std::chrono::steady_clock::now()) {}
-
-  template <typename TDuration = std::chrono::duration<double>>
-  TDuration Elapsed() const {
-    return std::chrono::duration_cast<TDuration>(
-        std::chrono::steady_clock::now() - start_time_);
-  }
-
- private:
-  std::chrono::steady_clock::time_point start_time_;
-};
-
 /// Builds the graph from a given number of nodes and a list of edges.
 /// Nodes should be 0-indexed and each edge should be provided only once.
 comdata::Graph BuildGraph(

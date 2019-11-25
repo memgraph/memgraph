@@ -12,7 +12,7 @@ namespace algorithms {
   /// algorithm. The algorithm attempts to maximze the modularity of a weighted
   /// graph.
   ///
-  /// @param G pointer to an undirected, weighted graph which may contain
-  ///          self-loops.
-  void Louvain(comdata::Graph *G);
+  /// @param graph pointer to an undirected, weighted graph which may contain
+  ///              self-loops.
+  void Louvain(comdata::Graph *graph);
 } // namespace algorithms
