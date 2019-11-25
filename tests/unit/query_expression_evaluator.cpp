@@ -1705,4 +1705,38 @@ TEST_F(FunctionTest, ToUpper) {
   EXPECT_EQ(EvaluateFunction("TOUPPER", "Ab__C").ValueString(), "AB__C");
 }
 
+TEST_F(FunctionTest, ToByteString) {
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING"), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", 42), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", TypedValue()),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "", 42), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "ff"), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "00"), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "0xG"), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "").ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0x").ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0X").ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0x0123456789aAbBcCdDeEfF")
+                .ValueString(),
+            "\x01\x23\x45\x67\x89\xAA\xBB\xCC\xDD\xEE\xFF");
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0x042").ValueString().size(), 2);
+  EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0x042").ValueString(),
+            utils::pmr::string("\x00\x42", 2, utils::NewDeleteResource()));
+}
+
+TEST_F(FunctionTest, FromByteString) {
+  EXPECT_THROW(EvaluateFunction("FROMBYTESTRING"), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", 42), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", TypedValue()),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", "").ValueString(), "");
+  auto bytestring = EvaluateFunction("TOBYTESTRING", "0x123456789aAbBcCdDeEfF");
+  EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", bytestring).ValueString(),
+            "0x0123456789aabbccddeeff");
+  EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", std::string("\x00\x42", 2))
+                .ValueString(),
+            "0x0042");
+}
+
 }  // namespace

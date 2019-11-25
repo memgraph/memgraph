@@ -1038,6 +1038,66 @@ TypedValue Substring(const TypedValue *args, int64_t nargs,
   return TypedValue(utils::Substr(str, start, len), ctx.memory);
 }
 
+TypedValue ToByteString(const TypedValue *args, int64_t nargs,
+                        const FunctionContext &ctx) {
+  FType<String>("toByteString", args, nargs);
+  const auto &str = args[0].ValueString();
+  if (str.empty()) return TypedValue("", ctx.memory);
+  if (!utils::StartsWith(str, "0x") && !utils::StartsWith(str, "0X")) {
+    throw QueryRuntimeException("'toByteString' argument must start with '0x'");
+  }
+  const auto &hex_str = utils::Substr(str, 2);
+  auto read_hex = [](const char ch) -> unsigned char {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    throw QueryRuntimeException(
+        "'toByteString' argument has an invalid character '{}'", ch);
+  };
+  utils::pmr::string bytes(ctx.memory);
+  bytes.reserve((1 + hex_str.size()) / 2);
+  size_t i = 0;
+  // Treat odd length hex string as having a leading zero.
+  if (hex_str.size() % 2) bytes.append(1, read_hex(hex_str[i++]));
+  for (; i < hex_str.size(); i += 2) {
+    unsigned char byte = read_hex(hex_str[i]) * 16U + read_hex(hex_str[i + 1]);
+    // MemcpyCast in case we are converting to a signed value, so as to avoid
+    // undefined behaviour.
+    bytes.append(1, utils::MemcpyCast<decltype(bytes)::value_type>(byte));
+  }
+  return TypedValue(std::move(bytes));
+}
+
+TypedValue FromByteString(const TypedValue *args, int64_t nargs,
+                          const FunctionContext &ctx) {
+  FType<String, Optional<PositiveInteger>>("fromByteString", args, nargs);
+  const auto &bytes = args[0].ValueString();
+  if (bytes.empty()) return TypedValue("", ctx.memory);
+  size_t min_length = bytes.size();
+  if (nargs == 2)
+    min_length = std::max(min_length, static_cast<size_t>(args[1].ValueInt()));
+  utils::pmr::string str(ctx.memory);
+  str.reserve(min_length * 2 + 2);
+  str.append("0x");
+  for (size_t pad = 0; pad < min_length - bytes.size(); ++pad)
+    str.append(2, '0');
+  // Convert the bytes to a character string in hex representation.
+  // Unfortunately, we don't know whether the default `char` is signed or
+  // unsigned, so we have to work around any potential undefined behaviour when
+  // conversions between the 2 occur. That's why this function is more
+  // complicated than it should be.
+  auto to_hex = [](const unsigned char val) -> char {
+    unsigned char ch = val < 10U ? static_cast<unsigned char>('0') + val
+                                 : static_cast<unsigned char>('a') + val - 10U;
+    return utils::MemcpyCast<char>(ch);
+  };
+  for (unsigned char byte : bytes) {
+    str.append(1, to_hex(byte / 16U));
+    str.append(1, to_hex(byte % 16U));
+  }
+  return TypedValue(std::move(str));
+}
+
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t,
@@ -1114,6 +1174,8 @@ NameToFunction(const std::string &function_name) {
   // Memgraph specific functions
   if (function_name == "ASSERT") return Assert;
   if (function_name == "COUNTER") return Counter;
+  if (function_name == "TOBYTESTRING") return ToByteString;
+  if (function_name == "FROMBYTESTRING") return FromByteString;
 
   return nullptr;
 }
