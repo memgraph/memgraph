@@ -767,7 +767,7 @@ PreparedQuery PrepareProfileQuery(
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
       std::move(parsed_query.required_privileges),
       [plan = std::move(cypher_query_plan),
-       parameters = std::move(parsed_query.parameters), summary, dba,
+       parameters = std::move(parsed_inner_query.parameters), summary, dba,
        execution_memory](AnyStream *stream) {
         // No output symbols are given so that nothing is streamed.
         auto ctx = PullAllPlan(stream, *plan, parameters, {}, true, summary,

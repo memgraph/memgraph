@@ -433,3 +433,28 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
+
+TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Interpret(
+      "PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
+                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  EXPECT_EQ(stream.GetHeader(), expected_header);
+  std::vector<std::string> expected_rows{"* CreateNode", "* Unwind", "* Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 4U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for UNWIND ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for PROFILE ... and for inner UNWIND ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
