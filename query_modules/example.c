@@ -12,8 +12,9 @@
 // In case of memory errors, this function will report them and finish
 // executing.
 //
-// The procedure can be invoked in openCypher using the following call:
-//   CALL example.procedure(1, 2, 3) YIELD args, result;
+// The procedure can be invoked in openCypher using the following calls:
+//   CALL example.procedure(1, 2) YIELD args, result;
+//   CALL example.procedure(1) YIELD args, result;
 // Naturally, you may pass in different arguments or yield less fields.
 static void procedure(const struct mgp_list *args,
                       const struct mgp_graph *graph, struct mgp_result *result,

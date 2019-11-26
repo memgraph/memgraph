@@ -1405,7 +1405,8 @@ int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type,
     case MGP_VALUE_TYPE_MAP:
       break;
   }
-  // TODO: Check `default_value` satisfies `type`.
+  // Default value must be of required `type`.
+  if (!type->impl->SatisfiesType(*default_value)) return 0;
   auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
   try {
     proc->opt_args.emplace_back(utils::pmr::string(name, memory),

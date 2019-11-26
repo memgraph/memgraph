@@ -3778,21 +3778,63 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   if (proc_it == module->procedures.end())
     throw QueryRuntimeException("'{}' does not have a procedure named '{}'",
                                 module_name, proc_name);
+  const auto &proc = proc_it->second;
+  // Build and type check procedure arguments.
   mgp_graph graph{ctx.db_accessor, graph_view};
   mgp_list proc_args(memory);
   proc_args.elems.reserve(args.size());
   ExpressionEvaluator evaluator(frame, ctx.symbol_table, ctx.evaluation_context,
                                 ctx.db_accessor, graph_view);
-  for (auto *arg : args) {
-    proc_args.elems.emplace_back(arg->Accept(evaluator), &graph);
+  if (args.size() < proc.args.size() ||
+      // Rely on `||` short circuit so we can avoid potential overflow of
+      // proc.args.size() + proc.opt_args.size() by subtracting.
+      (args.size() - proc.args.size() > proc.opt_args.size())) {
+    if (proc.args.empty() && proc.opt_args.empty()) {
+      throw QueryRuntimeException("'{}' requires no arguments.",
+                                  fully_qualified_procedure_name);
+    } else if (proc.opt_args.empty()) {
+      throw QueryRuntimeException(
+          "'{}' requires exactly {} {}.", fully_qualified_procedure_name,
+          proc.args.size(), proc.args.size() == 1U ? "argument" : "arguments");
+    } else {
+      throw QueryRuntimeException("'{}' requires between {} and {} arguments.",
+                                  fully_qualified_procedure_name,
+                                  proc.args.size(),
+                                  proc.args.size() + proc.opt_args.size());
+    }
+  }
+  for (size_t i = 0; i < args.size(); ++i) {
+    auto arg = args[i]->Accept(evaluator);
+    std::string_view name;
+    const query::procedure::CypherType *type;
+    if (proc.args.size() > i) {
+      name = proc.args[i].first;
+      type = proc.args[i].second;
+    } else {
+      CHECK(proc.opt_args.size() > i - proc.args.size());
+      name = std::get<0>(proc.opt_args[i - proc.args.size()]);
+      type = std::get<1>(proc.opt_args[i - proc.args.size()]);
+    }
+    if (!type->SatisfiesType(arg)) {
+      throw QueryRuntimeException(
+          "'{}' argument named '{}' at position {} must be of type {}.",
+          fully_qualified_procedure_name, name, i, type->GetPresentableName());
+    }
+    proc_args.elems.emplace_back(std::move(arg), &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  CHECK(args.size() >= proc.args.size());
+  size_t passed_in_opt_args = args.size() - proc.args.size();
+  CHECK(passed_in_opt_args <= proc.opt_args.size());
+  for (size_t i = passed_in_opt_args; i < proc.opt_args.size(); ++i) {
+    proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   // TODO: Add syntax for controlling procedure memory limits.
   utils::LimitedMemoryResource limited_mem(memory,
                                            100 * 1024 * 1024 /* 100 MB */);
   mgp_memory proc_memory{&limited_mem};
   // TODO: What about cross library boundary exceptions? OMG C++?!
-  // TODO: Type check both arguments and results against procedure signature.
-  proc_it->second.cb(&proc_args, &graph, result, &proc_memory);
+  proc.cb(&proc_args, &graph, result, &proc_memory);
   size_t leaked_bytes = limited_mem.GetAllocatedBytes();
   LOG_IF(WARNING, leaked_bytes > 0U)
       << "Query procedure '" << fully_qualified_procedure_name << "' leaked "
