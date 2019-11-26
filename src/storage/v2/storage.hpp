@@ -38,6 +38,7 @@ class AllVerticesIterable final {
   View view_;
   Indices *indices_;
   Config::Items config_;
+  std::optional<VertexAccessor> vertex_;
 
  public:
   class Iterator final {

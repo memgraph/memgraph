@@ -12,11 +12,12 @@ namespace storage {
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
+                            std::optional<VertexAccessor> *vertex,
                             Transaction *tx, View view, Indices *indices,
                             Config::Items config) {
   while (it != end) {
-    auto maybe_vertex = VertexAccessor::Create(&*it, tx, indices, config, view);
-    if (!maybe_vertex) {
+    *vertex = VertexAccessor::Create(&*it, tx, indices, config, view);
+    if (!*vertex) {
       ++it;
       continue;
     }
@@ -29,21 +30,18 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
                                         utils::SkipList<Vertex>::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
-                                 self->transaction_, self->view_,
-                                 self->indices_, self->config_)) {}
+                                 &self->vertex_, self->transaction_,
+                                 self->view_, self->indices_, self->config_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const {
-  // TODO: current vertex accessor could be cached to avoid reconstructing every
-  // time
-  return *VertexAccessor::Create(&*it_, self_->transaction_, self_->indices_,
-                                 self_->config_, self_->view_);
+  return *self_->vertex_;
 }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
-                               self_->transaction_, self_->view_,
-                               self_->indices_, self_->config_);
+                               &self_->vertex_, self_->transaction_,
+                               self_->view_, self_->indices_, self_->config_);
   return *this;
 }
 
