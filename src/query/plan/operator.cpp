@@ -3735,24 +3735,47 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(
 
 namespace {
 
-void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
-                         const std::vector<Expression *> &args,
-                         storage::View graph_view, const ExecutionContext &ctx,
-                         Frame *frame, mgp_result *result) {
-  // Use evaluation memory, as invoking a procedure is akin to a simple
-  // evaluation of an expression.
-  // TODO: This will probably need to be changed when we add support for
-  // generator like procedures which yield a new result on each invocation.
-  auto *memory = ctx.evaluation_context.memory;
-  // First try to handle special procedure invocations for (re)loading modules.
+// Return true if we handled one of the special `mg` module procedures for
+// reloading query modules.
+// @throw QueryRuntimeException in case of error during procedure invocation.
+bool HandleReloadProcedures(
+    const std::string_view &fully_qualified_procedure_name,
+    const std::vector<Expression *> &args, ExpressionEvaluator *evaluator) {
   // It would be great to simply register `reload_all_modules` as a
   // regular procedure on a `mg` module, so we don't have a special case here.
   // Unfortunately, reloading requires taking a write lock, and we would
   // acquire a read lock by getting the module.
   if (fully_qualified_procedure_name == "mg.reload_all_modules") {
+    if (!args.empty())
+      throw QueryRuntimeException(
+          "'mg.reload_all_modules' requires no arguments.");
     procedure::gModuleRegistry.ReloadAllModules();
-    return;
+    return true;
+  } else if (fully_qualified_procedure_name == "mg.reload") {
+    // This is a special case for the same reasons as `mg.reload_all_modules`.
+    if (args.size() != 1U)
+      throw QueryRuntimeException("'mg.reload' requires exactly 1 argument.");
+    const auto &arg = args.front()->Accept(*evaluator);
+    if (!arg.IsString()) {
+      throw QueryRuntimeException(
+          "'mg.reload' argument named 'module_name' at position 0 must be of "
+          "type STRING.");
+    }
+    const auto &module_name = arg.ValueString();
+    procedure::gModuleRegistry.ReloadModuleNamed(module_name);
+    return true;
   }
+  return false;
+}
+
+// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
+// `fully_qualified_procedure_name`. `memory` is used for temporary allocations
+// inside this function. ModulePtr must be kept alive to make sure it won't be
+// unloaded.
+// @throw QueryRuntimeException if unable to find the procedure.
+std::pair<procedure::ModulePtr, const mgp_proc *> FindProcedureOrThrow(
+    const std::string_view &fully_qualified_procedure_name,
+    utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
   utils::Split(&name_parts, fully_qualified_procedure_name, ".");
   if (name_parts.size() == 1U) {
@@ -3764,27 +3787,26 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   const auto &module_name =
       fully_qualified_procedure_name.substr(0, last_dot_pos);
   const auto &proc_name = name_parts.back();
-  // This is a special case for the same reasons as `mg.reload_all_modules`.
-  if (proc_name == "__reload__") {
-    procedure::gModuleRegistry.ReloadModuleNamed(module_name);
-    return;
-  }
-  const auto &module = procedure::gModuleRegistry.GetModuleNamed(module_name);
+  auto module = procedure::gModuleRegistry.GetModuleNamed(module_name);
   if (!module) throw QueryRuntimeException("'{}' isn't loaded!", module_name);
-  static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
-                "Expected mgp_value to use custom allocator and makes STL "
-                "containers aware of that");
   const auto &proc_it = module->procedures.find(proc_name);
   if (proc_it == module->procedures.end())
     throw QueryRuntimeException("'{}' does not have a procedure named '{}'",
                                 module_name, proc_name);
-  const auto &proc = proc_it->second;
+  return {std::move(module), &proc_it->second};
+}
+
+void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
+                         const mgp_proc &proc,
+                         const std::vector<Expression *> &args,
+                         const mgp_graph &graph, ExpressionEvaluator *evaluator,
+                         utils::MemoryResource *memory, mgp_result *result) {
+  static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
+                "Expected mgp_value to use custom allocator and makes STL "
+                "containers aware of that");
   // Build and type check procedure arguments.
-  mgp_graph graph{ctx.db_accessor, graph_view};
   mgp_list proc_args(memory);
   proc_args.elems.reserve(args.size());
-  ExpressionEvaluator evaluator(frame, ctx.symbol_table, ctx.evaluation_context,
-                                ctx.db_accessor, graph_view);
   if (args.size() < proc.args.size() ||
       // Rely on `||` short circuit so we can avoid potential overflow of
       // proc.args.size() + proc.opt_args.size() by subtracting.
@@ -3804,7 +3826,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     }
   }
   for (size_t i = 0; i < args.size(); ++i) {
-    auto arg = args[i]->Accept(evaluator);
+    auto arg = args[i]->Accept(*evaluator);
     std::string_view name;
     const query::procedure::CypherType *type;
     if (proc.args.size() > i) {
@@ -3833,6 +3855,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   utils::LimitedMemoryResource limited_mem(memory,
                                            100 * 1024 * 1024 /* 100 MB */);
   mgp_memory proc_memory{&limited_mem};
+  CHECK(result->signature == &proc.results);
   // TODO: What about cross library boundary exceptions? OMG C++?!
   proc.cb(&proc_args, &graph, result, &proc_memory);
   size_t leaked_bytes = limited_mem.GetAllocatedBytes();
@@ -3856,7 +3879,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
-        result_(mem) {
+        result_(nullptr, mem) {
     CHECK(self_->result_fields_.size() == self_->result_symbols_.size())
         << "Incorrectly constructed CallProcedure";
   }
@@ -3866,6 +3889,7 @@ class CallProcedureCursor : public Cursor {
 
     if (MustAbort(context)) throw HintedAbortError();
 
+    size_t result_signature_size = 0;
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
     // empty result set vs procedures which return `void`. We currently don't
@@ -3873,13 +3897,40 @@ class CallProcedureCursor : public Cursor {
     // This `while` loop will skip over empty results.
     while (result_row_it_ == result_.rows.end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
+      result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
       // TODO: When we add support for write and eager procedures, we will need
       // to plan this operator with Accumulate and pass in storage::View::NEW.
       auto graph_view = storage::View::OLD;
-      CallCustomProcedure(self_->procedure_name_, self_->arguments_, graph_view,
-                          context, &frame, &result_);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor, graph_view);
+      // First try to handle special procedures for (re)loading modules.
+      if (HandleReloadProcedures(self_->procedure_name_, self_->arguments_,
+                                 &evaluator))
+        continue;
+      // Nothing special, so find the regular procedure and invoke it.
+      // It might be a good idea to resolve the procedure name once, at the
+      // start. Unfortunately, this could deadlock if we tried to invoke a
+      // procedure from a module (read lock) and reload a module (write lock)
+      // inside the same execution thread.
+      const auto &[module, proc] = FindProcedureOrThrow(
+          self_->procedure_name_, context.evaluation_context.memory);
+      result_.signature = &proc->results;
+      // Use evaluation memory, as invoking a procedure is akin to a simple
+      // evaluation of an expression.
+      // TODO: This will probably need to be changed when we add support for
+      // generator like procedures which yield a new result on each invocation.
+      auto *memory = context.evaluation_context.memory;
+      mgp_graph graph{context.db_accessor, graph_view};
+      CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_,
+                          graph, &evaluator, memory, &result_);
+      // Reset result_.signature to nullptr, because outside of this scope we
+      // will no longer hold a lock on the `module`. If someone were to reload
+      // it, the pointer would be invalid.
+      result_signature_size = result_.signature->size();
+      result_.signature = nullptr;
       if (result_.error_msg) {
         throw QueryRuntimeException("{}: {}", self_->procedure_name_,
                                     *result_.error_msg);
@@ -3887,8 +3938,17 @@ class CallProcedureCursor : public Cursor {
       result_row_it_ = result_.rows.begin();
     }
 
+    const auto &values = result_row_it_->values;
+    // Check that the row has all fields as required by the result signature.
+    // C API guarantees that it's impossible to set fields which are not part of
+    // the result record, but it does not gurantee that some may be missing. See
+    // `mgp_result_record_insert`.
+    if (values.size() != result_signature_size) {
+      throw QueryRuntimeException(
+          "Procedure '{}' did not yield all fields as required by its "
+          "signature.", self_->procedure_name_);
+    }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
-      const auto &values = result_row_it_->values;
       std::string_view field_name(self_->result_fields_[i]);
       auto result_it = values.find(field_name);
       if (result_it == values.end()) {

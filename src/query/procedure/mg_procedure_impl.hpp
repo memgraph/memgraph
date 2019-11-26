@@ -327,12 +327,25 @@ struct mgp_path {
 };
 
 struct mgp_result_record {
+  /// Result record signature as defined for mgp_proc.
+  const utils::pmr::map<utils::pmr::string,
+                        std::pair<const query::procedure::CypherType *, bool>>
+      *signature;
   utils::pmr::map<utils::pmr::string, query::TypedValue> values;
 };
 
 struct mgp_result {
-  explicit mgp_result(utils::MemoryResource *mem) : rows(mem) {}
+  explicit mgp_result(
+      const utils::pmr::map<
+          utils::pmr::string,
+          std::pair<const query::procedure::CypherType *, bool>> *signature,
+      utils::MemoryResource *mem)
+      : signature(signature), rows(mem) {}
 
+  /// Result record signature as defined for mgp_proc.
+  const utils::pmr::map<utils::pmr::string,
+                        std::pair<const query::procedure::CypherType *, bool>>
+      *signature;
   utils::pmr::vector<mgp_result_record> rows;
   std::optional<utils::pmr::string> error_msg;
 };

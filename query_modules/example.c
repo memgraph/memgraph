@@ -68,7 +68,8 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   }
   mgp_value_destroy(null_value);
   if (!mgp_proc_add_result(proc, "result", mgp_type_string())) return 1;
-  if (!mgp_proc_add_result(proc, "args", mgp_type_list(mgp_type_any())))
+  if (!mgp_proc_add_result(proc, "args",
+                           mgp_type_list(mgp_type_nullable(mgp_type_any()))))
     return 1;
   return 0;
 }

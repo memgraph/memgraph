@@ -792,8 +792,10 @@ int mgp_result_set_error_msg(mgp_result *res, const char *msg) {
 
 mgp_result_record *mgp_result_new_record(mgp_result *res) {
   auto *memory = res->rows.get_allocator().GetMemoryResource();
+  CHECK(res->signature) << "Expected to have a valid signature";
   try {
     res->rows.push_back(mgp_result_record{
+        res->signature,
         utils::pmr::map<utils::pmr::string, query::TypedValue>(memory)});
   } catch (...) {
     return nullptr;
@@ -804,8 +806,12 @@ mgp_result_record *mgp_result_new_record(mgp_result *res) {
 int mgp_result_record_insert(mgp_result_record *record, const char *field_name,
                              const mgp_value *val) {
   auto *memory = record->values.get_allocator().GetMemoryResource();
-  // TODO: Result validation when we add registering procedures with result
-  // signature description.
+  // Validate field_name & val satisfy the procedure's result signature.
+  CHECK(record->signature) << "Expected to have a valid signature";
+  auto find_it = record->signature->find(field_name);
+  if (find_it == record->signature->end()) return 0;
+  const auto *type = find_it->second.first;
+  if (!type->SatisfiesType(*val)) return 0;
   try {
     record->values.emplace(field_name, ToTypedValue(*val, memory));
   } catch (...) {
