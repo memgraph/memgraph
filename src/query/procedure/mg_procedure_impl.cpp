@@ -858,6 +858,10 @@ const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
   }
 }
 
+mgp_vertex_id mgp_vertex_get_id(const mgp_vertex *v) {
+  return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()};
+}
+
 mgp_vertex *mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory) {
   return new_mgp_object<mgp_vertex>(memory, *v);
 }
@@ -1182,6 +1186,15 @@ mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e,
     // other exceptions are possible, but catch them all just in case.
     return nullptr;
   }
+}
+
+mgp_vertex *mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id,
+                                       mgp_memory *memory) {
+  auto maybe_vertex =
+      graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
+  if (maybe_vertex)
+    return new_mgp_object<mgp_vertex>(memory, *maybe_vertex, graph);
+  return nullptr;
 }
 
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) {

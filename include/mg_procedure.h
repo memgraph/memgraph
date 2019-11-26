@@ -450,6 +450,16 @@ struct mgp_edges_iterator;
 /// Free the memory used by a mgp_edges_iterator.
 void mgp_edges_iterator_destroy(struct mgp_edges_iterator *it);
 
+/// ID of a vertex; valid during a single query execution.
+struct mgp_vertex_id {
+  int64_t as_int;
+};
+
+/// Get the ID of given vertex.
+/// The ID is only valid for a single query execution, you should never store it
+/// globally in a query module.
+struct mgp_vertex_id mgp_vertex_get_id(const struct mgp_vertex *v);
+
 /// Copy a mgp_vertex.
 /// Returned pointer must be freed with mgp_vertex_destroy.
 /// NULL is returned if unable to allocate a mgp_vertex.
@@ -551,6 +561,13 @@ struct mgp_properties_iterator *mgp_edge_iter_properties(
 
 /// State of the graph database.
 struct mgp_graph;
+
+/// Return the vertex corresponding to given ID.
+/// The returned vertex must be freed using mgp_vertex_destroy.
+/// NULL is returned if unable to allocate the vertex or if ID is not valid.
+struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *g,
+                                              struct mgp_vertex_id id,
+                                              struct mgp_memory *memory);
 
 /// Iterator over vertices.
 struct mgp_vertices_iterator;

@@ -528,6 +528,13 @@ class DbAccessor final {
   explicit DbAccessor(storage::Storage::Accessor *accessor)
       : accessor_(accessor) {}
 
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid,
+                                           storage::View view) {
+    auto maybe_vertex = accessor_->FindVertex(gid, view);
+    if (maybe_vertex) return VertexAccessor(*maybe_vertex);
+    return std::nullopt;
+  }
+
   VerticesIterable Vertices(storage::View view) {
     return VerticesIterable(accessor_->Vertices(view));
   }
@@ -728,6 +735,14 @@ class DbAccessor final {
     } catch (const mvcc::SerializationError &) {
       return storage::Error::SERIALIZATION_ERROR;
     }
+  }
+
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid,
+                                           storage::View view) {
+    auto maybe_vertex =
+        dba_->FindVertexOptional(gid, view == storage::View::NEW);
+    if (maybe_vertex) return VertexAccessor(*maybe_vertex);
+    return std::nullopt;
   }
 
   auto Vertices(storage::View view) {
