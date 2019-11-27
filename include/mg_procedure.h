@@ -389,6 +389,8 @@ struct mgp_result_record;
 int mgp_result_set_error_msg(struct mgp_result *res, const char *error_msg);
 
 /// Create a new record for results.
+/// The previously returned pointer to mgp_result_record is no longer valid, and
+/// you must not use it.
 /// Return NULL if unable to allocate a mgp_result_record.
 struct mgp_result_record *mgp_result_new_record(struct mgp_result *res);
 
