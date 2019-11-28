@@ -3871,6 +3871,7 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+  size_t result_signature_size_{0};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
@@ -3889,7 +3890,6 @@ class CallProcedureCursor : public Cursor {
 
     if (MustAbort(context)) throw HintedAbortError();
 
-    size_t result_signature_size = 0;
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
     // empty result set vs procedures which return `void`. We currently don't
@@ -3929,7 +3929,7 @@ class CallProcedureCursor : public Cursor {
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size = result_.signature->size();
+      result_signature_size_ = result_.signature->size();
       result_.signature = nullptr;
       if (result_.error_msg) {
         throw QueryRuntimeException("{}: {}", self_->procedure_name_,
@@ -3943,7 +3943,7 @@ class CallProcedureCursor : public Cursor {
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
     // `mgp_result_record_insert`.
-    if (values.size() != result_signature_size) {
+    if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
           "signature.", self_->procedure_name_);
