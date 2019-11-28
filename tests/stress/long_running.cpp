@@ -104,7 +104,7 @@ class GraphSession {
     return *it;
   }
 
-  void AddQueryFailure(std::string what) {
+  void AddQueryFailure(const std::string &what) {
     auto it = query_failures_.find(what);
     if (it != query_failures_.end()) {
       ++it->second;
@@ -113,28 +113,43 @@ class GraphSession {
     }
   }
 
-  QueryDataT Execute(std::string query) {
+  QueryDataT ExecuteWithoutCatch(const std::string &query) {
+    DLOG(INFO) << "Runner " << id_ << " executing query: " << query;
+    executed_queries_ += 1;
+    return client_->Execute(query, {});
+  }
+
+  QueryDataT Execute(const std::string &query) {
     try {
-      DLOG(INFO) << "Runner " << id_ << " executing query: " << query;
-      executed_queries_ += 1;
-      return client_->Execute(query, {});
+      return ExecuteWithoutCatch(query);
     } catch (const ExceptionT &e) {
-      AddQueryFailure(std::string{e.what()});
+      AddQueryFailure(e.what());
       return QueryDataT();
     }
   }
 
   void CreateVertices(uint64_t vertices_count) {
     if (vertices_count == 0) return;
-    auto ret = Execute(fmt::format(
-        "UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
-        vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
-    CHECK(ret.records.size() == 1) << "Vertices creation failed!";
+    QueryDataT ret;
+    try {
+      ret = ExecuteWithoutCatch(fmt::format(
+          "UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
+          vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
+    } catch (const ExceptionT &e) {
+      LOG(FATAL) << "Runner " << id_
+                 << " vertices creation failed because of: " << e.what();
+    }
+    CHECK(ret.records.size())
+        << "Runner " << id_
+        << " the vertices creation query should have returned a row!";
+
     CHECK(ret.records[0][0].ValueInt() == vertices_count)
-        << "Created " << ret.records[0][0].ValueInt() << " vertices instead of "
-        << vertices_count << "!";
+        << "Runner " << id_ << " created " << ret.records[0][0].ValueInt()
+        << " vertices instead of " << vertices_count << "!";
     for (uint64_t i = 0; i < vertices_count; ++i) {
-      vertices_.insert(vertex_id_ + i);
+      CHECK(vertices_.insert(vertex_id_ + i).second)
+          << "Runner " << id_ << " vertex with ID " << vertex_id_ + i
+          << " shouldn't exist!";
     }
     vertex_id_ += vertices_count;
   }
@@ -152,7 +167,8 @@ class GraphSession {
       // remove vertex but note there could be duplicates
       auto n_id = record[0].ValueInt();
       if (processed_vertices.insert(n_id).second) {
-        vertices_.erase(n_id);
+        CHECK(vertices_.erase(n_id)) << "Runner " << id_ << " vertex with ID "
+                                     << n_id << " should exist!";
         for (auto &label : record[1].ValueList()) {
           if (label.ValueString() == indexed_label_) {
             continue;
@@ -164,7 +180,9 @@ class GraphSession {
       auto &edges = record[2];
       for (auto &edge : edges.ValueList()) {
         if (edge.type() == ValueT::Type::Int) {
-          edges_.erase(edge.ValueInt());
+          CHECK(edges_.erase(edge.ValueInt()))
+              << "Runner " << id_ << " edge with ID " << edge.ValueInt()
+              << " should exist!";
         }
       }
     }
@@ -174,21 +192,31 @@ class GraphSession {
     if (edges_count == 0) return;
     auto edges_per_node = (double)edges_count / vertices_.size();
     CHECK(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001)
-        << "Edges per node not a whole number";
+        << "Runner " << id_ << " edges per node not a whole number!";
 
-    auto ret = Execute(fmt::format(
-        "MATCH (a:{0}) WITH a "
-        "UNWIND range(0, {1}) AS i WITH a, tointeger(rand() * {2}) AS id "
-        "MATCH (b:{0} {{id: id}}) WITH a, b "
-        "CREATE (a)-[e:EdgeType {{id: counter(\"edge\", {3})}}]->(b) "
-        "RETURN count(e)",
-        indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(),
-        edge_id_));
+    QueryDataT ret;
+    try {
+      ret = ExecuteWithoutCatch(fmt::format(
+          "MATCH (a:{0}) WITH a "
+          "UNWIND range(0, {1}) AS i WITH a, tointeger(rand() * {2}) AS id "
+          "MATCH (b:{0} {{id: id}}) WITH a, b "
+          "CREATE (a)-[e:EdgeType {{id: counter(\"edge\", {3})}}]->(b) "
+          "RETURN count(e)",
+          indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(),
+          edge_id_));
+    } catch (const ExceptionT &e) {
+      LOG(FATAL) << "Runner " << id_
+                 << " edges creation failed because of: " << e.what();
+    }
+    CHECK(ret.records.size())
+        << "Runner " << id_
+        << " the edges creation query should have returned a row!";
 
-    CHECK(ret.records.size() == 1) << "Failed to create edges";
     uint64_t count = ret.records[0][0].ValueInt();
     for (uint64_t i = 0; i < count; ++i) {
-      edges_.insert(edge_id_ + i);
+      CHECK(edges_.insert(edge_id_ + i).second)
+          << "Runner " << id_ << " edge with ID " << edge_id_ + i
+          << " shouldn't exist!";
     }
     edge_id_ += count;
   }
@@ -196,23 +224,14 @@ class GraphSession {
   void CreateEdge() {
     auto ret = Execute(
         fmt::format("MATCH (from:{} {{id: {}}}), (to:{} {{id: {}}}) "
-                    "CREATE (from)-[e:EdgeType {{id: "
-                    "counter(\"edge\", {})}}]->(to) RETURN e.id",
+                    "CREATE (from)-[e:EdgeType {{id: {}}}]->(to) RETURN 1",
                     indexed_label_, RandomElement(vertices_), indexed_label_,
                     RandomElement(vertices_), edge_id_));
     if (ret.records.size() > 0) {
-      edges_.insert(ret.records[0][0].ValueInt());
-      edge_id_ += 1;
-    }
-  }
-
-  void RemoveEdge() {
-    auto edge_id = RandomElement(edges_);
-    auto ret = Execute(
-        fmt::format("MATCH (:{})-[e {{id: {}}}]->(:{}) DELETE e RETURN 1",
-                    indexed_label_, edge_id, indexed_label_));
-    if (ret.records.size() > 0) {
-      edges_.erase(edge_id);
+      CHECK(edges_.insert(edge_id_).second)
+          << "Runner " << id_ << " edge with ID " << edge_id_
+          << " shouldn't exist!";
+      ++edge_id_;
     }
   }
 
@@ -221,9 +240,9 @@ class GraphSession {
     auto label = RandomElement(labels_);
     // add a label on a vertex that didn't have that label
     // yet (we need that for book-keeping)
-    auto ret = Execute(fmt::format(
-        "MATCH (v:{} {{id: {}}}) WHERE not v:{} SET v:{} RETURN v.id",
-        indexed_label_, vertex_id, label, label));
+    auto ret = Execute(
+        fmt::format("MATCH (v:{} {{id: {}}}) WHERE not v:{} SET v:{} RETURN 1",
+                    indexed_label_, vertex_id, label, label));
     if (ret.records.size() > 0) {
       labels_vertices_[label].insert(vertex_id);
     }
@@ -251,33 +270,42 @@ class GraphSession {
 
   /** Checks if the local info corresponds to DB state */
   void VerifyGraph() {
-    // helper lambda for count verification
-    auto test_count = [this](std::string query, int64_t count,
-                             std::string message) {
-      auto ret = Execute(query);
-      if (ret.records.size() == 0) {
-        throw utils::BasicException("Couldn't execute count!");
+    // helper lambda for set verification
+    auto test_set = [this](const auto &query, const auto &container,
+                           const auto &what) {
+      QueryDataT ret;
+      try {
+        ret = ExecuteWithoutCatch(query);
+      } catch (const ExceptionT &e) {
+        LOG(FATAL) << "Runner " << id_ << " couldn't execute " << what
+                   << " ID retrieval because of: " << e.what();
       }
-      if (ret.records[0][0].ValueInt() != count) {
-        throw utils::BasicException(
-            fmt::format(message, id_, count, ret.records[0][0].ValueInt()));
+      CHECK(ret.records.size() == container.size())
+          << "Runner " << id_ << " expected " << container.size() << " " << what
+          << ", found " << ret.records.size() << "!";
+      for (size_t i = 0; i < ret.records.size(); ++i) {
+        CHECK(ret.records[i].size() == 1)
+            << "Runner " << id_ << " received an invalid ID row for " << what
+            << "!";
+        auto id = ret.records[i][0].ValueInt();
+        CHECK(container.find(id) != container.end())
+            << "Runner " << id_ << " couldn't find ID " << id << " for " << what
+            << "! Examined " << i << " items out of " << ret.records.size()
+            << " items!";
       }
     };
 
-    test_count(fmt::format("MATCH (n:{}) RETURN count(n)", indexed_label_),
-               vertices_.size(), "Runner {} expected {} vertices, found {}!");
-    test_count(
-        fmt::format("MATCH (:{0})-[r]->(:{0}) RETURN count(r)", indexed_label_),
-        edges_.size(), "Runner {} expected {} edges, found {}!");
+    test_set(fmt::format("MATCH (n:{}) RETURN n.id", indexed_label_), vertices_,
+             "vertices");
+    test_set(
+        fmt::format("MATCH (:{0})-[r]->(:{0}) RETURN r.id", indexed_label_),
+        edges_, "edges");
 
     for (auto &item : labels_vertices_) {
-      test_count(
-          fmt::format("MATCH (n:{}:{}) RETURN count(n)", indexed_label_,
-                      item.first),
-          item.second.size(),
-          fmt::format(
-              "Runner {{}} expected {{}} vertices with label '{}', found {{}}!",
-              item.first));
+      test_set(fmt::format("MATCH (n:{}:{}) RETURN n.id", indexed_label_,
+                           item.first),
+               item.second,
+               fmt::format("vertices with label '{}'", item.first));
     }
 
     // generate report
@@ -359,6 +387,9 @@ class GraphSession {
         CreateVertices(1);
       }
     }
+
+    // final verification
+    VerifyGraph();
   }
 
   uint64_t GetExecutedQueries() { return executed_queries_; }

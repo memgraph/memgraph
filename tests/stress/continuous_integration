@@ -87,6 +87,13 @@ else:
     THREADS = multiprocessing.cpu_count()
 
 
+def wait_for_server(port, delay=0.1):
+    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
+    while subprocess.call(cmd) != 0:
+        time.sleep(0.01)
+    time.sleep(delay)
+
+
 # run test helper function
 def run_test(args, test, options, timeout):
     print("Running test '{}'".format(test))
@@ -167,7 +174,8 @@ if args.data_directory:
 if args.use_ssl:
     cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
 proc_mg = subprocess.Popen(cmd, cwd = cwd)
-time.sleep(1.0)
+wait_for_server(7687)
+assert proc_mg.poll() is None, "The database binary died prematurely!"
 
 # at exit cleanup
 @atexit.register
