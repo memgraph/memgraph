@@ -46,10 +46,12 @@ class ModulePtr final {
 
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.
 class ModuleRegistry final {
-  std::unordered_map<std::string, Module> modules_;
+  std::map<std::string, Module, std::less<>> modules_;
   utils::RWLock lock_{utils::RWLock::Priority::WRITE};
 
  public:
+  ModuleRegistry();
+
   /// Load a module from the given path and return true if successful.
   ///
   /// A write lock is taken during the execution of this method. Loading a
@@ -64,17 +66,18 @@ class ModuleRegistry final {
   ModulePtr GetModuleNamed(const std::string_view &name);
 
   /// Reload a module with given name and return true if successful.
-  /// Takes a write lock. If false was returned, then the module is no longer
-  /// registered.
+  /// Takes a write lock. Builtin modules cannot be reloaded, though true will
+  /// be returned if you try to do so. If false was returned, then the module is
+  /// no longer registered.
   bool ReloadModuleNamed(const std::string_view &name);
 
-  /// Reload all loaded modules and return true if successful.
+  /// Reload all loaded (non-builtin) modules and return true if successful.
   /// Takes a write lock. If false was returned, the module which failed to
   /// reload is no longer registered. Remaining modules may or may not be
   /// reloaded, but are valid and registered.
   bool ReloadAllModules();
 
-  /// Remove all loaded modules.
+  /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.
   void UnloadAllModules();
 };

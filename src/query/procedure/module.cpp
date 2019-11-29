@@ -74,12 +74,82 @@ bool CloseModule(Module *module) {
   return true;
 }
 
+bool IsBuiltinModule(const Module &module) { return module.handle == nullptr; }
+
+void RegisterMgProcedures(
+    // We expect modules to be sorted by name.
+    const std::map<std::string, Module, std::less<>> *all_modules,
+    Module *module) {
+  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *,
+                                     mgp_result *result, mgp_memory *memory) {
+    // Iterating over all_modules assumes that the standard mechanism of custom
+    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+    // For details on how the invocation is done, take a look at the
+    // CallProcedureCursor::Pull implementation.
+    for (const auto &[module_name, module] : *all_modules) {
+      // Return the results in sorted order by module and by procedure.
+      static_assert(
+          std::is_same_v<decltype(module.procedures),
+                         std::map<std::string, mgp_proc, std::less<>>>,
+          "Expected module procedures to be sorted by name");
+      for (const auto &[proc_name, proc] : module.procedures) {
+        auto *record = mgp_result_new_record(result);
+        if (!record) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        utils::pmr::string full_name(module_name, memory->impl);
+        full_name.append(1, '.');
+        full_name.append(proc_name);
+        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
+        if (!name_value) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        std::stringstream ss;
+        ss << module_name << ".";
+        PrintProcSignature(proc, &ss);
+        const auto signature = ss.str();
+        auto *signature_value =
+            mgp_value_make_string(signature.c_str(), memory);
+        if (!signature_value) {
+          mgp_value_destroy(name_value);
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        int succ1 = mgp_result_record_insert(record, "name", name_value);
+        int succ2 =
+            mgp_result_record_insert(record, "signature", signature_value);
+        mgp_value_destroy(name_value);
+        mgp_value_destroy(signature_value);
+        if (!succ1 || !succ2) {
+          mgp_result_set_error_msg(result, "Unable to set the result!");
+          return;
+        }
+      }
+    }
+  };
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
+  mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
+  module->procedures.emplace("procedures", std::move(procedures));
+}
+
 }  // namespace
+
+ModuleRegistry::ModuleRegistry() {
+  Module module{.handle = nullptr};
+  RegisterMgProcedures(&modules_, &module);
+  modules_.emplace("mg", std::move(module));
+}
 
 bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
   std::unique_lock<utils::RWLock> guard(lock_);
   std::string module_name(path.stem());
-  if (modules_.find(module_name) != modules_.end()) return true;
+  if (modules_.find(module_name) != modules_.end()) {
+    LOG(ERROR) << "Unable to overwrite an already loaded module " << path;
+    return false;
+  }
   auto maybe_module = LoadModuleFromSharedLibrary(path);
   if (!maybe_module) return false;
   modules_[module_name] = std::move(*maybe_module);
@@ -88,22 +158,21 @@ bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
 
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view &name) {
   std::shared_lock<utils::RWLock> guard(lock_);
-  // NOTE: std::unordered_map::find cannot work with std::string_view :(
-  auto found_it = modules_.find(std::string(name));
+  auto found_it = modules_.find(name);
   if (found_it == modules_.end()) return nullptr;
   return ModulePtr(&found_it->second, std::move(guard));
 }
 
 bool ModuleRegistry::ReloadModuleNamed(const std::string_view &name) {
   std::unique_lock<utils::RWLock> guard(lock_);
-  // NOTE: std::unordered_map::find cannot work with std::string_view :(
-  auto found_it = modules_.find(std::string(name));
+  auto found_it = modules_.find(name);
   if (found_it == modules_.end()) {
     LOG(ERROR) << "Trying to reload module '" << name
                << "' which is not loaded.";
     return false;
   }
   auto &module = found_it->second;
+  if (IsBuiltinModule(module)) return true;
   if (!CloseModule(&module)) {
     modules_.erase(found_it);
     return false;
@@ -120,6 +189,7 @@ bool ModuleRegistry::ReloadModuleNamed(const std::string_view &name) {
 bool ModuleRegistry::ReloadAllModules() {
   std::unique_lock<utils::RWLock> guard(lock_);
   for (auto &[name, module] : modules_) {
+    if (IsBuiltinModule(module)) continue;
     if (!CloseModule(&module)) {
       modules_.erase(name);
       return false;
@@ -136,7 +206,10 @@ bool ModuleRegistry::ReloadAllModules() {
 
 void ModuleRegistry::UnloadAllModules() {
   std::unique_lock<utils::RWLock> guard(lock_);
-  for (auto &name_and_module : modules_) CloseModule(&name_and_module.second);
+  for (auto &name_and_module : modules_) {
+    if (IsBuiltinModule(name_and_module.second)) continue;
+    CloseModule(&name_and_module.second);
+  }
   modules_.clear();
 }
 

@@ -489,6 +489,19 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
+  mgp_proc(const char *name,
+           std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
+                              mgp_memory *)>
+               cb,
+           utils::MemoryResource *memory)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
   mgp_proc(const mgp_proc &other, utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),
