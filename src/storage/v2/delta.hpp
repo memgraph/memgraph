@@ -90,6 +90,24 @@ class PreviousPtr {
   std::atomic<uintptr_t> storage_;
 };
 
+inline bool operator==(const PreviousPtr::Pointer &a,
+                       const PreviousPtr::Pointer &b) {
+  if (a.type != b.type) return false;
+  switch (a.type) {
+    case PreviousPtr::Type::VERTEX:
+      return a.vertex == b.vertex;
+    case PreviousPtr::Type::EDGE:
+      return a.edge == b.edge;
+    case PreviousPtr::Type::DELTA:
+      return a.delta == b.delta;
+  }
+}
+
+inline bool operator!=(const PreviousPtr::Pointer &a,
+                       const PreviousPtr::Pointer &b) {
+  return !(a == b);
+}
+
 struct Delta {
   enum class Action {
     // Used for both Vertex and Edge

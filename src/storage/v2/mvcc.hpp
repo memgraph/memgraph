@@ -92,11 +92,22 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
   // chains are valid at all times. The chains must be valid at all times
   // because garbage collection (which traverses the chains) is done
   // concurrently (as well as other execution threads).
+
+  // 1. We need to set the next delta of the new delta to the existing delta.
+  delta->next.store(object->delta, std::memory_order_release);
+  // 2. We need to set the previous delta of the new delta to the object.
   delta->prev.Set(object);
+  // 3. We need to set the previous delta of the existing delta to the new
+  // delta. After this point the garbage collector will be able to see the new
+  // delta but won't modify it until we are done with all of our modifications.
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
-  delta->next.store(object->delta, std::memory_order_release);
+  // 4. Finally, we need to set the object's delta to the new delta. The garbage
+  // collector and other transactions will acquire the object lock to read the
+  // delta from the object. Because the lock is held during the whole time this
+  // modification is being done, everybody else will wait until we are fully
+  // done with our modification before they read the object's delta value.
   object->delta = delta;
 }
 

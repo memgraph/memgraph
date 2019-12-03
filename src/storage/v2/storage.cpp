@@ -1086,8 +1086,9 @@ void Storage::CollectGarbage() {
       transaction = &committed_transactions_ptr->front();
     }
 
-    if (transaction->commit_timestamp->load(std::memory_order_acquire) >=
-        oldest_active_start_timestamp) {
+    auto commit_timestamp =
+        transaction->commit_timestamp->load(std::memory_order_acquire);
+    if (commit_timestamp >= oldest_active_start_timestamp) {
       break;
     }
 
@@ -1109,6 +1110,18 @@ void Storage::CollectGarbage() {
     // When processing a delta that is the first one in its chain, we
     // obtain the corresponding vertex or edge lock, and then verify that this
     // delta still is the first in its chain.
+    // When processing a delta that is in the middle of the chain we only
+    // process the final delta of the given transaction in that chain. We
+    // determine the owner of the chain (either a vertex or an edge), obtain the
+    // corresponding lock, and then verify that this delta is still in the same
+    // position as it was before taking the lock.
+    //
+    // Even though the delta chain is lock-free (both `next` and `prev`) the
+    // chain should not be modified without taking the lock from the object that
+    // owns the chain (either a vertex or an edge). Modifying the chain without
+    // taking the lock will cause subtle race conditions that will leave the
+    // chain in a broken state.
+    // The chain can be only read without taking any locks.
 
     for (Delta &delta : transaction->deltas) {
       while (true) {
@@ -1143,6 +1156,38 @@ void Storage::CollectGarbage() {
             break;
           }
           case PreviousPtr::Type::DELTA: {
+            if (prev.delta->timestamp->load(std::memory_order_release) ==
+                commit_timestamp) {
+              // The delta that is newer than this one is also a delta from this
+              // transaction. We skip the current delta and will remove it as a
+              // part of the suffix later.
+              break;
+            }
+            std::unique_lock<utils::SpinLock> guard;
+            {
+              // We need to find the parent object in order to be able to use
+              // its lock.
+              auto parent = prev;
+              while (parent.type == PreviousPtr::Type::DELTA) {
+                parent = parent.delta->prev.Get();
+              }
+              switch (parent.type) {
+                case PreviousPtr::Type::VERTEX:
+                  guard =
+                      std::unique_lock<utils::SpinLock>(parent.vertex->lock);
+                  break;
+                case PreviousPtr::Type::EDGE:
+                  guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
+                  break;
+                case PreviousPtr::Type::DELTA:
+                  LOG(FATAL) << "Invalid database state!";
+              }
+            }
+            if (delta.prev.Get() != prev) {
+              // Something changed, we could now be the first delta in the
+              // chain.
+              continue;
+            }
             Delta *prev_delta = prev.delta;
             prev_delta->next.store(nullptr, std::memory_order_release);
             break;
