@@ -1,11 +1,10 @@
 #include "data_structures/graph.hpp"
 
+#include <exception>
 #include <numeric>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include <glog/logging.h>
 
 namespace comdata {
 
@@ -22,15 +21,9 @@ uint32_t Graph::Size() const {
   return n_nodes_;
 }
 
-uint32_t Graph::Community(uint32_t node) const {
-  CHECK(node < n_nodes_) << "Node index out of range";
-  return community_[node];
-}
+uint32_t Graph::Community(uint32_t node) const { return community_.at(node); }
 
-void Graph::SetCommunity(uint32_t node, uint32_t c) {
-  CHECK(node < n_nodes_) << "Node index out of range";
-  community_[node] = c;
-}
+void Graph::SetCommunity(uint32_t node, uint32_t c) { community_.at(node) = c; }
 
 uint32_t Graph::NormalizeCommunities() {
   std::set<uint32_t> c_id(community_.begin(), community_.end());
@@ -46,10 +39,11 @@ uint32_t Graph::NormalizeCommunities() {
 }
 
 void Graph::AddEdge(uint32_t node1, uint32_t node2, double weight) {
-  CHECK(node1 < n_nodes_) << "Node index out of range";
-  CHECK(node2 < n_nodes_) << "Node index out of range";
-  CHECK(weight > 0) << "Weights must be positive";
-  CHECK(edges_.find({node1, node2}) == edges_.end()) << "Edge already exists";
+  if (node1 >= n_nodes_ || node2 >= n_nodes_)
+    throw std::out_of_range("Node index out of range");
+  if (weight <= 0) throw std::out_of_range("Weights must be positive");
+  if (edges_.find({node1, node2}) != edges_.end())
+    throw std::invalid_argument("Edge already exists");
 
   edges_.emplace(node1, node2);
   edges_.emplace(node2, node1);
@@ -66,13 +60,11 @@ void Graph::AddEdge(uint32_t node1, uint32_t node2, double weight) {
 }
 
 uint32_t Graph::Degree(uint32_t node) const {
-  CHECK(node < n_nodes_) << "Node index out of range";
-  return static_cast<uint32_t>(adj_list_[node].size());
+  return static_cast<uint32_t>(adj_list_.at(node).size());
 }
 
 double Graph::IncidentWeight(uint32_t node) const {
-  CHECK(node < n_nodes_) << "Node index out of range";
-  return inc_w_[node];
+  return inc_w_.at(node);
 }
 
 double Graph::TotalWeight() const {
@@ -98,9 +90,8 @@ double Graph::Modularity() const {
   return ret;
 }
 
-const std::vector<Neighbour>& Graph::Neighbours(uint32_t node) const {
-  CHECK(node < n_nodes_) << "Node index out of range";
-  return adj_list_[node];
+const std::vector<Neighbour> &Graph::Neighbours(uint32_t node) const {
+  return adj_list_.at(node);
 }
 
 } // namespace comdata

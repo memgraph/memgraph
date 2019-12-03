@@ -40,16 +40,24 @@ public:
   /// @param node1 index of an incident node.
   /// @param node2 index of an incident node.
   /// @param weight real value which represents the weight of the edge.
+  ///
+  /// @throw std::out_of_range
+  /// @throw std::invalid_argument
   void AddEdge(uint32_t node1, uint32_t node2, double weight);
 
   /// @param node index of node.
+  ///
   /// @return community where the node belongs to.
+  ///
+  /// @throw std::out_of_range
   uint32_t Community(uint32_t node) const;
 
   /// Adds a given node to a given community.
   ///
   /// @param node index of node.
   /// @param c community where the given node should go in.
+  ///
+  /// @throw std::out_of_range
   void SetCommunity(uint32_t node, uint32_t c);
 
   /// Normalizes the values of communities. More precisely, after invoking this
@@ -65,14 +73,20 @@ public:
   /// contribute a single edge to the degree.
   ///
   /// @param node index of node.
+  ///
   /// @return degree of given node.
+  ///
+  /// @throw std::out_of_range
   uint32_t Degree(uint32_t node) const;
 
   /// Returns the total weight of incident edges to a given node. Weight
   /// of a self loop contributes once to the total sum.
   ///
   /// @param node index of node.
+  ///
   /// @return total incident weight of a given node.
+  ///
+  /// @throw std::out_of_range
   double IncidentWeight(uint32_t node) const;
 
   /// @return total weight of all edges in a graph.
@@ -91,7 +105,10 @@ public:
   /// Returns nodes adjacent to a given node.
   ///
   /// @param node index of node.
+  ///
   /// @return list of neighbouring nodes.
+  ///
+  /// @throw std::out_of_range
   const std::vector<Neighbour>& Neighbours(uint32_t node) const;
 
 private:

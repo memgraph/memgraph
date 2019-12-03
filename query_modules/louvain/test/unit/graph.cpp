@@ -70,12 +70,12 @@ TEST(Graph, Communities) {
   for (int i = 0; i < 100; ++i) ASSERT_EQ(graph.Community(i), i % 5);
 
   // Try to set communities on non-existing nodes
-  ASSERT_DEATH({ graph.SetCommunity(100, 2); }, "");
-  ASSERT_DEATH({ graph.SetCommunity(150, 0); }, "");
+  EXPECT_THROW({ graph.SetCommunity(100, 2); }, std::out_of_range);
+  EXPECT_THROW({ graph.SetCommunity(150, 0); }, std::out_of_range);
 
   // Try to get a the community of a non-existing node
-  ASSERT_DEATH({ graph.Community(100); }, "");
-  ASSERT_DEATH({ graph.Community(150); }, "");
+  EXPECT_THROW({ graph.Community(100); }, std::out_of_range);
+  EXPECT_THROW({ graph.Community(150); }, std::out_of_range);
 }
 
 TEST(Graph, CommunityNormalization) {
@@ -108,15 +108,15 @@ TEST(Graph, AddEdge) {
   comdata::Graph graph = GenRandomUnweightedGraph(5, 0);
 
   // Node out of bounds.
-  ASSERT_DEATH({ graph.AddEdge(1, 5, 7); }, "");
+  EXPECT_THROW({ graph.AddEdge(1, 5, 7); }, std::out_of_range);
 
   // Repeated edge
   graph.AddEdge(1, 2, 1);
-  ASSERT_DEATH({ graph.AddEdge(1, 2, 7); }, "");
+  EXPECT_THROW({ graph.AddEdge(1, 2, 7); }, std::invalid_argument);
 
   // Non-positive edge weight
-  ASSERT_DEATH({ graph.AddEdge(2, 3, -7); }, "");
-  ASSERT_DEATH({ graph.AddEdge(3, 4, 0); }, "");
+  EXPECT_THROW({ graph.AddEdge(2, 3, -7); }, std::out_of_range);
+  EXPECT_THROW({ graph.AddEdge(3, 4, 0); }, std::out_of_range);
 }
 
 TEST(Graph, Degrees) {
@@ -183,8 +183,8 @@ TEST(Graph, Degrees) {
   ASSERT_TRUE(DegreeCheck(graph, deg));
 
   // Try to get degree of non-existing nodes
-  ASSERT_DEATH({ graph.Degree(5); }, "");
-  ASSERT_DEATH({ graph.Degree(100); }, "");
+  EXPECT_THROW({ graph.Degree(5); }, std::out_of_range);
+  EXPECT_THROW({ graph.Degree(100); }, std::out_of_range);
 }
 
 TEST(Graph, Weights) {
@@ -256,8 +256,8 @@ TEST(Graph, Weights) {
   EXPECT_NEAR(graph.TotalWeight(), 5.5, 1e-6);
 
   // Try to get incident weight of non-existing node
-  ASSERT_DEATH({ graph.IncidentWeight(5); }, "");
-  ASSERT_DEATH({ graph.IncidentWeight(100); }, "");
+  EXPECT_THROW({ graph.IncidentWeight(5); }, std::out_of_range);
+  EXPECT_THROW({ graph.IncidentWeight(100); }, std::out_of_range);
 }
 
 TEST(Graph, Modularity) {

@@ -5,8 +5,6 @@
 #include <random>
 #include <unordered_map>
 
-#include <glog/logging.h>
-
 namespace {
 
 void OptimizeLocally(comdata::Graph *graph) {
