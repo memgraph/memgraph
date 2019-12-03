@@ -2275,9 +2275,9 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
             storage::Error::NONEXISTENT_OBJECT);
   ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges({}, storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges({}, storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
   ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
@@ -2290,8 +2290,8 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
   ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
             storage::PropertyValue());
-  ASSERT_EQ(vertex.InEdges({}, storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex.OutEdges({}, storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.InEdges(storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.OutEdges(storage::View::NEW)->size(), 0);
   ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 0);
   ASSERT_EQ(*vertex.OutDegree(storage::View::NEW), 0);
 
@@ -2311,9 +2311,9 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
             storage::Error::NONEXISTENT_OBJECT);
   ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges({}, storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges({}, storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
   ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
             storage::Error::NONEXISTENT_OBJECT);
@@ -2326,8 +2326,8 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 1);
   ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
             storage::PropertyValue("value"));
-  ASSERT_EQ(vertex.InEdges({}, storage::View::NEW)->size(), 1);
-  ASSERT_EQ(vertex.OutEdges({}, storage::View::NEW)->size(), 1);
+  ASSERT_EQ(vertex.InEdges(storage::View::NEW)->size(), 1);
+  ASSERT_EQ(vertex.OutEdges(storage::View::NEW)->size(), 1);
   ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 1);
   ASSERT_EQ(*vertex.OutDegree(storage::View::NEW), 1);
 

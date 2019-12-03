@@ -65,18 +65,19 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  // TODO: Add API for obtaining edges filtered by destination VertexAccessor
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> InEdges(
-      const std::vector<EdgeTypeId> &edge_types, View view) const;
+      View view, const std::vector<EdgeTypeId> &edge_types = {},
+      const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> OutEdges(
-      const std::vector<EdgeTypeId> &edge_types, View view) const;
+      View view, const std::vector<EdgeTypeId> &edge_types = {},
+      const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

@@ -326,7 +326,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               acc.FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices],
                              storage::View::OLD);
           ASSERT_TRUE(vertex1);
-          auto out_edges = vertex1->OutEdges({}, storage::View::OLD);
+          auto out_edges = vertex1->OutEdges(storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
           auto edge1 = find_edge(*out_edges);
           ASSERT_TRUE(edge1);
@@ -351,7 +351,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               acc.FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices],
                              storage::View::OLD);
           ASSERT_TRUE(vertex2);
-          auto in_edges = vertex2->InEdges({}, storage::View::OLD);
+          auto in_edges = vertex2->InEdges(storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
           auto edge2 = find_edge(*in_edges);
           ASSERT_TRUE(edge2);
@@ -479,7 +479,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               extended_vertex_gids_[(i / 5) % kNumExtendedVertices],
               storage::View::OLD);
           ASSERT_TRUE(vertex1);
-          auto out_edges = vertex1->OutEdges({}, storage::View::OLD);
+          auto out_edges = vertex1->OutEdges(storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
           auto edge1 = find_edge(*out_edges);
           ASSERT_TRUE(edge1);
@@ -498,7 +498,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               extended_vertex_gids_[(i / 6) % kNumExtendedVertices],
               storage::View::OLD);
           ASSERT_TRUE(vertex2);
-          auto in_edges = vertex2->InEdges({}, storage::View::OLD);
+          auto in_edges = vertex2->InEdges(storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
           auto edge2 = find_edge(*in_edges);
           ASSERT_TRUE(edge2);
@@ -1141,7 +1141,7 @@ TEST_F(DurabilityTest,
     {
       auto acc = store.Access();
       for (auto vertex : acc.Vertices(storage::View::OLD)) {
-        auto in_edges = vertex.InEdges({}, storage::View::OLD);
+        auto in_edges = vertex.InEdges(storage::View::OLD);
         ASSERT_TRUE(in_edges.HasValue());
         for (auto edge : *in_edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
@@ -1152,7 +1152,7 @@ TEST_F(DurabilityTest,
                             .HasValue());
           }
         }
-        auto out_edges = vertex.InEdges({}, storage::View::OLD);
+        auto out_edges = vertex.InEdges(storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
         for (auto edge : *out_edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
@@ -1397,10 +1397,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto props = v1->Properties(storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
       ASSERT_EQ(props->size(), 0);
-      auto in_edges = v1->InEdges({}, storage::View::OLD);
+      auto in_edges = v1->InEdges(storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 0);
-      auto out_edges = v1->OutEdges({}, storage::View::OLD);
+      auto out_edges = v1->OutEdges(storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
       ASSERT_EQ(out_edges->size(), 1);
       const auto &edge = (*out_edges)[0];
@@ -1426,7 +1426,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_THAT(*props, UnorderedElementsAre(
                               std::make_pair(store.NameToProperty("hello"),
                                              storage::PropertyValue("world"))));
-      auto in_edges = v2->InEdges({}, storage::View::OLD);
+      auto in_edges = v2->InEdges(storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 1);
       const auto &edge = (*in_edges)[0];
@@ -1440,7 +1440,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       } else {
         ASSERT_EQ(edge_props->size(), 0);
       }
-      auto out_edges = v2->OutEdges({}, storage::View::OLD);
+      auto out_edges = v2->OutEdges(storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
       ASSERT_EQ(out_edges->size(), 0);
     }
@@ -1455,10 +1455,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_THAT(*props,
                   UnorderedElementsAre(std::make_pair(
                       store.NameToProperty("v3"), storage::PropertyValue(42))));
-      auto in_edges = v3->InEdges({}, storage::View::OLD);
+      auto in_edges = v3->InEdges(storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 0);
-      auto out_edges = v3->OutEdges({}, storage::View::OLD);
+      auto out_edges = v3->OutEdges(storage::View::OLD);
       ASSERT_TRUE(out_edges.HasValue());
       ASSERT_EQ(out_edges->size(), 0);
     }

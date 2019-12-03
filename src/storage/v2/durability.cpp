@@ -1660,9 +1660,9 @@ void Durability::CreateSnapshot(Transaction *transaction) {
       CHECK(maybe_labels.HasValue()) << "Invalid database state!";
       auto maybe_props = va->Properties(View::OLD);
       CHECK(maybe_props.HasValue()) << "Invalid database state!";
-      auto maybe_in_edges = va->InEdges({}, View::OLD);
+      auto maybe_in_edges = va->InEdges(View::OLD);
       CHECK(maybe_in_edges.HasValue()) << "Invalid database state!";
-      auto maybe_out_edges = va->OutEdges({}, View::OLD);
+      auto maybe_out_edges = va->OutEdges(View::OLD);
       CHECK(maybe_out_edges.HasValue()) << "Invalid database state!";
 
       // Store the vertex.

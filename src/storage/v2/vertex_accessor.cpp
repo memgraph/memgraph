@@ -348,7 +348,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
-    const std::vector<EdgeTypeId> &edge_types, View view) const {
+    View view, const std::vector<EdgeTypeId> &edge_types,
+    const VertexAccessor *destination) const {
+  CHECK(!destination || destination->transaction_ == transaction_)
+      << "Invalid accessor!";
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
@@ -356,14 +359,33 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    in_edges = vertex_->in_edges;
+    if (edge_types.empty() && !destination) {
+      in_edges = vertex_->in_edges;
+    } else {
+      for (const auto &item : vertex_->in_edges) {
+        const auto &[edge_type, from_vertex, edge] = item;
+        if (destination && from_vertex != destination->vertex_) continue;
+        if (!edge_types.empty() &&
+            std::find(edge_types.begin(), edge_types.end(), edge_type) ==
+                edge_types.end())
+          continue;
+        in_edges.push_back(item);
+      }
+    }
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
       transaction_, delta, view,
-      [&exists, &deleted, &in_edges](const Delta &delta) {
+      [&exists, &deleted, &in_edges, &edge_types,
+       &destination](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_)
+              break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(),
+                          delta.vertex_edge.edge_type) == edge_types.end())
+              break;
             // Add the edge because we don't see the removal.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -374,6 +396,12 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
             break;
           }
           case Delta::Action::REMOVE_IN_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_)
+              break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(),
+                          delta.vertex_edge.edge_type) == edge_types.end())
+              break;
             // Remove the label because we don't see the addition.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -405,18 +433,18 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
   std::vector<EdgeAccessor> ret;
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
-    auto [edge_type, from_vertex, edge] = item;
-    if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
-                                        edge_type) != edge_types.end()) {
-      ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_,
-                       indices_, config_);
-    }
+    const auto &[edge_type, from_vertex, edge] = item;
+    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_,
+                     indices_, config_);
   }
   return std::move(ret);
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
-    const std::vector<EdgeTypeId> &edge_types, View view) const {
+    View view, const std::vector<EdgeTypeId> &edge_types,
+    const VertexAccessor *destination) const {
+  CHECK(!destination || destination->transaction_ == transaction_)
+      << "Invalid accessor!";
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -424,14 +452,33 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    out_edges = vertex_->out_edges;
+    if (edge_types.empty() && !destination) {
+      out_edges = vertex_->out_edges;
+    } else {
+      for (const auto &item : vertex_->out_edges) {
+        const auto &[edge_type, to_vertex, edge] = item;
+        if (destination && to_vertex != destination->vertex_) continue;
+        if (!edge_types.empty() &&
+            std::find(edge_types.begin(), edge_types.end(), edge_type) ==
+                edge_types.end())
+          continue;
+        out_edges.push_back(item);
+      }
+    }
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
       transaction_, delta, view,
-      [&exists, &deleted, &out_edges](const Delta &delta) {
+      [&exists, &deleted, &out_edges, &edge_types,
+       &destination](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_)
+              break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(),
+                          delta.vertex_edge.edge_type) == edge_types.end())
+              break;
             // Add the edge because we don't see the removal.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -442,6 +489,12 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
             break;
           }
           case Delta::Action::REMOVE_OUT_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_)
+              break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(),
+                          delta.vertex_edge.edge_type) == edge_types.end())
+              break;
             // Remove the label because we don't see the addition.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -473,12 +526,9 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
   std::vector<EdgeAccessor> ret;
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
-    auto [edge_type, to_vertex, edge] = item;
-    if (edge_types.empty() || std::find(edge_types.begin(), edge_types.end(),
-                                        edge_type) != edge_types.end()) {
-      ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_,
-                       indices_, config_);
-    }
+    const auto &[edge_type, to_vertex, edge] = item;
+    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_,
+                     indices_, config_);
   }
   return std::move(ret);
 }

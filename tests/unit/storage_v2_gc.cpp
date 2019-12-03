@@ -129,7 +129,7 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc.FindVertex(vertices[i], storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0 && i % 3 != 0);
       if (vertex.has_value()) {
-        auto out_edges = vertex->OutEdges({}, storage::View::NEW);
+        auto out_edges = vertex->OutEdges(storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.GetValue().size(), 1);
           EXPECT_EQ(*vertex->OutDegree(storage::View::NEW), 1);
@@ -138,7 +138,7 @@ TEST(StorageV2Gc, Sanity) {
           EXPECT_TRUE(out_edges->empty());
         }
 
-        auto in_edges = vertex->InEdges({}, storage::View::NEW);
+        auto in_edges = vertex->InEdges(storage::View::NEW);
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetValue().size(), 1);
           EXPECT_EQ(*vertex->InDegree(storage::View::NEW), 1);

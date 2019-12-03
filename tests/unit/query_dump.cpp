@@ -135,7 +135,7 @@ DatabaseState GetState(storage::Storage *db) {
   // Capture all edges
   std::set<DatabaseState::Edge> edges;
   for (const auto &vertex : dba.Vertices(storage::View::NEW)) {
-    auto maybe_edges = vertex.OutEdges({}, storage::View::NEW);
+    auto maybe_edges = vertex.OutEdges(storage::View::NEW);
     CHECK(maybe_edges.HasValue());
     for (const auto &edge : *maybe_edges) {
       const auto &edge_type_name = dba.EdgeTypeToName(edge.EdgeType());
