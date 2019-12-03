@@ -268,7 +268,8 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
                                   const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
-  it->second.access().insert(Entry{vertex, tx.start_timestamp});
+  auto acc = it->second.access();
+  acc.insert(Entry{vertex, tx.start_timestamp});
 }
 
 bool LabelIndex::CreateIndex(LabelId label,
@@ -394,16 +395,10 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
     if (label_prop.first != label) {
       continue;
     }
-    PropertyValue value;
-    {
-      utils::SpinLock guard(vertex->lock);
-      auto it = vertex->properties.find(label_prop.second);
-      if (it != vertex->properties.end()) {
-        value = it->second;
-      }
-    }
-    if (!value.IsNull()) {
-      storage.access().insert(Entry{value, vertex, tx.start_timestamp});
+    auto it = vertex->properties.find(label_prop.second);
+    if (it != vertex->properties.end() && !it->second.IsNull()) {
+      auto acc = storage.access();
+      acc.insert(Entry{it->second, vertex, tx.start_timestamp});
     }
   }
 }
@@ -419,13 +414,9 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property,
     if (label_prop.second != property) {
       continue;
     }
-    bool has_label;
-    {
-      utils::SpinLock guard(vertex->lock);
-      has_label = utils::Contains(vertex->labels, label_prop.first);
-    }
-    if (has_label) {
-      storage.access().insert(Entry{value, vertex, tx.start_timestamp});
+    if (utils::Contains(vertex->labels, label_prop.first)) {
+      auto acc = storage.access();
+      acc.insert(Entry{value, vertex, tx.start_timestamp});
     }
   }
 }
