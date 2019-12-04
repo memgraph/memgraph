@@ -20,7 +20,8 @@ static void communities(const mgp_list *args, const mgp_graph *graph,
 
   uint32_t louv_id = 0;
   for (const mgp_vertex *vertex = mgp_vertices_iterator_get(vertices_iterator);
-       vertex != nullptr; vertex = mgp_vertices_iterator_next(vertices_iterator)) {
+       vertex != nullptr;
+       vertex = mgp_vertices_iterator_next(vertices_iterator)) {
     mgp_vertex_id mem_id = mgp_vertex_get_id(vertex);
     mem_to_louv_id[mem_id.as_int] = louv_id;
     ++louv_id;
@@ -54,8 +55,21 @@ static void communities(const mgp_list *args, const mgp_graph *graph,
       mgp_vertex_id next_mem_id = mgp_vertex_get_id(next_vertex);
       uint32_t next_louv_id = mem_to_louv_id[next_mem_id.as_int];
 
-      // TODO(ipaljak): retrieve edge weight (default to 1)
+      // retrieve edge weight (default to 1)
+      mgp_value *weight_prop = mgp_edge_get_property(edge, "weight", memory);
+      if (!weight_prop) {
+        mgp_vertex_destroy(vertex);
+        mgp_edges_iterator_destroy(edges_iterator);
+        mgp_result_set_error_msg(result, "Not enough memory");
+      }
+
       double weight = 1;
+      if (mgp_value_is_double(weight_prop))
+        weight = mgp_value_get_double(weight_prop);
+      if (mgp_value_is_int(weight_prop))
+        weight = static_cast<double>(mgp_value_get_int(weight_prop));
+
+      mgp_value_destroy(weight_prop);
 
       try {
         louvain_graph.AddEdge(p.second, next_louv_id, weight);
