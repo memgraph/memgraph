@@ -28,6 +28,28 @@ class SpinLock {
         << "Couldn't construct utils::SpinLock!";
   }
 
+  SpinLock(SpinLock &&other) noexcept : lock_(other.lock_) {
+    CHECK(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0)
+        << "Couldn't construct utils::SpinLock!";
+  }
+
+  SpinLock &operator=(SpinLock &&other) noexcept {
+    CHECK(pthread_spin_destroy(&lock_) == 0)
+        << "Couldn't destruct utils::SpinLock!";
+    lock_ = other.lock_;
+    CHECK(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0)
+        << "Couldn't construct utils::SpinLock!";
+    return *this;
+  }
+
+  SpinLock(const SpinLock &) = delete;
+  SpinLock &operator=(const SpinLock &) = delete;
+
+  ~SpinLock() {
+    CHECK(pthread_spin_destroy(&lock_) == 0)
+        << "Couldn't destruct utils::SpinLock!";
+  }
+
   void lock() {
     // `pthread_spin_lock` returns -1 only when there is a deadlock detected
     // (errno EDEADLOCK).
@@ -45,11 +67,6 @@ class SpinLock {
     // so any error is a fatal error.
     CHECK(pthread_spin_unlock(&lock_) == 0)
         << "Couldn't unlock utils::SpinLock!";
-  }
-
-  ~SpinLock() {
-    CHECK(pthread_spin_destroy(&lock_) == 0)
-        << "Couldn't destruct utils::SpinLock!";
   }
 
  private:
