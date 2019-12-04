@@ -12,3 +12,11 @@ target_link_libraries(mg-auth mg-utils)
 
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
+
+# Install reference auth modules and their configuration files.
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/example.py
+        DESTINATION lib/memgraph/auth_module)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
+        DESTINATION lib/memgraph/auth_module)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
+        DESTINATION /etc/memgraph/auth_module)
