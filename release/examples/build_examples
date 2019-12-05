@@ -46,8 +46,8 @@ do
 
   # run memgraph with durability_directory pointing
   # to examples snapshots_dir
-  ${memgraph_exe} --durability-directory "$script_dir/$snapshots_dir/" \
-                  --snapshot-on-exit > /dev/null 2>&1 &
+  ${memgraph_exe} --data-directory "$script_dir/$snapshots_dir/" \
+                  --storage-snapshot-on-exit > /dev/null 2>&1 &
   memgraph_pid=$!
   sleep 2 # wait for memgraph to start
 

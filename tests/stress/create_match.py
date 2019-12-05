@@ -96,6 +96,10 @@ def create_handler():
     with argument_session(args) as session:
         session.run("MATCH (n) DETACH DELETE n").consume()
 
+        # create indices
+        for i in range(args.worker_count):
+            session.run("CREATE INDEX ON :Label_T" + str(i)).consume()
+
         # concurrent create execution & tests
         with multiprocessing.Pool(args.worker_count) as p:
             for worker_id, create_time, time_unit in \

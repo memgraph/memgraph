@@ -52,6 +52,9 @@ def vertex(vertex_index):
 
 def main():
     # create an index to speed setup up
+    print("CREATE INDEX ON :" + LABEL_INDEX + ";")
+    for i in range(LABEL_COUNT):
+        print("CREATE INDEX ON :" + LABEL_PREFIX + str(i) + ";")
     print("CREATE INDEX ON :%s(%s);" % (LABEL_INDEX, ID))
 
     # we batch CREATEs because to speed creation up

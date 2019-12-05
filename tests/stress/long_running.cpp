@@ -141,26 +141,28 @@ class GraphSession {
 
   void RemoveVertex() {
     auto vertex_id = RandomElement(vertices_);
-    auto ret =
-        Execute(fmt::format("MATCH (n:{} {{id: {}}}) OPTIONAL MATCH (n)-[r]-() "
-                            "DETACH DELETE n RETURN n.id, labels(n), r.id",
-                            indexed_label_, vertex_id));
+    auto ret = Execute(fmt::format(
+        "MATCH (n:{} {{id: {}}}) OPTIONAL MATCH (n)-[r]-() "
+        "WITH n, n.id as n_id, labels(n) as labels_n, collect(r.id) as r_ids "
+        "DETACH DELETE n RETURN n_id, labels_n, r_ids",
+        indexed_label_, vertex_id));
     if (ret.records.size() > 0) {
       std::set<uint64_t> processed_vertices;
-      for (auto &record : ret.records) {
-        // remove vertex but note there could be duplicates
-        auto n_id = record[0].ValueInt();
-        if (processed_vertices.insert(n_id).second) {
-          vertices_.erase(n_id);
-          for (auto &label : record[1].ValueList()) {
-            if (label.ValueString() == indexed_label_) {
-              continue;
-            }
-            labels_vertices_[label.ValueString()].erase(n_id);
+      auto &record = ret.records[0];
+      // remove vertex but note there could be duplicates
+      auto n_id = record[0].ValueInt();
+      if (processed_vertices.insert(n_id).second) {
+        vertices_.erase(n_id);
+        for (auto &label : record[1].ValueList()) {
+          if (label.ValueString() == indexed_label_) {
+            continue;
           }
+          labels_vertices_[label.ValueString()].erase(n_id);
         }
-        // remove edge
-        auto &edge = record[2];
+      }
+      // remove edge
+      auto &edges = record[2];
+      for (auto &edge : edges.ValueList()) {
         if (edge.type() == ValueT::Type::Int) {
           edges_.erase(edge.ValueInt());
         }
@@ -207,7 +209,7 @@ class GraphSession {
   void RemoveEdge() {
     auto edge_id = RandomElement(edges_);
     auto ret = Execute(
-        fmt::format("MATCH (:{})-[e {{id: {}}}]->(:{}) DELETE e RETURN e.id",
+        fmt::format("MATCH (:{})-[e {{id: {}}}]->(:{}) DELETE e RETURN 1",
                     indexed_label_, edge_id, indexed_label_));
     if (ret.records.size() > 0) {
       edges_.erase(edge_id);
@@ -390,6 +392,7 @@ int main(int argc, char **argv) {
   // cleanup and create indexes
   client.Execute("MATCH (n) DETACH DELETE n", {});
   for (int i = 0; i < FLAGS_worker_count; ++i) {
+    client.Execute(fmt::format("CREATE INDEX ON :indexed_label{}", i), {});
     client.Execute(fmt::format("CREATE INDEX ON :indexed_label{}(id)", i), {});
   }
 

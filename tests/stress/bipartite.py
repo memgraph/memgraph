@@ -129,6 +129,10 @@ def execution_handler():
     output_data.add_measurement("cleanup_time",
                                 cleanup_end_time - start_time)
 
+    # create indices
+    session.run('CREATE INDEX ON :U').consume()
+    session.run('CREATE INDEX ON :V').consume()
+
     # create U vertices
     for b in batch(render('CREATE (:U {{id: {}}})', range(args.u_count)),
                    args.vertex_batch_size):

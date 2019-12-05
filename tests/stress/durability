@@ -23,8 +23,7 @@ from multiprocessing import Pool, Manager
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
-CONFIG_DIR = os.path.join(BASE_DIR, "config")
-DURABILITY_DIR = os.path.join(BUILD_DIR, "durability")
+DATA_DIR = os.path.join(BUILD_DIR, "mg_data")
 if "THREADS" in os.environ:
     DB_WORKERS = os.environ["THREADS"]
 else:
@@ -38,12 +37,10 @@ parser = connection_argument_parser()
 
 parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR,
                                                        "memgraph"))
-parser.add_argument("--config", default=os.path.join(CONFIG_DIR,
-                                                     "durability_stress.conf"))
 parser.add_argument("--log-file", default="")
 parser.add_argument("--verbose", action="store_const",
                     const=True, default=False)
-parser.add_argument("--durability-directory", default=DURABILITY_DIR)
+parser.add_argument("--data-directory", default=DATA_DIR)
 parser.add_argument("--num-clients", default=multiprocessing.cpu_count())
 parser.add_argument("--num-steps", type=int, default=5)
 args = parser.parse_args()
@@ -54,20 +51,27 @@ if not os.path.exists(args.memgraph):
 
 # Memgraph run command construction
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--num-workers=" + str(DB_WORKERS)]
+cmd = [args.memgraph, "--num-workers=" + str(DB_WORKERS),
+       "--storage-properties-on-edges=true",
+       "--storage-snapshot-on-exit=false",
+       "--storage-snapshot-interval-sec=5",
+       "--storage-snapshot-retention-count=2",
+       "--storage-wal-enabled=true",
+       "--storage-recover-on-startup=true",
+       "--query-execution-timeout-sec=600"]
 if not args.verbose:
     cmd += ["--min-log-level", "1"]
 if args.log_file:
     cmd += ["--log-file", args.log_file]
-if args.durability_directory:
-    cmd += ["--durability-directory", args.durability_directory]
+if args.data_directory:
+    cmd += ["--data-directory", args.data_directory]
 
 data_manager = Manager()
 data = data_manager.dict()
 
 # Pretest cleanup
-if os.path.exists(DURABILITY_DIR):
-    shutil.rmtree(DURABILITY_DIR)
+if os.path.exists(DATA_DIR):
+    shutil.rmtree(DATA_DIR)
 
 atexit.register(SessionCache.cleanup)
 
@@ -92,8 +96,7 @@ def wait_for_server(port, delay=0.1):
 
 def run_memgraph():
     global proc_mg
-    proc_mg = subprocess.Popen(cmd, cwd=cwd,
-                               env={"MEMGRAPH_CONFIG": args.config})
+    proc_mg = subprocess.Popen(cmd, cwd=cwd)
     # Wait for Memgraph to finish the recovery process
     wait_for_server(args.endpoint.split(":")[1])
 

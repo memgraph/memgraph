@@ -95,7 +95,7 @@ class Memgraph:
         with open(self._auth_config, "w") as f:
             f.write(CONFIG_TEMPLATE.format(**config))
         args = [self._binary,
-                "--durability-directory", self._storage_directory.name,
+                "--data-directory", self._storage_directory.name,
                 "--auth-module-executable",
                 kwargs.pop("module_executable", self._auth_module)]
         for key, value in kwargs.items():

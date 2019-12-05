@@ -158,8 +158,6 @@ target_link_libraries(mg-single-node-v2 ${MG_SINGLE_NODE_V2_LIBS})
 add_dependencies(mg-single-node-v2 generate_opencypher_parser)
 add_dependencies(mg-single-node-v2 generate_lcp_common)
 target_compile_definitions(mg-single-node-v2 PUBLIC MG_SINGLE_NODE_V2)
-add_executable(memgraph-v2 memgraph.cpp)
-target_link_libraries(memgraph-v2 mg-single-node-v2 kvstore_lib telemetry_lib)
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
 # symbols in custom procedure module libraries.
@@ -277,9 +275,13 @@ set(VERSION_STRING ${memgraph_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+# memgraph main executable (old storage)
+add_executable(memgraph-v1 memgraph.cpp)
+target_link_libraries(memgraph-v1 mg-single-node kvstore_lib telemetry_lib)
+
 # memgraph main executable
 add_executable(memgraph memgraph.cpp)
-target_link_libraries(memgraph mg-single-node kvstore_lib telemetry_lib)
+target_link_libraries(memgraph mg-single-node-v2 kvstore_lib telemetry_lib)
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
                       OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"

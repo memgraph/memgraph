@@ -56,7 +56,8 @@ def wait_for_server(port, delay=0.1):
 def execute_test(memgraph_binary, tester_binary):
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [memgraph_binary,
-                     "--durability-directory", storage_directory.name,
+                     "--storage-properties-on-edges",
+                     "--data-directory", storage_directory.name,
                      "--audit-enabled"]
 
     # Start the memgraph binary

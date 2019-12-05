@@ -35,7 +35,9 @@ if (lower_build_type STREQUAL "release")
                      COMMENT Stripping symbols and sections from mg_client)
 endif()
 
-install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
+# TODO (mferencevic): Currently the `mg_import_csv` tool is tailored to the old
+# storage and doesn't work with storage-v2.
+# install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
 install(TARGETS mg_client RUNTIME DESTINATION bin)
 
 # Target for building all the tool executables.

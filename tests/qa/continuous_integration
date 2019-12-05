@@ -92,17 +92,17 @@ class MemgraphRunner():
         self.proc_mg = None
         self.args = []
 
-    def start(self, args):
+    def start(self, args=[]):
         if args == self.args and self.is_running():
             return
 
         self.stop()
         self.args = copy.deepcopy(args)
 
-        self.durability_directory = tempfile.TemporaryDirectory()
+        self.data_directory = tempfile.TemporaryDirectory()
         memgraph_binary = os.path.join(self.build_directory, "memgraph")
-        args_mg = [memgraph_binary, "--durability-directory",
-                   self.durability_directory.name]
+        args_mg = [memgraph_binary, "--storage-properties-on-edges",
+                   "--data-directory", self.data_directory.name]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)
         assert self.is_running(), "The Memgraph process died!"
@@ -155,10 +155,7 @@ def main():
     for suite in suites:
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
-        params = []
-        if "properties_on_disk" in suite:
-            params = ["--properties-on-disk=" + suite["properties_on_disk"]]
-        memgraph.start(params)
+        memgraph.start()
 
         suite["stats_file"] = os.path.join(output_dir.name,
                                            suite["name"] + ".json")

@@ -29,7 +29,7 @@ fi
 
 # Start memgraph.
 $binary_dir/memgraph \
-    --durability-directory=$tmpdir \
+    --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
     --session-inactivity-timeout=10 &
 pid=$!

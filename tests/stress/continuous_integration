@@ -71,7 +71,6 @@ LARGE_DATASET = [
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
-CONFIG_DIR = os.path.join(BASE_DIR, "config")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
@@ -125,11 +124,8 @@ def run_test(args, test, options, timeout):
 parser = argparse.ArgumentParser(description = "Run stress tests on Memgraph.")
 parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
         "memgraph"))
-parser.add_argument("--config", default = os.path.join(CONFIG_DIR,
-        "stress.conf"))
 parser.add_argument("--log-file", default = "")
-parser.add_argument("--durability-directory", default = "")
-parser.add_argument("--properties-on-disk", action = "store_true")
+parser.add_argument("--data-directory", default = "")
 parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
         "ve3", "bin", "python3"), type = str)
 parser.add_argument("--large-dataset", action = "store_const",
@@ -154,19 +150,23 @@ if args.use_ssl:
 
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--num-workers=" + str(THREADS)]
+cmd = [args.memgraph, "--num-workers=" + str(THREADS),
+       "--storage-properties-on-edges=true",
+       "--storage-snapshot-on-exit=true",
+       "--storage-snapshot-interval-sec=600",
+       "--storage-snapshot-retention-count=1",
+       "--storage-wal-enabled=true",
+       "--storage-recover-on-startup=false",
+       "--query-execution-timeout-sec=600"]
 if not args.verbose:
     cmd += ["--min-log-level", "1"]
 if args.log_file:
     cmd += ["--log-file", args.log_file]
-if args.durability_directory:
-    cmd += ["--durability-directory", args.durability_directory]
-if args.properties_on_disk:
-    cmd += ["--properties-on-disk", "id,x"]
+if args.data_directory:
+    cmd += ["--data-directory", args.data_directory]
 if args.use_ssl:
     cmd += ["--cert-file", CERT_FILE, "--key-file", KEY_FILE]
-proc_mg = subprocess.Popen(cmd, cwd = cwd,
-        env = {"MEMGRAPH_CONFIG": args.config})
+proc_mg = subprocess.Popen(cmd, cwd = cwd)
 time.sleep(1.0)
 
 # at exit cleanup

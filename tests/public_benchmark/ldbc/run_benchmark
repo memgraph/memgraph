@@ -41,9 +41,9 @@ class Memgraph:
 
         # database args
         database_args = [binary, "--num-workers", self.num_workers,
-                         "--durability-directory", os.path.join(self.dataset,
-                                                              "memgraph"),
-                         "--db-recover-on-startup", "true",
+                         "--data-directory", os.path.join(self.dataset,
+                                                          "memgraph"),
+                         "--storage-recover-on-startup", "true",
                          "--port", self.port]
 
         # database env
