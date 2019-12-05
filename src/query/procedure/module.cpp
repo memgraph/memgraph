@@ -74,7 +74,63 @@ bool CloseModule(Module *module) {
   return true;
 }
 
+// Return true if the module is builtin, i.e. not loaded from dynamic lib.
+// Builtin modules cannot be reloaded nor unloaded.
 bool IsBuiltinModule(const Module &module) { return module.handle == nullptr; }
+
+void RegisterMgReload(ModuleRegistry *module_registry, utils::RWLock *lock,
+                      Module *module) {
+  // Reloading relies on the fact that regular procedure invocation through
+  // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
+  // reload modules we have to upgrade our READ access to WRITE access,
+  // therefore we release the READ lock and invoke the reload function which
+  // takes the WRITE lock. Obviously, some other thread may take a READ or WRITE
+  // lock during our transition when we hold no such lock. In this case it is
+  // fine, because our builtin module cannot be unloaded and we are ok with
+  // using the new state of module_registry when we manage to acquire the lock
+  // we desire. Note, deadlock between threads should not be possible, because a
+  // single thread may only take either a READ or a WRITE lock, it's not
+  // possible for a thread to hold both. If a thread tries to do that, it will
+  // deadlock immediately (no other thread needs to do anything).
+  auto with_unlock_shared = [lock](const auto &reload_function) {
+    lock->unlock_shared();
+    try {
+      reload_function();
+      // There's no finally in C++, but we have to return our original READ lock
+      // state in any possible case.
+    } catch (...) {
+      lock->lock_shared();
+      throw;
+    }
+    lock->lock_shared();
+  };
+  auto reload_all_cb = [module_registry, with_unlock_shared](
+                           const mgp_list *, const mgp_graph *, mgp_result *res,
+                           mgp_memory *) {
+    bool succ = false;
+    with_unlock_shared([&]() { succ = module_registry->ReloadAllModules(); });
+    if (!succ) mgp_result_set_error_msg(res, "Failed to reload all modules.");
+  };
+  mgp_proc reload_all("reload_all", reload_all_cb, utils::NewDeleteResource());
+  module->procedures.emplace("reload_all", std::move(reload_all));
+  auto reload_cb = [module_registry, with_unlock_shared](
+                       const mgp_list *args, const mgp_graph *, mgp_result *res,
+                       mgp_memory *) {
+    CHECK(mgp_list_size(args) == 1U) << "Should have been type checked already";
+    const mgp_value *arg = mgp_list_at(args, 0);
+    CHECK(mgp_value_is_string(arg)) << "Should have been type checked already";
+    bool succ = false;
+    with_unlock_shared([&]() {
+      succ = module_registry->ReloadModuleNamed(mgp_value_get_string(arg));
+    });
+    if (!succ)
+      mgp_result_set_error_msg(
+          res, "Failed to reload the module; it is no longer loaded.");
+  };
+  mgp_proc reload("reload", reload_cb, utils::NewDeleteResource());
+  mgp_proc_add_arg(&reload, "module_name", mgp_type_string());
+  module->procedures.emplace("reload", std::move(reload));
+}
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
@@ -140,6 +196,7 @@ void RegisterMgProcedures(
 ModuleRegistry::ModuleRegistry() {
   Module module{.handle = nullptr};
   RegisterMgProcedures(&modules_, &module);
+  RegisterMgReload(this, &lock_, &module);
   modules_.emplace("mg", std::move(module));
 }
 

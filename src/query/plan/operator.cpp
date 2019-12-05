@@ -3735,39 +3735,6 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(
 
 namespace {
 
-// Return true if we handled one of the special `mg` module procedures for
-// reloading query modules.
-// @throw QueryRuntimeException in case of error during procedure invocation.
-bool HandleReloadProcedures(
-    const std::string_view &fully_qualified_procedure_name,
-    const std::vector<Expression *> &args, ExpressionEvaluator *evaluator) {
-  // It would be great to simply register `reload_all_modules` as a
-  // regular procedure on a `mg` module, so we don't have a special case here.
-  // Unfortunately, reloading requires taking a write lock, and we would
-  // acquire a read lock by getting the module.
-  if (fully_qualified_procedure_name == "mg.reload_all_modules") {
-    if (!args.empty())
-      throw QueryRuntimeException(
-          "'mg.reload_all_modules' requires no arguments.");
-    procedure::gModuleRegistry.ReloadAllModules();
-    return true;
-  } else if (fully_qualified_procedure_name == "mg.reload") {
-    // This is a special case for the same reasons as `mg.reload_all_modules`.
-    if (args.size() != 1U)
-      throw QueryRuntimeException("'mg.reload' requires exactly 1 argument.");
-    const auto &arg = args.front()->Accept(*evaluator);
-    if (!arg.IsString()) {
-      throw QueryRuntimeException(
-          "'mg.reload' argument named 'module_name' at position 0 must be of "
-          "type STRING.");
-    }
-    const auto &module_name = arg.ValueString();
-    procedure::gModuleRegistry.ReloadModuleNamed(module_name);
-    return true;
-  }
-  return false;
-}
-
 // Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
 // `fully_qualified_procedure_name`. `memory` is used for temporary allocations
 // inside this function. ModulePtr must be kept alive to make sure it won't be
@@ -3906,15 +3873,13 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                     context.evaluation_context,
                                     context.db_accessor, graph_view);
-      // First try to handle special procedures for (re)loading modules.
-      if (HandleReloadProcedures(self_->procedure_name_, self_->arguments_,
-                                 &evaluator))
-        continue;
-      // Nothing special, so find the regular procedure and invoke it.
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
-      // inside the same execution thread.
+      // inside the same execution thread. Also, our RWLock is setup so that
+      // it's not possible for a single thread to request multiple read locks.
+      // Builtin module registration in query/procedure/module.cpp depends on
+      // this locking scheme.
       const auto &[module, proc] = FindProcedureOrThrow(
           self_->procedure_name_, context.evaluation_context.memory);
       result_.signature = &proc->results;
