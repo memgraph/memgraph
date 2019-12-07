@@ -3735,34 +3735,6 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(
 
 namespace {
 
-// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
-// `fully_qualified_procedure_name`. `memory` is used for temporary allocations
-// inside this function. ModulePtr must be kept alive to make sure it won't be
-// unloaded.
-// @throw QueryRuntimeException if unable to find the procedure.
-std::pair<procedure::ModulePtr, const mgp_proc *> FindProcedureOrThrow(
-    const std::string_view &fully_qualified_procedure_name,
-    utils::MemoryResource *memory) {
-  utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
-  if (name_parts.size() == 1U) {
-    throw QueryRuntimeException("There's no top-level procedure '{}'",
-                                fully_qualified_procedure_name);
-  }
-  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
-  CHECK(last_dot_pos != std::string_view::npos);
-  const auto &module_name =
-      fully_qualified_procedure_name.substr(0, last_dot_pos);
-  const auto &proc_name = name_parts.back();
-  auto module = procedure::gModuleRegistry.GetModuleNamed(module_name);
-  if (!module) throw QueryRuntimeException("'{}' isn't loaded!", module_name);
-  const auto &proc_it = module->procedures.find(proc_name);
-  if (proc_it == module->procedures.end())
-    throw QueryRuntimeException("'{}' does not have a procedure named '{}'",
-                                module_name, proc_name);
-  return {std::move(module), &proc_it->second};
-}
-
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
                          const mgp_proc &proc,
                          const std::vector<Expression *> &args,
@@ -3880,8 +3852,14 @@ class CallProcedureCursor : public Cursor {
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
-      const auto &[module, proc] = FindProcedureOrThrow(
-          self_->procedure_name_, context.evaluation_context.memory);
+      const auto &maybe_found = procedure::FindProcedure(
+          procedure::gModuleRegistry, self_->procedure_name_,
+          context.evaluation_context.memory);
+      if (!maybe_found) {
+        throw QueryRuntimeException("There is no procedure named '{}'.",
+                                    self_->procedure_name_);
+      }
+      const auto &[module, proc] = *maybe_found;
       result_.signature = &proc->results;
       // Use evaluation memory, as invoking a procedure is akin to a simple
       // evaluation of an expression.

@@ -4,12 +4,14 @@
 
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
 
 namespace query::procedure {
@@ -47,7 +49,7 @@ class ModulePtr final {
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.
 class ModuleRegistry final {
   std::map<std::string, Module, std::less<>> modules_;
-  utils::RWLock lock_{utils::RWLock::Priority::WRITE};
+  mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
 
  public:
   ModuleRegistry();
@@ -63,7 +65,7 @@ class ModuleRegistry final {
 
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
-  ModulePtr GetModuleNamed(const std::string_view &name);
+  ModulePtr GetModuleNamed(const std::string_view &name) const;
 
   /// Reload a module with given name and return true if successful.
   /// Takes a write lock. Builtin modules cannot be reloaded, though true will
@@ -84,5 +86,14 @@ class ModuleRegistry final {
 
 /// Single, global module registry.
 extern ModuleRegistry gModuleRegistry;
+
+/// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
+/// `fully_qualified_procedure_name`. `memory` is used for temporary allocations
+/// inside this function. ModulePtr must be kept alive to make sure it won't be
+/// unloaded.
+std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
+    const ModuleRegistry &module_registry,
+    const std::string_view &fully_qualified_procedure_name,
+    utils::MemoryResource *memory);
 
 }  // namespace query::procedure

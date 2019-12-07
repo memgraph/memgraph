@@ -6,6 +6,9 @@ extern "C" {
 
 #include <optional>
 
+#include "utils/pmr/vector.hpp"
+#include "utils/string.hpp"
+
 namespace query::procedure {
 
 ModuleRegistry gModuleRegistry;
@@ -213,7 +216,7 @@ bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
   return true;
 }
 
-ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view &name) {
+ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view &name) const {
   std::shared_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
   if (found_it == modules_.end()) return nullptr;
@@ -268,6 +271,25 @@ void ModuleRegistry::UnloadAllModules() {
     CloseModule(&name_and_module.second);
   }
   modules_.clear();
+}
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
+    const ModuleRegistry &module_registry,
+    const std::string_view &fully_qualified_procedure_name,
+    utils::MemoryResource *memory) {
+  utils::pmr::vector<std::string_view> name_parts(memory);
+  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  if (name_parts.size() == 1U) return std::nullopt;
+  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
+  CHECK(last_dot_pos != std::string_view::npos);
+  const auto &module_name =
+      fully_qualified_procedure_name.substr(0, last_dot_pos);
+  const auto &proc_name = name_parts.back();
+  auto module = module_registry.GetModuleNamed(module_name);
+  if (!module) return std::nullopt;
+  const auto &proc_it = module->procedures.find(proc_name);
+  if (proc_it == module->procedures.end()) return std::nullopt;
+  return std::make_pair(std::move(module), &proc_it->second);
 }
 
 }  // namespace query::procedure
