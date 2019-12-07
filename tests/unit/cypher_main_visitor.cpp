@@ -2672,7 +2672,7 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL proc.with.dots()"));
+      ast_generator.ParseQuery("CALL proc.with.dots() YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2681,14 +2681,21 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   ASSERT_TRUE(call_proc);
   ASSERT_EQ(call_proc->procedure_name_, "proc.with.dots");
   ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"res"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL `proc-with-dashes`()"));
+      ast_generator.ParseQuery("CALL `proc-with-dashes`() YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2697,8 +2704,15 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   ASSERT_TRUE(call_proc);
   ASSERT_EQ(call_proc->procedure_name_, "proc-with-dashes");
   ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"res"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
@@ -2760,7 +2774,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL proc(0, 1, 2)"));
+      ast_generator.ParseQuery("CALL proc(0, 1, 2) YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2768,13 +2782,84 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
   ASSERT_EQ(call_proc->procedure_name_, "proc");
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_EQ(call_proc->result_identifiers_.size(),
-            call_proc->result_fields_.size());
   ASSERT_EQ(call_proc->arguments_.size(), 3U);
   for (int64_t i = 0; i < 3; ++i) {
     ast_generator.CheckLiteral(call_proc->arguments_[i], i);
   }
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"res"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
+}
+
+TEST_P(CypherMainVisitorTest, CallYieldAsterisk) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL mg.procedures() YIELD *"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"name", "signature"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
+}
+
+TEST_P(CypherMainVisitorTest, CallYieldAsteriskReturnAsterisk) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL mg.procedures() YIELD * RETURN *"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *ret = dynamic_cast<Return *>(single_query->clauses_[1]);
+  ASSERT_TRUE(ret);
+  ASSERT_TRUE(ret->body_.all_identifiers);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"name", "signature"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
+}
+
+TEST_P(CypherMainVisitorTest, CallWithoutYield) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL mg.reload_all()"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  ASSERT_TRUE(call_proc->result_fields_.empty());
+  ASSERT_TRUE(call_proc->result_identifiers_.empty());
 }
 
 TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
@@ -2803,14 +2888,13 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(
       ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"),
       SemanticException);
+  // mg.procedures returns something, so it needs to have a YIELD.
+  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"),
+               SemanticException);
   // TODO: Implement support for the following syntax. These are defined in
   // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"),
-               SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD *"),
-               SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD * RETURN *"),
                SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"),
                SyntaxException);

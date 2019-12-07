@@ -1187,3 +1187,13 @@ TEST_F(TestSymbolGenerator, CallProcedureUnboundArgument) {
   auto query = QUERY(SINGLE_QUERY(call));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
+
+TEST_F(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
+  // CALL proc() RETURN *
+  auto call = storage.Create<CallProcedure>();
+  call->procedure_name_ = "proc";
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(SINGLE_QUERY(call, ret));
+  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+}

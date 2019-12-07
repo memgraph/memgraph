@@ -112,7 +112,7 @@ callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' (
 
 procedureName : symbolicName ( '.' symbolicName )* ;
 
-yieldProcedureResults : YIELD ( procedureResult ( ',' procedureResult )* ) ;
+yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
 
 procedureResult : ( variable AS variable ) | variable ;
 
