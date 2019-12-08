@@ -30,16 +30,16 @@ add_concurrent_test(dynamic_bitset_set_n.cpp)
 target_link_libraries(${test_prefix}dynamic_bitset_set_n mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(network_read_hang.cpp)
-target_link_libraries(${test_prefix}network_read_hang mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_read_hang mg-communication)
 
 add_concurrent_test(network_server.cpp)
-target_link_libraries(${test_prefix}network_server mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_server mg-communication)
 
 add_concurrent_test(network_session_leak.cpp)
-target_link_libraries(${test_prefix}network_session_leak mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_session_leak mg-communication)
 
 add_concurrent_test(push_queue.cpp)
-target_link_libraries(${test_prefix}push_queue mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}push_queue glog gflags Threads::Threads)
 
 add_concurrent_test(stack.cpp)
 target_link_libraries(${test_prefix}stack mg-utils)
@@ -92,5 +92,5 @@ target_link_libraries(${test_prefix}sl_set mg-single-node kvstore_dummy_lib)
 add_concurrent_test(sl_simulation.cpp)
 target_link_libraries(${test_prefix}sl_simulation mg-single-node kvstore_dummy_lib)
 
-add_concurrent_test(spinlock.cpp)
-target_link_libraries(${test_prefix}spinlock mg-single-node kvstore_dummy_lib)
+add_concurrent_test(spin_lock.cpp)
+target_link_libraries(${test_prefix}spin_lock mg-utils)

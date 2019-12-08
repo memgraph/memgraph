@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "query/db_accessor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
@@ -30,7 +31,7 @@ typedef std::vector<InteractivePlan> PlansWithCost;
 struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
-  std::function<void(database::GraphDbAccessor &, const query::SymbolTable &,
+  std::function<void(query::DbAccessor &, const query::SymbolTable &,
                      PlansWithCost &, const Args &, const query::AstStorage &)>
       function;
   // Number of arguments the function works with.
@@ -40,11 +41,11 @@ struct Command {
 };
 
 #define DEFCOMMAND(Name)                                              \
-  void Name##Command(database::GraphDbAccessor &dba,                  \
+  void Name##Command(query::DbAccessor &dba,                          \
                      const query::SymbolTable &symbol_table,          \
                      PlansWithCost &plans, const Command::Args &args, \
                      const query::AstStorage &ast_storage)
 
 void AddCommand(const std::string &name, const Command &command);
 
-void RunInteractivePlanning(database::GraphDbAccessor *dba);
+void RunInteractivePlanning(query::DbAccessor *dba);

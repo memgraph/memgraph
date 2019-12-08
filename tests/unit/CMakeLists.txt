@@ -145,11 +145,11 @@ target_link_libraries(${test_prefix}query_plan mg-single-node-v2 mg-auth kvstore
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
-target_link_libraries(${test_prefix}query_procedure_mgp_type mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_procedure_mgp_type mg-single-node-v2 mg-auth kvstore_dummy_lib)
 target_include_directories(${test_prefix}query_procedure_mgp_type PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_unit_test(query_procedure_mgp_module.cpp)
-target_link_libraries(${test_prefix}query_procedure_mgp_module mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_procedure_mgp_module mg-single-node-v2 mg-auth kvstore_dummy_lib)
 target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
 

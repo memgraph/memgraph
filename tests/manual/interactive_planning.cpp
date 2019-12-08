@@ -8,8 +8,8 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -129,18 +129,22 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(database::GraphDbAccessor *dba, int64_t vertices_count,
+  InteractiveDbAccessor(query::DbAccessor *dba, int64_t vertices_count,
                         Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
-  auto NameToLabel(const std::string &name) { return dba_->Label(name); }
-  auto NameToProperty(const std::string &name) { return dba_->Property(name); }
-  auto NameToEdgeType(const std::string &name) { return dba_->EdgeType(name); }
+  auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
+  auto NameToProperty(const std::string &name) {
+    return dba_->NameToProperty(name);
+  }
+  auto NameToEdgeType(const std::string &name) {
+    return dba_->NameToEdgeType(name);
+  }
 
   int64_t VerticesCount() { return vertices_count_; }
 
   int64_t VerticesCount(storage::Label label_id) {
-    auto label = dba_->LabelName(label_id);
+    auto label = dba_->LabelToName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
     }
@@ -149,8 +153,8 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount(storage::Label label_id,
                         storage::Property property_id) {
-    auto label = dba_->LabelName(label_id);
-    auto property = dba_->PropertyName(property_id);
+    auto label = dba_->LabelToName(label_id);
+    auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end()) {
@@ -162,8 +166,8 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount(storage::Label label_id, storage::Property property_id,
                         const PropertyValue &value) {
-    auto label = dba_->LabelName(label_id);
-    auto property = dba_->PropertyName(property_id);
+    auto label = dba_->LabelToName(label_id);
+    auto property = dba_->PropertyToName(property_id);
     auto label_prop = std::make_pair(label, property);
     if (label_property_index_.find(label_prop) == label_property_index_.end()) {
       return 0;
@@ -183,8 +187,8 @@ class InteractiveDbAccessor {
       storage::Label label_id, storage::Property property_id,
       const std::optional<utils::Bound<PropertyValue>> lower,
       const std::optional<utils::Bound<PropertyValue>> upper) {
-    auto label = dba_->LabelName(label_id);
-    auto property = dba_->PropertyName(property_id);
+    auto label = dba_->LabelToName(label_id);
+    auto property = dba_->PropertyToName(property_id);
     std::stringstream range_string;
     if (lower) {
       range_string << (lower->IsInclusive() ? "[" : "(") << lower->value()
@@ -203,8 +207,8 @@ class InteractiveDbAccessor {
 
   bool LabelPropertyIndexExists(storage::Label label_id,
                                 storage::Property property_id) {
-    auto label = dba_->LabelName(label_id);
-    auto property = dba_->PropertyName(property_id);
+    auto label = dba_->LabelToName(label_id);
+    auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
     if (label_property_index_.find(key) == label_property_index_.end()) {
       bool resp = timer_.WithPause([&label, &property]() {
@@ -317,7 +321,7 @@ class InteractiveDbAccessor {
  private:
   typedef std::pair<std::string, std::string> LabelPropertyKey;
 
-  database::GraphDbAccessor *dba_;
+  query::DbAccessor *dba_;
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
@@ -367,8 +371,7 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    query::DbAccessor query_dba(&dba);
-    query::plan::PrettyPrint(query_dba, plans[i].final_plan.get());
+    query::plan::PrettyPrint(dba, plans[i].final_plan.get());
     std::cout << std::endl;
   }
 }
@@ -381,8 +384,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  query::DbAccessor query_dba(&dba);
-  query::plan::PrettyPrint(query_dba, plan.get());
+  query::plan::PrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -391,8 +393,7 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  query::DbAccessor query_dba(&dba);
-  query::plan::PrettyPrint(query_dba, plan.get());
+  query::plan::PrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(Help);
@@ -421,7 +422,7 @@ DEFCOMMAND(Help) {
   }
 }
 
-void ExaminePlans(database::GraphDbAccessor &dba,
+void ExaminePlans(query::DbAccessor *dba,
                   const query::SymbolTable &symbol_table,
                   std::vector<InteractivePlan> &plans,
                   const query::AstStorage &ast) {
@@ -444,7 +445,7 @@ void ExaminePlans(database::GraphDbAccessor &dba,
                 << " arguments" << std::endl;
       continue;
     }
-    command.function(dba, symbol_table, plans, args, ast);
+    command.function(*dba, symbol_table, plans, args, ast);
   }
 }
 
@@ -491,7 +492,7 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
   return interactive_plans;
 }
 
-void RunInteractivePlanning(database::GraphDbAccessor *dba) {
+void RunInteractivePlanning(query::DbAccessor *dba) {
   std::string in_db_filename(utils::Trim(FLAGS_load_mock_db_file));
   if (!in_db_filename.empty() && !std::filesystem::exists(in_db_filename)) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
@@ -526,7 +527,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
           << std::chrono::duration<double, std::milli>(planning_time).count()
           << "ms" << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
-      ExaminePlans(*dba, symbol_table, plans, ast);
+      ExaminePlans(dba, symbol_table, plans, ast);
     } catch (const utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }

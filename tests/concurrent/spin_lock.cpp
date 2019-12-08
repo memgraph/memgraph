@@ -6,7 +6,7 @@
 
 #include "glog/logging.h"
 
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 int x = 0;
 utils::SpinLock lock;
