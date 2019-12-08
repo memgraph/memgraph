@@ -101,7 +101,7 @@ class HaTestBase:
     def _generate_args(self, worker_id):
         args = [self.memgraph_binary]
         args.extend(["--server_id", str(worker_id + 1)])
-        args.extend(["--port", str(7687 + worker_id)])
+        args.extend(["--bolt-port", str(7687 + worker_id)])
         args.extend(["--raft_config_file", self.raft_config_file])
         args.extend(["--coordination_config_file",
             self.coordination_config_file.name])

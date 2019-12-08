@@ -72,7 +72,7 @@ fi
 
 # Start the memgraph process and wait for it to start.
 echo_info "Starting memgraph"
-$memgraph_dir/memgraph --cert-file=$cert_file --key-file=$key_file &
+$memgraph_dir/memgraph --bolt-cert-file=$cert_file --bolt-key-file=$key_file &
 pid=$!
 wait_for_server 7687
 echo_success "Started memgraph"

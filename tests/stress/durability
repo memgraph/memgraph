@@ -51,7 +51,7 @@ if not os.path.exists(args.memgraph):
 
 # Memgraph run command construction
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--num-workers=" + str(DB_WORKERS),
+cmd = [args.memgraph, "--bolt-num-workers=" + str(DB_WORKERS),
        "--storage-properties-on-edges=true",
        "--storage-snapshot-on-exit=false",
        "--storage-snapshot-interval-sec=5",

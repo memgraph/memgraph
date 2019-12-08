@@ -41,7 +41,7 @@ do
   $binary_dir/memgraph_ha --server_id $server_id \
     --coordination_config_file="coordination.json" \
     --raft_config_file="raft.json" \
-    --port $((7686 + $server_id)) \
+    --bolt-port $((7686 + $server_id)) \
     --db-recover-on-startup=false \
     --durability_directory=dur$server_id &
   HA_PIDS[$server_id]=$!

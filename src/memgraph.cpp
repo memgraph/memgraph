@@ -24,19 +24,25 @@
 #include "query/procedure/module.hpp"
 
 // General purpose flags.
-DEFINE_string(interface, "0.0.0.0",
-              "Communication interface on which to listen.");
-DEFINE_VALIDATED_int32(port, 7687, "Communication port on which to listen.",
+DEFINE_string(bolt_address, "0.0.0.0",
+              "IP address on which the Bolt server should listen.");
+DEFINE_VALIDATED_int32(bolt_port, 7687,
+                       "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-DEFINE_VALIDATED_int32(num_workers,
-                       std::max(std::thread::hardware_concurrency(), 1U),
-                       "Number of workers (Bolt)", FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
-                       "Time in seconds after which inactive sessions will be "
-                       "closed.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_string(cert_file, "", "Certificate file to use.");
-DEFINE_string(key_file, "", "Key file to use.");
+DEFINE_VALIDATED_int32(
+    bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
+    "Number of workers used by the Bolt server. By default, this will be the "
+    "number of processing units available on the machine.",
+    FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(
+    bolt_session_inactivity_timeout, 1800,
+    "Time in seconds after which inactive Bolt sessions will be "
+    "closed.",
+    FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_string(bolt_cert_file, "",
+              "Certificate file which should be used for the Bolt server.");
+DEFINE_string(bolt_key_file, "",
+              "Key file which should be used for the Bolt server.");
 
 #ifdef MG_SINGLE_NODE_V2
 // General purpose flags.
@@ -202,14 +208,14 @@ void SingleNodeMain() {
 
   ServerContext context;
   std::string service_name = "Bolt";
-  if (FLAGS_key_file != "" && FLAGS_cert_file != "") {
-    context = ServerContext(FLAGS_key_file, FLAGS_cert_file);
+  if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
+    context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
     service_name = "BoltS";
   }
 
-  ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 &session_data, &context, FLAGS_session_inactivity_timeout,
-                 service_name, FLAGS_num_workers);
+  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)},
+                 &session_data, &context, FLAGS_bolt_session_inactivity_timeout,
+                 service_name, FLAGS_bolt_num_workers);
 
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;

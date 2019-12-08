@@ -150,7 +150,7 @@ if args.use_ssl:
 
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--num-workers=" + str(THREADS),
+cmd = [args.memgraph, "--bolt-num-workers=" + str(THREADS),
        "--storage-properties-on-edges=true",
        "--storage-snapshot-on-exit=true",
        "--storage-snapshot-interval-sec=600",
@@ -165,7 +165,7 @@ if args.log_file:
 if args.data_directory:
     cmd += ["--data-directory", args.data_directory]
 if args.use_ssl:
-    cmd += ["--cert-file", CERT_FILE, "--key-file", KEY_FILE]
+    cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
 proc_mg = subprocess.Popen(cmd, cwd = cwd)
 time.sleep(1.0)
 

@@ -31,7 +31,7 @@ fi
 $binary_dir/memgraph \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
-    --session-inactivity-timeout=10 &
+    --bolt-session-inactivity-timeout=10 &
 pid=$!
 wait_for_server 7687
 

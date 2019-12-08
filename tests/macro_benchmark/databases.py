@@ -44,10 +44,10 @@ class Memgraph:
 
     def start(self):
         self.log.info("start")
-        database_args = ["--port", self.args.port,
+        database_args = ["--bolt-port", self.args.port,
                          "--query-execution-timeout-sec", "0"]
         if self.num_workers:
-            database_args += ["--num_workers", str(self.num_workers)]
+            database_args += ["--bolt-num-workers", str(self.num_workers)]
         if self.args.data_directory:
             database_args += ["--data-directory", self.args.data_directory]
         if self.args.storage_recover_on_startup:

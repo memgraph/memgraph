@@ -117,7 +117,7 @@ coordination_config_file = tempfile.NamedTemporaryFile(mode="w")
 def generate_cmd_args(worker_id):
     cmd = [args.memgraph]
     cmd.extend(["--server-id", str(worker_id + 1)])
-    cmd.extend(["--port", str(PORT + worker_id)])
+    cmd.extend(["--bolt-port", str(PORT + worker_id)])
     cmd.extend(["--raft-config-file", RAFT_CONFIG_FILE])
     cmd.extend(["--coordination-config-file", coordination_config_file.name])
 

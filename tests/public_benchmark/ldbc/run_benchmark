@@ -40,11 +40,12 @@ class Memgraph:
             binary = os.path.join(BASE_DIR, "build_release", "memgraph")
 
         # database args
-        database_args = [binary, "--num-workers", self.num_workers,
+        database_args = [binary,
+                         "--bolt-num-workers", self.num_workers,
                          "--data-directory", os.path.join(self.dataset,
                                                           "memgraph"),
                          "--storage-recover-on-startup", "true",
-                         "--port", self.port]
+                         "--bolt-port", self.port]
 
         # database env
         env = {"MEMGRAPH_CONFIG": os.path.join(SCRIPT_DIR, "config",
