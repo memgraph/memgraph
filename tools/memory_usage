@@ -10,7 +10,6 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)) +
         "/../tests/macro_benchmark/")
 from databases import *
 from clients import *
-from common import get_absolute_path
 
 def avg_no_label_node_size(memgraph, client, measure_points):
     node_size_sum = 0
@@ -70,9 +69,7 @@ def avg_edge_size(memgraph, client, measure_points):
     return edge_size_sum / len(measure_points)
 
 def main():
-    path = get_absolute_path("benchmarking.conf", "config")
-
-    memgraph = Memgraph(None, path, 1)
+    memgraph = Memgraph(None, 1)
     client = QueryClient(None, 1)
 
     measure_points = [10**6, 2*10**6, 5*10**6, 10*10**6]

@@ -211,13 +211,8 @@ class MemgraphRunner(_QueryRunner):
     Configures memgraph database for QuerySuite execution.
     """
     def __init__(self, args):
-        argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--runner-config", default=get_absolute_path(
-                "benchmarking.conf", "config"),
-                help="Path to memgraph config")
-        self.args, remaining_args = argp.parse_known_args(args)
-        database = Memgraph(remaining_args, self.args.runner_config, 1)
-        super(MemgraphRunner, self).__init__(remaining_args, database, 1)
+        database = Memgraph(args, 1)
+        super(MemgraphRunner, self).__init__(args, database, 1)
 
 
 class NeoRunner(_QueryRunner):
@@ -259,9 +254,6 @@ class MemgraphParallelRunner(_QueryRunner):
     """
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--runner-config", default=get_absolute_path(
-                "benchmarking.conf", "config"),
-                help="Path to memgraph config")
         argp.add_argument("--num-database-workers", type=int, default=8,
                           help="Number of workers")
         argp.add_argument("--num-client-workers", type=int, default=24,
@@ -271,7 +263,6 @@ class MemgraphParallelRunner(_QueryRunner):
                 "--num-database-workers is obligatory flag on apollo"
         assert not APOLLO or self.args.num_client_workers, \
                 "--num-client-workers is obligatory flag on apollo"
-        database = Memgraph(remaining_args, self.args.runner_config,
-                            self.args.num_database_workers)
+        database = Memgraph(remaining_args, self.args.num_database_workers)
         super(MemgraphParallelRunner, self).__init__(
                 remaining_args, database, self.args.num_client_workers)

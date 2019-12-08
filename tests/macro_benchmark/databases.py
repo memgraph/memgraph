@@ -25,7 +25,7 @@ class Memgraph:
     """
     Knows how to start and stop memgraph.
     """
-    def __init__(self, args, config, num_workers):
+    def __init__(self, args, num_workers):
         self.log = logging.getLogger("MemgraphRunner")
         argp = ArgumentParser("MemgraphArgumentParser")
         argp.add_argument("--runner-bin",
@@ -37,7 +37,6 @@ class Memgraph:
         argp.add_argument("--storage-recover-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
-        self.config = config
         self.num_workers = num_workers
         self.database_bin = jail.get_process()
         self.name = "memgraph"
@@ -45,8 +44,8 @@ class Memgraph:
 
     def start(self):
         self.log.info("start")
-        env = {"MEMGRAPH_CONFIG": self.config}
-        database_args = ["--port", self.args.port]
+        database_args = ["--port", self.args.port,
+                         "--query-execution-timeout-sec", "0"]
         if self.num_workers:
             database_args += ["--num_workers", str(self.num_workers)]
         if self.args.data_directory:
@@ -65,7 +64,7 @@ class Memgraph:
             runner_bin = get_absolute_path("memgraph", "build_release")
 
         # start memgraph
-        self.database_bin.run(runner_bin, database_args, env=env, timeout=600)
+        self.database_bin.run(runner_bin, database_args, timeout=600)
         wait_for_server(self.args.port)
 
     def stop(self):

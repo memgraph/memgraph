@@ -12,17 +12,16 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)) +
         "/../tests/macro_benchmark/")
 from databases import *
 from clients import *
-from common import get_absolute_path
 
 def main():
-    path = get_absolute_path("benchmarking.conf", "config")
     durability_dir = tempfile.TemporaryDirectory()
 
-    DURABILITY_DIR_ARG = ["--durability-directory", durability_dir.name]
-    MAKE_SNAPSHOT_ARGS = ["--snapshot-on-exit"] + DURABILITY_DIR_ARG
-    RECOVER_SNAPSHOT_ARGS = ["--db-recover-on-startup"] + DURABILITY_DIR_ARG
-    snapshot_memgraph = Memgraph(MAKE_SNAPSHOT_ARGS, path, 1)
-    recover_memgraph = Memgraph(RECOVER_SNAPSHOT_ARGS, path, 1)
+    DURABILITY_DIR_ARG = ["--data-directory", durability_dir.name]
+    MAKE_SNAPSHOT_ARGS = ["--storage-snapshot-on-exit"] + DURABILITY_DIR_ARG
+    RECOVER_SNAPSHOT_ARGS = ["--storage-recover-on-startup"] + \
+        DURABILITY_DIR_ARG
+    snapshot_memgraph = Memgraph(MAKE_SNAPSHOT_ARGS, 1)
+    recover_memgraph = Memgraph(RECOVER_SNAPSHOT_ARGS, 1)
     client = QueryClient(None, 1)
 
     results = []
