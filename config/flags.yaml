@@ -51,6 +51,10 @@ modifications:
     value: ""
     override: false
 
+  - name: "storage_properties_on_edges"
+    value: "true"
+    override: true
+
   - name: "storage_recover_on_startup"
     value: "true"
     override: true
