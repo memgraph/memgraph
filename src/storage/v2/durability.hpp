@@ -366,7 +366,8 @@ class Durability final {
 
   Durability(Config::Durability config, utils::SkipList<Vertex> *vertices,
              utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-             Indices *indices, Constraints *constraints, Config::Items items);
+             std::atomic<uint64_t> *edge_count, Indices *indices,
+             Constraints *constraints, Config::Items items);
 
   std::optional<RecoveryInfo> Initialize(
       std::function<void(std::function<void(Transaction *)>)>
@@ -401,6 +402,7 @@ class Durability final {
   utils::SkipList<Vertex> *vertices_;
   utils::SkipList<Edge> *edges_;
   NameIdMapper *name_id_mapper_;
+  std::atomic<uint64_t> *edge_count_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items items_;

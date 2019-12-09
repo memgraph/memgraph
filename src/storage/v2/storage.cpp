@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include "storage/v2/mvcc.hpp"
+#include "utils/stat.hpp"
 
 namespace storage {
 
@@ -290,7 +291,7 @@ Storage::Storage(Config config)
     : indices_(config.items),
       config_(config),
       durability_(config.durability, &vertices_, &edges_, &name_id_mapper_,
-                  &indices_, &constraints_, config.items) {
+                  &edge_count_, &indices_, &constraints_, config.items) {
   auto info = durability_.Initialize([this](auto callback) {
     // Take master RW lock (for reading).
     std::shared_lock<utils::RWLock> storage_guard(main_lock_);
@@ -509,6 +510,9 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                      edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
+  // Increment edge count.
+  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_,
                       &storage_->indices_, config_);
 }
@@ -596,6 +600,9 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
                      edge_type, to_vertex, edge_ref);
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type,
                      from_vertex, edge_ref);
+
+  // Decrement edge count.
+  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
   return true;
 }
@@ -767,6 +774,11 @@ void Storage::Accessor::Abort() {
                                   vertex->out_edges.end(), link);
               CHECK(it == vertex->out_edges.end()) << "Invalid database state!";
               vertex->out_edges.push_back(link);
+              // Increment edge count. We only increment the count here because
+              // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
+              // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
+              // edge properties are disabled.
+              storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
               break;
             }
             case Delta::Action::REMOVE_IN_EDGE: {
@@ -789,6 +801,11 @@ void Storage::Accessor::Abort() {
               CHECK(it != vertex->out_edges.end()) << "Invalid database state!";
               std::swap(*it, *vertex->out_edges.rbegin());
               vertex->out_edges.pop_back();
+              // Decrement edge count. We only decrement the count here because
+              // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+              // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+              // properties are disabled.
+              storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
@@ -997,6 +1014,17 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
 ConstraintsInfo Storage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_)};
+}
+
+StorageInfo Storage::GetInfo() const {
+  auto vertex_count = vertices_.size();
+  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  double average_degree = 0.0;
+  if (vertex_count) {
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+  }
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+          utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {

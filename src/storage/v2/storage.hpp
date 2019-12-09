@@ -148,6 +148,15 @@ struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
 };
 
+/// Structure used to return information about the storage.
+struct StorageInfo {
+  uint64_t vertex_count;
+  uint64_t edge_count;
+  double average_degree;
+  uint64_t memory_usage;
+  uint64_t disk_usage;
+};
+
 class Storage final {
  public:
   /// @throw std::system_error
@@ -345,6 +354,8 @@ class Storage final {
 
   ConstraintsInfo ListAllConstraints() const;
 
+  StorageInfo GetInfo() const;
+
  private:
   Transaction CreateTransaction();
 
@@ -365,6 +376,10 @@ class Storage final {
   utils::SkipList<storage::Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
+  // Even though the edge count is already kept in the `edges_` SkipList, the
+  // list is used only when properties are enabled for edges. Because of that we
+  // keep a separate count of edges that is always updated.
+  std::atomic<uint64_t> edge_count_{0};
 
   NameIdMapper name_id_mapper_;
 

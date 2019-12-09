@@ -972,7 +972,12 @@ PreparedQuery PrepareAuthQuery(
 
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context, DbAccessor *dba,
+    InterpreterContext *interpreter_context,
+#ifdef MG_SINGLE_NODE_V2
+    storage::Storage *db,
+#else
+    DbAccessor *dba,
+#endif
     utils::MonotonicBufferResource *execution_memory) {
   auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query);
   std::vector<std::string> header;
@@ -982,7 +987,23 @@ PreparedQuery PrepareInfoQuery(
 
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
-#if defined(MG_SINGLE_NODE)
+#if defined(MG_SINGLE_NODE_V2)
+      header = {"storage info", "value"};
+      handler = [db] {
+        auto info = db->GetInfo();
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("vertex_count"),
+             TypedValue(static_cast<int64_t>(info.vertex_count))},
+            {TypedValue("edge_count"),
+             TypedValue(static_cast<int64_t>(info.edge_count))},
+            {TypedValue("average_degree"), TypedValue(info.average_degree)},
+            {TypedValue("memory_usage"),
+             TypedValue(static_cast<int64_t>(info.memory_usage))},
+            {TypedValue("disk_usage"),
+             TypedValue(static_cast<int64_t>(info.disk_usage))}};
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+#elif defined(MG_SINGLE_NODE)
       header = {"storage info", "value"};
       handler = [dba] {
         auto info = dba->StorageInfo();
@@ -1342,13 +1363,15 @@ Interpreter::Prepare(const std::string &query_string,
           interpreter_context_, &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
 #ifdef MG_SINGLE_NODE_V2
-      DbAccessor *dba = nullptr;
+      prepared_query = PrepareInfoQuery(
+          std::move(parsed_query), &summary_, interpreter_context_,
+          interpreter_context_->db, &execution_memory_);
 #else
       auto dba = &*execution_db_accessor_;
-#endif
       prepared_query =
           PrepareInfoQuery(std::move(parsed_query), &summary_,
                            interpreter_context_, dba, &execution_memory_);
+#endif
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
 #ifdef MG_SINGLE_NODE_V2
       DbAccessor *dba = nullptr;

@@ -1282,12 +1282,14 @@ void WalFile::UpdateStats(uint64_t timestamp) {
 Durability::Durability(Config::Durability config,
                        utils::SkipList<Vertex> *vertices,
                        utils::SkipList<Edge> *edges,
-                       NameIdMapper *name_id_mapper, Indices *indices,
+                       NameIdMapper *name_id_mapper,
+                       std::atomic<uint64_t> *edge_count, Indices *indices,
                        Constraints *constraints, Config::Items items)
     : config_(config),
       vertices_(vertices),
       edges_(edges),
       name_id_mapper_(name_id_mapper),
+      edge_count_(edge_count),
       indices_(indices),
       constraints_(constraints),
       items_(items),
@@ -2121,6 +2123,9 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
     return EdgeTypeId::FromUint(it->second);
   };
 
+  // Reset current edge count.
+  edge_count_->store(0, std::memory_order_release);
+
   {
     // Recover edges.
     auto edge_acc = edges_->access();
@@ -2368,6 +2373,9 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
           vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type),
                                         &*to_vertex, edge_ref);
         }
+        // Increment edge count. We only increment the count here because the
+        // information is duplicated in in_edges.
+        edge_count_->fetch_add(*out_size, std::memory_order_acq_rel);
       }
     }
 
@@ -2594,6 +2602,9 @@ Durability::RecoveryInfo Durability::LoadWal(
 
           ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
 
+          // Increment edge count.
+          edge_count_->fetch_add(1, std::memory_order_acq_rel);
+
           break;
         }
         case WalDeltaData::Type::EDGE_DELETE: {
@@ -2639,6 +2650,9 @@ Durability::RecoveryInfo Durability::LoadWal(
             if (!edge_acc.remove(edge_gid))
               throw RecoveryFailure("The edge must be removed here!");
           }
+
+          // Decrement edge count.
+          edge_count_->fetch_add(-1, std::memory_order_acq_rel);
 
           break;
         }

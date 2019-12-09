@@ -195,7 +195,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   }
 
   void VerifyDataset(storage::Storage *store, DatasetType type,
-                     bool properties_on_edges) {
+                     bool properties_on_edges, bool verify_info = true) {
     auto base_label_indexed = store->NameToLabel("base_indexed");
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
@@ -570,6 +570,27 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ++count;
           }
           ASSERT_EQ(count, 0);
+        }
+      }
+    }
+
+    if (verify_info) {
+      auto info = store->GetInfo();
+      if (have_base_dataset) {
+        if (have_extended_dataset) {
+          ASSERT_EQ(info.vertex_count, kNumBaseVertices + kNumExtendedVertices);
+          ASSERT_EQ(info.edge_count, kNumBaseEdges + kNumExtendedEdges);
+        } else {
+          ASSERT_EQ(info.vertex_count, kNumBaseVertices);
+          ASSERT_EQ(info.edge_count, kNumBaseEdges);
+        }
+      } else {
+        if (have_extended_dataset) {
+          ASSERT_EQ(info.vertex_count, kNumExtendedVertices);
+          ASSERT_EQ(info.edge_count, kNumExtendedEdges);
+        } else {
+          ASSERT_EQ(info.vertex_count, 0);
+          ASSERT_EQ(info.edge_count, 0);
         }
       }
     }
@@ -2330,7 +2351,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
                           .durability = {.storage_directory = storage_directory,
                                          .recover_on_startup = true}});
-  VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
+  VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam(),
+                /* verify_info = */ false);
   {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(vertex_gid, storage::View::OLD);
