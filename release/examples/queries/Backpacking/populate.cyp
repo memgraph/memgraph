@@ -1,3 +1,4 @@
+CREATE INDEX ON :City (id);
 CREATE (:City {id: 0, cheapest_hostel: "Flying Pig Downtown", hostel_url: "https://www.priceoftravel.com/AAmsterdamHostel", name: "Amsterdam", country: "Netherlands", local_currency: "Euro", local_currency_code: "EUR", rank: 52, total_USD: 106.764, attractions_USD: 19.84, cost_per_night_USD: 45.756, drinks_USD: 14.88, meals_USD: 19.344, transportation_USD: 6.944 });
 CREATE (:City {id: 1, cheapest_hostel: "Zorbas Hostel", hostel_url: "https://www.priceoftravel.com/AAthensHostel", name: "Athens", country: "Greece", local_currency: "Euro", local_currency_code: "EUR", rank: 23, total_USD: 58.9, attractions_USD: 9.92, cost_per_night_USD: 12.4, drinks_USD: 9.3, meals_USD: 23.808, transportation_USD: 3.472 });
 CREATE (:City {id: 2, cheapest_hostel: "Amistat Beach Hostel Barcelona", hostel_url: "https://www.priceoftravel.com/ABarcelonaHostel", name: "Barcelona", country: "Spain", local_currency: "Euro", local_currency_code: "EUR", rank: 38, total_USD: 80.104, attractions_USD: 16.12, cost_per_night_USD: 23.684, drinks_USD: 11.16, meals_USD: 23.808, transportation_USD: 5.332 });
@@ -54,6 +55,7 @@ CREATE (:City {id: 52, cheapest_hostel: "Tatamka Hostel", hostel_url: "https://w
 CREATE (:City {id: 53, cheapest_hostel: "Hostel Temza", hostel_url: "https://www.priceoftravel.com/AZagrebHostel", name: "Zagreb", country: "Croatia", local_currency: "Croatian Kuna", local_currency_code: "HRK", rank: 8, total_USD: 38.08, attractions_USD: 5.1, cost_per_night_USD: 9.18, drinks_USD: 6.12, meals_USD: 14.28, transportation_USD: 3.4 });
 CREATE (:City {id: 54, cheapest_hostel: "City Backpacker Hostel Biber", hostel_url: "https://www.priceoftravel.com/AZurichHostel", name: "Zurich", country: "Switzerland", local_currency: "Swiss Franc", local_currency_code: "CHF", rank: 56, total_USD: 123.123, attractions_USD: 15.75, cost_per_night_USD: 40.803, drinks_USD: 22.05, meals_USD: 39.06, transportation_USD: 5.46 });
 CREATE (:City {id: 55, cheapest_hostel: "Hostel Merlin", hostel_url: "https://www.priceoftravel.com/AceskyKrumlovHostel", name: "Český Krumlov", country: "Czech Republic", local_currency: "Czech Krona", local_currency_code: "CZK", rank: 12, total_USD: 40.376, attractions_USD: 4.9, cost_per_night_USD: 14.602, drinks_USD: 4.41, meals_USD: 14.112, transportation_USD: 2.352 });
+CREATE INDEX ON :Country (id);
 CREATE (:Country {id: 0, name: "Austria" });
 CREATE (:Country {id: 1, name: "Belgium" });
 CREATE (:Country {id: 2, name: "Bosnia and Herzegovina" });

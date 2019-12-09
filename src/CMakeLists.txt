@@ -348,7 +348,7 @@ install(
   CODE
   "execute_process(COMMAND ${examples}/build_examples
                    ${CMAKE_BINARY_DIR}/memgraph
-                   ${CMAKE_BINARY_DIR}/tests/manual/bolt_client
+                   ${CMAKE_BINARY_DIR}/tools/src/mg_client
                    WORKING_DIRECTORY ${examples})")
 install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
 

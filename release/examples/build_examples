@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 function print_help () {
-    echo "Usage: $0 MEMGRAPH_EXE BOLT_CLIENT_EXE"
+    echo "Usage: $0 MEMGRAPH_EXE MG_CLIENT_EXE"
     echo "Build example snapshots using the compiled memgraph."
 }
 
@@ -15,9 +15,9 @@ if [[ ! -x ${memgraph_exe} ]]; then
   echo "Expected memgraph executable at '${memgraph_exe}'"
   exit 1
 fi
-bolt_client_exe="$2"
-if [[ ! -x ${bolt_client_exe} ]]; then
-  echo "Expected bolt_client executable at '${bolt_client_exe}'"
+mg_client_exe="$2"
+if [[ ! -x ${mg_client_exe} ]]; then
+  echo "Expected mg_client executable at '${mg_client_exe}'"
   exit 1
 fi
 
@@ -47,16 +47,28 @@ do
   # run memgraph with durability_directory pointing
   # to examples snapshots_dir
   ${memgraph_exe} --data-directory "$script_dir/$snapshots_dir/" \
-                  --storage-snapshot-on-exit > /dev/null 2>&1 &
+                  --storage-snapshot-on-exit \
+                  --storage-properties-on-edges &
   memgraph_pid=$!
   sleep 2 # wait for memgraph to start
 
-  # create data using bolt-client
-  ${bolt_client_exe} < "$script_dir/$dir/$query" > /dev/null 2>&1 || exit 1
+  # create data using mg_client
+  set +e
+  ${mg_client_exe} --use-ssl=false < "$script_dir/$dir/$query"
+  code=$?
+  set -e
 
-  # kill memgraph
-  kill $memgraph_pid
+  if [ $code -eq 0 ]; then
+    # terminate memgraph
+    kill $memgraph_pid
 
-  # wait for memgraph to terminate
-  wait $memgraph_pid
+    # wait for memgraph to terminate
+    wait $memgraph_pid
+  else
+    # kill memgraph
+    kill -9 $memgraph_pid
+
+    # abort
+    exit $code
+  fi
 done
