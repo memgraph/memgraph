@@ -1,0 +1,97 @@
+header: >-
+  Memgraph Configuration
+
+  This is the main configuration file for Memgraph. You can modify this file to
+  suit your specific needs. Additional configuration can be specified by
+  including another configuration file, in a file pointed to by the
+  'MEMGRAPH_CONFIG' environment variable or by passing arguments on the command
+  line.
+
+  Each configuration setting is in the form: '--setting-name=value'.
+
+footer: >-
+  Additional Configuration Inclusion
+
+  You can include additional configuration files from this file. Additional
+  files are processed after this file. Settings that are set in the additional
+  files will override previously set values. Additional configuration files are
+  specified with the '--flag-file' flag.
+
+  Example:
+
+  --flag-file=another.conf
+
+modifications:
+
+  # Each modification should consist of the following parameters:
+  #   * name: the name of the flag that should be modified (with underscores)
+  #           [string]
+  #   * value: the value that should be set instead of the binary provided
+  #            default value [string]
+  #   * override: set to `true` to uncomment the config option by default
+  #               [boolean]
+
+  - name: "data_directory"
+    value: "/var/lib/memgraph"
+    override: true
+
+  - name: "log_file"
+    value: "/var/log/memgraph/memgraph.log"
+    override: true
+
+  - name: "bolt_cert_file"
+    value: "/etc/memgraph/ssl/cert.pem"
+    override: true
+
+  - name: "bolt_key_file"
+    value: "/etc/memgraph/ssl/key.pem"
+    override: true
+
+  - name: "bolt_num_workers"
+    value: ""
+    override: false
+
+  - name: "storage_recover_on_startup"
+    value: "true"
+    override: true
+
+  - name: "storage_snapshot_interval_sec"
+    value: "300"
+    override: true
+
+  - name: "storage_snapshot_on_exit"
+    value: "true"
+    override: true
+
+  - name: "storage_snapshot_retention_count"
+    value: "3"
+    override: true
+
+  - name: "storage_wal_enabled"
+    value: "true"
+    override: true
+
+  - name: "telemetry_enabled"
+    value: "true"
+    override: true
+
+  - name: "query_modules_directory"
+    value: "/usr/lib/memgraph/query_modules"
+    override: true
+
+  - name: "auth_module_executable"
+    value: "/usr/lib/memgraph/auth_module/example.py"
+    override: false
+
+undocumented:
+  - "flag_file"
+  - "log_file_mode"
+  - "log_link_basename"
+  - "log_prefix"
+  - "max_log_size"
+  - "min_log_level"
+  - "help"
+  - "help_xml"
+  - "stderr_threshold"
+  - "stop_logging_if_full_disk"
+  - "version"

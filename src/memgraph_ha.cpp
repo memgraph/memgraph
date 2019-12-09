@@ -40,9 +40,6 @@ using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 void SingleNodeHAMain() {
-  google::SetUsageMessage(
-      "Memgraph high availability single-node database server");
-
   auto durability_directory = std::filesystem::path(FLAGS_durability_directory);
 
   database::GraphDb db;
@@ -77,5 +74,6 @@ void SingleNodeHAMain() {
 }
 
 int main(int argc, char **argv) {
+  google::SetUsageMessage("Memgraph high availability database server");
   return WithInit(argc, argv, SingleNodeHAMain);
 }

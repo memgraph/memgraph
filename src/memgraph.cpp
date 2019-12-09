@@ -104,7 +104,7 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
 
 DEFINE_VALIDATED_string(
     query_modules_directory, "",
-    "Directory where modules with custom query procedures are stored", {
+    "Directory where modules with custom query procedures are stored.", {
       if (value.empty()) return true;
       if (utils::DirExists(value)) return true;
       std::cout << "Expected --" << flagname << " to point to a directory."
@@ -116,8 +116,6 @@ using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 void SingleNodeMain() {
-  google::SetUsageMessage("Memgraph single-node database server");
-
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
@@ -247,4 +245,7 @@ void SingleNodeMain() {
   query::procedure::gModuleRegistry.UnloadAllModules();
 }
 
-int main(int argc, char **argv) { return WithInit(argc, argv, SingleNodeMain); }
+int main(int argc, char **argv) {
+  google::SetUsageMessage("Memgraph database server");
+  return WithInit(argc, argv, SingleNodeMain);
+}

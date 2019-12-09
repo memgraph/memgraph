@@ -8,6 +8,7 @@ required_pkgs=(git arcanist # source code control
                libssl-dev
                libseccomp-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+               python3-yaml # for the configuration generator
                uuid-dev # mg-utils
                libcurl4-openssl-dev # mg-requests
                sbcl # for custom Lisp C++ preprocessing

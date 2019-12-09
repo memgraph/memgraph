@@ -290,14 +290,24 @@ set_target_properties(memgraph PROPERTIES
 add_custom_command(TARGET memgraph POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph> ${CMAKE_BINARY_DIR}/memgraph
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph
-                   COMMENT Creating symlink to memgraph executable)
+                   COMMENT "Creating symlink to memgraph executable")
 
 # Strip the executable in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET memgraph POST_BUILD
                      COMMAND strip -s $<TARGET_FILE:memgraph>
-                     COMMENT Stripping symbols and sections from memgraph)
+                     COMMENT "Stripping symbols and sections from memgraph")
 endif()
+
+# Generate the configuration file.
+add_custom_command(TARGET memgraph POST_BUILD
+                   COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
+                               ${CMAKE_BINARY_DIR}/memgraph
+                               ${CMAKE_BINARY_DIR}/config/memgraph.conf
+                   DEPENDS ${CMAKE_SOURCE_DIR}/config/generate.py
+                           ${CMAKE_SOURCE_DIR}/config/flags.yaml
+                   BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
+                   COMMENT "Generating memgraph configuration file")
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
@@ -315,7 +325,7 @@ install(PROGRAMS $<TARGET_FILE:memgraph>
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
         DESTINATION include/memgraph)
 # Install the config file (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
+install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
@@ -355,4 +365,4 @@ set_target_properties(memgraph_ha PROPERTIES
 add_custom_command(TARGET memgraph_ha POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph_ha> ${CMAKE_BINARY_DIR}/memgraph_ha
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph_ha
-                   COMMENT Creating symlink to memgraph single node high availability executable)
+                   COMMENT "Creating symlink to memgraph single node high availability executable")
