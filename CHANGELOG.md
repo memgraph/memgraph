@@ -1,5 +1,36 @@
 # Change Log
 
+## v0.50.0
+
+### Breaking Changes
+
+* [Enterprise Ed.] Remove support for Kafka streams.
+* Snapshot and write-ahead log format changed (not backward compatible).
+* Removed support for unique constraints.
+* Label indices aren't created automatically, create them explicitly instead.
+* Renamed several database flags. Please see the configuration file for a list of current flags.
+
+### Major Features and Improvements
+
+* [Enterprise Ed.] Add support for auth module.
+* [Enterprise Ed.] LDAP support migrated to auth module.
+* Implemented new graph storage engine.
+* Add support for disabling properties on edges.
+* Add support for existence constraints.
+* Add support for custom openCypher procedures using a C API.
+* Support loading query modules implementing read-only procedures.
+* Add `CALL <procedure> YIELD <result>` syntax for invoking loaded procedures.
+* Add `CREATE INDEX ON :Label` for creating label indices.
+* Add `DROP INDEX ON :Label` for dropping label indices.
+* Add `DUMP DATABASE` clause to openCypher.
+* Add functions for treating character strings as byte strings.
+
+### Bug Fixes and Other Changes
+
+* Fix several memory management bugs.
+* Reduce memory usage in query execution.
+* Fix bug that crashes the database when `EXPLAIN` is used.
+
 ## v0.15.0
 
 ### Breaking Changes
