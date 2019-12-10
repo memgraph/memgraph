@@ -2113,7 +2113,7 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
               "Can't serialize due to concurrent operations.");
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
-              "Can't set property because properties are disabled.");
+              "Can't set property because properties on edges are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
@@ -2155,7 +2155,7 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record,
                 "Can't serialize due to concurrent operations.");
           case storage::Error::PROPERTIES_DISABLED:
             throw QueryRuntimeException(
-                "Can't set property because properties are disabled.");
+                "Can't set property because properties on edges are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException(
@@ -2322,7 +2322,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
               "Can't serialize due to concurrent operations.");
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
-              "Can't remove property because properties are disabled.");
+              "Can't remove property because properties on edges are "
+              "disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException(
