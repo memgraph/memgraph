@@ -18,6 +18,14 @@ add_library(louvain SHARED ${MODULE})
 target_link_libraries(louvain louvain-core)
 target_include_directories(louvain PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+# Strip the library in release build.
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET louvain POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:louvain>
+                     COMMENT "Stripping symbols and sections from louvain module")
+endif()
+
 if (NOT MG_COMMUNITY)
   install(PROGRAMS $<TARGET_FILE:louvain>
           DESTINATION lib/memgraph/query_modules

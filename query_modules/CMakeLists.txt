@@ -12,6 +12,15 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 add_library(example SHARED example.c)
 target_include_directories(example PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example PRIVATE -Wall)
+
+# Strip the library in release build.
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET example POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:example>
+                     COMMENT "Stripping symbols and sections from example module")
+endif()
+
 install(PROGRAMS $<TARGET_FILE:example>
         DESTINATION lib/memgraph/query_modules
         RENAME example.so)
