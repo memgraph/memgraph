@@ -21,8 +21,8 @@ def execute_test(**kwargs):
     interval = kwargs.pop("interval", 1)
     duration = kwargs.pop("duration", 5)
 
-    timeout = duration * 2 if "hang" not in kwargs else duration + 60
-    success = "hang" in kwargs
+    timeout = duration * 2 if "hang" not in kwargs else duration * 2 + 60
+    success = False
 
     server_args = [server_binary, "--interval", interval,
                    "--duration", duration]
@@ -71,11 +71,11 @@ TESTS = [
     {"redirect": True},
     {"no_response_count": 2},
     {"wrong_code_count": 2},
-    {"hang": True, "no_check": True, "duration": 0},
+    {"hang": True, "duration": 0},
     {"path": "/nonexistant/", "no_check": True},
     {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
     {"start_server": False},
-    {"startups": 5, "no_check_duration": True},  # the last 4 tests failed
+    {"startups": 4, "no_check_duration": True},  # the last 3 tests failed
                                                  # to send any data + this test
     {"add_garbage": True}
 ]

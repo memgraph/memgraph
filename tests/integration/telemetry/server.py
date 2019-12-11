@@ -61,11 +61,11 @@ def build_handler(storage, args):
                 assert "timestamp" in item
                 storage.append(item)
 
+            if args.hang:
+                time.sleep(20)
+
             self.send_response(200)
             self.end_headers()
-
-            if args.hang:
-                time.sleep(1000)
 
     return Handler
 

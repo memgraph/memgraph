@@ -217,17 +217,22 @@ void SingleNodeMain() {
 
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
-#ifndef MG_SINGLE_NODE_V2
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
         data_directory / "telemetry", std::chrono::minutes(10));
+#ifdef MG_SINGLE_NODE_V2
+    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
+      auto info = db.GetInfo();
+      return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
+    });
+#else
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
       auto dba = db.Access();
       return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
     });
-  }
 #endif
+  }
 
   // Handler for regular termination signals
   auto shutdown = [&server, &interpreter_context] {

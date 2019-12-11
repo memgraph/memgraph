@@ -66,7 +66,8 @@ void Telemetry::SendData() {
     }
   }
 
-  if (requests::RequestPostJson(url_, payload)) {
+  if (requests::RequestPostJson(url_, payload,
+                                /* timeout_in_seconds = */ 2 * 60)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
         DLOG(WARNING) << "Couldn't delete key " << key
