@@ -223,7 +223,8 @@ class RuleBasedPlanner {
           // storage::View::NEW.
           input_op = std::make_unique<plan::CallProcedure>(
               std::move(input_op), call_proc->procedure_name_,
-              call_proc->arguments_, call_proc->result_fields_, result_symbols);
+              call_proc->arguments_, call_proc->result_fields_, result_symbols,
+              call_proc->memory_limit_, call_proc->memory_scale_);
         } else {
           throw utils::NotYetImplemented(
               "clause '{}' conversion to operator(s)",

@@ -52,8 +52,9 @@ class Base {
   }
 
   template <class TValue>
-  void CheckLiteral(Expression *expression, const TValue &expected,
-                    const std::optional<int> &token_position = std::nullopt) {
+  void CheckLiteral(
+      Expression *expression, const TValue &expected,
+      const std::optional<int> &token_position = std::nullopt) const {
     TypedValue value;
     // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     TypedValue expected_tv(expected);
@@ -2669,6 +2670,19 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
   ASSERT_TRUE(query);
 }
 
+namespace {
+template <class TAst>
+void CheckCallProcedureDefaultMemoryLimit(const TAst &ast,
+                                          const CallProcedure &call_proc) {
+  // Should be 100 MB
+  auto *literal = dynamic_cast<PrimitiveLiteral *>(call_proc.memory_limit_);
+  ASSERT_TRUE(literal);
+  TypedValue value(literal->value_);
+  ASSERT_TRUE(TypedValue::BoolEqual{}(value, TypedValue(100)));
+  ASSERT_EQ(call_proc.memory_scale_, 1024 * 1024);
+}
+}  // namespace
+
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
@@ -2690,6 +2704,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
@@ -2713,6 +2728,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
@@ -2740,6 +2756,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
                                           "last_field"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
@@ -2769,6 +2786,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   ASSERT_EQ(identifier_names, aliased_names);
   std::vector<std::string> field_names{"fst", "snd", "thrd"};
   ASSERT_EQ(call_proc->result_fields_, field_names);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
@@ -2795,6 +2813,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallYieldAsterisk) {
@@ -2818,6 +2837,7 @@ TEST_P(CypherMainVisitorTest, CallYieldAsterisk) {
   std::vector<std::string> expected_names{"name", "signature"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallYieldAsteriskReturnAsterisk) {
@@ -2844,6 +2864,7 @@ TEST_P(CypherMainVisitorTest, CallYieldAsteriskReturnAsterisk) {
   std::vector<std::string> expected_names{"name", "signature"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallWithoutYield) {
@@ -2860,6 +2881,91 @@ TEST_P(CypherMainVisitorTest, CallWithoutYield) {
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+}
+
+TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL mg.reload_all() MEMORY LIMIT 32 KB"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  ASSERT_TRUE(call_proc->result_fields_.empty());
+  ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
+  ASSERT_EQ(call_proc->memory_scale_, 1024);
+}
+
+TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL mg.reload_all() MEMORY UNLIMITED"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  ASSERT_TRUE(call_proc->result_fields_.empty());
+  ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  ASSERT_FALSE(call_proc->memory_limit_);
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "CALL proc.with.dots() MEMORY LIMIT 32 MB YIELD res"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "proc.with.dots");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"res"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
+  ASSERT_EQ(call_proc->memory_scale_, 1024 * 1024);
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "CALL proc.with.dots() MEMORY UNLIMITED YIELD res"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  ASSERT_TRUE(call_proc);
+  ASSERT_EQ(call_proc->procedure_name_, "proc.with.dots");
+  ASSERT_TRUE(call_proc->arguments_.empty());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    ASSERT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> expected_names{"res"};
+  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  ASSERT_FALSE(call_proc->memory_limit_);
 }
 
 TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
@@ -2888,9 +2994,21 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(
       ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"),
       SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "CALL proc.with.dots() YIELD res MEMORY UNLIMITED"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "CALL proc.with.dots() YIELD res MEMORY LIMIT 32 KB"),
+               SyntaxException);
+  ASSERT_THROW(
+      ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"),
+      SyntaxException);
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"),
                SemanticException);
+  ASSERT_THROW(
+      ast_generator.ParseQuery("CALL mg.procedures() MEMORY UNLIMITED"),
+      SemanticException);
   // TODO: Implement support for the following syntax. These are defined in
   // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);

@@ -368,6 +368,22 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
   }
+  if (auto *memory_limit_ctx = ctx->callProcedureMemoryLimit()) {
+    if (memory_limit_ctx->LIMIT()) {
+      call_proc->memory_limit_ = memory_limit_ctx->literal()->accept(this);
+      if (memory_limit_ctx->MB()) {
+        call_proc->memory_scale_ = 1024U * 1024U;
+      } else {
+        CHECK(memory_limit_ctx->KB());
+        call_proc->memory_scale_ = 1024U;
+      }
+    }
+  } else {
+    // Default to 100 MB
+    call_proc->memory_limit_ =
+        storage_->Create<PrimitiveLiteral>(TypedValue(100));
+    call_proc->memory_scale_ = 1024U * 1024U;
+  }
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
     const auto &maybe_found = procedure::FindProcedure(

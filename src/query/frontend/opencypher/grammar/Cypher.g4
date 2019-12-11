@@ -108,9 +108,11 @@ with : WITH ( DISTINCT )? returnBody ( where )? ;
 
 cypherReturn : RETURN ( DISTINCT )? returnBody ;
 
-callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( yieldProcedureResults )? ;
+callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( callProcedureMemoryLimit )? ( yieldProcedureResults )? ;
 
 procedureName : symbolicName ( '.' symbolicName )* ;
+
+callProcedureMemoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
 
 yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
 

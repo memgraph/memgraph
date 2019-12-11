@@ -2069,13 +2069,18 @@ at once. Instead, each call of the callback should return a single row of the ta
               :slk-save #'slk-save-ast-vector
               :slk-load (slk-load-ast-vector "Expression"))
    (result-fields "std::vector<std::string>" :scope :public)
-   (result-symbols "std::vector<Symbol>" :scope :public))
+   (result-symbols "std::vector<Symbol>" :scope :public)
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;
     CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name,
                   std::vector<Expression *> arguments,
-                  std::vector<std::string> fields, std::vector<Symbol> symbols);
+                  std::vector<std::string> fields, std::vector<Symbol> symbols,
+                  Expression *memory_limit, size_t memory_scale);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

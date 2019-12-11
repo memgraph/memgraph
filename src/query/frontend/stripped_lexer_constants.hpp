@@ -88,10 +88,10 @@ const trie::Trie kKeywords = {
     "when",    "then",     "else",      "end",      "count",      "filter",
     "extract", "any",      "none",      "single",   "true",       "false",
     "reduce",  "coalesce", "user",      "password", "alter",      "drop",
-    "show",    "stats",
-    "unique",  "explain",  "profile",
-    "storage", "index",    "info",      "exists",   "assert",     "constraint",
-    "node",    "key",      "dump",      "database", "call",       "yield"};
+    "show",    "stats",    "unique",    "explain",  "profile",    "storage",
+    "index",   "info",     "exists",    "assert",   "constraint", "node",
+    "key",     "dump",     "database",  "call",     "yield",      "memory",
+    "mb",      "kb",       "unlimited"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(std::string(

@@ -1596,7 +1596,11 @@ cpp<#
    (result-identifiers "std::vector<Identifier *>"
                        :scope :public
                        :slk-save #'slk-save-ast-vector
-                       :slk-load (slk-load-ast-vector "Identifier")))
+                       :slk-load (slk-load-ast-vector "Identifier"))
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;

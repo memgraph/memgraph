@@ -3714,12 +3714,15 @@ UniqueCursorPtr OutputTableStream::MakeCursor(
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input,
                              std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields,
-                             std::vector<Symbol> symbols)
+                             std::vector<Symbol> symbols,
+                             Expression *memory_limit, size_t memory_scale)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
       result_fields_(fields),
-      result_symbols_(symbols) {}
+      result_symbols_(symbols),
+      memory_limit_(memory_limit),
+      memory_scale_(memory_scale) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -3736,11 +3739,26 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(
 
 namespace {
 
+std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval,
+                                      Expression *memory_limit,
+                                      size_t memory_scale) {
+  if (!memory_limit) return std::nullopt;
+  auto limit_value = memory_limit->Accept(*eval);
+  if (!limit_value.IsInt() || limit_value.ValueInt() <= 0)
+    throw QueryRuntimeException("Memory limit must be a non-negative integer.");
+  size_t limit = limit_value.ValueInt();
+  if (std::numeric_limits<size_t>::max() / memory_scale < limit)
+    throw QueryRuntimeException("Memory limit overflow.");
+  return limit * memory_scale;
+}
+
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
                          const mgp_proc &proc,
                          const std::vector<Expression *> &args,
                          const mgp_graph &graph, ExpressionEvaluator *evaluator,
-                         utils::MemoryResource *memory, mgp_result *result) {
+                         utils::MemoryResource *memory,
+                         std::optional<size_t> memory_limit,
+                         mgp_result *result) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -3791,17 +3809,26 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   for (size_t i = passed_in_opt_args; i < proc.opt_args.size(); ++i) {
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
-  // TODO: Add syntax for controlling procedure memory limits.
-  utils::LimitedMemoryResource limited_mem(memory,
-                                           100 * 1024 * 1024 /* 100 MB */);
-  mgp_memory proc_memory{&limited_mem};
-  CHECK(result->signature == &proc.results);
-  // TODO: What about cross library boundary exceptions? OMG C++?!
-  proc.cb(&proc_args, &graph, result, &proc_memory);
-  size_t leaked_bytes = limited_mem.GetAllocatedBytes();
-  LOG_IF(WARNING, leaked_bytes > 0U)
-      << "Query procedure '" << fully_qualified_procedure_name << "' leaked "
-      << leaked_bytes << " *tracked* bytes";
+  if (memory_limit) {
+    LOG(INFO) << "Running '" << fully_qualified_procedure_name
+              << "' with memory limit of " << *memory_limit << " bytes";
+    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
+    mgp_memory proc_memory{&limited_mem};
+    CHECK(result->signature == &proc.results);
+    // TODO: What about cross library boundary exceptions? OMG C++?!
+    proc.cb(&proc_args, &graph, result, &proc_memory);
+    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+    LOG_IF(WARNING, leaked_bytes > 0U)
+        << "Query procedure '" << fully_qualified_procedure_name << "' leaked "
+        << leaked_bytes << " *tracked* bytes";
+  } else {
+    // TODO: Add a tracking MemoryResource without limits, so that we report
+    // memory leaks in procedure.
+    mgp_memory proc_memory{memory};
+    CHECK(result->signature == &proc.results);
+    // TODO: What about cross library boundary exceptions? OMG C++?!
+    proc.cb(&proc_args, &graph, result, &proc_memory);
+  }
 }
 
 }  // namespace
@@ -3867,9 +3894,11 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
+      auto memory_limit = EvalMemoryLimit(&evaluator, self_->memory_limit_,
+                                          self_->memory_scale_);
       mgp_graph graph{context.db_accessor, graph_view};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_,
-                          graph, &evaluator, memory, &result_);
+                          graph, &evaluator, memory, memory_limit, &result_);
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
