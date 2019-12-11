@@ -40,7 +40,7 @@ class InterpreterTest : public ::testing::Test {
                  const std::map<std::string, PropertyValue> &params = {}) {
     ResultStreamFaker stream(&db_);
 
-    auto [header, _] = interpreter_.Prepare(query, params);
+    auto header = interpreter_.Prepare(query, params);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

@@ -31,16 +31,11 @@ struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
   SessionData(database::GraphDb *_db,
-              query::InterpreterContext *_interpreter_context,
-              auth::Auth *_auth, audit::Log *_audit_log)
+              query::InterpreterContext *_interpreter_context)
       : db(_db),
-        interpreter_context(_interpreter_context),
-        auth(_auth),
-        audit_log(_audit_log) {}
+        interpreter_context(_interpreter_context) {}
   database::GraphDb *db;
   query::InterpreterContext *interpreter_context;
-  auth::Auth *auth;
-  audit::Log *audit_log;
 };
 
 class BoltSession final
@@ -62,9 +57,6 @@ class BoltSession final
       TEncoder *encoder) override;
 
   void Abort() override;
-
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override;
 
  private:
   /// Wrapper around TEncoder which converts TypedValue to Value
@@ -92,11 +84,6 @@ class BoltSession final
   const storage::Storage *db_;
 #endif
   query::Interpreter interpreter_;
-#ifndef MG_SINGLE_NODE_HA
-  auth::Auth *auth_;
-  std::optional<auth::User> user_;
-  audit::Log *audit_log_;
-#endif
   io::network::Endpoint endpoint_;
 };
 

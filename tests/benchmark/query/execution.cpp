@@ -5,7 +5,6 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/planner.hpp"

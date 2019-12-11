@@ -60,10 +60,6 @@ class Session {
   /** Aborts currently running query. */
   virtual void Abort() = 0;
 
-  /** Return `true` if the user was successfully authenticated. */
-  virtual bool Authenticate(const std::string &username,
-                            const std::string &password) = 0;
-
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.

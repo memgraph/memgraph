@@ -31,31 +31,28 @@ add_benchmark(data_structures/concurrent/map_concurrent.cpp)
 target_link_libraries(${test_prefix}map_concurrent mg-single-node kvstore_dummy_lib)
 
 add_benchmark(data_structures/ring_buffer.cpp)
-target_link_libraries(${test_prefix}ring_buffer mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}ring_buffer mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(query/eval.cpp)
-target_link_libraries(${test_prefix}eval mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}eval mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(query/execution.cpp)
-target_link_libraries(${test_prefix}execution mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}execution mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(query/planner.cpp)
-target_link_libraries(${test_prefix}planner mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}planner mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(query/profile.cpp)
-target_link_libraries(${test_prefix}profile mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}profile mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(query/stripped.cpp)
-target_link_libraries(${test_prefix}stripped mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(edge_storage.cpp)
 target_link_libraries(${test_prefix}edge_storage mg-single-node kvstore_dummy_lib)
 
 add_benchmark(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
-
-add_benchmark(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-comm-rpc)
 
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)
@@ -73,7 +70,7 @@ add_benchmark(tx_engine.cpp)
 target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 
 add_benchmark(expansion.cpp)
-target_link_libraries(${test_prefix}expansion mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}expansion mg-single-node-v2 kvstore_dummy_lib)
 
 add_benchmark(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

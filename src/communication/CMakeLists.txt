@@ -10,12 +10,3 @@ add_library(mg-communication STATIC ${communication_src_files})
 target_link_libraries(mg-communication Threads::Threads mg-utils mg-io fmt glog gflags)
 target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})
 target_include_directories(mg-communication SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
-
-set(communication_rpc_src_files
-    rpc/client.cpp
-    rpc/protocol.cpp
-    rpc/server.cpp)
-
-add_library(mg-comm-rpc STATIC ${communication_rpc_src_files})
-target_link_libraries(mg-comm-rpc Threads::Threads mg-communication mg-utils mg-io fmt glog gflags)
-target_link_libraries(mg-comm-rpc mg-slk)

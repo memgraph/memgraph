@@ -2087,67 +2087,11 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class auth-query (query)
-  ((action "Action" :scope :public)
-   (user "std::string" :scope :public)
-   (role "std::string" :scope :public)
-   (user-or-role "std::string" :scope :public)
-   (password "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
-   (privileges "std::vector<Privilege>" :scope :public))
-  (:public
-    (lcp:define-enum action
-        (create-role drop-role show-roles create-user set-password drop-user
-         show-users set-role clear-role grant-privilege deny-privilege
-         revoke-privilege show-privileges show-role-for-user
-         show-users-for-role)
-      (:serialize))
-    (lcp:define-enum privilege
-        (create delete match merge set remove index stats auth constraint
-         dump)
-      (:serialize))
-    #>cpp
-    AuthQuery() = default;
-
-    DEFVISITABLE(QueryVisitor<void>);
-    cpp<#)
-  (:protected
-    #>cpp
-    AuthQuery(Action action, std::string user, std::string role,
-              std::string user_or_role, Expression *password,
-              std::vector<Privilege> privileges)
-        : action_(action),
-          user_(user),
-          role_(role),
-          user_or_role_(user_or_role),
-          password_(password),
-          privileges_(privileges) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
-;; TODO: Generate this via LCP
-#>cpp
-/// Constant that holds all available privileges.
-const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
-    AuthQuery::Privilege::CREATE,     AuthQuery::Privilege::DELETE,
-    AuthQuery::Privilege::MATCH,      AuthQuery::Privilege::MERGE,
-    AuthQuery::Privilege::SET,        AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,      AuthQuery::Privilege::STATS,
-    AuthQuery::Privilege::AUTH,
-    AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP};
-cpp<#
-
 (lcp:define-class info-query (query)
   ((info-type "InfoType" :scope :public))
   (:public
     (lcp:define-enum info-type
-        (storage index constraint raft)
+        (storage index constraint)
       (:serialize))
 
     #>cpp

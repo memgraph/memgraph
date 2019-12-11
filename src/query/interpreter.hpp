@@ -21,10 +21,6 @@
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
 namespace query {
 
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
@@ -36,7 +32,6 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
  */
 struct PreparedQuery {
   std::vector<std::string> header;
-  std::vector<AuthQuery::Privilege> privileges;
   std::function<QueryHandlerResult(AnyStream *stream)> query_handler;
 };
 
@@ -74,7 +69,6 @@ class CachedPlan {
 struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
-  std::vector<AuthQuery::Privilege> required_privileges;
 };
 
 struct QueryCacheEntry {
@@ -144,8 +138,6 @@ struct InterpreterContext {
   // The default execution timeout is 3 minutes.
   double execution_timeout_sec{180.0};
 
-  auth::Auth *auth{nullptr};
-
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 };
@@ -181,7 +173,7 @@ class Interpreter final {
    * leader and a query other than an Info Raft query was given
    * @throw query::QueryException
    */
-  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+  std::vector<std::string>
   Prepare(const std::string &query,
           const std::map<std::string, PropertyValue> &params);
 

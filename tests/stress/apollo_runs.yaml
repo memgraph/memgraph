@@ -15,18 +15,6 @@
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset
   infiles: *STRESS_INFILES
 
-- name: stress_ha_normal_operation
-  commands: TIMEOUT=200 ./continuous_integration_ha
-  infiles: &STRESS_HA_INFILES
-    - . # current directory
-    - ../../build_release/memgraph_ha # memgraph release binary
-    - ../../build_release/tests/stress/ # stress client binaries
-
-- name: stress_ha_normal_opration_large
-  project: release
-  commands: TIMEOUT=7500 ./continuous_integration_ha --large-dataset
-  infiles: *STRESS_HA_INFILES
-
 - name: durability
   commands: TIMEOUT=300 ./ve3/bin/python3 durability --num-steps 5
   infiles: &DURABILITY_INFILES

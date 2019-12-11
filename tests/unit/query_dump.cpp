@@ -184,7 +184,7 @@ auto Execute(storage::Storage *db, const std::string &query) {
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
-  auto [header, _] = interpreter.Prepare(query, {});
+  auto header = interpreter.Prepare(query, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);

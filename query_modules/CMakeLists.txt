@@ -26,6 +26,3 @@ install(PROGRAMS $<TARGET_FILE:example>
         RENAME example.so)
 # Also install the source of the example, so user can read it.
 install(FILES example.c DESTINATION lib/memgraph/query_modules)
-
-add_subdirectory(louvain)
-add_subdirectory(connectivity)

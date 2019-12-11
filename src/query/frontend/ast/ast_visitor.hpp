@@ -62,7 +62,6 @@ class RemoveProperty;
 class RemoveLabels;
 class Merge;
 class Unwind;
-class AuthQuery;
 class ExplainQuery;
 class ProfileQuery;
 class IndexQuery;
@@ -113,7 +112,7 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
-                              IndexQuery, AuthQuery, InfoQuery,
+                              IndexQuery, InfoQuery,
                               ConstraintQuery, DumpQuery> {};
 
 }  // namespace query

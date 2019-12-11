@@ -87,16 +87,6 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
-// Audit logging flags.
-DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
-DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_VALIDATED_int32(
-    audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
-    "Interval (in milliseconds) used for flushing the audit log buffer.",
-    FLAG_IN_RANGE(10, INT32_MAX));
-
 // Query flags.
 DEFINE_uint64(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
@@ -116,40 +106,11 @@ using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 void SingleNodeMain() {
-  // All enterprise features should be constructed before the main database
-  // storage. This will cause them to be destructed *after* the main database
-  // storage. That way any errors that happen during enterprise features
-  // destruction won't have an impact on the storage engine.
-  // Example: When the main storage is destructed it makes a snapshot. When
-  // audit logging is destructed it syncs all pending data to disk and that can
-  // fail. That is why it must be destructed *after* the main database storage
-  // to minimise the impact of their failure on the main storage.
-
-  // Begin enterprise features initialization
-
 #ifdef MG_SINGLE_NODE_V2
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 #else
   auto data_directory = std::filesystem::path(FLAGS_durability_directory);
 #endif
-
-  // Auth
-  auth::Auth auth{data_directory / "auth"};
-
-  // Audit log
-  audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
-                       FLAGS_audit_buffer_flush_interval_ms};
-  // Start the log if enabled.
-  if (FLAGS_audit_enabled) {
-    audit_log.Start();
-  }
-  // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
-  // rotates our audit logs.
-  CHECK(utils::SignalHandler::RegisterHandler(
-      utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }))
-      << "Unable to register SIGUSR2 handler!";
-
-  // End enterprise features initialization
 
   // Main storage and execution engines initialization
 
@@ -190,7 +151,7 @@ void SingleNodeMain() {
   query::InterpreterContext interpreter_context{&db};
   query::SetExecutionTimeout(&interpreter_context,
                              FLAGS_query_execution_timeout_sec);
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  SessionData session_data{&db, &interpreter_context};
 
   // Register modules
   if (!FLAGS_query_modules_directory.empty()) {
@@ -201,8 +162,6 @@ void SingleNodeMain() {
     }
   }
   // Register modules END
-
-  interpreter_context.auth = &auth;
 
   ServerContext context;
   std::string service_name = "Bolt";

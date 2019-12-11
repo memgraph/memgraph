@@ -60,38 +60,6 @@ State StateInitRun(Session &session) {
   LOG(INFO) << fmt::format("Client connected '{}'", client_name.ValueString())
             << std::endl;
 
-  // Get authentication data.
-  std::string username, password;
-  auto &data = metadata.ValueMap();
-  if (!data.count("scheme")) {
-    LOG(WARNING) << "The client didn't supply authentication information!";
-    return State::Close;
-  }
-  if (data["scheme"].ValueString() == "basic") {
-    if (!data.count("principal") || !data.count("credentials")) {
-      LOG(WARNING) << "The client didn't supply authentication information!";
-      return State::Close;
-    }
-    username = data["principal"].ValueString();
-    password = data["credentials"].ValueString();
-  } else if (data["scheme"].ValueString() != "none") {
-    LOG(WARNING) << "Unsupported authentication scheme: "
-                 << data["scheme"].ValueString();
-    return State::Close;
-  }
-
-  // Authenticate the user.
-  if (!session.Authenticate(username, password)) {
-    if (!session.encoder_.MessageFailure(
-            {{"code", "Memgraph.ClientError.Security.Unauthenticated"},
-             {"message", "Authentication failure"}})) {
-      DLOG(WARNING) << "Couldn't send failure message to the client!";
-    }
-    // Throw an exception to indicate to the network stack that the session
-    // should be closed and cleaned up.
-    throw SessionClosedException("The client is not authenticated!");
-  }
-
   // Return success.
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message to the client!";

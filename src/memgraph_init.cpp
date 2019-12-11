@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 
 #include "config.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
@@ -33,10 +32,6 @@ BoltSession::BoltSession(SessionData *data,
       db_(data->db),
 #endif
       interpreter_(data->interpreter_context),
-#ifndef MG_SINGLE_NODE_HA
-      auth_(data->auth),
-      audit_log_(data->audit_log),
-#endif
       endpoint_(endpoint) {
 }
 
@@ -50,28 +45,8 @@ std::vector<std::string> BoltSession::Interpret(
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-#ifndef MG_SINGLE_NODE_HA
-  audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
-                     PropertyValue(params_pv));
-#endif
   try {
-    auto result = interpreter_.Prepare(query, params_pv);
-#ifndef MG_SINGLE_NODE_HA
-    if (user_) {
-      const auto &permissions = user_->GetPermissions();
-      for (const auto &privilege : result.second) {
-        if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
-            auth::PermissionLevel::GRANT) {
-          interpreter_.Abort();
-          throw communication::bolt::ClientError(
-              "You are not authorized to execute this query! Please contact "
-              "your database administrator.");
-        }
-      }
-    }
-#endif
-    return result.first;
-
+    return interpreter_.Prepare(query, params_pv);
   } catch (const query::QueryException &e) {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
@@ -118,17 +93,6 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
 }
 
 void BoltSession::Abort() { interpreter_.Abort(); }
-
-bool BoltSession::Authenticate(const std::string &username,
-                               const std::string &password) {
-#ifdef MG_SINGLE_NODE_HA
-  return true;
-#else
-  if (!auth_->HasUsers()) return true;
-  user_ = auth_->Authenticate(username, password);
-  return !!user_;
-#endif
-}
 
 #ifdef MG_SINGLE_NODE_V2
 BoltSession::TypedValueResultStream::TypedValueResultStream(
