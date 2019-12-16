@@ -273,7 +273,7 @@ TEST(Graph, Modularity) {
                      {3, 4, 4.2}});
   std::vector<uint32_t> c = {0, 1, 1, 2, 2};
   SetCommunities(&graph, c);
-  EXPECT_NEAR(graph.Modularity(), 0.37452886332076973, 1e-6);
+  EXPECT_NEAR(graph.Modularity(), 0.036798254314620096, 1e-6);
 
   // Tree
   //      (0)--(3)
@@ -289,7 +289,7 @@ TEST(Graph, Modularity) {
                      {2, 6, 0.7}});
   c = {0, 0, 1, 0, 0, 1, 2};
   SetCommunities(&graph, c);
-  EXPECT_NEAR(graph.Modularity(), 0.6945087219651122, 1e-6);
+  EXPECT_NEAR(graph.Modularity(), 0.4424617301530794, 1e-6);
 
   // Graph without self-loops
   // (0)--(1)
@@ -305,7 +305,7 @@ TEST(Graph, Modularity) {
                      {3, 4, 0.7}});
   c = {0, 1, 1, 1, 1};
   SetCommunities(&graph, c);
-  EXPECT_NEAR(graph.Modularity(), 0.32653061224489793, 1e-6);
+  EXPECT_NEAR(graph.Modularity(), -0.022959183673469507, 1e-6);
 
   // Graph with self loop [*nodes have self loops]
   // (0)--(1*)
@@ -324,5 +324,42 @@ TEST(Graph, Modularity) {
                      {4, 4, 1}});
   c = {0, 0, 0, 0, 1};
   SetCommunities(&graph, c);
-  EXPECT_NEAR(graph.Modularity(), 0.2754545454545455, 1e-6);
+  EXPECT_NEAR(graph.Modularity(), 0.188842975206611, 1e-6);
+
+  // Neo4j example graph
+  // (0)--(1)---(3)--(4)
+  //   \  /       \ /
+  //    (2)       (5)
+  graph = BuildGraph(6, {{0, 1, 1},
+                         {1, 2, 1},
+                         {0, 2, 1},
+                         {1, 3, 1},
+                         {3, 5, 1},
+                         {5, 4, 1},
+                         {3, 4, 1}});
+  c = {0, 0, 0, 1, 1, 1};
+  SetCommunities(&graph, c);
+  EXPECT_NEAR(graph.Modularity(), 0.3571428571428571, 1e-6);
+
+  // Example graph from wikipedia
+  // (0)--(1)--(3)--(4)--(5)
+  //   \  /     |      \ /
+  //    (2)    (7)     (6)
+  //          /   \
+  //         (8)--(9)
+  graph = BuildGraph(10, {{0, 1, 1},
+                          {1, 2, 1},
+                          {0, 2, 1},
+                          {1, 3, 1},
+                          {3, 4, 1},
+                          {4, 5, 1},
+                          {5, 6, 1},
+                          {6, 4, 1},
+                          {3, 7, 1},
+                          {7, 8, 1},
+                          {7, 9, 1},
+                          {8, 9, 1}});
+  c = {0, 0, 0, 0, 1, 1, 1, 2, 2, 2};
+  SetCommunities(&graph, c);
+  EXPECT_NEAR(graph.Modularity(), 0.4896, 1e-4);
 }
