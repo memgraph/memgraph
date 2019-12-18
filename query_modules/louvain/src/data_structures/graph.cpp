@@ -82,8 +82,7 @@ double Graph::Modularity() const {
   std::unordered_map<uint32_t, double> degree_c;
 
   for (uint32_t i = 0; i < n_nodes_; ++i) {
-    degree_c[Community(i)] +=
-        static_cast<double>(IncidentWeight(i));
+    degree_c[Community(i)] += IncidentWeight(i);
     for (const auto &neigh : adj_list_[i]) {
       uint32_t j = neigh.dest;
       double w = neigh.weight;

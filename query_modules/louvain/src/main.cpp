@@ -22,7 +22,7 @@ int main() {
   algorithms::Louvain(&graph);
 
   for (int i = 0; i < n; ++i)
-    std::cout << i << graph.Community(i) << "\n";
+    std::cout << i << " " << graph.Community(i) << "\n";
   std::cout << graph.Modularity() << "\n";
   return 0;
 }
