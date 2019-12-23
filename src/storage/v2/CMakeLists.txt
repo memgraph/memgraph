@@ -2,6 +2,7 @@ set(storage_v2_src_files
     durability.cpp
     edge_accessor.cpp
     indices.cpp
+    property_store.cpp
     vertex_accessor.cpp
     storage.cpp)
 
