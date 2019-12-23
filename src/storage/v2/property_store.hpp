@@ -46,8 +46,7 @@ class PropertyStore {
   bool ClearProperties();
 
  private:
-  uint8_t *data_{nullptr};
-  uint64_t size_{0};
+  uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };
 
 }  // namespace storage

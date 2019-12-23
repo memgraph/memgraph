@@ -15,6 +15,26 @@ TEST(PropertyStore, Simple) {
   ASSERT_EQ(props.GetProperty(prop), value);
   ASSERT_TRUE(props.HasProperty(prop));
   ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+
+  ASSERT_FALSE(props.SetProperty(prop, storage::PropertyValue()));
+  ASSERT_TRUE(props.GetProperty(prop).IsNull());
+  ASSERT_FALSE(props.HasProperty(prop));
+  ASSERT_EQ(props.Properties().size(), 0);
+}
+
+TEST(PropertyStore, SimpleLarge) {
+  storage::PropertyStore props;
+  auto prop = storage::PropertyId::FromInt(42);
+  auto value = storage::PropertyValue(std::string(10000, 'a'));
+  ASSERT_TRUE(props.SetProperty(prop, value));
+  ASSERT_EQ(props.GetProperty(prop), value);
+  ASSERT_TRUE(props.HasProperty(prop));
+  ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+
+  ASSERT_FALSE(props.SetProperty(prop, storage::PropertyValue()));
+  ASSERT_TRUE(props.GetProperty(prop).IsNull());
+  ASSERT_FALSE(props.HasProperty(prop));
+  ASSERT_EQ(props.Properties().size(), 0);
 }
 
 TEST(PropertyStore, EmptySetToNull) {
@@ -26,10 +46,52 @@ TEST(PropertyStore, EmptySetToNull) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
+TEST(PropertyStore, Clear) {
+  storage::PropertyStore props;
+  auto prop = storage::PropertyId::FromInt(42);
+  auto value = storage::PropertyValue(42);
+  ASSERT_TRUE(props.SetProperty(prop, value));
+  ASSERT_EQ(props.GetProperty(prop), value);
+  ASSERT_TRUE(props.HasProperty(prop));
+  ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+  ASSERT_TRUE(props.ClearProperties());
+  ASSERT_TRUE(props.GetProperty(prop).IsNull());
+  ASSERT_FALSE(props.HasProperty(prop));
+  ASSERT_EQ(props.Properties().size(), 0);
+}
+
+TEST(PropertyStore, EmptyClear) {
+  storage::PropertyStore props;
+  ASSERT_FALSE(props.ClearProperties());
+  ASSERT_EQ(props.Properties().size(), 0);
+}
+
 TEST(PropertyStore, MoveConstruct) {
   storage::PropertyStore props1;
   auto prop = storage::PropertyId::FromInt(42);
   auto value = storage::PropertyValue(42);
+  ASSERT_TRUE(props1.SetProperty(prop, value));
+  ASSERT_EQ(props1.GetProperty(prop), value);
+  ASSERT_TRUE(props1.HasProperty(prop));
+  ASSERT_THAT(props1.Properties(),
+              UnorderedElementsAre(std::pair(prop, value)));
+  {
+    storage::PropertyStore props2(std::move(props1));
+    ASSERT_EQ(props2.GetProperty(prop), value);
+    ASSERT_TRUE(props2.HasProperty(prop));
+    ASSERT_THAT(props2.Properties(),
+                UnorderedElementsAre(std::pair(prop, value)));
+  }
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
+  ASSERT_TRUE(props1.GetProperty(prop).IsNull());
+  ASSERT_FALSE(props1.HasProperty(prop));
+  ASSERT_EQ(props1.Properties().size(), 0);
+}
+
+TEST(PropertyStore, MoveConstructLarge) {
+  storage::PropertyStore props1;
+  auto prop = storage::PropertyId::FromInt(42);
+  auto value = storage::PropertyValue(std::string(10000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
@@ -59,6 +121,35 @@ TEST(PropertyStore, MoveAssign) {
               UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = storage::PropertyValue(68);
+    storage::PropertyStore props2;
+    ASSERT_TRUE(props2.SetProperty(prop, value2));
+    ASSERT_EQ(props2.GetProperty(prop), value2);
+    ASSERT_TRUE(props2.HasProperty(prop));
+    ASSERT_THAT(props2.Properties(),
+                UnorderedElementsAre(std::pair(prop, value2)));
+    props2 = std::move(props1);
+    ASSERT_EQ(props2.GetProperty(prop), value);
+    ASSERT_TRUE(props2.HasProperty(prop));
+    ASSERT_THAT(props2.Properties(),
+                UnorderedElementsAre(std::pair(prop, value)));
+  }
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
+  ASSERT_TRUE(props1.GetProperty(prop).IsNull());
+  ASSERT_FALSE(props1.HasProperty(prop));
+  ASSERT_EQ(props1.Properties().size(), 0);
+}
+
+TEST(PropertyStore, MoveAssignLarge) {
+  storage::PropertyStore props1;
+  auto prop = storage::PropertyId::FromInt(42);
+  auto value = storage::PropertyValue(std::string(10000, 'a'));
+  ASSERT_TRUE(props1.SetProperty(prop, value));
+  ASSERT_EQ(props1.GetProperty(prop), value);
+  ASSERT_TRUE(props1.HasProperty(prop));
+  ASSERT_THAT(props1.Properties(),
+              UnorderedElementsAre(std::pair(prop, value)));
+  {
+    auto value2 = storage::PropertyValue(std::string(10000, 'b'));
     storage::PropertyStore props2;
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
