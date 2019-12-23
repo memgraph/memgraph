@@ -1530,4 +1530,23 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ScanAllById) {
+  // Test MATCH (n) WHERE id(n) = 42 RETURN n
+  AstStorage storage;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(EQ(FN("id", IDENT("n")), LITERAL(42))),
+                                   RETURN("n")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAllById(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ScanAllByIdExpandToExisting) {
+  // Test MATCH (n)-[r]-(m) WHERE id(m) = 42 RETURN r
+  AstStorage storage;
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(),
+                       ExpectExpand(), ExpectProduce());
+}
+
 }  // namespace

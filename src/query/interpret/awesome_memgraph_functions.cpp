@@ -1109,7 +1109,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "OUTDEGREE") return OutDegree;
   if (function_name == "ENDNODE") return EndNode;
   if (function_name == "HEAD") return Head;
-  if (function_name == "ID") return Id;
+  if (function_name == kId) return Id;
   if (function_name == "LAST") return Last;
   if (function_name == "PROPERTIES") return Properties;
   if (function_name == "SIZE") return Size;

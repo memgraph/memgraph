@@ -505,6 +505,34 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
 }
 
+ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input,
+                         Symbol output_symbol, Expression *expression,
+                         storage::View view)
+    : ScanAll(input, output_symbol, view), expression_(expression) {
+  CHECK(expression);
+}
+
+ACCEPT_WITH_INPUT(ScanAllById)
+
+UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
+  auto vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<std::vector<VertexAccessor>> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (!value.IsNumeric()) return std::nullopt;
+    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+    auto maybe_vertex = db->FindVertex(storage::Gid::FromInt(id), view_);
+    if (!maybe_vertex) return std::nullopt;
+    return std::vector<VertexAccessor>{*maybe_vertex};
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
+}
+
 namespace {
 bool CheckExistingNode(const VertexAccessor &new_node,
                        const Symbol &existing_node_sym, Frame &frame) {

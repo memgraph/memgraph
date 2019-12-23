@@ -180,6 +180,15 @@ PropertyFilter::PropertyFilter(
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
+IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol,
+                   Expression *value)
+    : symbol_(symbol), value_(value) {
+  CHECK(value);
+  UsedSymbolsCollector collector(symbol_table);
+  value->Accept(collector);
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
 void Filters::EraseFilter(const FilterInfo &filter) {
   // TODO: Ideally, we want to determine the equality of both expression trees,
   // instead of a simple pointer compare.
@@ -406,6 +415,20 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     }
     return is_prop_filter;
   };
+  // Check if maybe_id_fun is ID invocation on an indentifier and add it as
+  // IdFilter.
+  auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
+    auto *id_fun = utils::Downcast<Function>(maybe_id_fun);
+    if (!id_fun) return false;
+    if (id_fun->function_name_ != kId) return false;
+    if (id_fun->arguments_.size() != 1U) return false;
+    auto *ident = utils::Downcast<Identifier>(id_fun->arguments_.front());
+    if (!ident) return false;
+    auto filter = make_filter(FilterInfo::Type::Id);
+    filter.id_filter.emplace(symbol_table, symbol_table.at(*ident), val_expr);
+    all_filters_.emplace_back(filter);
+    return true;
+  };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DCHECK(!utils::IsSubtype(*expr, AndOperator::kType))
@@ -435,8 +458,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     bool is_prop_filter = add_prop_equal(eq->expression1_, eq->expression2_);
     // And reversed.
     is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
-    if (!is_prop_filter) {
-      // No PropertyFilter was added, so just store a generic filter.
+    // Try to get ID equality filter.
+    bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
+    is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
+    if (!is_prop_filter && !is_id_filter) {
+      // No special filter was added, so just store a generic filter.
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {

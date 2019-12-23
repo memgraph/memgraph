@@ -134,6 +134,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  // TODO: Cost estimate ScanAllById?
+
 // For the given op first increments the cardinality and then cost.
 #define POST_VISIT_CARD_FIRST(NAME)     \
   bool PostVisit(NAME &) override {     \
@@ -181,8 +183,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool Visit(Once &) override { return true; }
-
-  // TODO: Cost estimate PullRemote and ProduceRemote?
 
   auto cost() const { return cost_; }
   auto cardinality() const { return cardinality_; }

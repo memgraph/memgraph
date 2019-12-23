@@ -91,6 +91,7 @@ class ScanAll;
 class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
+class ScanAllById;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -118,9 +119,9 @@ class CallProcedure;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
-    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
-    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, ScanAllById,
+    Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
     Optional, Unwind, Distinct, Union, Cartesian, CallProcedure>;
 
@@ -729,6 +730,25 @@ property value.
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class scan-all-by-id (scan-all)
+  ((expression "Expression *" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:documentation
+    "ScanAll producing a single node with ID equal to evaluated expression")
+  (:public
+    #>cpp
+    ScanAllById() {}
+    ScanAllById(const std::shared_ptr<LogicalOperator> &input,
+                Symbol output_symbol, Expression *expression,
+                storage::View view = storage::View::OLD);
+
+    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+    cpp<#)
   (:serialize (:slk))
   (:clone))
 

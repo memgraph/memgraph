@@ -105,16 +105,30 @@ class PropertyFilter {
   std::optional<Bound> upper_bound_{};
 };
 
+/// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
+class IdFilter {
+ public:
+  /// Construct with Expression being the required value for ID.
+  IdFilter(const SymbolTable &, const Symbol &, Expression *);
+
+  /// Symbol whose id is looked up.
+  Symbol symbol_;
+  /// Expression which when evaluted produces the value an ID must satisfy.
+  Expression *value_;
+  /// True if the same symbol is used in expressions for value.
+  bool is_symbol_in_value_{false};
+};
+
 /// Stores additional information for a filter expression.
 struct FilterInfo {
   /// A FilterInfo can be a generic filter expression or a specific filtering
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property };
+  enum class Type { Generic, Label, Property, Id };
 
   Type type;
-  /// The filter expression which must be satisfied.
+  /// The original filter expression which must be satisfied.
   Expression *expression;
   /// Set of used symbols by the filter @c expression.
   std::unordered_set<Symbol> used_symbols;
@@ -122,6 +136,8 @@ struct FilterInfo {
   std::vector<LabelIx> labels;
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter;
+  /// Information for Type::Id filtering.
+  std::optional<IdFilter> id_filter;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -179,6 +195,18 @@ class Filters final {
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Property &&
           filter.property_filter->symbol_ == symbol) {
+        filters.push_back(filter);
+      }
+    }
+    return filters;
+  }
+
+  /// Return a vector of FilterInfo for ID equality filtering.
+  auto IdFilters(const Symbol &symbol) const {
+    std::vector<FilterInfo> filters;
+    for (const auto &filter : all_filters_) {
+      if (filter.type == FilterInfo::Type::Id &&
+          filter.id_filter->symbol_ == symbol) {
         filters.push_back(filter);
       }
     }

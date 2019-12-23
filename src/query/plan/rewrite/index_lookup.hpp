@@ -226,6 +226,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllById &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllById &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ExpandVariable &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -394,7 +403,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   const SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
+  // Collected filters, pending for examination if they can be used for advanced
+  // lookup operations (by index, node ID, ...).
   Filters filters_;
+  // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
 
@@ -518,16 +530,36 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
+    const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
+    std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(),
+                                             modified_symbols.end());
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
+          return false;
+        }
+      }
+      return true;
+    };
+    // First, try to see if we can find a vertex by ID.
+    if (!max_vertex_count || *max_vertex_count >= 1) {
+      for (const auto &filter : filters_.IdFilters(node_symbol)) {
+        if (filter.id_filter->is_symbol_in_value_ ||
+            !are_bound(filter.used_symbols))
+          continue;
+        auto *value = filter.id_filter->value_;
+        filter_exprs_for_removal_.insert(filter.expression);
+        filters_.EraseFilter(filter);
+        return std::make_unique<ScanAllById>(input, node_symbol, value, view);
+      }
+    }
+    // Now try to see if we can use label+property index. If not, try to use
+    // just the label index.
     const auto labels = filters_.FilteredLabels(node_symbol);
     if (labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
-    // First, try to see if we can use label+property index. If not, use just
-    // the label index (which ought to exist).
-    const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
-    std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(),
-                                             modified_symbols.end());
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.

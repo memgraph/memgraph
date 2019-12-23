@@ -17,6 +17,7 @@ namespace {
 const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
+const char kId[] = "ID";
 }  // namespace
 
 struct FunctionContext {
