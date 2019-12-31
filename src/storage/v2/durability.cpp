@@ -1328,12 +1328,12 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
         files_moved = true;
       }
       CHECK(!error_code) << "Couldn't backup " << what
-                         << " files bacause of: " << error_code.message();
+                         << " files because of: " << error_code.message();
     }
     LOG_IF(WARNING, files_moved)
         << "Since Memgraph was not supposed to recover on startup and "
            "durability is enabled, your current durability files will likely "
-           "be overriden. To prevent important data loss, Memgraph has stored "
+           "be overridden. To prevent important data loss, Memgraph has stored "
            "those files into a .backup directory inside the storage directory.";
   }
   if (config_.snapshot_wal_mode !=
