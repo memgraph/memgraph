@@ -10,6 +10,7 @@ add_subdirectory(communication)
 add_subdirectory(auth)
 add_subdirectory(slk)
 add_subdirectory(storage/v2)
+add_subdirectory(query)
 
 # ----------------------------------------------------------------------------
 # Common LCP files
