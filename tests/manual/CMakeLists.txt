@@ -41,19 +41,19 @@ add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 
 add_manual_test(query_hash.cpp)
-target_link_libraries(${test_prefix}query_hash mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_hash mg-query-with-kvstore-dummy)
 
 add_manual_test(query_planner.cpp interactive_planning.cpp)
-target_link_libraries(${test_prefix}query_planner mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_planner mg-query-with-kvstore-dummy)
 if (READLINE_FOUND)
   target_link_libraries(${test_prefix}query_planner readline)
 endif()
 
 add_manual_test(expression_pretty_printer.cpp)
-target_link_libraries(${test_prefix}expression_pretty_printer mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}expression_pretty_printer mg-query-with-kvstore-dummy)
 
-add_manual_test(single_query.cpp)
-target_link_libraries(${test_prefix}single_query mg-single-node-v2 mg-auth kvstore_dummy_lib)
+add_manual_test(single_query.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}single_query mg-query-with-kvstore-dummy mg-communication)
 
 add_manual_test(sl_position_and_count.cpp)
 target_link_libraries(${test_prefix}sl_position_and_count mg-single-node kvstore_dummy_lib)
@@ -62,7 +62,7 @@ add_manual_test(snapshot_explorer.cpp)
 target_link_libraries(${test_prefix}snapshot_explorer mg-single-node kvstore_dummy_lib)
 
 add_manual_test(stripped_timing.cpp)
-target_link_libraries(${test_prefix}stripped_timing mg-single-node-v2 mg-auth kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped_timing mg-query-with-kvstore-dummy)
 
 add_manual_test(ssl_client.cpp)
 target_link_libraries(${test_prefix}ssl_client mg-communication)
