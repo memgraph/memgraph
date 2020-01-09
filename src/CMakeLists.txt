@@ -110,64 +110,6 @@ target_link_libraries(mg-single-node "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/inc
 # ----------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------
-# Memgraph Single Node v2
-# ----------------------------------------------------------------------------
-set(mg_single_node_v2_sources
-    ${lcp_common_cpp_files}
-    audit/log.cpp
-    glue/auth.cpp
-    glue/communication.cpp
-    query/common.cpp
-    query/dump.cpp
-    query/frontend/ast/cypher_main_visitor.cpp
-    query/frontend/ast/pretty_print.cpp
-    query/frontend/parsing.cpp
-    query/frontend/semantic/required_privileges.cpp
-    query/frontend/semantic/symbol_generator.cpp
-    query/frontend/stripped.cpp
-    query/interpret/awesome_memgraph_functions.cpp
-    query/interpreter.cpp
-    query/plan/operator.cpp
-    query/plan/preprocess.cpp
-    query/plan/pretty_print.cpp
-    query/plan/profile.cpp
-    query/plan/rewrite/index_lookup.cpp
-    query/plan/rule_based_planner.cpp
-    query/plan/variable_start_planner.cpp
-    query/procedure/mg_procedure_impl.cpp
-    query/procedure/module.cpp
-    query/typed_value.cpp
-    memgraph_init.cpp
-)
-
-set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags mg-storage-v2
-    mg-utils mg-io mg-requests mg-communication)
-# These are enterprise subsystems
-set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth)
-
-if (USE_LTALLOC)
-  list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
-  # TODO(mferencevic): Enable this when clang is updated on apollo.
-  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
-
-add_library(mg-single-node-v2 STATIC ${mg_single_node_v2_sources})
-target_include_directories(mg-single-node-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-single-node-v2 ${MG_SINGLE_NODE_V2_LIBS})
-add_dependencies(mg-single-node-v2 generate_opencypher_parser)
-add_dependencies(mg-single-node-v2 generate_lcp_common)
-target_compile_definitions(mg-single-node-v2 PUBLIC MG_SINGLE_NODE_V2)
-# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
-# should be dynamically exported, so that `dlopen` can correctly link the
-# symbols in custom procedure module libraries.
-target_link_libraries(mg-single-node-v2 "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
-
-# ----------------------------------------------------------------------------
-# END Memgraph Single Node v2
-# ----------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources
@@ -279,9 +221,37 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 add_executable(memgraph-v1 memgraph.cpp)
 target_link_libraries(memgraph-v1 mg-single-node kvstore_lib telemetry_lib)
 
+# ----------------------------------------------------------------------------
+# Memgraph Single Node v2 Executable
+# ----------------------------------------------------------------------------
+set(mg_single_node_v2_sources
+    audit/log.cpp
+    glue/auth.cpp
+    glue/communication.cpp
+    memgraph_init.cpp
+    memgraph.cpp
+)
+
+set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
+    telemetry_lib mg-query mg-communication)
+# These are enterprise subsystems
+set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth)
+
+if (USE_LTALLOC)
+  list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
+  # TODO(mferencevic): Enable this when clang is updated on apollo.
+  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+endif()
+
 # memgraph main executable
-add_executable(memgraph memgraph.cpp)
-target_link_libraries(memgraph mg-single-node-v2 kvstore_lib telemetry_lib)
+add_executable(memgraph ${mg_single_node_v2_sources})
+target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_compile_definitions(memgraph PUBLIC MG_SINGLE_NODE_V2)
+target_link_libraries(memgraph ${MG_SINGLE_NODE_V2_LIBS})
+# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
+# should be dynamically exported, so that `dlopen` can correctly link the
+# symbols in custom procedure module libraries.
+target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
                       OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
@@ -309,6 +279,10 @@ add_custom_command(TARGET memgraph POST_BUILD
                            ${CMAKE_SOURCE_DIR}/config/flags.yaml
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
                    COMMENT "Generating memgraph configuration file")
+
+# ----------------------------------------------------------------------------
+# END Memgraph Single Node v2 Executable
+# ----------------------------------------------------------------------------
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
