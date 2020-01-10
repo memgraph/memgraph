@@ -22,7 +22,7 @@ struct Edge {
 
   std::map<PropertyId, storage::PropertyValue> properties;
 
-  utils::SpinLock lock;
+  mutable utils::SpinLock lock;
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;

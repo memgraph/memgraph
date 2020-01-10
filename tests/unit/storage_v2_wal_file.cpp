@@ -140,9 +140,9 @@ class DeltaGenerator final {
           owner = owner.delta->prev.Get();
         }
         if (owner.type == storage::PreviousPtr::Type::VERTEX) {
-          gen_->wal_file_.AppendDelta(delta, owner.vertex, commit_timestamp);
+          gen_->wal_file_.AppendDelta(delta, *owner.vertex, commit_timestamp);
         } else if (owner.type == storage::PreviousPtr::Type::EDGE) {
-          gen_->wal_file_.AppendDelta(delta, owner.edge, commit_timestamp);
+          gen_->wal_file_.AppendDelta(delta, *owner.edge, commit_timestamp);
         } else {
           LOG(FATAL) << "Invalid delta owner!";
         }

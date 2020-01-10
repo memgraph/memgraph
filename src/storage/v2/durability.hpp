@@ -324,8 +324,9 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Vertex &vertex,
+                   uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   void AppendTransactionEnd(uint64_t timestamp);
 

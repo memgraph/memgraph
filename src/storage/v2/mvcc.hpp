@@ -14,7 +14,7 @@ namespace storage {
 /// should be applied passed as a parameter to the callback. It is up to the
 /// caller to apply the deltas.
 template <typename TCallback>
-inline void ApplyDeltasForRead(Transaction *transaction, Delta *delta,
+inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta,
                                View view, const TCallback &callback) {
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);

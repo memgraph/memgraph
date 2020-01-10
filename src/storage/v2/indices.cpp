@@ -11,7 +11,7 @@ namespace {
 /// delta. If the callback ever returns true, traversal is stopped and the
 /// function returns true. Otherwise, the function returns false.
 template <typename TCallback>
-bool AnyVersionSatisfiesPredicate(uint64_t timestamp, Delta *delta,
+bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
                                   const TCallback &predicate) {
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
@@ -30,15 +30,16 @@ bool AnyVersionSatisfiesPredicate(uint64_t timestamp, Delta *delta,
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
-bool AnyVersionHasLabel(Vertex *vertex, LabelId label, uint64_t timestamp) {
+bool AnyVersionHasLabel(const Vertex &vertex, LabelId label,
+                        uint64_t timestamp) {
   bool has_label;
   bool deleted;
-  Delta *delta;
+  const Delta *delta;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    has_label = utils::Contains(vertex->labels, label);
-    deleted = vertex->deleted;
-    delta = vertex->delta;
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    has_label = utils::Contains(vertex.labels, label);
+    deleted = vertex.deleted;
+    delta = vertex.delta;
   }
   if (!deleted && has_label) {
     return true;
@@ -83,22 +84,22 @@ bool AnyVersionHasLabel(Vertex *vertex, LabelId label, uint64_t timestamp) {
 /// there's a reachable version of the vertex that has the given label and
 /// property value.
 /// @throw std::bad_alloc if unable to copy the PropertyValue
-bool AnyVersionHasLabelProperty(Vertex *vertex, LabelId label, PropertyId key,
-                                const PropertyValue &value,
+bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
+                                PropertyId key, const PropertyValue &value,
                                 uint64_t timestamp) {
   bool has_label;
   PropertyValue current_value;
   bool deleted;
-  Delta *delta;
+  const Delta *delta;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    has_label = utils::Contains(vertex->labels, label);
-    auto it = vertex->properties.find(key);
-    if (it != vertex->properties.end()) {
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    has_label = utils::Contains(vertex.labels, label);
+    auto it = vertex.properties.find(key);
+    if (it != vertex.properties.end()) {
       current_value = it->second;
     }
-    deleted = vertex->deleted;
-    delta = vertex->delta;
+    deleted = vertex.deleted;
+    delta = vertex.delta;
   }
 
   if (!deleted && has_label && current_value == value) {
@@ -150,16 +151,16 @@ bool AnyVersionHasLabelProperty(Vertex *vertex, LabelId label, PropertyId key,
 // Helper function for iterating through label index. Returns true if this
 // transaction can see the given vertex, and the visible version has the given
 // label.
-bool CurrentVersionHasLabel(Vertex *vertex, LabelId label,
+bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label,
                             Transaction *transaction, View view) {
   bool deleted;
   bool has_label;
-  Delta *delta;
+  const Delta *delta;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    deleted = vertex->deleted;
-    has_label = utils::Contains(vertex->labels, label);
-    delta = vertex->delta;
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
+    delta = vertex.delta;
   }
   ApplyDeltasForRead(transaction, delta, view,
                      [&deleted, &has_label, label](const Delta &delta) {
@@ -203,22 +204,22 @@ bool CurrentVersionHasLabel(Vertex *vertex, LabelId label,
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
 // @throw std::bad_alloc if unable to copy the PropertyValue
-bool CurrentVersionHasLabelProperty(Vertex *vertex, LabelId label,
+bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label,
                                     PropertyId key, const PropertyValue &value,
                                     Transaction *transaction, View view) {
   bool deleted;
   bool has_label;
   PropertyValue current_value;
-  Delta *delta;
+  const Delta *delta;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    deleted = vertex->deleted;
-    has_label = utils::Contains(vertex->labels, label);
-    auto it = vertex->properties.find(key);
-    if (it != vertex->properties.end()) {
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
+    auto it = vertex.properties.find(key);
+    if (it != vertex.properties.end()) {
       current_value = it->second;
     }
-    delta = vertex->delta;
+    delta = vertex.delta;
   }
   ApplyDeltasForRead(
       transaction, delta, view,
@@ -313,7 +314,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(it->vertex, label_storage.first,
+          !AnyVersionHasLabel(*it->vertex, label_storage.first,
                               oldest_active_start_timestamp)) {
         vertices_acc.remove(*it);
       }
@@ -343,7 +344,7 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
-    if (CurrentVersionHasLabel(index_iterator_->vertex, self_->label_,
+    if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_,
                                self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ =
@@ -470,7 +471,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(
 
       if ((next_it != index_acc.end() && it->vertex == next_it->vertex &&
            it->value == next_it->value) ||
-          !AnyVersionHasLabelProperty(it->vertex, label_property.first,
+          !AnyVersionHasLabelProperty(*it->vertex, label_property.first,
                                       label_property.second, it->value,
                                       oldest_active_start_timestamp)) {
         index_acc.remove(*it);
@@ -523,7 +524,7 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       }
     }
 
-    if (CurrentVersionHasLabelProperty(index_iterator_->vertex, self_->label_,
+    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_,
                                        self_->property_, index_iterator_->value,
                                        self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;

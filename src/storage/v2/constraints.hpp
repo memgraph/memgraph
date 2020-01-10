@@ -62,10 +62,11 @@ inline bool DropExistenceConstraint(Constraints *constraints, LabelId label,
 /// nullopt if all checks pass, and `ExistenceConstraintViolation` describing
 /// the violated constraint otherwise.
 [[nodiscard]] inline std::optional<ExistenceConstraintViolation>
-ValidateExistenceConstraints(Vertex *vertex, Constraints *constraints) {
-  for (const auto &[label, property] : constraints->existence_constraints) {
-    if (!vertex->deleted && utils::Contains(vertex->labels, label) &&
-        vertex->properties.find(property) == vertex->properties.end()) {
+ValidateExistenceConstraints(const Vertex &vertex,
+                             const Constraints &constraints) {
+  for (const auto &[label, property] : constraints.existence_constraints) {
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
+        vertex.properties.find(property) == vertex.properties.end()) {
       return ExistenceConstraintViolation{label, property};
     }
   }

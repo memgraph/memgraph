@@ -1136,29 +1136,29 @@ WalFile::~WalFile() {
   }
 }
 
-void WalFile::AppendDelta(const Delta &delta, Vertex *vertex,
+void WalFile::AppendDelta(const Delta &delta, const Vertex &vertex,
                           uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   wal_.WriteMarker(Marker::SECTION_DELTA);
   wal_.WriteUint(timestamp);
-  std::lock_guard<utils::SpinLock> guard(vertex->lock);
+  std::lock_guard<utils::SpinLock> guard(vertex.lock);
   switch (delta.action) {
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT: {
       wal_.WriteMarker(VertexActionToMarker(delta.action));
-      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteUint(vertex.gid.AsUint());
       break;
     }
     case Delta::Action::SET_PROPERTY: {
       wal_.WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
-      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteUint(vertex.gid.AsUint());
       wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // vertex.
-      auto it = vertex->properties.find(delta.property.key);
-      if (it != vertex->properties.end()) {
+      auto it = vertex.properties.find(delta.property.key);
+      if (it != vertex.properties.end()) {
         wal_.WritePropertyValue(it->second);
       } else {
         wal_.WritePropertyValue(PropertyValue());
@@ -1168,7 +1168,7 @@ void WalFile::AppendDelta(const Delta &delta, Vertex *vertex,
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
       wal_.WriteMarker(VertexActionToMarker(delta.action));
-      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteUint(vertex.gid.AsUint());
       wal_.WriteString(name_id_mapper_->IdToName(delta.label.AsUint()));
       break;
     }
@@ -1182,7 +1182,7 @@ void WalFile::AppendDelta(const Delta &delta, Vertex *vertex,
       }
       wal_.WriteString(
           name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
-      wal_.WriteUint(vertex->gid.AsUint());
+      wal_.WriteUint(vertex.gid.AsUint());
       wal_.WriteUint(delta.vertex_edge.vertex->gid.AsUint());
       break;
     }
@@ -1195,22 +1195,23 @@ void WalFile::AppendDelta(const Delta &delta, Vertex *vertex,
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp) {
+void WalFile::AppendDelta(const Delta &delta, const Edge &edge,
+                          uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   wal_.WriteMarker(Marker::SECTION_DELTA);
   wal_.WriteUint(timestamp);
-  std::lock_guard<utils::SpinLock> guard(edge->lock);
+  std::lock_guard<utils::SpinLock> guard(edge.lock);
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       wal_.WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      wal_.WriteUint(edge->gid.AsUint());
+      wal_.WriteUint(edge.gid.AsUint());
       wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
-      auto it = edge->properties.find(delta.property.key);
-      if (it != edge->properties.end()) {
+      auto it = edge.properties.find(delta.property.key);
+      if (it != edge.properties.end()) {
         wal_.WritePropertyValue(it->second);
       } else {
         wal_.WritePropertyValue(PropertyValue());
@@ -1381,7 +1382,7 @@ void Durability::AppendToWal(const Transaction &transaction,
       transaction.commit_timestamp->load(std::memory_order_acquire);
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
-  auto find_and_apply_deltas = [&](const auto *delta, auto *parent,
+  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent,
                                    auto filter) {
     while (true) {
       auto older = delta->next.load(std::memory_order_acquire);
@@ -1419,7 +1420,7 @@ void Durability::AppendToWal(const Transaction &transaction,
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::SET_PROPERTY:
@@ -1440,7 +1441,7 @@ void Durability::AppendToWal(const Transaction &transaction,
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
         case Delta::Action::REMOVE_OUT_EDGE:
           return true;
@@ -1461,7 +1462,7 @@ void Durability::AppendToWal(const Transaction &transaction,
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
     if (prev.type != PreviousPtr::Type::EDGE) continue;
-    find_and_apply_deltas(&delta, prev.edge, [](auto action) {
+    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
       switch (action) {
         case Delta::Action::SET_PROPERTY:
           return true;
@@ -1482,7 +1483,7 @@ void Durability::AppendToWal(const Transaction &transaction,
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
         case Delta::Action::ADD_OUT_EDGE:
           return true;
@@ -1503,7 +1504,7 @@ void Durability::AppendToWal(const Transaction &transaction,
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
         case Delta::Action::RECREATE_OBJECT:
           return true;

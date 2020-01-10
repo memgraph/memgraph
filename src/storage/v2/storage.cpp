@@ -655,7 +655,7 @@ Storage::Accessor::Commit() {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
       auto validation_result =
-          ValidateExistenceConstraints(prev.vertex, &storage_->constraints_);
+          ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
         return *validation_result;
