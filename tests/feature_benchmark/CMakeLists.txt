@@ -1,2 +1,2 @@
-# ha test binaries
-add_subdirectory(ha)
+## ha test binaries
+#add_subdirectory(ha)

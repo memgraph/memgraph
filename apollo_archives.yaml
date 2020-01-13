@@ -1,9 +1,9 @@
 - name: Binaries
   archive:
     - build_debug/memgraph
-    - build_debug/memgraph_ha
+    #- build_debug/memgraph_ha
     - build_release/memgraph
-    - build_release/memgraph_ha
+    #- build_release/memgraph_ha
     - build_release/tools/src/mg_client
     - config
   filename: binaries.tar.gz
