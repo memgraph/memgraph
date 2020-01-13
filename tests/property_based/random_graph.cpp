@@ -8,57 +8,63 @@
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
-#include "database/single_node/graph_db.hpp"
-#include "database/single_node/graph_db_accessor.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "storage/v2/storage.hpp"
 
 /**
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph
  */
-RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
-                                         std::vector<std::string> edge_types)) {
+RC_GTEST_PROP(RandomGraph, RandomGraph,
+              (std::vector<std::string> vertex_labels,
+               std::vector<std::string> edge_types)) {
   RC_PRE(!vertex_labels.empty());
   RC_PRE(!edge_types.empty());
 
   int vertices_num = vertex_labels.size();
   int edges_num = edge_types.size();
 
-  database::GraphDb db;
-  std::vector<VertexAccessor> vertices;
-  std::unordered_map<VertexAccessor, std::string> vertex_label_map;
-  std::unordered_map<EdgeAccessor, std::string> edge_type_map;
+  storage::Storage db;
+  std::vector<storage::VertexAccessor> vertices;
+  std::unordered_map<storage::VertexAccessor, std::string> vertex_label_map;
+  std::unordered_map<storage::EdgeAccessor, std::string> edge_type_map;
 
   auto dba = db.Access();
 
   for (auto label : vertex_labels) {
-    auto vertex_accessor = dba.InsertVertex();
-    vertex_accessor.add_label(dba.Label(label));
+    auto vertex_accessor = dba.CreateVertex();
+    RC_ASSERT(vertex_accessor.AddLabel(dba.NameToLabel(label)).HasValue());
     vertex_label_map.insert({vertex_accessor, label});
     vertices.push_back(vertex_accessor);
   }
 
   for (auto type : edge_types) {
-    auto from = vertices[*rc::gen::inRange(0, vertices_num)];
-    auto to = vertices[*rc::gen::inRange(0, vertices_num)];
-    auto edge_accessor = dba.InsertEdge(from, to, dba.EdgeType(type));
-    edge_type_map.insert({edge_accessor, type});
+    auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
+    auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
+    auto maybe_edge_accessor =
+        dba.CreateEdge(&from, &to, dba.NameToEdgeType(type));
+    RC_ASSERT(maybe_edge_accessor.HasValue());
+    edge_type_map.insert({*maybe_edge_accessor, type});
   }
 
   dba.AdvanceCommand();
 
   int edges_num_check = 0;
   int vertices_num_check = 0;
-  for (const auto &vertex : dba.Vertices(false)) {
+  for (auto vertex : dba.Vertices(storage::View::OLD)) {
     auto label = vertex_label_map.at(vertex);
-    RC_ASSERT(vertex.labels().size() == 1);
-    RC_ASSERT(dba.LabelName(vertex.labels()[0]) == label);
+    auto maybe_labels = vertex.Labels(storage::View::OLD);
+    RC_ASSERT(maybe_labels.HasValue());
+    const auto &labels = *maybe_labels;
+    RC_ASSERT(labels.size() == 1);
+    RC_ASSERT(dba.LabelToName(labels[0]) == label);
     vertices_num_check++;
-  }
-  for (const auto &edge : dba.Edges(false)) {
-    auto type = edge_type_map.at(edge);
-    RC_ASSERT(dba.EdgeTypeName(edge.EdgeType()) == type);
-    edges_num_check++;
+    auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+    RC_ASSERT(maybe_edges.HasValue());
+    for (auto &edge : *maybe_edges) {
+      const auto &type = edge_type_map.at(edge);
+      RC_ASSERT(dba.EdgeTypeToName(edge.EdgeType()) == type);
+      edges_num_check++;
+    }
   }
   RC_ASSERT(vertices_num_check == vertices_num);
   RC_ASSERT(edges_num_check == edges_num);
