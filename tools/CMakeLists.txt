@@ -9,5 +9,3 @@ disallow_in_source_build()
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "tools")
 
 add_subdirectory(src)
-enable_testing()
-add_subdirectory(tests)

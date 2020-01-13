@@ -5,7 +5,6 @@
     - build_release/memgraph
     - build_release/memgraph_ha
     - build_release/tools/src/mg_client
-    - build_release/tools/src/mg_import_csv
     - config
   filename: binaries.tar.gz
 

@@ -29,87 +29,6 @@ add_custom_target(generate_lcp_common DEPENDS ${generated_lcp_common_files})
 # ----------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------
-# Memgraph Single Node
-# ----------------------------------------------------------------------------
-set(mg_single_node_sources
-    ${lcp_common_cpp_files}
-    audit/log.cpp
-    data_structures/concurrent/skiplist_gc.cpp
-    database/single_node/config.cpp
-    database/single_node/graph_db.cpp
-    database/single_node/graph_db_accessor.cpp
-    durability/single_node/state_delta.cpp
-    durability/single_node/paths.cpp
-    durability/single_node/recovery.cpp
-    durability/single_node/snapshooter.cpp
-    durability/single_node/wal.cpp
-    glue/auth.cpp
-    glue/communication.cpp
-    query/common.cpp
-    query/dump.cpp
-    query/frontend/ast/cypher_main_visitor.cpp
-    query/frontend/ast/pretty_print.cpp
-    query/frontend/parsing.cpp
-    query/frontend/semantic/required_privileges.cpp
-    query/frontend/semantic/symbol_generator.cpp
-    query/frontend/stripped.cpp
-    query/interpret/awesome_memgraph_functions.cpp
-    query/interpreter.cpp
-    query/plan/operator.cpp
-    query/plan/preprocess.cpp
-    query/plan/pretty_print.cpp
-    query/plan/profile.cpp
-    query/plan/rewrite/index_lookup.cpp
-    query/plan/rule_based_planner.cpp
-    query/plan/variable_start_planner.cpp
-    query/procedure/mg_procedure_impl.cpp
-    query/procedure/module.cpp
-    query/typed_value.cpp
-    storage/common/constraints/record.cpp
-    storage/common/constraints/unique_constraints.cpp
-    storage/common/locking/record_lock.cpp
-    storage/common/types/property_value_store.cpp
-    storage/single_node/edge_accessor.cpp
-    storage/single_node/record_accessor.cpp
-    storage/single_node/vertex_accessor.cpp
-    transactions/single_node/engine.cpp
-    memgraph_init.cpp
-)
-
-define_add_lcp(add_lcp_single_node mg_single_node_sources generated_lcp_single_node_files)
-
-add_lcp_single_node(durability/single_node/state_delta.lcp)
-
-add_custom_target(generate_lcp_single_node DEPENDS generate_lcp_common ${generated_lcp_single_node_files})
-
-set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags
-    mg-utils mg-io mg-requests mg-communication)
-# These are enterprise subsystems
-set(MG_SINGLE_NODE_LIBS ${MG_SINGLE_NODE_LIBS} mg-auth)
-
-if (USE_LTALLOC)
-  list(APPEND MG_SINGLE_NODE_LIBS ltalloc)
-  # TODO(mferencevic): Enable this when clang is updated on apollo.
-  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
-
-add_library(mg-single-node STATIC ${mg_single_node_sources})
-target_include_directories(mg-single-node PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-single-node ${MG_SINGLE_NODE_LIBS})
-add_dependencies(mg-single-node generate_opencypher_parser)
-add_dependencies(mg-single-node generate_lcp_single_node)
-target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
-# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
-# should be dynamically exported, so that `dlopen` can correctly link the
-# symbols in custom procedure module libraries.
-target_link_libraries(mg-single-node "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
-
-# ----------------------------------------------------------------------------
-# END Memgraph Single Node
-# ----------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources
@@ -200,7 +119,7 @@ target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
 # ----------------------------------------------------------------------------
 
 add_custom_target(generate_lcp)
-add_dependencies(generate_lcp generate_lcp_single_node generate_lcp_single_node_ha)
+add_dependencies(generate_lcp generate_lcp_single_node_ha)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -216,10 +135,6 @@ target_link_libraries(kvstore_dummy_lib mg-utils)
 set(VERSION_STRING ${memgraph_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-
-# memgraph main executable (old storage)
-add_executable(memgraph-v1 memgraph.cpp)
-target_link_libraries(memgraph-v1 mg-single-node kvstore_lib telemetry_lib)
 
 # ----------------------------------------------------------------------------
 # Memgraph Single Node v2 Executable

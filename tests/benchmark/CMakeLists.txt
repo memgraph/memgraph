@@ -18,18 +18,6 @@ function(add_benchmark test_cpp)
   add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_benchmark)
 
-add_benchmark(data_structures/concurrent/map_mix_concurrent.cpp)
-target_link_libraries(${test_prefix}map_mix_concurrent mg-single-node kvstore_dummy_lib)
-
-add_benchmark(data_structures/concurrent/skiplist_insert.cpp)
-target_link_libraries(${test_prefix}skiplist_insert mg-single-node kvstore_dummy_lib)
-
-add_benchmark(data_structures/concurrent/skiplist_reverse_iteration.cpp)
-target_link_libraries(${test_prefix}skiplist_reverse_iteration mg-single-node kvstore_dummy_lib)
-
-add_benchmark(data_structures/concurrent/map_concurrent.cpp)
-target_link_libraries(${test_prefix}map_concurrent mg-single-node kvstore_dummy_lib)
-
 add_benchmark(data_structures/ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-utils)
 
@@ -48,12 +36,6 @@ target_link_libraries(${test_prefix}profile mg-query-with-kvstore-dummy)
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query-with-kvstore-dummy)
 
-add_benchmark(edge_storage.cpp)
-target_link_libraries(${test_prefix}edge_storage mg-single-node kvstore_dummy_lib)
-
-add_benchmark(mvcc.cpp)
-target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
-
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-comm-rpc)
 
@@ -68,9 +50,6 @@ target_link_libraries(${test_prefix}skip_list_same_item mg-utils)
 
 add_benchmark(skip_list_vs_stl.cpp)
 target_link_libraries(${test_prefix}skip_list_vs_stl mg-utils)
-
-add_benchmark(tx_engine.cpp)
-target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 
 add_benchmark(expansion.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}expansion mg-query-with-kvstore-dummy mg-communication)

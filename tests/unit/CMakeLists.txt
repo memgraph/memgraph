@@ -24,71 +24,11 @@ target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query-with-
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
 
-add_unit_test(concurrent_id_mapper_single_node.cpp)
-target_link_libraries(${test_prefix}concurrent_id_mapper_single_node mg-single-node kvstore_dummy_lib)
-
-add_unit_test(concurrent_map_access.cpp)
-target_link_libraries(${test_prefix}concurrent_map_access mg-single-node kvstore_dummy_lib)
-
-add_unit_test(concurrent_map.cpp)
-target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_lib)
-
-add_unit_test(database_key_index.cpp)
-target_link_libraries(${test_prefix}database_key_index mg-single-node kvstore_dummy_lib)
-
-add_unit_test(database_label_property_index.cpp)
-target_link_libraries(${test_prefix}database_label_property_index mg-single-node kvstore_dummy_lib)
-
-add_unit_test(database_transaction_timeout.cpp)
-target_link_libraries(${test_prefix}database_transaction_timeout mg-single-node kvstore_dummy_lib)
-
 add_unit_test(datastructure_union_find.cpp)
-target_link_libraries(${test_prefix}datastructure_union_find mg-single-node kvstore_dummy_lib)
-
-add_unit_test(deferred_deleter.cpp)
-target_link_libraries(${test_prefix}deferred_deleter mg-single-node kvstore_dummy_lib)
-
-add_unit_test(durability.cpp)
-target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
-
-add_unit_test(dynamic_bitset.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
-
-add_unit_test(edges_single_node.cpp)
-target_link_libraries(${test_prefix}edges_single_node mg-single-node kvstore_dummy_lib)
-
-add_unit_test(graph_db_accessor.cpp)
-target_link_libraries(${test_prefix}graph_db_accessor mg-single-node kvstore_dummy_lib)
-
-add_unit_test(graph_db_accessor_index_api.cpp)
-target_link_libraries(${test_prefix}graph_db_accessor_index_api mg-single-node kvstore_dummy_lib)
-
-add_unit_test(graph_db.cpp)
-target_link_libraries(${test_prefix}graph_db mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}datastructure_union_find glog gflags)
 
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
-
-add_unit_test(mvcc.cpp)
-target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
-
-add_unit_test(mvcc_find.cpp)
-target_link_libraries(${test_prefix}mvcc_find mg-single-node kvstore_dummy_lib)
-
-add_unit_test(mvcc_gc.cpp)
-target_link_libraries(${test_prefix}mvcc_gc mg-single-node kvstore_dummy_lib)
-
-add_unit_test(mvcc_one_transaction.cpp)
-target_link_libraries(${test_prefix}mvcc_one_transaction mg-single-node kvstore_dummy_lib)
-
-add_unit_test(mvcc_parallel_update.cpp)
-target_link_libraries(${test_prefix}mvcc_parallel_update mg-single-node kvstore_dummy_lib)
-
-add_unit_test(pod_buffer.cpp)
-target_link_libraries(${test_prefix}pod_buffer mg-single-node kvstore_dummy_lib)
-
-add_unit_test(property_value_store.cpp)
-target_link_libraries(${test_prefix}property_value_store kvstore_lib mg-single-node)
 
 add_unit_test(replication_log.cpp)
 target_link_libraries(${test_prefix}replication_log mg-single-node-ha kvstore_lib glog)
@@ -173,28 +113,10 @@ target_link_libraries(${test_prefix}typed_value mg-query-with-kvstore-dummy)
 # END mg-query
 
 add_unit_test(queue.cpp)
-target_link_libraries(${test_prefix}queue mg-single-node kvstore_dummy_lib)
-
-add_unit_test(record_edge_vertex_accessor.cpp)
-target_link_libraries(${test_prefix}record_edge_vertex_accessor mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}queue glog gflags)
 
 add_unit_test(skip_list.cpp)
 target_link_libraries(${test_prefix}skip_list mg-utils)
-
-add_unit_test(skiplist_access.cpp)
-target_link_libraries(${test_prefix}skiplist_access mg-single-node kvstore_dummy_lib)
-
-add_unit_test(skiplist_gc.cpp)
-target_link_libraries(${test_prefix}skiplist_gc mg-single-node kvstore_dummy_lib)
-
-add_unit_test(skiplist_position_and_count.cpp)
-target_link_libraries(${test_prefix}skiplist_position_and_count mg-single-node kvstore_dummy_lib)
-
-add_unit_test(skiplist_reverse_iteration.cpp)
-target_link_libraries(${test_prefix}skiplist_reverse_iteration mg-single-node kvstore_dummy_lib)
-
-add_unit_test(skiplist_suffix.cpp)
-target_link_libraries(${test_prefix}skiplist_suffix mg-single-node kvstore_dummy_lib)
 
 # TODO: REPLACE single-node-ha
 add_unit_test(slk_advanced.cpp)
@@ -208,21 +130,6 @@ target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
 
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
-
-add_unit_test(state_delta.cpp)
-target_link_libraries(${test_prefix}state_delta mg-single-node kvstore_dummy_lib)
-
-add_unit_test(static_bitset.cpp)
-target_link_libraries(${test_prefix}static_bitset mg-single-node kvstore_dummy_lib)
-
-add_unit_test(storage_stat.cpp)
-target_link_libraries(${test_prefix}storage_stat mg-single-node kvstore_dummy_lib)
-
-add_unit_test(transaction_engine_single_node.cpp)
-target_link_libraries(${test_prefix}transaction_engine_single_node mg-single-node kvstore_dummy_lib)
-
-add_unit_test(unique_constraints.cpp)
-target_link_libraries(${test_prefix}unique_constraints mg-single-node kvstore_dummy_lib)
 
 # Test mg-communication
 
