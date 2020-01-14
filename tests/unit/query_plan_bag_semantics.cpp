@@ -144,7 +144,7 @@ TEST(QueryPlan, OrderBy) {
     for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
     for (auto vertex : dba.Vertices(storage::View::OLD))
-      dba.DetachRemoveVertex(&vertex);
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
 
@@ -268,7 +268,7 @@ TEST(QueryPlan, OrderByExceptions) {
   for (const auto &pair : exception_pairs) {
     // empty database
     for (auto vertex : dba.Vertices(storage::View::OLD))
-      dba.DetachRemoveVertex(&vertex);
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
 
