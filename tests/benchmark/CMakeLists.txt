@@ -22,19 +22,19 @@ add_benchmark(data_structures/ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-utils)
 
 add_benchmark(query/eval.cpp)
-target_link_libraries(${test_prefix}eval mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}eval mg-query)
 
 add_benchmark(query/execution.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}execution mg-query-with-kvstore-dummy mg-communication)
+target_link_libraries(${test_prefix}execution mg-query mg-communication)
 
 add_benchmark(query/planner.cpp)
-target_link_libraries(${test_prefix}planner mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}planner mg-query)
 
 add_benchmark(query/profile.cpp)
-target_link_libraries(${test_prefix}profile mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}profile mg-query)
 
 add_benchmark(query/stripped.cpp)
-target_link_libraries(${test_prefix}stripped mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}stripped mg-query)
 
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-comm-rpc)
@@ -52,7 +52,7 @@ add_benchmark(skip_list_vs_stl.cpp)
 target_link_libraries(${test_prefix}skip_list_vs_stl mg-utils)
 
 add_benchmark(expansion.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}expansion mg-query-with-kvstore-dummy mg-communication)
+target_link_libraries(${test_prefix}expansion mg-query mg-communication)
 
 add_benchmark(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

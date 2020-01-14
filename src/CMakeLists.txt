@@ -128,8 +128,8 @@ add_library(kvstore_lib STATIC storage/common/kvstore/kvstore.cpp)
 target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
 
 # STATIC library for dummy key-value storage
-add_library(kvstore_dummy_lib STATIC storage/common/kvstore/kvstore_dummy.cpp)
-target_link_libraries(kvstore_dummy_lib mg-utils)
+# add_library(kvstore_dummy_lib STATIC storage/common/kvstore/kvstore_dummy.cpp)
+# target_link_libraries(kvstore_dummy_lib mg-utils)
 
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})

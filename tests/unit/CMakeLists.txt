@@ -19,7 +19,7 @@ function(add_unit_test test_cpp)
 endfunction(add_unit_test)
 
 add_unit_test(bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
 
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
@@ -36,79 +36,79 @@ target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
 # Test mg-query
 
 add_unit_test(cypher_main_visitor.cpp)
-target_link_libraries(${test_prefix}cypher_main_visitor mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
 
 add_unit_test(bfs_single_node.cpp)
-target_link_libraries(${test_prefix}bfs_single_node mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}bfs_single_node mg-query)
 
 add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter mg-communication mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}interpreter mg-communication mg-query)
 
 add_unit_test(query_cost_estimator.cpp)
-target_link_libraries(${test_prefix}query_cost_estimator mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_cost_estimator mg-query)
 
 add_unit_test(query_expression_evaluator.cpp)
-target_link_libraries(${test_prefix}query_expression_evaluator mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 
 add_unit_test(plan_pretty_print.cpp)
-target_link_libraries(${test_prefix}plan_pretty_print mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}plan_pretty_print mg-query)
 
 add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}query_dump mg-communication mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
 
 add_unit_test(query_pretty_print.cpp)
-target_link_libraries(${test_prefix}query_pretty_print mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_pretty_print mg-query)
 
 add_unit_test(query_profile.cpp)
-target_link_libraries(${test_prefix}query_profile mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_profile mg-query)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
 
 add_unit_test(query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query)
 
 add_unit_test(query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
 
 # Storage V2 in query execution
 add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
 # END Storage V2 in query execution
 
 add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
 add_unit_test(query_plan.cpp)
-target_link_libraries(${test_prefix}query_plan mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_plan mg-query)
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
-target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
 target_include_directories(${test_prefix}query_procedure_mgp_type PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_unit_test(query_procedure_mgp_module.cpp)
-target_link_libraries(${test_prefix}query_procedure_mgp_module mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_procedure_mgp_module mg-query)
 target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
 
 add_unit_test(query_required_privileges.cpp)
-target_link_libraries(${test_prefix}query_required_privileges mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_required_privileges mg-query)
 
 add_unit_test(query_semantic.cpp)
-target_link_libraries(${test_prefix}query_semantic mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_semantic mg-query)
 
 add_unit_test(query_variable_start_planner.cpp)
-target_link_libraries(${test_prefix}query_variable_start_planner mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}query_variable_start_planner mg-query)
 
 add_unit_test(stripped.cpp)
-target_link_libraries(${test_prefix}stripped mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}stripped mg-query)
 
 add_unit_test(typed_value.cpp)
-target_link_libraries(${test_prefix}typed_value mg-query-with-kvstore-dummy)
+target_link_libraries(${test_prefix}typed_value mg-query)
 
 # END mg-query
 
@@ -223,7 +223,7 @@ target_link_libraries(${test_prefix}utils_watchdog mg-utils)
 # Test mg-auth
 
 add_unit_test(auth.cpp)
-target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)
+target_link_libraries(${test_prefix}auth mg-auth)
 
 # Test storage v2
 
