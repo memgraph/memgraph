@@ -165,12 +165,10 @@ class LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
 
-  /// @throw std::bad_alloc if unable to copy a PropertyValue
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   class Iterable {
    public:
-    /// @throw std::bad_alloc if unable to copy a PropertyValue
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
              PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -180,7 +178,6 @@ class LabelPropertyIndex {
 
     class Iterator {
      public:
-      /// @throw std::bad_alloc raised in AdvanceUntilValid
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
@@ -192,11 +189,9 @@ class LabelPropertyIndex {
         return index_iterator_ != other.index_iterator_;
       }
 
-      /// @throw std::bad_alloc raised in AdvanceUntilValid
       Iterator &operator++();
 
      private:
-      /// @throw std::bad_alloc if unable to copy a PropertyValue
       void AdvanceUntilValid();
 
       Iterable *self_;
@@ -221,7 +216,6 @@ class LabelPropertyIndex {
     Config::Items config_;
   };
 
-  /// @throw std::bad_alloc if unable to copy a PropertyValue
   Iterable Vertices(
       LabelId label, PropertyId property,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -276,7 +270,6 @@ struct Indices {
 
 /// This function should be called from garbage collection to clean-up the
 /// index.
-/// @throw std::bad_alloc raised in LabelPropertyIndex::RemoveObsoleteEntries
 void RemoveObsoleteEntries(Indices *indices,
                            uint64_t oldest_active_start_timestamp);
 

@@ -83,12 +83,11 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label,
 /// Helper function for label-property index garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property value.
-/// @throw std::bad_alloc if unable to copy the PropertyValue
 bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
                                 PropertyId key, const PropertyValue &value,
                                 uint64_t timestamp) {
   bool has_label;
-  PropertyValue current_value;
+  bool current_value_equal_to_value = value.IsNull();
   bool deleted;
   const Delta *delta;
   {
@@ -96,20 +95,20 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
     has_label = utils::Contains(vertex.labels, label);
     auto it = vertex.properties.find(key);
     if (it != vertex.properties.end()) {
-      current_value = it->second;
+      current_value_equal_to_value = it->second == value;
     }
     deleted = vertex.deleted;
     delta = vertex.delta;
   }
 
-  if (!deleted && has_label && current_value == value) {
+  if (!deleted && has_label && current_value_equal_to_value) {
     return true;
   }
 
   return AnyVersionSatisfiesPredicate(
       timestamp, delta,
-      [&has_label, &current_value, &deleted, label, key,
-       value](const Delta &delta) {
+      [&has_label, &current_value_equal_to_value, &deleted, label, key,
+       &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
             if (delta.label == label) {
@@ -125,7 +124,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
             break;
           case Delta::Action::SET_PROPERTY:
             if (delta.property.key == key) {
-              current_value = delta.property.value;
+              current_value_equal_to_value = delta.property.value == value;
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {
@@ -144,7 +143,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
           case Delta::Action::REMOVE_OUT_EDGE:
             break;
         }
-        return !deleted && has_label && current_value == value;
+        return !deleted && has_label && current_value_equal_to_value;
       });
 }
 
@@ -203,13 +202,12 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label,
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
-// @throw std::bad_alloc if unable to copy the PropertyValue
 bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label,
                                     PropertyId key, const PropertyValue &value,
                                     Transaction *transaction, View view) {
   bool deleted;
   bool has_label;
-  PropertyValue current_value;
+  bool current_value_equal_to_value = value.IsNull();
   const Delta *delta;
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
@@ -217,50 +215,51 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label,
     has_label = utils::Contains(vertex.labels, label);
     auto it = vertex.properties.find(key);
     if (it != vertex.properties.end()) {
-      current_value = it->second;
+      current_value_equal_to_value = it->second == value;
     }
     delta = vertex.delta;
   }
-  ApplyDeltasForRead(
-      transaction, delta, view,
-      [&deleted, &has_label, &current_value, key, label](const Delta &delta) {
-        switch (delta.action) {
-          case Delta::Action::SET_PROPERTY: {
-            if (delta.property.key == key) {
-              current_value = delta.property.value;
-            }
-            break;
-          }
-          case Delta::Action::DELETE_OBJECT: {
-            CHECK(!deleted) << "Invalid database state!";
-            deleted = true;
-            break;
-          }
-          case Delta::Action::RECREATE_OBJECT: {
-            CHECK(deleted) << "Invalid database state!";
-            deleted = false;
-            break;
-          }
-          case Delta::Action::ADD_LABEL:
-            if (delta.label == label) {
-              CHECK(!has_label) << "Invalid database state!";
-              has_label = true;
-            }
-            break;
-          case Delta::Action::REMOVE_LABEL:
-            if (delta.label == label) {
-              CHECK(has_label) << "Invalid database state!";
-              has_label = false;
-            }
-            break;
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            break;
-        }
-      });
-  return !deleted && has_label && current_value == value;
+  ApplyDeltasForRead(transaction, delta, view,
+                     [&deleted, &has_label, &current_value_equal_to_value, key,
+                      label, &value](const Delta &delta) {
+                       switch (delta.action) {
+                         case Delta::Action::SET_PROPERTY: {
+                           if (delta.property.key == key) {
+                             current_value_equal_to_value =
+                                 delta.property.value == value;
+                           }
+                           break;
+                         }
+                         case Delta::Action::DELETE_OBJECT: {
+                           CHECK(!deleted) << "Invalid database state!";
+                           deleted = true;
+                           break;
+                         }
+                         case Delta::Action::RECREATE_OBJECT: {
+                           CHECK(deleted) << "Invalid database state!";
+                           deleted = false;
+                           break;
+                         }
+                         case Delta::Action::ADD_LABEL:
+                           if (delta.label == label) {
+                             CHECK(!has_label) << "Invalid database state!";
+                             has_label = true;
+                           }
+                           break;
+                         case Delta::Action::REMOVE_LABEL:
+                           if (delta.label == label) {
+                             CHECK(has_label) << "Invalid database state!";
+                             has_label = false;
+                           }
+                           break;
+                         case Delta::Action::ADD_IN_EDGE:
+                         case Delta::Action::ADD_OUT_EDGE:
+                         case Delta::Action::REMOVE_IN_EDGE:
+                         case Delta::Action::REMOVE_OUT_EDGE:
+                           break;
+                       }
+                     });
+  return !deleted && has_label && current_value_equal_to_value;
 }
 
 }  // namespace

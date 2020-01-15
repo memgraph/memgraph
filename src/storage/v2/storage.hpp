@@ -124,8 +124,6 @@ class VerticesIterable final {
 
     VertexAccessor operator*() const;
 
-    /// @throw std::bad_alloc raised in
-    ///        LabelPropertyIndex::Iterable::Iterator::operator++
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const;
@@ -195,14 +193,11 @@ class Storage final {
 
     VerticesIterable Vertices(LabelId label, View view);
 
-    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, PropertyId property, View view);
 
-    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(LabelId label, PropertyId property,
                               const PropertyValue &value, View view);
 
-    /// @throw std::bad_alloc raised in Index::Vertices
     VerticesIterable Vertices(
         LabelId label, PropertyId property,
         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
