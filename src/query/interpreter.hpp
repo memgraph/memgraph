@@ -21,13 +21,80 @@
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
 namespace query {
 
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
+
+class AuthQueryHandler {
+ public:
+  AuthQueryHandler() = default;
+  virtual ~AuthQueryHandler() = default;
+
+  AuthQueryHandler(const AuthQueryHandler &) = delete;
+  AuthQueryHandler(AuthQueryHandler &&) = delete;
+  AuthQueryHandler &operator=(const AuthQueryHandler &) = delete;
+  AuthQueryHandler &operator=(AuthQueryHandler &&) = delete;
+
+  /// Return false if the user already exists.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool CreateUser(const std::string &username,
+                          const std::optional<std::string> &password) = 0;
+
+  /// Return false if the user does not exist.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool DropUser(const std::string &username) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetPassword(const std::string &username,
+                           const std::optional<std::string> &password) = 0;
+
+  /// Return false if the role already exists.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool CreateRole(const std::string &rolename) = 0;
+
+  /// Return false if the role does not exist.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool DropRole(const std::string &rolename) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<TypedValue> GetUsernames() = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<TypedValue> GetRolenames() = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<std::string> GetRolenameForUser(
+      const std::string &username) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<TypedValue> GetUsernamesForRole(
+      const std::string &rolename) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetRole(const std::string &username,
+                       const std::string &rolename) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void ClearRole(const std::string &username) = 0;
+
+  virtual std::vector<std::vector<TypedValue>> GetPrivileges(
+      const std::string &user_or_role) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void GrantPrivilege(
+      const std::string &user_or_role,
+      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DenyPrivilege(
+      const std::string &user_or_role,
+      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RevokePrivilege(
+      const std::string &user_or_role,
+      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+};
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
@@ -144,7 +211,7 @@ struct InterpreterContext {
   // The default execution timeout is 3 minutes.
   double execution_timeout_sec{180.0};
 
-  auth::Auth *auth{nullptr};
+  AuthQueryHandler *auth{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;

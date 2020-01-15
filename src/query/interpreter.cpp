@@ -4,8 +4,6 @@
 
 #include <glog/logging.h>
 
-#include "auth/auth.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #ifndef MG_SINGLE_NODE_HA
 #include "query/dump.hpp"
@@ -164,7 +162,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
-Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
+Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
                          const Parameters &parameters,
                          DbAccessor *db_accessor) {
   // Empty frame for evaluation of password expression. This is OK since
@@ -183,7 +181,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
                                 db_accessor, storage::View::OLD);
 
-  AuthQuery::Action action = auth_query->action_;
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
@@ -196,29 +193,19 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
     case AuthQuery::Action::CREATE_USER:
       callback.fn = [auth, username, password] {
         CHECK(password.IsString() || password.IsNull());
-
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->AddUser(
-            username,
-            password.IsString()
-                ? std::make_optional(std::string(password.ValueString()))
-                : std::nullopt);
-        if (!user) {
-          throw QueryRuntimeException("User or role '{}' already exists.",
-                                      username);
+        if (!auth->CreateUser(username, password.IsString()
+                                            ? std::make_optional(std::string(
+                                                  password.ValueString()))
+                                            : std::nullopt)) {
+          throw QueryRuntimeException("User '{}' already exists.", username);
         }
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DROP_USER:
       callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
+        if (!auth->DropUser(username)) {
           throw QueryRuntimeException("User '{}' doesn't exist.", username);
-        }
-        if (!auth->RemoveUser(username)) {
-          throw QueryRuntimeException("Couldn't remove user '{}'.", username);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -226,40 +213,26 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
     case AuthQuery::Action::SET_PASSWORD:
       callback.fn = [auth, username, password] {
         CHECK(password.IsString() || password.IsNull());
-
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", username);
-        }
-        user->UpdatePassword(
+        auth->SetPassword(
+            username,
             password.IsString()
                 ? std::make_optional(std::string(password.ValueString()))
                 : std::nullopt);
-        auth->SaveUser(*user);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->AddRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("User or role '{}' already exists.",
-                                      rolename);
+        if (!auth->CreateRole(rolename)) {
+          throw QueryRuntimeException("Role '{}' already exists.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DROP_ROLE:
       callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->GetRole(rolename);
-        if (!role) {
+        if (!auth->DropRole(rolename)) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
-        }
-        if (!auth->RemoveRole(rolename)) {
-          throw QueryRuntimeException("Couldn't remove role '{}'.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -267,102 +240,54 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
     case AuthQuery::Action::SHOW_USERS:
       callback.header = {"user"};
       callback.fn = [auth] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> users;
-        for (const auto &user : auth->AllUsers()) {
-          users.push_back({TypedValue(user.username())});
+        std::vector<std::vector<TypedValue>> rows;
+        auto usernames = auth->GetUsernames();
+        rows.reserve(usernames.size());
+        for (auto &&username : usernames) {
+          rows.emplace_back(std::vector<TypedValue>{username});
         }
-        return users;
+        return rows;
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLES:
       callback.header = {"role"};
       callback.fn = [auth] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> roles;
-        for (const auto &role : auth->AllRoles()) {
-          roles.push_back({TypedValue(role.rolename())});
+        std::vector<std::vector<TypedValue>> rows;
+        auto rolenames = auth->GetRolenames();
+        rows.reserve(rolenames.size());
+        for (auto &&rolename : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{rolename});
         }
-        return roles;
+        return rows;
       };
       return callback;
     case AuthQuery::Action::SET_ROLE:
       callback.fn = [auth, username, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
-        auto role = auth->GetRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist .", rolename);
-        }
-        if (user->role()) {
-          throw QueryRuntimeException(
-              "User '{}' is already a member of role '{}'.", username,
-              user->role()->rolename());
-        }
-        user->SetRole(*role);
-        auth->SaveUser(*user);
+        auth->SetRole(username, rolename);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
-        user->ClearRole();
-        auth->SaveUser(*user);
+        auth->ClearRole(username);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
+      callback.fn = [auth, user_or_role, privileges] {
+        auth->GrantPrivilege(user_or_role, privileges);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
+      callback.fn = [auth, user_or_role, privileges] {
+        auth->DenyPrivilege(user_or_role, privileges);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, action, privileges] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<auth::Permission> permissions;
-        for (const auto &privilege : privileges) {
-          permissions.push_back(glue::PrivilegeToPermission(privilege));
-        }
-        auto user = auth->GetUser(user_or_role);
-        auto role = auth->GetRole(user_or_role);
-        if (!user && !role) {
-          throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                      user_or_role);
-        }
-        if (user) {
-          for (const auto &permission : permissions) {
-            // TODO (mferencevic): should we first check that the privilege
-            // is granted/denied/revoked before unconditionally
-            // granting/denying/revoking it?
-            if (action == AuthQuery::Action::GRANT_PRIVILEGE) {
-              user->permissions().Grant(permission);
-            } else if (action == AuthQuery::Action::DENY_PRIVILEGE) {
-              user->permissions().Deny(permission);
-            } else {
-              user->permissions().Revoke(permission);
-            }
-          }
-          auth->SaveUser(*user);
-        } else {
-          for (const auto &permission : permissions) {
-            // TODO (mferencevic): should we first check that the privilege
-            // is granted/denied/revoked before unconditionally
-            // granting/denying/revoking it?
-            if (action == AuthQuery::Action::GRANT_PRIVILEGE) {
-              role->permissions().Grant(permission);
-            } else if (action == AuthQuery::Action::DENY_PRIVILEGE) {
-              role->permissions().Deny(permission);
-            } else {
-              role->permissions().Revoke(permission);
-            }
-          }
-          auth->SaveRole(*role);
-        }
+      callback.fn = [auth, user_or_role, privileges] {
+        auth->RevokePrivilege(user_or_role, privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -370,89 +295,27 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
     case AuthQuery::Action::SHOW_PRIVILEGES:
       callback.header = {"privilege", "effective", "description"};
       callback.fn = [auth, user_or_role] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> grants;
-        auto user = auth->GetUser(user_or_role);
-        auto role = auth->GetRole(user_or_role);
-        if (!user && !role) {
-          throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                      user_or_role);
-        }
-        if (user) {
-          const auto &permissions = user->GetPermissions();
-          for (const auto &privilege : kPrivilegesAll) {
-            auto permission = glue::PrivilegeToPermission(privilege);
-            auto effective = permissions.Has(permission);
-            if (permissions.Has(permission) != auth::PermissionLevel::NEUTRAL) {
-              std::vector<std::string> description;
-              auto user_level = user->permissions().Has(permission);
-              if (user_level == auth::PermissionLevel::GRANT) {
-                description.push_back("GRANTED TO USER");
-              } else if (user_level == auth::PermissionLevel::DENY) {
-                description.push_back("DENIED TO USER");
-              }
-              if (user->role()) {
-                auto role_level = user->role()->permissions().Has(permission);
-                if (role_level == auth::PermissionLevel::GRANT) {
-                  description.push_back("GRANTED TO ROLE");
-                } else if (role_level == auth::PermissionLevel::DENY) {
-                  description.push_back("DENIED TO ROLE");
-                }
-              }
-              grants.push_back(
-                  {TypedValue(auth::PermissionToString(permission)),
-                   TypedValue(auth::PermissionLevelToString(effective)),
-                   TypedValue(utils::Join(description, ", "))});
-            }
-          }
-        } else {
-          const auto &permissions = role->permissions();
-          for (const auto &privilege : kPrivilegesAll) {
-            auto permission = glue::PrivilegeToPermission(privilege);
-            auto effective = permissions.Has(permission);
-            if (effective != auth::PermissionLevel::NEUTRAL) {
-              std::string description;
-              if (effective == auth::PermissionLevel::GRANT) {
-                description = "GRANTED TO ROLE";
-              } else if (effective == auth::PermissionLevel::DENY) {
-                description = "DENIED TO ROLE";
-              }
-              grants.push_back(
-                  {TypedValue(auth::PermissionToString(permission)),
-                   TypedValue(auth::PermissionLevelToString(effective)),
-                   TypedValue(description)});
-            }
-          }
-        }
-        return grants;
+        return auth->GetPrivileges(user_or_role);
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
       callback.header = {"role"};
       callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
+        auto maybe_rolename = auth->GetRolenameForUser(username);
         return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{
-            TypedValue(user->role() ? user->role()->rolename() : "null")}};
+            TypedValue(maybe_rolename ? *maybe_rolename : "null")}};
       };
       return callback;
     case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
       callback.header = {"users"};
       callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->GetRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+        std::vector<std::vector<TypedValue>> rows;
+        auto usernames = auth->GetUsernamesForRole(rolename);
+        rows.reserve(usernames.size());
+        for (auto &&username : usernames) {
+          rows.emplace_back(std::vector<TypedValue>{username});
         }
-        std::vector<std::vector<TypedValue>> users;
-        for (const auto &user : auth->AllUsersForRole(rolename)) {
-          users.emplace_back(
-              std::vector<TypedValue>{TypedValue(user.username())});
-        }
-        return users;
+        return rows;
       };
       return callback;
     default:
