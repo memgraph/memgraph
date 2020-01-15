@@ -61,6 +61,7 @@ class Permissions final {
 
   nlohmann::json Serialize() const;
 
+  /// @throw AuthException if unable to deserialize.
   static Permissions Deserialize(const nlohmann::json &data);
 
   uint64_t grants() const;
@@ -87,6 +88,7 @@ class Role final {
 
   nlohmann::json Serialize() const;
 
+  /// @throw AuthException if unable to deserialize.
   static Role Deserialize(const nlohmann::json &data);
 
   friend bool operator==(const Role &first, const Role &second);
@@ -106,8 +108,10 @@ class User final {
   User(const std::string &username, const std::string &password_hash,
        const Permissions &permissions);
 
+  /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
 
+  /// @throw AuthException if unable to set the password.
   void UpdatePassword(
       const std::optional<std::string> &password = std::nullopt);
 
@@ -126,6 +130,7 @@ class User final {
 
   nlohmann::json Serialize() const;
 
+  /// @throw AuthException if unable to deserialize.
   static User Deserialize(const nlohmann::json &data);
 
   friend bool operator==(const User &first, const User &second);

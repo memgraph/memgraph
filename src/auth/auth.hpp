@@ -30,6 +30,7 @@ class Auth final {
    * @param password
    *
    * @return a user when the username and password match, nullopt otherwise
+   * @throw AuthException if unable to authenticate for whatever reason.
    */
   std::optional<User> Authenticate(const std::string &username,
                                    const std::string &password);
@@ -40,6 +41,7 @@ class Auth final {
    * @param username
    *
    * @return a user when the user exists, nullopt otherwise
+   * @throw AuthException if unable to load user data.
    */
   std::optional<User> GetUser(const std::string &username);
 
@@ -47,6 +49,8 @@ class Auth final {
    * Saves a user object to the storage.
    *
    * @param user
+   *
+   * @throw AuthException if unable to save the user.
    */
   void SaveUser(const User &user);
 
@@ -57,6 +61,7 @@ class Auth final {
    * @param password
    *
    * @return a user when the user is created, nullopt if the user exists
+   * @throw AuthException if unable to save the user.
    */
   std::optional<User> AddUser(
       const std::string &username,
@@ -69,6 +74,7 @@ class Auth final {
    *
    * @return `true` if the user existed and was removed, `false` if the user
    *         doesn't exist
+   * @throw AuthException if unable to remove the user.
    */
   bool RemoveUser(const std::string &username);
 
@@ -76,6 +82,7 @@ class Auth final {
    * Gets all users from the storage.
    *
    * @return a list of users
+   * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsers();
 
@@ -92,6 +99,7 @@ class Auth final {
    * @param rolename
    *
    * @return a role when the role exists, nullopt otherwise
+   * @throw AuthException if unable to load role data.
    */
   std::optional<Role> GetRole(const std::string &rolename);
 
@@ -99,6 +107,8 @@ class Auth final {
    * Saves a role object to the storage.
    *
    * @param role
+   *
+   * @throw AuthException if unable to save the role.
    */
   void SaveRole(const Role &role);
 
@@ -108,6 +118,7 @@ class Auth final {
    * @param rolename
    *
    * @return a role when the role is created, nullopt if the role exists
+   * @throw AuthException if unable to save the role.
    */
   std::optional<Role> AddRole(const std::string &rolename);
 
@@ -118,6 +129,7 @@ class Auth final {
    *
    * @return `true` if the role existed and was removed, `false` if the role
    *         doesn't exist
+   * @throw AuthException if unable to remove the role.
    */
   bool RemoveRole(const std::string &rolename);
 
@@ -125,6 +137,7 @@ class Auth final {
    * Gets all roles from the storage.
    *
    * @return a list of roles
+   * @throw AuthException if unable to load role data.
    */
   std::vector<Role> AllRoles();
 
@@ -134,6 +147,7 @@ class Auth final {
    * @param rolename
    *
    * @return a list of roles
+   * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsersForRole(const std::string &rolename);
 
