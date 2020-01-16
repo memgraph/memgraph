@@ -55,6 +55,10 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     return true;
   }
 
+  std::optional<std::string> GetServerNameForInit() override {
+    return std::nullopt;
+  }
+
  private:
   std::string query_;
 };

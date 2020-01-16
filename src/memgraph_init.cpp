@@ -21,6 +21,9 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
+DEFINE_string(bolt_server_name_for_init, "",
+              "Server name which the database should send to the client in the "
+              "Bolt INIT message.");
 
 BoltSession::BoltSession(SessionData *data,
                          const io::network::Endpoint &endpoint,
@@ -128,6 +131,11 @@ bool BoltSession::Authenticate(const std::string &username,
   user_ = auth_->Authenticate(username, password);
   return !!user_;
 #endif
+}
+
+std::optional<std::string> BoltSession::GetServerNameForInit() {
+  if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
+  return FLAGS_bolt_server_name_for_init;
 }
 
 #ifdef MG_SINGLE_NODE_V2

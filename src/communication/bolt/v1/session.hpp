@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <thread>
 
 #include "glog/logging.h"
@@ -63,6 +64,10 @@ class Session {
   /** Return `true` if the user was successfully authenticated. */
   virtual bool Authenticate(const std::string &username,
                             const std::string &password) = 0;
+
+  /** Return the name of the server that should be used for the Bolt INIT
+   * message. */
+  virtual std::optional<std::string> GetServerNameForInit() = 0;
 
   /**
    * Executes the session after data has been read into the buffer.

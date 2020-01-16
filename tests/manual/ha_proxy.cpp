@@ -107,6 +107,10 @@ class BoltSession final
     return true;
   }
 
+  std::optional<std::string> GetServerNameForInit() override {
+    return std::nullopt;
+  }
+
  private:
   SessionData *session_data_;
   io::network::Endpoint endpoint_;

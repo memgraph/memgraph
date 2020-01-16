@@ -93,9 +93,19 @@ State StateInitRun(Session &session) {
   }
 
   // Return success.
-  if (!session.encoder_.MessageSuccess()) {
-    DLOG(WARNING) << "Couldn't send success message to the client!";
-    return State::Close;
+  {
+    bool success_sent = false;
+    auto server_name = session.GetServerNameForInit();
+    if (server_name) {
+      success_sent =
+          session.encoder_.MessageSuccess({{"server", *server_name}});
+    } else {
+      success_sent = session.encoder_.MessageSuccess();
+    }
+    if (!success_sent) {
+      DLOG(WARNING) << "Couldn't send success message to the client!";
+      return State::Close;
+    }
   }
 
   return State::Idle;

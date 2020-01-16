@@ -66,6 +66,8 @@ class BoltSession final
   bool Authenticate(const std::string &username,
                     const std::string &password) override;
 
+  std::optional<std::string> GetServerNameForInit() override;
+
  private:
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
