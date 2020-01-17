@@ -423,6 +423,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 };
 
 void SingleNodeMain() {
+  std::cout << "You are running Memgraph v" << gflags::VersionString()
+            << std::endl;
+
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
