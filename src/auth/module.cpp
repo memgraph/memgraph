@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <thread>
 
 #include <fcntl.h>
@@ -24,8 +25,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "utils/file.hpp"
-
 namespace {
 
 /////////////////////////////////////////////////////////////////////////
@@ -40,28 +39,11 @@ const int kCommunicationFromModuleFd = 1001;
 
 const int kTerminateTimeoutSec = 5;
 
-////////////////////
-// Helper functions.
-////////////////////
-
-std::filesystem::path GetTemporaryPath(pid_t pid) {
-  return std::filesystem::temp_directory_path() / "memgraph" /
-         fmt::format("auth_module_{}", pid);
-}
-
-std::string GetEnvironmentVariable(const std::string &name) {
-  char *value = secure_getenv(name.c_str());
-  if (value == nullptr) {
-    return fmt::format("{}=", name);
-  }
-  return fmt::format("{}={}", name, value);
-}
-
 ///////////////////////////////////////////
 // char** wrapper used for C library calls.
 ///////////////////////////////////////////
 
-const int kCharppMaxElements = 20;
+const int kCharppMaxElements = 4096;
 
 class CharPP final {
  public:
@@ -196,21 +178,24 @@ int Target(void *arg) {
   // Redirect `stdin` to `/dev/null`.
   int fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
   if (fd == -1) {
+    std::cerr
+        << "Couldn't open \"/dev/null\" for auth module stdin because of: "
+        << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
   if (dup2(fd, STDIN_FILENO) != STDIN_FILENO) {
+    std::cerr
+        << "Couldn't attach \"/dev/null\" to auth module stdin because of: "
+        << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
-  // Create the working directory.
-  std::filesystem::path working_path = GetTemporaryPath(getpid());
-  utils::DeleteDir(working_path);
-  if (!utils::EnsureDir(working_path)) {
-    return EXIT_FAILURE;
-  }
-
-  // Change the current directory to the working directory.
-  if (chdir(working_path.c_str()) != 0) {
+  // Change the current directory to the module directory.
+  if (chdir(ta->module_executable_path.parent_path().c_str()) != 0) {
+    std::cerr << "Couldn't change directory to "
+              << ta->module_executable_path.parent_path()
+              << " for auth module stdin because of: " << strerror(errno)
+              << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -220,28 +205,32 @@ int Target(void *arg) {
 
   // Create the environment CharPP object.
   CharPP env;
-  env.Add(GetEnvironmentVariable("PATH"));
-  env.Add(GetEnvironmentVariable("USER"));
-  env.Add(GetEnvironmentVariable("LANG"));
-  env.Add(GetEnvironmentVariable("LANGUAGE"));
-  env.Add(GetEnvironmentVariable("HOME"));
+  for (uint64_t i = 0; environ[i] != nullptr; ++i) {
+    env.Add(environ[i]);
+  }
 
   // Connect the communication input pipe.
   if (dup2(ta->pipe_to_module, kCommunicationToModuleFd) !=
       kCommunicationToModuleFd) {
+    std::cerr << "Couldn't attach communication to module pipe to auth module "
+                 "because of: "
+              << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
   // Connect the communication output pipe.
   if (dup2(ta->pipe_from_module, kCommunicationFromModuleFd) !=
       kCommunicationFromModuleFd) {
+    std::cerr << "Couldn't attach communication from module pipe to auth "
+                 "module because of: "
+              << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
-  // Set process limits.
   // Disable core dumps.
   if (!SetLimit(RLIMIT_CORE, 0)) {
-    return EXIT_FAILURE;
+    std::cerr << "Couldn't disable core dumps for auth module!" << std::endl;
+    // This isn't a fatal error.
   }
 
   // Ignore SIGINT.
@@ -253,15 +242,23 @@ int Target(void *arg) {
   sigemptyset(&action.sa_mask);
   action.sa_flags = 0;
   if (sigaction(SIGINT, &action, nullptr) != 0) {
+    std::cerr << "Couldn't ignore SIGINT for auth module because of: "
+              << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
   // Setup seccomp.
   if (!SetupSeccomp()) {
-    return EXIT_FAILURE;
+    std::cerr << "Couldn't enable seccomp for auth module!" << std::endl;
+    // This isn't a fatal error.
   }
 
   execve(*exe.Get(), exe.Get(), env.Get());
+
+  // If the `execve` call succeeded then the process will exit from that call
+  // and won't reach this piece of code ever.
+  std::cerr << "Couldn't start auth module because of: " << strerror(errno)
+            << " (" << errno << ")!" << std::endl;
 
   return EXIT_FAILURE;
 }
@@ -344,8 +341,11 @@ nlohmann::json GetData(int fd, int timeout_millisec) {
 
 namespace auth {
 
-Module::Module(const std::string &module_executable_path)
-    : module_executable_path_(module_executable_path) {}
+Module::Module(const std::filesystem::path &module_executable_path) {
+  if (!module_executable_path.empty()) {
+    module_executable_path_ = std::filesystem::absolute(module_executable_path);
+  }
+}
 
 bool Module::Startup() {
   // Check whether the process is alive.
@@ -386,6 +386,12 @@ bool Module::Startup() {
     close(pipe_to_module_[kPipeWriteEnd]);
     close(pipe_from_module_[kPipeReadEnd]);
     close(pipe_from_module_[kPipeWriteEnd]);
+    return false;
+  }
+
+  // Check whether the process is still running.
+  if (waitpid(pid_, &status_, WNOHANG | WUNTRACED) != 0) {
+    LOG(ERROR) << "The auth module process couldn't be started!";
     return false;
   }
 
@@ -447,9 +453,6 @@ void Module::Shutdown() {
     kill(pid_, SIGKILL);
     waitpid(pid_, &status_, 0);
   }
-
-  // Delete the working directory.
-  utils::DeleteDir(GetTemporaryPath(pid_));
 
   // Close leftover open pipes.
   // We have to be careful to close only the leftover open pipes (the

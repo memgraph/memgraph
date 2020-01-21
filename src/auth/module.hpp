@@ -22,7 +22,7 @@ class Module final {
   const int kStackSizeBytes = 262144;
 
  public:
-  explicit Module(const std::string &module_executable_path);
+  explicit Module(const std::filesystem::path &module_executable_path);
 
   Module(const Module &) = delete;
   Module(Module &&) = delete;
@@ -50,7 +50,7 @@ class Module final {
   bool Startup();
   void Shutdown();
 
-  std::string module_executable_path_;
+  std::filesystem::path module_executable_path_;
   std::mutex lock_;
   pid_t pid_{-1};
   int status_{0};
