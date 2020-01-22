@@ -675,7 +675,7 @@ PreparedQuery PrepareDumpQuery(
 PreparedQuery PrepareIndexQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context, DbAccessor *dba,
+    InterpreterContext *interpreter_context,
     utils::MonotonicBufferResource *execution_memory) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
@@ -692,21 +692,12 @@ PreparedQuery PrepareIndexQuery(
     }
   };
 
-#ifdef MG_SINGLE_NODE_V2
   auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
   std::vector<storage::PropertyId> properties;
   properties.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
   }
-#else
-  auto label = dba->NameToLabel(index_query->label_.name);
-  std::vector<storage::Property> properties;
-  properties.reserve(index_query->properties_.size());
-  for (const auto &prop : index_query->properties_) {
-    properties.push_back(dba->NameToProperty(prop.name));
-  }
-#endif
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
@@ -714,7 +705,6 @@ PreparedQuery PrepareIndexQuery(
 
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
-#ifdef MG_SINGLE_NODE_V2
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
@@ -725,28 +715,9 @@ PreparedQuery PrepareIndexQuery(
         }
         invalidate_plan_cache();
       };
-#else
-      handler = [dba, label, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)] {
-        // Old storage creates label index by default.
-        if (properties.empty()) return;
-        try {
-          CHECK(properties.size() == 1U);
-          dba->CreateIndex(label, properties[0]);
-          invalidate_plan_cache();
-        } catch (const database::ConstraintViolationException &e) {
-          throw QueryRuntimeException(e.what());
-        } catch (const database::IndexExistsException &e) {
-          // Ignore creating an existing index.
-        } catch (const database::TransactionException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-      };
-#endif
       break;
     }
     case IndexQuery::Action::DROP: {
-#ifdef MG_SINGLE_NODE_V2
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
@@ -757,20 +728,6 @@ PreparedQuery PrepareIndexQuery(
         }
         invalidate_plan_cache();
       };
-#else
-      handler = [dba, label, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)] {
-        if (properties.empty())
-          throw QueryRuntimeException("Label index cannot be dropped!");
-        try {
-          CHECK(properties.size() == 1U);
-          dba->DropIndex(label, properties[0]);
-          invalidate_plan_cache();
-        } catch (const database::TransactionException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-      };
-#endif
       break;
     }
   }
@@ -779,11 +736,7 @@ PreparedQuery PrepareIndexQuery(
                        std::move(parsed_query.required_privileges),
                        [handler = std::move(handler)](AnyStream *stream) {
                          handler();
-#ifdef MG_SINGLE_NODE_V2
                          return QueryHandlerResult::NOTHING;
-#else
-                         return QueryHandlerResult::COMMIT;
-#endif
                        }};
 }
 
@@ -836,11 +789,7 @@ PreparedQuery PrepareAuthQuery(
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context,
-#ifdef MG_SINGLE_NODE_V2
     storage::Storage *db,
-#else
-    DbAccessor *dba,
-#endif
     utils::MonotonicBufferResource *execution_memory) {
   auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query);
   std::vector<std::string> header;
@@ -850,7 +799,7 @@ PreparedQuery PrepareInfoQuery(
 
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
-#if defined(MG_SINGLE_NODE_V2)
+#ifndef MG_SINGLE_NODE_HA
       header = {"storage info", "value"};
       handler = [db] {
         auto info = db->GetInfo();
@@ -866,18 +815,7 @@ PreparedQuery PrepareInfoQuery(
              TypedValue(static_cast<int64_t>(info.disk_usage))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-#elif defined(MG_SINGLE_NODE)
-      header = {"storage info", "value"};
-      handler = [dba] {
-        auto info = dba->StorageInfo();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.size());
-        for (const auto &pair : info) {
-          results.push_back({TypedValue(pair.first), TypedValue(pair.second)});
-        }
-        return std::pair{results, QueryHandlerResult::COMMIT};
-      };
-#elif defined(MG_SINGLE_NODE_HA)
+#else
       header = {"server id", "storage info", "value"};
       handler = [dba] {
         auto info = dba->StorageInfo();
@@ -892,12 +830,9 @@ PreparedQuery PrepareInfoQuery(
         }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-#else
-      throw utils::NotYetImplemented("storage info");
 #endif
       break;
     case InfoQuery::InfoType::INDEX:
-#ifdef MG_SINGLE_NODE_V2
       header = {"index type", "label", "property"};
       handler = [interpreter_context] {
         auto *db = interpreter_context->db;
@@ -916,21 +851,7 @@ PreparedQuery PrepareInfoQuery(
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
-#else
-      header = {"created index"};
-      handler = [dba] {
-        auto info = dba->IndexInfo();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.size());
-        for (const auto &index : info) {
-          results.push_back({TypedValue(index)});
-        }
-        return std::pair{results, QueryHandlerResult::COMMIT};
-      };
-      break;
-#endif
     case InfoQuery::InfoType::CONSTRAINT:
-#ifdef MG_SINGLE_NODE_V2
       header = {"constraint type", "label", "properties"};
       handler = [interpreter_context] {
         auto *db = interpreter_context->db;
@@ -945,26 +866,6 @@ PreparedQuery PrepareInfoQuery(
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
-#else
-      header = {"constraint type", "label", "properties"};
-      handler = [dba] {
-        std::vector<std::vector<TypedValue>> results;
-        for (auto &e : dba->ListUniqueConstraints()) {
-          std::vector<std::string> property_names(e.properties.size());
-          std::transform(
-              e.properties.begin(), e.properties.end(), property_names.begin(),
-              [dba](const auto &p) { return dba->PropertyToName(p); });
-
-          std::vector<TypedValue> constraint{
-              TypedValue("unique"), TypedValue(dba->LabelToName(e.label)),
-              TypedValue(utils::Join(property_names, ","))};
-
-          results.emplace_back(constraint);
-        }
-        return std::pair{results, QueryHandlerResult::COMMIT};
-      };
-      break;
-#endif
     case InfoQuery::InfoType::RAFT:
 #if defined(MG_SINGLE_NODE_HA)
       header = {"info", "value"};
@@ -998,12 +899,11 @@ PreparedQuery PrepareInfoQuery(
 
 PreparedQuery PrepareConstraintQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context, DbAccessor *dba,
+    InterpreterContext *interpreter_context,
     utils::MonotonicBufferResource *execution_memory) {
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void()> handler;
 
-#ifdef MG_SINGLE_NODE_V2
   auto label = interpreter_context->db->NameToLabel(
       constraint_query->constraint_.label.name);
   std::vector<storage::PropertyId> properties;
@@ -1011,14 +911,6 @@ PreparedQuery PrepareConstraintQuery(
   for (const auto &prop : constraint_query->constraint_.properties) {
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
   }
-#else
-  auto label = dba->NameToLabel(constraint_query->constraint_.label.name);
-  std::vector<storage::Property> properties;
-  properties.reserve(constraint_query->constraint_.properties.size());
-  for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(dba->NameToProperty(prop.name));
-  }
-#endif
 
   switch (constraint_query->action_type_) {
     case ConstraintQuery::ActionType::CREATE: {
@@ -1026,7 +918,6 @@ PreparedQuery PrepareConstraintQuery(
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
         case Constraint::Type::EXISTS:
-#ifdef MG_SINGLE_NODE_V2
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException(
                 "Exactly one property must be used for existence constraints.");
@@ -1048,26 +939,8 @@ PreparedQuery PrepareConstraintQuery(
             }
           };
           break;
-#else
-          throw utils::NotYetImplemented("Existence constraints");
-#endif
         case Constraint::Type::UNIQUE:
-#ifdef MG_SINGLE_NODE_V2
           throw utils::NotYetImplemented("Unique constraints");
-#else
-          handler = [dba, label, properties = std::move(properties)] {
-            try {
-              dba->BuildUniqueConstraint(label, properties);
-            } catch (const database::ConstraintViolationException &e) {
-              throw QueryRuntimeException(e.what());
-            } catch (const database::TransactionException &e) {
-              throw QueryRuntimeException(e.what());
-            } catch (const mvcc::SerializationError &e) {
-              throw QueryRuntimeException(e.what());
-            }
-          };
-          break;
-#endif
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
@@ -1075,7 +948,6 @@ PreparedQuery PrepareConstraintQuery(
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
         case Constraint::Type::EXISTS:
-#ifdef MG_SINGLE_NODE_V2
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException(
                 "Exactly one property must be used for existence constraints.");
@@ -1087,23 +959,8 @@ PreparedQuery PrepareConstraintQuery(
             return std::vector<std::vector<TypedValue>>();
           };
           break;
-#else
-          throw utils::NotYetImplemented("Existence constraints");
-#endif
         case Constraint::Type::UNIQUE:
-#ifdef MG_SINGLE_NODE_V2
           throw utils::NotYetImplemented("Unique constraints");
-#else
-          handler = [dba, label, properties = std::move(properties)] {
-            try {
-              dba->DeleteUniqueConstraint(label, properties);
-              return std::vector<std::vector<TypedValue>>();
-            } catch (const database::TransactionException &e) {
-              throw QueryRuntimeException(e.what());
-            }
-          };
-          break;
-#endif
       }
     } break;
   }
@@ -1165,7 +1022,6 @@ Interpreter::Prepare(
     summary_["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
-#ifdef MG_SINGLE_NODE_V2
     if (!in_explicit_transaction_ &&
         !utils::Downcast<IndexQuery>(parsed_query.query) &&
         !utils::Downcast<DumpQuery>(parsed_query.query) &&
@@ -1174,13 +1030,6 @@ Interpreter::Prepare(
       db_accessor_.emplace(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(&*db_accessor_);
     }
-#else
-    if (!in_explicit_transaction_ &&
-        !utils::Downcast<DumpQuery>(parsed_query.query)) {
-      db_accessor_.emplace(interpreter_context_->db->Access());
-      execution_db_accessor_.emplace(&*db_accessor_);
-    }
-#endif
 
 #ifdef MG_SINGLE_NODE_HA
     {
@@ -1213,38 +1062,21 @@ Interpreter::Prepare(
           PrepareDumpQuery(std::move(parsed_query), &summary_,
                            interpreter_context_, &execution_memory_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-#ifdef MG_SINGLE_NODE_V2
-      DbAccessor *dba = nullptr;
-#else
-      auto dba = &*execution_db_accessor_;
-#endif
       prepared_query = PrepareIndexQuery(
           std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, dba, &execution_memory_);
+          interpreter_context_, &execution_memory_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(
           std::move(parsed_query), in_explicit_transaction_, &summary_,
           interpreter_context_, &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-#ifdef MG_SINGLE_NODE_V2
       prepared_query = PrepareInfoQuery(
           std::move(parsed_query), &summary_, interpreter_context_,
           interpreter_context_->db, &execution_memory_);
-#else
-      auto dba = &*execution_db_accessor_;
-      prepared_query =
-          PrepareInfoQuery(std::move(parsed_query), &summary_,
-                           interpreter_context_, dba, &execution_memory_);
-#endif
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-#ifdef MG_SINGLE_NODE_V2
-      DbAccessor *dba = nullptr;
-#else
-      auto dba = &*execution_db_accessor_;
-#endif
       prepared_query =
           PrepareConstraintQuery(std::move(parsed_query), &summary_,
-                                 interpreter_context_, dba, &execution_memory_);
+                                 interpreter_context_, &execution_memory_);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }
@@ -1274,7 +1106,6 @@ void Interpreter::Commit() {
   prepared_query_ = std::nullopt;
   execution_memory_.Release();
   if (!db_accessor_) return;
-#ifdef MG_SINGLE_NODE_V2
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1288,9 +1119,6 @@ void Interpreter::Commit() {
         "Unable to commit due to existence constraint violation on :{}({}).",
         label_name, property_name);
   }
-#else
-  db_accessor_->Commit();
-#endif
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
 }

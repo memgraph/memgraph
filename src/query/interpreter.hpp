@@ -184,20 +184,12 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-#ifdef MG_SINGLE_NODE_V2
   explicit InterpreterContext(storage::Storage *db)
-#else
-  explicit InterpreterContext(database::GraphDb *db)
-#endif
       : db(db) {
     CHECK(db) << "Storage must not be NULL";
   }
 
-#ifdef MG_SINGLE_NODE_V2
   storage::Storage *db;
-#else
-  database::GraphDb *db;
-#endif
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected
@@ -281,11 +273,7 @@ class Interpreter final {
   std::optional<PreparedQuery> prepared_query_;
   std::map<std::string, TypedValue> summary_;
 
-#ifdef MG_SINGLE_NODE_V2
   std::optional<storage::Storage::Accessor> db_accessor_;
-#else
-  std::optional<database::GraphDbAccessor> db_accessor_;
-#endif
   std::optional<DbAccessor> execution_db_accessor_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};

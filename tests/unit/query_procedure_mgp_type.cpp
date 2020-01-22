@@ -180,15 +180,9 @@ TEST(CypherType, MapSatisfiesType) {
 }
 
 TEST(CypherType, VertexSatisfiesType) {
-#ifdef MG_SINGLE_NODE_V2
   storage::Storage db;
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
-#else
-  database::GraphDb db;
-  auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-#endif
   auto vertex = dba.InsertVertex();
   mgp_memory memory{utils::NewDeleteResource()};
   utils::Allocator<mgp_vertex> alloc(memory.impl);
@@ -206,15 +200,9 @@ TEST(CypherType, VertexSatisfiesType) {
 }
 
 TEST(CypherType, EdgeSatisfiesType) {
-#ifdef MG_SINGLE_NODE_V2
   storage::Storage db;
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
-#else
-  database::GraphDb db;
-  auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-#endif
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
@@ -234,15 +222,9 @@ TEST(CypherType, EdgeSatisfiesType) {
 }
 
 TEST(CypherType, PathSatisfiesType) {
-#ifdef MG_SINGLE_NODE_V2
   storage::Storage db;
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
-#else
-  database::GraphDb db;
-  auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-#endif
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));

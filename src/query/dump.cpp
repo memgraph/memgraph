@@ -77,11 +77,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
 
 void DumpProperties(
     std::ostream *os, query::DbAccessor *dba,
-#ifdef MG_SINGLE_NODE_V2
     const std::map<storage::PropertyId, storage::PropertyValue> &store,
-#else
-    const PropertyValueStore &store,
-#endif
     std::optional<uint64_t> property_id = std::nullopt) {
   *os << "{";
   if (property_id) {
@@ -174,7 +170,6 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
   *os << "]->(v);";
 }
 
-#ifdef MG_SINGLE_NODE_V2
 void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba,
                     const storage::LabelId label) {
   *os << "CREATE INDEX ON :" << dba->LabelToName(label) << ";";
@@ -193,30 +188,10 @@ void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba,
   *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(label)
       << ") ASSERT EXISTS (u." << dba->PropertyToName(property) << ");";
 }
-#else
-void DumpIndexKey(std::ostream *os, query::DbAccessor *dba,
-                  const database::LabelPropertyIndex::Key &key) {
-  *os << "CREATE INDEX ON :" << dba->LabelToName(key.label_) << "("
-      << dba->PropertyToName(key.property_) << ");";
-}
-
-void DumpUniqueConstraint(
-    std::ostream *os, query::DbAccessor *dba,
-    const storage::constraints::ConstraintEntry &constraint) {
-  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(constraint.label)
-      << ") ASSERT ";
-  utils::PrintIterable(*os, constraint.properties, ", ",
-                       [&dba](auto &os, const auto &property) {
-                         os << "u." << dba->PropertyToName(property);
-                       });
-  *os << " IS UNIQUE;";
-}
-#endif
 
 }  // namespace
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
-#ifdef MG_SINGLE_NODE_V2
   {
     auto info = dba->ListAllIndices();
     for (const auto &item : info.label) {
@@ -238,18 +213,6 @@ void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
       stream->Result({TypedValue(os.str())});
     }
   }
-#else
-  for (const auto &item : dba->GetIndicesKeys()) {
-    std::ostringstream os;
-    DumpIndexKey(&os, dba, item);
-    stream->Result({TypedValue(os.str())});
-  }
-  for (const auto &item : dba->ListUniqueConstraints()) {
-    std::ostringstream os;
-    DumpUniqueConstraint(&os, dba, item);
-    stream->Result({TypedValue(os.str())});
-  }
-#endif
 
   auto vertices = dba->Vertices(storage::View::OLD);
   bool internal_index_created = false;

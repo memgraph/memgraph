@@ -1,10 +1,5 @@
 #pragma once
 
-#ifdef MG_SINGLE_NODE_V2
-#include "storage/v2/edge_accessor.hpp"
-using EdgeAccessor = storage::EdgeAccessor;
-#endif
-
 #ifdef MG_SINGLE_NODE
 #include "storage/single_node/edge_accessor.hpp"
 #endif

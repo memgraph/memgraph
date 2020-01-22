@@ -32,9 +32,7 @@ BoltSession::BoltSession(SessionData *data,
     : communication::bolt::Session<communication::InputStream,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
-#ifdef MG_SINGLE_NODE_V2
       db_(data->db),
-#endif
       interpreter_(data->interpreter_context),
 #ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
@@ -85,15 +83,10 @@ std::vector<std::string> BoltSession::Interpret(
 std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
     TEncoder *encoder) {
   try {
-#ifdef MG_SINGLE_NODE_V2
     TypedValueResultStream stream(encoder, db_);
-#else
-    TypedValueResultStream stream(encoder);
-#endif
     const auto &summary = interpreter_.PullAll(&stream);
     std::map<std::string, communication::bolt::Value> decoded_summary;
     for (const auto &kv : summary) {
-#ifdef MG_SINGLE_NODE_V2
       auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
@@ -107,10 +100,6 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
         }
       }
       decoded_summary.emplace(kv.first, std::move(*maybe_value));
-#else
-      decoded_summary.emplace(kv.first,
-                              glue::ToBoltValue(kv.second, storage::View::NEW));
-#endif
     }
     return decoded_summary;
   } catch (const query::QueryException &e) {
@@ -138,21 +127,15 @@ std::optional<std::string> BoltSession::GetServerNameForInit() {
   return FLAGS_bolt_server_name_for_init;
 }
 
-#ifdef MG_SINGLE_NODE_V2
 BoltSession::TypedValueResultStream::TypedValueResultStream(
     TEncoder *encoder, const storage::Storage *db)
     : encoder_(encoder), db_(db) {}
-#else
-BoltSession::TypedValueResultStream::TypedValueResultStream(TEncoder *encoder)
-    : encoder_(encoder) {}
-#endif
 
 void BoltSession::TypedValueResultStream::Result(
     const std::vector<query::TypedValue> &values) {
   std::vector<communication::bolt::Value> decoded_values;
   decoded_values.reserve(values.size());
   for (const auto &v : values) {
-#ifdef MG_SINGLE_NODE_V2
     auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -170,9 +153,6 @@ void BoltSession::TypedValueResultStream::Result(
       }
     }
     decoded_values.emplace_back(std::move(*maybe_value));
-#else
-    decoded_values.push_back(glue::ToBoltValue(v, storage::View::NEW));
-#endif
   }
   encoder_->MessageRecord(decoded_values);
 }

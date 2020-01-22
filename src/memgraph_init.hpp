@@ -17,27 +17,19 @@
 #include "communication/session.hpp"
 #include "query/interpreter.hpp"
 
-#ifdef MG_SINGLE_NODE_V2
-namespace database {
-using GraphDb = storage::Storage;
-}
-#endif
-
-DECLARE_string(durability_directory);
-
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(database::GraphDb *_db,
+  SessionData(storage::Storage *_db,
               query::InterpreterContext *_interpreter_context,
               auth::Auth *_auth, audit::Log *_audit_log)
       : db(_db),
         interpreter_context(_interpreter_context),
         auth(_auth),
         audit_log(_audit_log) {}
-  database::GraphDb *db;
+  storage::Storage *db;
   query::InterpreterContext *interpreter_context;
   auth::Auth *auth;
   audit::Log *audit_log;
@@ -73,26 +65,18 @@ class BoltSession final
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-#ifdef MG_SINGLE_NODE_V2
     TypedValueResultStream(TEncoder *encoder, const storage::Storage *db);
-#else
-    TypedValueResultStream(TEncoder *encoder);
-#endif
 
     void Result(const std::vector<query::TypedValue> &values);
 
    private:
     TEncoder *encoder_;
-#ifdef MG_SINGLE_NODE_V2
     // NOTE: Needed only for ToBoltValue conversions
     const storage::Storage *db_;
-#endif
   };
 
-#ifdef MG_SINGLE_NODE_V2
   // NOTE: Needed only for ToBoltValue conversions
   const storage::Storage *db_;
-#endif
   query::Interpreter interpreter_;
 #ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;

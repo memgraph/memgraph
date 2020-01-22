@@ -161,7 +161,6 @@ endif()
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_compile_definitions(memgraph PUBLIC MG_SINGLE_NODE_V2)
 target_link_libraries(memgraph ${MG_SINGLE_NODE_V2_LIBS})
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the

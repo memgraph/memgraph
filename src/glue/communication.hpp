@@ -4,21 +4,17 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/view.hpp"
-
-#ifdef MG_SINGLE_NODE_V2
 #include "storage/v2/result.hpp"
+#include "storage/v2/view.hpp"
 
 namespace storage {
 class EdgeAccessor;
 class Storage;
 class VertexAccessor;
 }  // namespace storage
-#endif
 
 namespace glue {
 
-#ifdef MG_SINGLE_NODE_V2
 /// @param storage::VertexAccessor for converting to
 ///        communication::bolt::Vertex.
 /// @param storage::Storage for getting label and property names.
@@ -54,19 +50,6 @@ storage::Result<communication::bolt::Path> ToBoltPath(
 storage::Result<communication::bolt::Value> ToBoltValue(
     const query::TypedValue &value, const storage::Storage &db,
     storage::View view);
-#else
-communication::bolt::Vertex ToBoltVertex(const ::VertexAccessor &vertex,
-                                         storage::View view);
-
-communication::bolt::Edge ToBoltEdge(const ::EdgeAccessor &edge,
-                                     storage::View view);
-
-communication::bolt::Path ToBoltPath(const query::Path &path,
-                                     storage::View view);
-
-communication::bolt::Value ToBoltValue(const query::TypedValue &value,
-                                       storage::View view);
-#endif
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 

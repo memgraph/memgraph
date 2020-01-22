@@ -10,11 +10,7 @@
 #include <glog/logging.h>
 
 #include "communication/server.hpp"
-#ifdef MG_SINGLE_NODE_V2
 #include "storage/v2/storage.hpp"
-#else
-#include "database/single_node/graph_db.hpp"
-#endif
 #include "glue/auth.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
@@ -45,7 +41,6 @@ DEFINE_string(bolt_cert_file, "",
 DEFINE_string(bolt_key_file, "",
               "Key file which should be used for the Bolt server.");
 
-#ifdef MG_SINGLE_NODE_V2
 // General purpose flags.
 DEFINE_string(data_directory, "mg_data",
               "Path to directory in which to save all permanent data.");
@@ -80,7 +75,6 @@ DEFINE_VALIDATED_uint64(
     FLAG_IN_RANGE(1, 1000000));
 DEFINE_bool(storage_snapshot_on_exit, false,
             "Controls whether the storage creates another snapshot on exit.");
-#endif
 
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
@@ -437,11 +431,7 @@ void SingleNodeMain() {
 
   // Begin enterprise features initialization
 
-#ifdef MG_SINGLE_NODE_V2
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
-#else
-  auto data_directory = std::filesystem::path(FLAGS_durability_directory);
-#endif
 
   // Auth
   auth::Auth auth{data_directory / "auth"};
@@ -463,7 +453,6 @@ void SingleNodeMain() {
 
   // Main storage and execution engines initialization
 
-#ifdef MG_SINGLE_NODE_V2
   storage::Config db_config{
       .gc = {.type = storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
@@ -494,9 +483,6 @@ void SingleNodeMain() {
         std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-#else
-  database::GraphDb db;
-#endif
   query::InterpreterContext interpreter_context{&db};
   query::SetExecutionTimeout(&interpreter_context,
                              FLAGS_query_execution_timeout_sec);
@@ -531,17 +517,10 @@ void SingleNodeMain() {
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
         data_directory / "telemetry", std::chrono::minutes(10));
-#ifdef MG_SINGLE_NODE_V2
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
-#else
-    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
-      auto dba = db.Access();
-      return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
-    });
-#endif
   }
 
   // Handler for regular termination signals
