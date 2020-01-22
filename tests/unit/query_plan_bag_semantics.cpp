@@ -118,25 +118,33 @@ TEST(QueryPlan, OrderBy) {
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
-  auto Null = PropertyValue();
-  std::vector<std::pair<Ordering, std::vector<PropertyValue>>> orderable{
-      {Ordering::ASC,
-       {PropertyValue(0), PropertyValue(0), PropertyValue(0.5),
-        PropertyValue(1), PropertyValue(2), PropertyValue(12.6),
-        PropertyValue(42), Null, Null}},
-      {Ordering::ASC,
-       {PropertyValue(false), PropertyValue(false), PropertyValue(true),
-        PropertyValue(true), Null, Null}},
-      {Ordering::ASC,
-       {PropertyValue("A"), PropertyValue("B"), PropertyValue("a"),
-        PropertyValue("a"), PropertyValue("aa"), PropertyValue("ab"),
-        PropertyValue("aba"), Null, Null}},
-      {Ordering::DESC,
-       {Null, Null, PropertyValue(33), PropertyValue(33), PropertyValue(32.5),
-        PropertyValue(32), PropertyValue(2.2), PropertyValue(2.1),
-        PropertyValue(0)}},
-      {Ordering::DESC, {Null, PropertyValue(true), PropertyValue(false)}},
-      {Ordering::DESC, {Null, PropertyValue("zorro"), PropertyValue("borro")}}};
+  auto Null = storage::PropertyValue();
+  std::vector<std::pair<Ordering, std::vector<storage::PropertyValue>>>
+      orderable{
+          {Ordering::ASC,
+           {storage::PropertyValue(0), storage::PropertyValue(0),
+            storage::PropertyValue(0.5), storage::PropertyValue(1),
+            storage::PropertyValue(2), storage::PropertyValue(12.6),
+            storage::PropertyValue(42), Null, Null}},
+          {Ordering::ASC,
+           {storage::PropertyValue(false), storage::PropertyValue(false),
+            storage::PropertyValue(true), storage::PropertyValue(true), Null,
+            Null}},
+          {Ordering::ASC,
+           {storage::PropertyValue("A"), storage::PropertyValue("B"),
+            storage::PropertyValue("a"), storage::PropertyValue("a"),
+            storage::PropertyValue("aa"), storage::PropertyValue("ab"),
+            storage::PropertyValue("aba"), Null, Null}},
+          {Ordering::DESC,
+           {Null, Null, storage::PropertyValue(33), storage::PropertyValue(33),
+            storage::PropertyValue(32.5), storage::PropertyValue(32),
+            storage::PropertyValue(2.2), storage::PropertyValue(2.1),
+            storage::PropertyValue(0)}},
+          {Ordering::DESC,
+           {Null, storage::PropertyValue(true), storage::PropertyValue(false)}},
+          {Ordering::DESC,
+           {Null, storage::PropertyValue("zorro"),
+            storage::PropertyValue("borro")}}};
 
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
@@ -164,7 +172,7 @@ TEST(QueryPlan, OrderBy) {
     // create the vertices
     for (const auto &value : shuffled)
       ASSERT_TRUE(dba.InsertVertex()
-                      .SetProperty(prop, PropertyValue(value))
+                      .SetProperty(prop, storage::PropertyValue(value))
                       .HasValue());
     dba.AdvanceCommand();
 
@@ -205,8 +213,10 @@ TEST(QueryPlan, OrderByMultiple) {
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(p1, PropertyValue(pair.first)).HasValue());
-    ASSERT_TRUE(v.SetProperty(p2, PropertyValue(pair.second)).HasValue());
+    ASSERT_TRUE(
+        v.SetProperty(p1, storage::PropertyValue(pair.first)).HasValue());
+    ASSERT_TRUE(
+        v.SetProperty(p2, storage::PropertyValue(pair.second)).HasValue());
   }
   dba.AdvanceCommand();
 
@@ -251,19 +261,25 @@ TEST(QueryPlan, OrderByExceptions) {
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
-  std::vector<std::pair<PropertyValue, PropertyValue>> exception_pairs{
-      {PropertyValue(42), PropertyValue(true)},
-      {PropertyValue(42), PropertyValue("bla")},
-      {PropertyValue(42),
-       PropertyValue(std::vector<PropertyValue>{PropertyValue(42)})},
-      {PropertyValue(true), PropertyValue("bla")},
-      {PropertyValue(true),
-       PropertyValue(std::vector<PropertyValue>{PropertyValue(true)})},
-      {PropertyValue("bla"),
-       PropertyValue(std::vector<PropertyValue>{PropertyValue("bla")})},
-      // illegal comparisons of same-type values
-      {PropertyValue(std::vector<PropertyValue>{PropertyValue(42)}),
-       PropertyValue(std::vector<PropertyValue>{PropertyValue(42)})}};
+  std::vector<std::pair<storage::PropertyValue, storage::PropertyValue>>
+      exception_pairs{
+          {storage::PropertyValue(42), storage::PropertyValue(true)},
+          {storage::PropertyValue(42), storage::PropertyValue("bla")},
+          {storage::PropertyValue(42),
+           storage::PropertyValue(std::vector<storage::PropertyValue>{
+               storage::PropertyValue(42)})},
+          {storage::PropertyValue(true), storage::PropertyValue("bla")},
+          {storage::PropertyValue(true),
+           storage::PropertyValue(std::vector<storage::PropertyValue>{
+               storage::PropertyValue(true)})},
+          {storage::PropertyValue("bla"),
+           storage::PropertyValue(std::vector<storage::PropertyValue>{
+               storage::PropertyValue("bla")})},
+          // illegal comparisons of same-type values
+          {storage::PropertyValue(
+               std::vector<storage::PropertyValue>{storage::PropertyValue(42)}),
+           storage::PropertyValue(std::vector<storage::PropertyValue>{
+               storage::PropertyValue(42)})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database
@@ -279,7 +295,7 @@ TEST(QueryPlan, OrderByExceptions) {
     ASSERT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
     for (const auto &va : dba.Vertices(storage::View::OLD))
       ASSERT_NE(va.GetProperty(storage::View::OLD, prop).GetValue().type(),
-                PropertyValue::Type::Null);
+                storage::PropertyValue::Type::Null);
 
     // order by and expect an exception
     auto n = MakeScanAll(storage, symbol_table, "n");

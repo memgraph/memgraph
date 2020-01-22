@@ -10,32 +10,32 @@
 
 namespace audit {
 
-// Helper function that converts a `PropertyValue` to `nlohmann::json`.
-inline nlohmann::json PropertyValueToJson(const PropertyValue &pv) {
+// Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
+inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
   nlohmann::json ret;
   switch (pv.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       break;
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       ret = pv.ValueBool();
       break;
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       ret = pv.ValueInt();
       break;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       ret = pv.ValueDouble();
       break;
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       ret = pv.ValueString();
       break;
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       ret = nlohmann::json::array();
       for (const auto &item : pv.ValueList()) {
         ret.push_back(PropertyValueToJson(item));
       }
       break;
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       ret = nlohmann::json::object();
       for (const auto &item : pv.ValueMap()) {
         ret.push_back(nlohmann::json::object_t::value_type(
@@ -79,7 +79,8 @@ Log::~Log() {
 }
 
 void Log::Record(const std::string &address, const std::string &username,
-                 const std::string &query, const PropertyValue &params) {
+                 const std::string &query,
+                 const storage::PropertyValue &params) {
   if (!started_.load(std::memory_order_relaxed)) return;
   auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::system_clock::now().time_since_epoch())

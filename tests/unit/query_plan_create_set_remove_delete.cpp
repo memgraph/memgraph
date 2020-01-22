@@ -20,7 +20,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
 
-  storage::Label label = dba.NameToLabel("Person");
+  storage::LabelId label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("prop");
 
   AstStorage storage;
@@ -64,7 +64,7 @@ TEST(QueryPlan, CreateReturn) {
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
 
-  storage::Label label = dba.NameToLabel("Person");
+  storage::LabelId label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("property");
 
   AstStorage storage;
@@ -105,10 +105,10 @@ TEST(QueryPlan, CreateExpand) {
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
 
-  storage::Label label_node_1 = dba.NameToLabel("Node1");
-  storage::Label label_node_2 = dba.NameToLabel("Node2");
+  storage::LabelId label_node_1 = dba.NameToLabel("Node1");
+  storage::LabelId label_node_2 = dba.NameToLabel("Node2");
   auto property = PROPERTY_PAIR("property");
-  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstStorage storage;
@@ -156,7 +156,7 @@ TEST(QueryPlan, CreateExpand) {
     CHECK(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
-    storage::Label label = labels[0];
+    storage::LabelId label = labels[0];
     if (label == label_node_1) {
       // node created by first op
       EXPECT_EQ(
@@ -225,10 +225,10 @@ TEST(QueryPlan, MatchCreateExpand) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  //  storage::Label label_node_1 = dba.NameToLabel("Node1");
-  //  storage::Label label_node_2 = dba.NameToLabel("Node2");
-  //  storage::Property property = dba.NameToLabel("prop");
-  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
+  //  storage::LabelId label_node_1 = dba.NameToLabel("Node1");
+  //  storage::LabelId label_node_2 = dba.NameToLabel("Node2");
+  //  storage::PropertyId property = dba.NameToLabel("prop");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstStorage storage;
@@ -402,7 +402,8 @@ TEST(QueryPlan, DeleteReturn) {
   auto prop = PROPERTY_PAIR("property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
-    ASSERT_TRUE(va.SetProperty(prop.second, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(
+        va.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   }
 
   dba.AdvanceCommand();
@@ -529,15 +530,15 @@ TEST(QueryPlan, SetProperty) {
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {
       ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Int);
+                storage::PropertyValue::Type::Int);
       EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop1)->ValueInt(), 42);
       auto from = edge.From();
       auto to = edge.To();
       ASSERT_EQ(from.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Int);
+                storage::PropertyValue::Type::Int);
       EXPECT_EQ(from.GetProperty(storage::View::OLD, prop1)->ValueInt(), 42);
       ASSERT_EQ(to.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Null);
+                storage::PropertyValue::Type::Null);
     }
   }
 }
@@ -555,9 +556,9 @@ TEST(QueryPlan, SetProperties) {
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("R"));
-    ASSERT_TRUE(v1.SetProperty(prop_a, PropertyValue(0)).HasValue());
-    ASSERT_TRUE(e->SetProperty(prop_b, PropertyValue(1)).HasValue());
-    ASSERT_TRUE(v2.SetProperty(prop_c, PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(prop_a, storage::PropertyValue(0)).HasValue());
+    ASSERT_TRUE(e->SetProperty(prop_b, storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop_c, storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     AstStorage storage;
@@ -592,29 +593,29 @@ TEST(QueryPlan, SetProperties) {
         EXPECT_EQ(from.Properties(storage::View::OLD)->size(), update ? 2 : 1);
         if (update) {
           ASSERT_EQ(from.GetProperty(storage::View::OLD, prop_a)->type(),
-                    PropertyValue::Type::Int);
+                    storage::PropertyValue::Type::Int);
           EXPECT_EQ(from.GetProperty(storage::View::OLD, prop_a)->ValueInt(),
                     0);
         }
         ASSERT_EQ(from.GetProperty(storage::View::OLD, prop_b)->type(),
-                  PropertyValue::Type::Int);
+                  storage::PropertyValue::Type::Int);
         EXPECT_EQ(from.GetProperty(storage::View::OLD, prop_b)->ValueInt(), 1);
 
         EXPECT_EQ(edge.Properties(storage::View::OLD)->size(), update ? 2 : 1);
         if (update) {
           ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop_b)->type(),
-                    PropertyValue::Type::Int);
+                    storage::PropertyValue::Type::Int);
           EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop_b)->ValueInt(),
                     1);
         }
         ASSERT_EQ(edge.GetProperty(storage::View::OLD, prop_c)->type(),
-                  PropertyValue::Type::Int);
+                  storage::PropertyValue::Type::Int);
         EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop_c)->ValueInt(), 2);
 
         auto to = edge.To();
         EXPECT_EQ(to.Properties(storage::View::OLD)->size(), 1);
         ASSERT_EQ(to.GetProperty(storage::View::OLD, prop_c)->type(),
-                  PropertyValue::Type::Int);
+                  storage::PropertyValue::Type::Int);
         EXPECT_EQ(to.GetProperty(storage::View::OLD, prop_c)->ValueInt(), 2);
       }
     }
@@ -641,7 +642,7 @@ TEST(QueryPlan, SetLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
-      n.op_, n.sym_, std::vector<storage::Label>{label2, label3});
+      n.op_, n.sym_, std::vector<storage::LabelId>{label2, label3});
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_set, &context));
 
@@ -669,15 +670,15 @@ TEST(QueryPlan, RemoveProperty) {
   {
     auto e = dba.InsertEdge(&v1, &v3, edge_type);
     ASSERT_TRUE(e.HasValue());
-    ASSERT_TRUE(e->SetProperty(prop1, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(e->SetProperty(prop1, storage::PropertyValue(42)).HasValue());
   }
   ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
-  ASSERT_TRUE(v2.SetProperty(prop1, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v3.SetProperty(prop1, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v4.SetProperty(prop1, PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(prop1, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(prop1, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v4.SetProperty(prop1, storage::PropertyValue(42)).HasValue());
   auto prop2 = dba.NameToProperty("prop2");
-  ASSERT_TRUE(v1.SetProperty(prop2, PropertyValue(0)).HasValue());
-  ASSERT_TRUE(v2.SetProperty(prop2, PropertyValue(0)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop2, storage::PropertyValue(0)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(prop2, storage::PropertyValue(0)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -704,15 +705,15 @@ TEST(QueryPlan, RemoveProperty) {
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {
       EXPECT_EQ(edge.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Null);
+                storage::PropertyValue::Type::Null);
       auto from = edge.From();
       auto to = edge.To();
       EXPECT_EQ(from.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Null);
+                storage::PropertyValue::Type::Null);
       EXPECT_EQ(from.GetProperty(storage::View::OLD, prop2)->type(),
-                PropertyValue::Type::Int);
+                storage::PropertyValue::Type::Int);
       EXPECT_EQ(to.GetProperty(storage::View::OLD, prop1)->type(),
-                PropertyValue::Type::Int);
+                storage::PropertyValue::Type::Int);
     }
   }
 }
@@ -739,7 +740,7 @@ TEST(QueryPlan, RemoveLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_remove = std::make_shared<plan::RemoveLabels>(
-      n.op_, n.sym_, std::vector<storage::Label>{label1, label2});
+      n.op_, n.sym_, std::vector<storage::LabelId>{label1, label2});
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_remove, &context));
 
@@ -757,7 +758,8 @@ TEST(QueryPlan, NodeFilterSet) {
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  ASSERT_TRUE(v1.SetProperty(prop.second, PropertyValue(42)).HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.NameToEdgeType("Edge");
@@ -801,7 +803,8 @@ TEST(QueryPlan, FilterRemove) {
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
-  ASSERT_TRUE(v1.SetProperty(prop.second, PropertyValue(42)).HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.NameToEdgeType("Edge");
@@ -829,7 +832,7 @@ TEST(QueryPlan, FilterRemove) {
   EXPECT_EQ(2, PullAll(*rem, &context));
   dba.AdvanceCommand();
   EXPECT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->type(),
-            PropertyValue::Type::Null);
+            storage::PropertyValue::Type::Null);
 }
 
 TEST(QueryPlan, SetRemove) {
@@ -847,9 +850,10 @@ TEST(QueryPlan, SetRemove) {
   // MATCH (n) SET n :label1 :label2 REMOVE n :label1 :label2
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
   auto set = std::make_shared<plan::SetLabels>(
-      scan_all.op_, scan_all.sym_, std::vector<storage::Label>{label1, label2});
+      scan_all.op_, scan_all.sym_,
+      std::vector<storage::LabelId>{label1, label2});
   auto rem = std::make_shared<plan::RemoveLabels>(
-      set, scan_all.sym_, std::vector<storage::Label>{label1, label2});
+      set, scan_all.sym_, std::vector<storage::LabelId>{label1, label2});
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*rem, &context));
   dba.AdvanceCommand();
@@ -898,13 +902,13 @@ TEST(QueryPlan, Merge) {
   dba.AdvanceCommand();
 
   ASSERT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->type(),
-            PropertyValue::Type::Int);
+            storage::PropertyValue::Type::Int);
   ASSERT_EQ(v1.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 1);
   ASSERT_EQ(v2.GetProperty(storage::View::OLD, prop.second)->type(),
-            PropertyValue::Type::Int);
+            storage::PropertyValue::Type::Int);
   ASSERT_EQ(v2.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 1);
   ASSERT_EQ(v3.GetProperty(storage::View::OLD, prop.second)->type(),
-            PropertyValue::Type::Int);
+            storage::PropertyValue::Type::Int);
   ASSERT_EQ(v3.GetProperty(storage::View::OLD, prop.second)->ValueInt(), 2);
 }
 
@@ -977,7 +981,7 @@ TEST(QueryPlan, SetLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
-      optional, n.sym_, std::vector<storage::Label>{label});
+      optional, n.sym_, std::vector<storage::LabelId>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
@@ -1012,7 +1016,7 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
-      optional, n.sym_, std::vector<storage::Label>{label});
+      optional, n.sym_, std::vector<storage::LabelId>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*remove_op, &context));
@@ -1076,8 +1080,9 @@ TEST(QueryPlan, DeleteSetPropertiesFrom) {
   // Add a single vertex.
   {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(dba.NameToProperty("property"), PropertyValue(1))
-                    .HasValue());
+    ASSERT_TRUE(
+        v.SetProperty(dba.NameToProperty("property"), storage::PropertyValue(1))
+            .HasValue());
   }
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
@@ -1113,7 +1118,7 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
-  std::vector<storage::Label> labels{dba.NameToLabel("label")};
+  std::vector<storage::LabelId> labels{dba.NameToLabel("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);

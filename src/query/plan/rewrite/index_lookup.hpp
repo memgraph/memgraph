@@ -439,11 +439,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::Label GetLabel(LabelIx label) {
+  storage::LabelId GetLabel(LabelIx label) {
     return db_->NameToLabel(label.name);
   }
 
-  storage::Property GetProperty(PropertyIx prop) {
+  storage::PropertyId GetProperty(PropertyIx prop) {
     return db_->NameToProperty(prop.name);
   }
 

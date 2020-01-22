@@ -10,8 +10,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   storage::Storage db;
   auto dba = db.Access();
 
-  auto label = storage::Label::FromInt(42);
-  auto property = storage::Property::FromInt(1);
+  auto label = storage::LabelId::FromInt(42);
+  auto property = storage::PropertyId::FromInt(1);
 
   query::AstStorage ast;
   query::SymbolTable symbol_table;

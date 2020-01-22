@@ -250,8 +250,8 @@ class ExpectScanAllByLabelPropertyValue
     : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
   ExpectScanAllByLabelPropertyValue(
-      storage::Label label,
-      const std::pair<std::string, storage::Property> &prop_pair,
+      storage::LabelId label,
+      const std::pair<std::string, storage::PropertyId> &prop_pair,
       query::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
@@ -265,8 +265,8 @@ class ExpectScanAllByLabelPropertyValue
   }
 
  private:
-  storage::Label label_;
-  storage::Property property_;
+  storage::LabelId label_;
+  storage::PropertyId property_;
   query::Expression *expression_;
 };
 
@@ -274,7 +274,7 @@ class ExpectScanAllByLabelPropertyRange
     : public OpChecker<ScanAllByLabelPropertyRange> {
  public:
   ExpectScanAllByLabelPropertyRange(
-      storage::Label label, storage::Property property,
+      storage::LabelId label, storage::PropertyId property,
       std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
       std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
       : label_(label),
@@ -303,8 +303,8 @@ class ExpectScanAllByLabelPropertyRange
   }
 
  private:
-  storage::Label label_;
-  storage::Property property_;
+  storage::LabelId label_;
+  storage::PropertyId property_;
   std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
   std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
 };
@@ -383,14 +383,14 @@ TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage,
 
 class FakeDbAccessor {
  public:
-  int64_t VerticesCount(storage::Label label) const {
+  int64_t VerticesCount(storage::LabelId label) const {
     auto found = label_index_.find(label);
     if (found != label_index_.end()) return found->second;
     return 0;
   }
 
-  int64_t VerticesCount(storage::Label label,
-                        storage::Property property) const {
+  int64_t VerticesCount(storage::LabelId label,
+                        storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
@@ -399,12 +399,12 @@ class FakeDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(storage::Label label) const {
+  bool LabelIndexExists(storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool LabelPropertyIndexExists(storage::Label label,
-                                storage::Property property) const {
+  bool LabelPropertyIndexExists(storage::LabelId label,
+                                storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
@@ -413,11 +413,11 @@ class FakeDbAccessor {
     return false;
   }
 
-  void SetIndexCount(storage::Label label, int64_t count) {
+  void SetIndexCount(storage::LabelId label, int64_t count) {
     label_index_[label] = count;
   }
 
-  void SetIndexCount(storage::Label label, storage::Property property,
+  void SetIndexCount(storage::LabelId label, storage::PropertyId property,
                      int64_t count) {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
@@ -428,53 +428,53 @@ class FakeDbAccessor {
     label_property_index_.emplace_back(label, property, count);
   }
 
-  storage::Label NameToLabel(const std::string &name) {
+  storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
-    return labels_.emplace(name, storage::Label::FromUint(labels_.size()))
+    return labels_.emplace(name, storage::LabelId::FromUint(labels_.size()))
         .first->second;
   }
 
-  storage::Label Label(const std::string &name) { return NameToLabel(name); }
+  storage::LabelId Label(const std::string &name) { return NameToLabel(name); }
 
-  storage::EdgeType NameToEdgeType(const std::string &name) {
+  storage::EdgeTypeId NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
     return edge_types_
-        .emplace(name, storage::EdgeType::FromUint(edge_types_.size()))
+        .emplace(name, storage::EdgeTypeId::FromUint(edge_types_.size()))
         .first->second;
   }
 
-  storage::Property NameToProperty(const std::string &name) {
+  storage::PropertyId NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
     return properties_
-        .emplace(name, storage::Property::FromUint(properties_.size()))
+        .emplace(name, storage::PropertyId::FromUint(properties_.size()))
         .first->second;
   }
 
-  storage::Property Property(const std::string &name) {
+  storage::PropertyId Property(const std::string &name) {
     return NameToProperty(name);
   }
 
-  std::string PropertyToName(storage::Property property) const {
+  std::string PropertyToName(storage::PropertyId property) const {
     for (const auto &kv : properties_) {
       if (kv.second == property) return kv.first;
     }
     LOG(FATAL) << "Unable to find property name";
   }
 
-  std::string PropertyName(storage::Property property) const {
+  std::string PropertyName(storage::PropertyId property) const {
     return PropertyToName(property);
   }
 
  private:
-  std::unordered_map<std::string, storage::Label> labels_;
-  std::unordered_map<std::string, storage::EdgeType> edge_types_;
-  std::unordered_map<std::string, storage::Property> properties_;
+  std::unordered_map<std::string, storage::LabelId> labels_;
+  std::unordered_map<std::string, storage::EdgeTypeId> edge_types_;
+  std::unordered_map<std::string, storage::PropertyId> properties_;
 
-  std::unordered_map<storage::Label, int64_t> label_index_;
-  std::vector<std::tuple<storage::Label, storage::Property, int64_t>>
+  std::unordered_map<storage::LabelId, int64_t> label_index_;
+  std::vector<std::tuple<storage::LabelId, storage::PropertyId, int64_t>>
       label_property_index_;
 };
 

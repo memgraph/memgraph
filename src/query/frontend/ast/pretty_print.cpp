@@ -77,7 +77,7 @@ void PrintObject(std::ostream *out, Expression *expr);
 
 void PrintObject(std::ostream *out, Identifier *expr);
 
-void PrintObject(std::ostream *out, const PropertyValue &value);
+void PrintObject(std::ostream *out, const storage::PropertyValue &value);
 
 template <typename T>
 void PrintObject(std::ostream *out, const std::vector<T> &vec);
@@ -117,33 +117,33 @@ void PrintObject(std::ostream *out, Identifier *expr) {
   PrintObject(out, static_cast<Expression *>(expr));
 }
 
-void PrintObject(std::ostream *out, const PropertyValue &value) {
+void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
   switch (value.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       *out << "null";
       break;
 
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       PrintObject(out, value.ValueString());
       break;
 
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       *out << (value.ValueBool() ? "true" : "false");
       break;
 
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       PrintObject(out, value.ValueInt());
       break;
 
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       PrintObject(out, value.ValueDouble());
       break;
 
-    case PropertyValue::Type::List:
+    case storage::PropertyValue::Type::List:
       PrintObject(out, value.ValueList());
       break;
 
-    case PropertyValue::Type::Map:
+    case storage::PropertyValue::Type::Map:
       PrintObject(out, value.ValueMap());
       break;
   }

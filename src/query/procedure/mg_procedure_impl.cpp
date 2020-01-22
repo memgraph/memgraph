@@ -300,29 +300,29 @@ mgp_value::mgp_value(const query::TypedValue &tv, const mgp_graph *graph,
   }
 }
 
-mgp_value::mgp_value(const PropertyValue &pv, utils::MemoryResource *m)
+mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
     : memory(m) {
   switch (pv.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       type = MGP_VALUE_TYPE_NULL;
       break;
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       type = MGP_VALUE_TYPE_BOOL;
       bool_v = pv.ValueBool();
       break;
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       type = MGP_VALUE_TYPE_INT;
       int_v = pv.ValueInt();
       break;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       type = MGP_VALUE_TYPE_DOUBLE;
       double_v = pv.ValueDouble();
       break;
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       type = MGP_VALUE_TYPE_STRING;
       new (&string_v) utils::pmr::string(pv.ValueString(), m);
       break;
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
@@ -337,7 +337,7 @@ mgp_value::mgp_value(const PropertyValue &pv, utils::MemoryResource *m)
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
@@ -922,7 +922,7 @@ mgp_label mgp_vertex_label_at(const mgp_vertex *v, size_t i) {
 }
 
 int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
-  storage::Label label;
+  storage::LabelId label;
   try {
     // This will allocate a std::string from `name`, which may throw
     // std::bad_alloc or std::length_error. This could be avoided with a

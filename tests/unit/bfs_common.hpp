@@ -198,7 +198,7 @@ class Database {
   virtual std::unique_ptr<query::plan::LogicalOperator> MakeBfsOperator(
       query::Symbol source_sym, query::Symbol sink_sym, query::Symbol edge_sym,
       query::EdgeAtom::Direction direction,
-      const std::vector<storage::EdgeType> &edge_types,
+      const std::vector<storage::EdgeTypeId> &edge_types,
       const std::shared_ptr<query::plan::LogicalOperator> &input,
       bool existing_node, query::Expression *lower_bound,
       query::Expression *upper_bound,
@@ -344,7 +344,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       // We block each entity in the graph and run BFS.
       input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
       filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)),
-                       LITERAL(true), LITERAL(PropertyValue()));
+                       LITERAL(true), LITERAL(storage::PropertyValue()));
       break;
     case FilterLambdaType::USE_CTX:
       // We only block vertex #5 and run BFS.
@@ -354,7 +354,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
               {query::TypedValue(vertices[5])}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
-      context.evaluation_context.parameters.Add(0, PropertyValue(5));
+      context.evaluation_context.parameters.Add(0, storage::PropertyValue(5));
       break;
     case FilterLambdaType::ERROR:
       // Evaluate to 42 for vertex #5 which is on worker 1.
@@ -372,7 +372,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
     input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
   }
 
-  std::vector<storage::EdgeType> storage_edge_types;
+  std::vector<storage::EdgeTypeId> storage_edge_types;
   for (const auto &t : edge_types) {
     storage_edge_types.push_back(dba.NameToEdgeType(t));
   }

@@ -121,20 +121,20 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(5));
     EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
   {
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(true));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(false));
     auto value = Eval(op);
     ASSERT_TRUE(value.IsBool());
@@ -295,7 +295,7 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
   }
   {
     auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>("a")});
     // Element doesn't exist in list with null element.
@@ -308,21 +308,22 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     // Null list.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>("x"),
-        storage.Create<PrimitiveLiteral>(PropertyValue()));
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal.
     auto *op = storage.Create<InListOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()), list_literal);
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
+        list_literal);
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal, empty list.
     auto *op = storage.Create<InListOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<ListLiteral>(std::vector<Expression *>()));
     auto value = Eval(op);
     EXPECT_FALSE(value.ValueBool());
@@ -365,7 +366,7 @@ TEST_F(ExpressionEvaluatorTest, ListIndexing) {
   {
     // Indexing with one operator being null.
     auto *op = storage.Create<SubscriptOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(-2));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -407,7 +408,8 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
   {
     // Indexing with Null.
     auto *op = storage.Create<SubscriptOperator>(
-        map_literal, storage.Create<PrimitiveLiteral>(PropertyValue()));
+        map_literal,
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
@@ -419,8 +421,8 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto v1 = dba.InsertVertex();
   auto e11 = dba.InsertEdge(&v1, &v1, edge_type);
   ASSERT_TRUE(e11.HasValue());
-  ASSERT_TRUE(v1.SetProperty(prop, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(e11->SetProperty(prop, PropertyValue(43)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(e11->SetProperty(prop, storage::PropertyValue(43)).HasValue());
   dba.AdvanceCommand();
 
   auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(v1));
@@ -462,12 +464,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   {
     // Indexing with Null.
     auto *op1 = storage.Create<SubscriptOperator>(
-        vertex_id, storage.Create<PrimitiveLiteral>(PropertyValue()));
+        vertex_id, storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
     auto value1 = Eval(op1);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = storage.Create<SubscriptOperator>(
-        edge_id, storage.Create<PrimitiveLiteral>(PropertyValue()));
+        edge_id, storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
     auto value2 = Eval(op2);
     EXPECT_TRUE(value2.IsNull());
   }
@@ -535,7 +537,8 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Bound of illegal type and null value bound.
     auto *op = storage.Create<ListSlicingOperator>(
-        list_literal, storage.Create<PrimitiveLiteral>(PropertyValue()),
+        list_literal,
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>("mirko"));
     EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
@@ -549,7 +552,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Null value list with undefined upper bound.
     auto *op = storage.Create<ListSlicingOperator>(
-        storage.Create<PrimitiveLiteral>(PropertyValue()),
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()),
         storage.Create<PrimitiveLiteral>(-2), nullptr);
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -559,7 +562,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     // Null value index.
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2),
-        storage.Create<PrimitiveLiteral>(PropertyValue()));
+        storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
     ;
@@ -624,7 +627,7 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
   auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<IsNullOperator>(
-      storage.Create<PrimitiveLiteral>(PropertyValue()));
+      storage.Create<PrimitiveLiteral>(storage::PropertyValue()));
   auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
 }
@@ -693,7 +696,7 @@ TEST_F(ExpressionEvaluatorTest, ListLiteral) {
 }
 
 TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
-  ctx.parameters.Add(0, PropertyValue(42));
+  ctx.parameters.Add(0, storage::PropertyValue(42));
   auto *param_lookup = storage.Create<ParameterLookup>(0);
   auto value = Eval(param_lookup);
   ASSERT_TRUE(value.IsInt());
@@ -715,7 +718,7 @@ TEST_F(ExpressionEvaluatorTest, All) {
 
 TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
-  auto *all = ALL("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  auto *all = ALL("x", LITERAL(storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   auto value = Eval(all);
@@ -758,7 +761,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
 
 TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
-  auto *single = SINGLE("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  auto *single =
+      SINGLE("x", LITERAL(storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   auto value = Eval(single);
@@ -785,9 +789,9 @@ TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
 TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract =
-      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(PropertyValue())),
-              ADD(ident_x, LITERAL(1)));
+  auto *extract = EXTRACT(
+      "x", LIST(LITERAL(1), LITERAL(2), LITERAL(storage::PropertyValue())),
+      ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -804,7 +808,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *extract =
-      EXTRACT("x", LITERAL(PropertyValue()), ADD(ident_x, LITERAL(1)));
+      EXTRACT("x", LITERAL(storage::PropertyValue()), ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -897,16 +901,16 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
 
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
-  std::pair<std::string, storage::Property> prop_age =
+  std::pair<std::string, storage::PropertyId> prop_age =
       std::make_pair("age", dba.NameToProperty("age"));
-  std::pair<std::string, storage::Property> prop_height =
+  std::pair<std::string, storage::PropertyId> prop_height =
       std::make_pair("height", dba.NameToProperty("height"));
   Identifier *identifier = storage.Create<Identifier>("element");
   Symbol symbol = symbol_table.CreateSymbol("element", true);
 
   void SetUp() { identifier->MapTo(symbol); }
 
-  auto Value(std::pair<std::string, storage::Property> property) {
+  auto Value(std::pair<std::string, storage::PropertyId> property) {
     auto *op = storage.Create<PropertyLookup>(
         identifier, storage.GetPropertyIx(property.first));
     return Eval(op);
@@ -915,7 +919,8 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(prop_age.second, PropertyValue(10)).HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(prop_age.second, storage::PropertyValue(10)).HasValue());
   dba.AdvanceCommand();
   frame[symbol] = TypedValue(v1);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
@@ -927,7 +932,8 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v2 = dba.InsertVertex();
   auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   ASSERT_TRUE(e12.HasValue());
-  ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());
+  ASSERT_TRUE(
+      e12->SetProperty(prop_age.second, storage::PropertyValue(10)).HasValue());
   dba.AdvanceCommand();
   frame[symbol] = TypedValue(*e12);
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
@@ -1025,17 +1031,21 @@ TEST_F(FunctionTest, Properties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("PROPERTIES", TypedValue()).IsNull());
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), PropertyValue(5))
-                  .HasValue());
   ASSERT_TRUE(
-      v1.SetProperty(dba.NameToProperty("age"), PropertyValue(10)).HasValue());
+      v1.SetProperty(dba.NameToProperty("height"), storage::PropertyValue(5))
+          .HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(dba.NameToProperty("age"), storage::PropertyValue(10))
+          .HasValue());
   auto v2 = dba.InsertVertex();
   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
   ASSERT_TRUE(e.HasValue());
-  ASSERT_TRUE(e->SetProperty(dba.NameToProperty("height"), PropertyValue(3))
-                  .HasValue());
   ASSERT_TRUE(
-      e->SetProperty(dba.NameToProperty("age"), PropertyValue(15)).HasValue());
+      e->SetProperty(dba.NameToProperty("height"), storage::PropertyValue(3))
+          .HasValue());
+  ASSERT_TRUE(
+      e->SetProperty(dba.NameToProperty("age"), storage::PropertyValue(15))
+          .HasValue());
   dba.AdvanceCommand();
 
   auto prop_values_to_int = [](TypedValue t) {
@@ -1284,17 +1294,21 @@ TEST_F(FunctionTest, Keys) {
   ASSERT_THROW(EvaluateFunction("KEYS"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("KEYS", TypedValue()).IsNull());
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), PropertyValue(5))
-                  .HasValue());
   ASSERT_TRUE(
-      v1.SetProperty(dba.NameToProperty("age"), PropertyValue(10)).HasValue());
+      v1.SetProperty(dba.NameToProperty("height"), storage::PropertyValue(5))
+          .HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(dba.NameToProperty("age"), storage::PropertyValue(10))
+          .HasValue());
   auto v2 = dba.InsertVertex();
   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
   ASSERT_TRUE(e.HasValue());
   ASSERT_TRUE(
-      e->SetProperty(dba.NameToProperty("width"), PropertyValue(3)).HasValue());
+      e->SetProperty(dba.NameToProperty("width"), storage::PropertyValue(3))
+          .HasValue());
   ASSERT_TRUE(
-      e->SetProperty(dba.NameToProperty("age"), PropertyValue(15)).HasValue());
+      e->SetProperty(dba.NameToProperty("age"), storage::PropertyValue(15))
+          .HasValue());
   dba.AdvanceCommand();
 
   auto prop_keys_to_string = [](TypedValue t) {

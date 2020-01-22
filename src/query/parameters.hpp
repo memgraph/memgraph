@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "storage/common/types/property_value.hpp"
+#include "storage/v2/property_value.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)
@@ -22,7 +22,7 @@ struct Parameters {
    * @param position Token position in query of value.
    * @param value
    */
-  void Add(int position, const PropertyValue &value) {
+  void Add(int position, const storage::PropertyValue &value) {
     storage_.emplace_back(position, value);
   }
 
@@ -32,7 +32,7 @@ struct Parameters {
    *  @param position Token position in query of value.
    *  @return Value for the given token position.
    */
-  const PropertyValue &AtTokenPosition(int position) const {
+  const storage::PropertyValue &AtTokenPosition(int position) const {
     auto found =
         std::find_if(storage_.begin(), storage_.end(),
                      [&](const auto &a) { return a.first == position; });
@@ -48,7 +48,7 @@ struct Parameters {
    * @param position Which stripped param is sought.
    * @return Token position and value for sought param.
    */
-  const std::pair<int, PropertyValue> &At(int position) const {
+  const std::pair<int, storage::PropertyValue> &At(int position) const {
     CHECK(position < static_cast<int>(storage_.size())) << "Invalid position";
     return storage_[position];
   }
@@ -60,7 +60,7 @@ struct Parameters {
   auto end() const { return storage_.end(); }
 
  private:
-  std::vector<std::pair<int, PropertyValue>> storage_;
+  std::vector<std::pair<int, storage::PropertyValue>> storage_;
 };
 
 }  // namespace query

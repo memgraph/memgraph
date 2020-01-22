@@ -143,7 +143,7 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount() { return vertices_count_; }
 
-  int64_t VerticesCount(storage::Label label_id) {
+  int64_t VerticesCount(storage::LabelId label_id) {
     auto label = dba_->LabelToName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
@@ -151,8 +151,8 @@ class InteractiveDbAccessor {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::Label label_id,
-                        storage::Property property_id) {
+  int64_t VerticesCount(storage::LabelId label_id,
+                        storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
@@ -164,8 +164,9 @@ class InteractiveDbAccessor {
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::Label label_id, storage::Property property_id,
-                        const PropertyValue &value) {
+  int64_t VerticesCount(storage::LabelId label_id,
+                        storage::PropertyId property_id,
+                        const storage::PropertyValue &value) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto label_prop = std::make_pair(label, property);
@@ -184,9 +185,9 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(
-      storage::Label label_id, storage::Property property_id,
-      const std::optional<utils::Bound<PropertyValue>> lower,
-      const std::optional<utils::Bound<PropertyValue>> upper) {
+      storage::LabelId label_id, storage::PropertyId property_id,
+      const std::optional<utils::Bound<storage::PropertyValue>> lower,
+      const std::optional<utils::Bound<storage::PropertyValue>> upper) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     std::stringstream range_string;
@@ -203,10 +204,10 @@ class InteractiveDbAccessor {
                            "' in range " + range_string.str());
   }
 
-  bool LabelIndexExists(storage::Label label) { return true; }
+  bool LabelIndexExists(storage::LabelId label) { return true; }
 
-  bool LabelPropertyIndexExists(storage::Label label_id,
-                                storage::Property property_id) {
+  bool LabelPropertyIndexExists(storage::LabelId label_id,
+                                storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);

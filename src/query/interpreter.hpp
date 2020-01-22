@@ -250,7 +250,7 @@ class Interpreter final {
    */
   std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
   Prepare(const std::string &query,
-          const std::map<std::string, PropertyValue> &params);
+          const std::map<std::string, storage::PropertyValue> &params);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the

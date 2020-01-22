@@ -3,7 +3,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/types/property_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 
 #ifdef MG_SINGLE_NODE_V2
@@ -70,8 +70,8 @@ communication::bolt::Value ToBoltValue(const query::TypedValue &value,
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
-communication::bolt::Value ToBoltValue(const PropertyValue &value);
+communication::bolt::Value ToBoltValue(const storage::PropertyValue &value);
 
-PropertyValue ToPropertyValue(const communication::bolt::Value &value);
+storage::PropertyValue ToPropertyValue(const communication::bolt::Value &value);
 
 }  // namespace glue

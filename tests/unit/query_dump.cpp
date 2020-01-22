@@ -27,13 +27,13 @@ struct DatabaseState {
   struct Vertex {
     int64_t id;
     std::set<std::string> labels;
-    std::map<std::string, PropertyValue> props;
+    std::map<std::string, storage::PropertyValue> props;
   };
 
   struct Edge {
     int64_t from, to;
     std::string edge_type;
-    std::map<std::string, PropertyValue> props;
+    std::map<std::string, storage::PropertyValue> props;
   };
 
   struct LabelItem {
@@ -120,7 +120,7 @@ DatabaseState GetState(storage::Storage *db) {
     for (const auto &label : *maybe_labels) {
       labels.insert(dba.LabelToName(label));
     }
-    std::map<std::string, PropertyValue> props;
+    std::map<std::string, storage::PropertyValue> props;
     auto maybe_properties = vertex.Properties(storage::View::NEW);
     CHECK(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
@@ -139,7 +139,7 @@ DatabaseState GetState(storage::Storage *db) {
     CHECK(maybe_edges.HasValue());
     for (const auto &edge : *maybe_edges) {
       const auto &edge_type_name = dba.EdgeTypeToName(edge.EdgeType());
-      std::map<std::string, PropertyValue> props;
+      std::map<std::string, storage::PropertyValue> props;
       auto maybe_properties = edge.Properties(storage::View::NEW);
       CHECK(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
@@ -192,10 +192,10 @@ auto Execute(storage::Storage *db, const std::string &query) {
   return stream;
 }
 
-VertexAccessor CreateVertex(storage::Storage::Accessor *dba,
-                            const std::vector<std::string> &labels,
-                            const std::map<std::string, PropertyValue> &props,
-                            bool add_property_id = true) {
+VertexAccessor CreateVertex(
+    storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
+    const std::map<std::string, storage::PropertyValue> &props,
+    bool add_property_id = true) {
   CHECK(dba);
   auto vertex = dba->CreateVertex();
   for (const auto &label_name : labels) {
@@ -208,16 +208,17 @@ VertexAccessor CreateVertex(storage::Storage::Accessor *dba,
   if (add_property_id) {
     CHECK(vertex
               .SetProperty(dba->NameToProperty(kPropertyId),
-                           PropertyValue(vertex.Gid().AsInt()))
+                           storage::PropertyValue(vertex.Gid().AsInt()))
               .HasValue());
   }
   return vertex;
 }
 
-EdgeAccessor CreateEdge(storage::Storage::Accessor *dba, VertexAccessor *from,
-                        VertexAccessor *to, const std::string &edge_type_name,
-                        const std::map<std::string, PropertyValue> &props,
-                        bool add_property_id = true) {
+EdgeAccessor CreateEdge(
+    storage::Storage::Accessor *dba, VertexAccessor *from, VertexAccessor *to,
+    const std::string &edge_type_name,
+    const std::map<std::string, storage::PropertyValue> &props,
+    bool add_property_id = true) {
   CHECK(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
   CHECK(edge.HasValue());
@@ -227,7 +228,7 @@ EdgeAccessor CreateEdge(storage::Storage::Accessor *dba, VertexAccessor *from,
   }
   if (add_property_id) {
     CHECK(edge->SetProperty(dba->NameToProperty(kPropertyId),
-                            PropertyValue(edge->Gid().AsInt()))
+                            storage::PropertyValue(edge->Gid().AsInt()))
               .HasValue());
   }
   return *edge;
@@ -335,7 +336,7 @@ TEST(DumpTest, VertexWithSingleProperty) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {}, {{"prop", PropertyValue(42)}}, false);
+    CreateVertex(&dba, {}, {{"prop", storage::PropertyValue(42)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -453,7 +454,8 @@ TEST(DumpTest, EdgeWithProperties) {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {}, {}, false);
     auto v = CreateVertex(&dba, {}, {}, false);
-    CreateEdge(&dba, &u, &v, "EdgeType", {{"prop", PropertyValue(13)}}, false);
+    CreateEdge(&dba, &u, &v, "EdgeType", {{"prop", storage::PropertyValue(13)}},
+               false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -480,7 +482,8 @@ TEST(DumpTest, IndicesKeys) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label1", "Label2"}, {{"p", PropertyValue(1)}}, false);
+    CreateVertex(&dba, {"Label1", "Label2"}, {{"p", storage::PropertyValue(1)}},
+                 false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   ASSERT_TRUE(
@@ -508,7 +511,7 @@ TEST(DumpTest, ExistenceConstraints) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label"}, {{"prop", PropertyValue(1)}}, false);
+    CreateVertex(&dba, {"Label"}, {{"prop", storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
@@ -539,11 +542,12 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    std::map<std::string, PropertyValue> prop1 = {
-        {"nested1", PropertyValue(1337)}, {"nested2", PropertyValue(3.14)}};
-    CreateVertex(
-        &dba, {"Label1", "Label2"},
-        {{"prop1", PropertyValue(prop1)}, {"prop2", PropertyValue("$'\t'")}});
+    std::map<std::string, storage::PropertyValue> prop1 = {
+        {"nested1", storage::PropertyValue(1337)},
+        {"nested2", storage::PropertyValue(3.14)}};
+    CreateVertex(&dba, {"Label1", "Label2"},
+                 {{"prop1", storage::PropertyValue(prop1)},
+                  {"prop2", storage::PropertyValue("$'\t'")}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -572,22 +576,28 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    auto u = CreateVertex(&dba, {"Person"}, {{"name", PropertyValue("Ivan")}});
-    auto v = CreateVertex(&dba, {"Person"}, {{"name", PropertyValue("Josko")}});
-    auto w = CreateVertex(
-        &dba, {"Person"},
-        {{"name", PropertyValue("Bosko")}, {"id", PropertyValue(0)}});
-    auto z = CreateVertex(
-        &dba, {"Person"},
-        {{"name", PropertyValue("Buha")}, {"id", PropertyValue(1)}});
+    auto u = CreateVertex(&dba, {"Person"},
+                          {{"name", storage::PropertyValue("Ivan")}});
+    auto v = CreateVertex(&dba, {"Person"},
+                          {{"name", storage::PropertyValue("Josko")}});
+    auto w = CreateVertex(&dba, {"Person"},
+                          {{"name", storage::PropertyValue("Bosko")},
+                           {"id", storage::PropertyValue(0)}});
+    auto z = CreateVertex(&dba, {"Person"},
+                          {{"name", storage::PropertyValue("Buha")},
+                           {"id", storage::PropertyValue(1)}});
     CreateEdge(&dba, &u, &v, "Knows", {});
-    CreateEdge(&dba, &v, &w, "Knows", {{"how_long", PropertyValue(5)}});
-    CreateEdge(&dba, &w, &u, "Knows", {{"how", PropertyValue("distant past")}});
+    CreateEdge(&dba, &v, &w, "Knows",
+               {{"how_long", storage::PropertyValue(5)}});
+    CreateEdge(&dba, &w, &u, "Knows",
+               {{"how", storage::PropertyValue("distant past")}});
     CreateEdge(&dba, &v, &u, "Knows", {});
     CreateEdge(&dba, &v, &u, "Likes", {});
     CreateEdge(&dba, &z, &u, "Knows", {});
-    CreateEdge(&dba, &w, &z, "Knows", {{"how", PropertyValue("school")}});
-    CreateEdge(&dba, &w, &z, "Likes", {{"how", PropertyValue("very much")}});
+    CreateEdge(&dba, &w, &z, "Knows",
+               {{"how", storage::PropertyValue("school")}});
+    CreateEdge(&dba, &w, &z, "Likes",
+               {{"how", storage::PropertyValue("very much")}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {

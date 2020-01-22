@@ -50,12 +50,12 @@ using TEncoder =
 std::vector<std::string> BoltSession::Interpret(
     const std::string &query,
     const std::map<std::string, communication::bolt::Value> &params) {
-  std::map<std::string, PropertyValue> params_pv;
+  std::map<std::string, storage::PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifndef MG_SINGLE_NODE_HA
   audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
-                     PropertyValue(params_pv));
+                     storage::PropertyValue(params_pv));
 #endif
   try {
     auto result = interpreter_.Prepare(query, params_pv);

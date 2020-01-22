@@ -5,7 +5,7 @@
 #include <optional>
 
 #include "data_structures/ring_buffer.hpp"
-#include "storage/common/types/property_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 
@@ -23,7 +23,7 @@ class Log {
     std::string address;
     std::string username;
     std::string query;
-    PropertyValue params;
+    storage::PropertyValue params;
   };
 
  public:
@@ -44,7 +44,7 @@ class Log {
 
   /// Adds an entry to the audit log. Thread-safe.
   void Record(const std::string &address, const std::string &username,
-              const std::string &query, const PropertyValue &params);
+              const std::string &query, const storage::PropertyValue &params);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   void ReopenLog();

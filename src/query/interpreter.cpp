@@ -38,7 +38,7 @@ namespace query {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, PropertyValue> user_parameters;
+  std::map<std::string, storage::PropertyValue> user_parameters;
   Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
@@ -46,10 +46,10 @@ struct ParsedQuery {
   std::vector<AuthQuery::Privilege> required_privileges;
 };
 
-ParsedQuery ParseQuery(const std::string &query_string,
-                       const std::map<std::string, PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache,
-                       utils::SpinLock *antlr_lock) {
+ParsedQuery ParseQuery(
+    const std::string &query_string,
+    const std::map<std::string, storage::PropertyValue> &params,
+    utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters . This
   // results in just the *structure* of the query being taken into account for
@@ -1117,8 +1117,9 @@ PreparedQuery PrepareConstraintQuery(
 }
 
 std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-Interpreter::Prepare(const std::string &query_string,
-                     const std::map<std::string, PropertyValue> &params) {
+Interpreter::Prepare(
+    const std::string &query_string,
+    const std::map<std::string, storage::PropertyValue> &params) {
   // Clear the last prepared query.
   prepared_query_ = std::nullopt;
   execution_memory_.Release();

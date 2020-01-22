@@ -238,15 +238,15 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  storage::Label GetLabel(LabelIx label) {
+  storage::LabelId GetLabel(LabelIx label) {
     return context_->db->NameToLabel(label.name);
   }
 
-  storage::Property GetProperty(PropertyIx prop) {
+  storage::PropertyId GetProperty(PropertyIx prop) {
     return context_->db->NameToProperty(prop.name);
   }
 
-  storage::EdgeType GetEdgeType(EdgeTypeIx edge_type) {
+  storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) {
     return context_->db->NameToEdgeType(edge_type.name);
   }
 
@@ -268,12 +268,12 @@ class RuleBasedPlanner {
       std::unordered_set<Symbol> &bound_symbols) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
-      std::vector<storage::Label> labels;
+      std::vector<storage::LabelId> labels;
       labels.reserve(node.labels_.size());
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
       }
-      std::vector<std::pair<storage::Property, Expression *>> properties;
+      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
       properties.reserve(node.properties_.size());
       for (const auto &kv : node.properties_) {
         properties.push_back({GetProperty(kv.first), kv.second});
@@ -306,7 +306,7 @@ class RuleBasedPlanner {
         LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
       }
       auto node_info = node_to_creation_info(*node);
-      std::vector<std::pair<storage::Property, Expression *>> properties;
+      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
       properties.reserve(edge->properties_.size());
       for (const auto &kv : edge->properties_) {
         properties.push_back({GetProperty(kv.first), kv.second});
@@ -362,7 +362,7 @@ class RuleBasedPlanner {
           std::move(input_op), input_symbol, set->expression_, op);
     } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
-      std::vector<storage::Label> labels;
+      std::vector<storage::LabelId> labels;
       labels.reserve(set->labels_.size());
       for (const auto &label : set->labels_) {
         labels.push_back(GetLabel(label));
@@ -375,7 +375,7 @@ class RuleBasedPlanner {
           rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      std::vector<storage::Label> labels;
+      std::vector<storage::LabelId> labels;
       labels.reserve(rem->labels_.size());
       for (const auto &label : rem->labels_) {
         labels.push_back(GetLabel(label));
@@ -427,7 +427,7 @@ class RuleBasedPlanner {
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
         CHECK(!utils::Contains(bound_symbols, edge_symbol))
             << "Existing edges are not supported";
-        std::vector<storage::EdgeType> edge_types;
+        std::vector<storage::EdgeTypeId> edge_types;
         edge_types.reserve(edge->edge_types_.size());
         for (const auto &type : edge->edge_types_) {
           edge_types.push_back(GetEdgeType(type));

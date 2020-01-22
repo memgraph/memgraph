@@ -36,8 +36,9 @@ class InterpreterTest : public ::testing::Test {
    *
    * Return the query stream.
    */
-  auto Interpret(const std::string &query,
-                 const std::map<std::string, PropertyValue> &params = {}) {
+  auto Interpret(
+      const std::string &query,
+      const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(&db_);
 
     auto [header, _] = interpreter_.Prepare(query, params);
@@ -109,8 +110,9 @@ TEST_F(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TEST_F(InterpreterTest, Parameters) {
   {
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue(10)},
-                                                   {"a b", PropertyValue(15)}});
+    auto stream =
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue(10)},
+                                         {"a b", storage::PropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -119,9 +121,10 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue(10)},
-                                                   {"a b", PropertyValue(15)},
-                                                   {"c", PropertyValue(10)}});
+    auto stream =
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue(10)},
+                                         {"a b", storage::PropertyValue(15)},
+                                         {"c", storage::PropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -130,9 +133,9 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream =
-        Interpret("RETURN $2 + $`a b`",
-                  {{"2", PropertyValue("da")}, {"a b", PropertyValue("ne")}});
+    auto stream = Interpret("RETURN $2 + $`a b`",
+                            {{"2", storage::PropertyValue("da")},
+                             {"a b", storage::PropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
@@ -141,8 +144,9 @@ TEST_F(InterpreterTest, Parameters) {
     // Non-primitive literal.
     auto stream = Interpret(
         "RETURN $2",
-        {{"2", PropertyValue(std::vector<PropertyValue>{
-                   PropertyValue(5), PropertyValue(2), PropertyValue(3)})}});
+        {{"2", storage::PropertyValue(std::vector<storage::PropertyValue>{
+                   storage::PropertyValue(5), storage::PropertyValue(2),
+                   storage::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToIntList(
@@ -151,9 +155,10 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", PropertyValue("da")},
-                                                  {"ab", PropertyValue("ne")}}),
-                 query::UnprovidedParameterError);
+    ASSERT_THROW(
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue("da")},
+                                         {"ab", storage::PropertyValue("ne")}}),
+        query::UnprovidedParameterError);
   }
 }
 
@@ -177,10 +182,11 @@ TEST_F(InterpreterTest, Bfs) {
     query::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      CHECK(node.SetProperty(dba.NameToProperty(kId), PropertyValue(id++))
+      CHECK(node.SetProperty(dba.NameToProperty(kId),
+                             storage::PropertyValue(id++))
                 .HasValue());
       CHECK(node.SetProperty(dba.NameToProperty(kReachable),
-                             PropertyValue(reachable))
+                             storage::PropertyValue(reachable))
                 .HasValue());
       levels[level].push_back(node);
       return node;
@@ -189,7 +195,7 @@ TEST_F(InterpreterTest, Bfs) {
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
       CHECK(edge->SetProperty(dba.NameToProperty(kReachable),
-                              PropertyValue(reachable))
+                              storage::PropertyValue(reachable))
                 .HasValue());
     };
 
@@ -361,7 +367,7 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
   auto stream = Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
-                          {{"id", PropertyValue(42)}});
+                          {{"id", storage::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
   std::vector<std::string> expected_rows{" * Produce {n}", " * Filter",
@@ -378,7 +384,7 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
   Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-            {{"id", PropertyValue("something else")}});
+            {{"id", storage::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
@@ -411,7 +417,7 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
-                          {{"id", PropertyValue(42)}});
+                          {{"id", storage::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
                                            "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -429,7 +435,7 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
   Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-            {{"id", PropertyValue("something else")}});
+            {{"id", storage::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }

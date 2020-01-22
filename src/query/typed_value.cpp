@@ -14,34 +14,34 @@
 
 namespace query {
 
-TypedValue::TypedValue(const PropertyValue &value)
-    // TODO: MemoryResource in PropertyValue
+TypedValue::TypedValue(const storage::PropertyValue &value)
+    // TODO: MemoryResource in storage::PropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const PropertyValue &value,
+TypedValue::TypedValue(const storage::PropertyValue &value,
                        utils::MemoryResource *memory)
     : memory_(memory) {
   switch (value.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
       return;
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = value.ValueBool();
       return;
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = value.ValueInt();
       return;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.ValueDouble();
       return;
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(value.ValueString(), memory_);
       return;
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
       new (&list_v) TVector(memory_);
@@ -49,7 +49,7 @@ TypedValue::TypedValue(const PropertyValue &value,
       for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       new (&map_v) TMap(memory_);
@@ -60,33 +60,34 @@ TypedValue::TypedValue(const PropertyValue &value,
   LOG(FATAL) << "Unsupported type";
 }
 
-TypedValue::TypedValue(PropertyValue &&other) /* noexcept */
-    // TODO: MemoryResource in PropertyValue, so this can be noexcept
+TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
+    // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
+TypedValue::TypedValue(storage::PropertyValue &&other,
+                       utils::MemoryResource *memory)
     : memory_(memory) {
   switch (other.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
       break;
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = other.ValueBool();
       break;
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = other.ValueInt();
       break;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = other.ValueDouble();
       break;
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(other.ValueString(), memory_);
       break;
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
       new (&list_v) TVector(memory_);
@@ -94,7 +95,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
       for (auto &v : vec) list_v.emplace_back(std::move(v));
       break;
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
       new (&map_v) TMap(memory_);
@@ -103,7 +104,7 @@ TypedValue::TypedValue(PropertyValue &&other, utils::MemoryResource *memory)
     }
   }
 
-  other = PropertyValue();
+  other = storage::PropertyValue();
 }
 
 TypedValue::TypedValue(const TypedValue &other)
@@ -186,25 +187,25 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory)
   other.DestroyValue();
 }
 
-TypedValue::operator PropertyValue() const {
+TypedValue::operator storage::PropertyValue() const {
   switch (type_) {
     case TypedValue::Type::Null:
-      return PropertyValue();
+      return storage::PropertyValue();
     case TypedValue::Type::Bool:
-      return PropertyValue(bool_v);
+      return storage::PropertyValue(bool_v);
     case TypedValue::Type::Int:
-      return PropertyValue(int_v);
+      return storage::PropertyValue(int_v);
     case TypedValue::Type::Double:
-      return PropertyValue(double_v);
+      return storage::PropertyValue(double_v);
     case TypedValue::Type::String:
-      return PropertyValue(std::string(string_v));
+      return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List:
-      return PropertyValue(
-          std::vector<PropertyValue>(list_v.begin(), list_v.end()));
+      return storage::PropertyValue(
+          std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
-      std::map<std::string, PropertyValue> map;
+      std::map<std::string, storage::PropertyValue> map;
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
-      return PropertyValue(std::move(map));
+      return storage::PropertyValue(std::move(map));
     }
     default:
       break;
@@ -475,33 +476,33 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
 
 void TypedValue::DestroyValue() {
   switch (type_) {
-    // destructor for primitive types does nothing
-  case Type::Null:
-  case Type::Bool:
-  case Type::Int:
-  case Type::Double:
-    break;
+      // destructor for primitive types does nothing
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+      break;
 
-    // we need to call destructors for non primitive types since we used
-    // placement new
-  case Type::String:
-    string_v.~TString();
-    break;
-  case Type::List:
-    list_v.~TVector();
-    break;
-  case Type::Map:
-    map_v.~TMap();
-    break;
-  case Type::Vertex:
-    vertex_v.~VertexAccessor();
-    break;
-  case Type::Edge:
-    edge_v.~EdgeAccessor();
-    break;
-  case Type::Path:
-    path_v.~Path();
-    break;
+      // we need to call destructors for non primitive types since we used
+      // placement new
+    case Type::String:
+      string_v.~TString();
+      break;
+    case Type::List:
+      list_v.~TVector();
+      break;
+    case Type::Map:
+      map_v.~TMap();
+      break;
+    case Type::Vertex:
+      vertex_v.~VertexAccessor();
+      break;
+    case Type::Edge:
+      edge_v.~EdgeAccessor();
+      break;
+    case Type::Path:
+      path_v.~Path();
+      break;
   }
 
   type_ = TypedValue::Type::Null;

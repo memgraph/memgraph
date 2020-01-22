@@ -39,14 +39,17 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(false)), "false");
 
   // [1 null "hello"]
-  std::vector<PropertyValue> values{PropertyValue(1), PropertyValue(),
-                                    PropertyValue("hello")};
-  EXPECT_EQ(ToString(LITERAL(PropertyValue(values))), "[1, null, \"hello\"]");
+  std::vector<storage::PropertyValue> values{storage::PropertyValue(1),
+                                             storage::PropertyValue(),
+                                             storage::PropertyValue("hello")};
+  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(values))),
+            "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
-  std::map<std::string, PropertyValue> map{{"hello", PropertyValue(1)},
-                                           {"there", PropertyValue(2)}};
-  EXPECT_EQ(ToString(LITERAL(PropertyValue(map))),
+  std::map<std::string, storage::PropertyValue> map{
+      {"hello", storage::PropertyValue(1)},
+      {"there", storage::PropertyValue(2)}};
+  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(map))),
             "{\"hello\": 1, \"there\": 2}");
 }
 
@@ -61,7 +64,7 @@ TEST_F(ExpressionPrettyPrinterTest, Identifiers) {
 TEST_F(ExpressionPrettyPrinterTest, Reducing) {
   // all(x in list where x.prop = 42)
   auto prop = dba.NameToProperty("prop");
-  EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<PropertyValue>{}),
+  EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<storage::PropertyValue>{}),
                          WHERE(EQ(PROPERTY_LOOKUP("x", prop), LITERAL(42))))),
             "(All (Identifier \"x\") [] (== (PropertyLookup "
             "(Identifier \"x\") \"prop\") 42))");

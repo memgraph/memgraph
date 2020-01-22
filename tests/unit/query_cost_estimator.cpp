@@ -86,7 +86,7 @@ class QueryCostEstimator : public ::testing::Test {
   template <typename TValue>
   Expression *Parameter(TValue value) {
     int token_position = parameters_.size();
-    parameters_.Add(token_position, PropertyValue(value));
+    parameters_.Add(token_position, storage::PropertyValue(value));
     return storage_.Create<ParameterLookup>(token_position);
   }
 

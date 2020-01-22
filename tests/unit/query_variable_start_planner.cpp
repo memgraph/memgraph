@@ -264,11 +264,11 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, storage::PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, storage::PropertyValue(3)).HasValue());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
@@ -295,7 +295,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
@@ -325,11 +325,11 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, storage::PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, storage::PropertyValue(3)).HasValue());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).HasValue());
   dba.AdvanceCommand();

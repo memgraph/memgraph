@@ -5,20 +5,21 @@
 #include "slk_common.hpp"
 
 TEST(SlkAdvanced, PropertyValueList) {
-  std::vector<PropertyValue> original{PropertyValue("hello world!"),
-                                      PropertyValue(5), PropertyValue(1.123423),
-                                      PropertyValue(true), PropertyValue()};
-  ASSERT_EQ(original[0].type(), PropertyValue::Type::String);
-  ASSERT_EQ(original[1].type(), PropertyValue::Type::Int);
-  ASSERT_EQ(original[2].type(), PropertyValue::Type::Double);
-  ASSERT_EQ(original[3].type(), PropertyValue::Type::Bool);
-  ASSERT_EQ(original[4].type(), PropertyValue::Type::Null);
+  std::vector<storage::PropertyValue> original{
+      storage::PropertyValue("hello world!"), storage::PropertyValue(5),
+      storage::PropertyValue(1.123423), storage::PropertyValue(true),
+      storage::PropertyValue()};
+  ASSERT_EQ(original[0].type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(original[1].type(), storage::PropertyValue::Type::Int);
+  ASSERT_EQ(original[2].type(), storage::PropertyValue::Type::Double);
+  ASSERT_EQ(original[3].type(), storage::PropertyValue::Type::Bool);
+  ASSERT_EQ(original[4].type(), storage::PropertyValue::Type::Null);
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
 
-  std::vector<PropertyValue> decoded;
+  std::vector<storage::PropertyValue> decoded;
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
 
@@ -26,23 +27,23 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
-  std::map<std::string, PropertyValue> original{
-      {"hello", PropertyValue("world")},
-      {"number", PropertyValue(5)},
-      {"real", PropertyValue(1.123423)},
-      {"truth", PropertyValue(true)},
-      {"nothing", PropertyValue()}};
-  ASSERT_EQ(original["hello"].type(), PropertyValue::Type::String);
-  ASSERT_EQ(original["number"].type(), PropertyValue::Type::Int);
-  ASSERT_EQ(original["real"].type(), PropertyValue::Type::Double);
-  ASSERT_EQ(original["truth"].type(), PropertyValue::Type::Bool);
-  ASSERT_EQ(original["nothing"].type(), PropertyValue::Type::Null);
+  std::map<std::string, storage::PropertyValue> original{
+      {"hello", storage::PropertyValue("world")},
+      {"number", storage::PropertyValue(5)},
+      {"real", storage::PropertyValue(1.123423)},
+      {"truth", storage::PropertyValue(true)},
+      {"nothing", storage::PropertyValue()}};
+  ASSERT_EQ(original["hello"].type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(original["number"].type(), storage::PropertyValue::Type::Int);
+  ASSERT_EQ(original["real"].type(), storage::PropertyValue::Type::Double);
+  ASSERT_EQ(original["truth"].type(), storage::PropertyValue::Type::Bool);
+  ASSERT_EQ(original["nothing"].type(), storage::PropertyValue::Type::Null);
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
 
-  std::map<std::string, PropertyValue> decoded;
+  std::map<std::string, storage::PropertyValue> decoded;
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
 
@@ -50,35 +51,37 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
-  std::vector<PropertyValue> vec_v{PropertyValue("hello world!"),
-                                   PropertyValue(5), PropertyValue(1.123423),
-                                   PropertyValue(true), PropertyValue()};
-  ASSERT_EQ(vec_v[0].type(), PropertyValue::Type::String);
-  ASSERT_EQ(vec_v[1].type(), PropertyValue::Type::Int);
-  ASSERT_EQ(vec_v[2].type(), PropertyValue::Type::Double);
-  ASSERT_EQ(vec_v[3].type(), PropertyValue::Type::Bool);
-  ASSERT_EQ(vec_v[4].type(), PropertyValue::Type::Null);
+  std::vector<storage::PropertyValue> vec_v{
+      storage::PropertyValue("hello world!"), storage::PropertyValue(5),
+      storage::PropertyValue(1.123423), storage::PropertyValue(true),
+      storage::PropertyValue()};
+  ASSERT_EQ(vec_v[0].type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(vec_v[1].type(), storage::PropertyValue::Type::Int);
+  ASSERT_EQ(vec_v[2].type(), storage::PropertyValue::Type::Double);
+  ASSERT_EQ(vec_v[3].type(), storage::PropertyValue::Type::Bool);
+  ASSERT_EQ(vec_v[4].type(), storage::PropertyValue::Type::Null);
 
-  std::map<std::string, PropertyValue> map_v{{"hello", PropertyValue("world")},
-                                             {"number", PropertyValue(5)},
-                                             {"real", PropertyValue(1.123423)},
-                                             {"truth", PropertyValue(true)},
-                                             {"nothing", PropertyValue()}};
-  ASSERT_EQ(map_v["hello"].type(), PropertyValue::Type::String);
-  ASSERT_EQ(map_v["number"].type(), PropertyValue::Type::Int);
-  ASSERT_EQ(map_v["real"].type(), PropertyValue::Type::Double);
-  ASSERT_EQ(map_v["truth"].type(), PropertyValue::Type::Bool);
-  ASSERT_EQ(map_v["nothing"].type(), PropertyValue::Type::Null);
+  std::map<std::string, storage::PropertyValue> map_v{
+      {"hello", storage::PropertyValue("world")},
+      {"number", storage::PropertyValue(5)},
+      {"real", storage::PropertyValue(1.123423)},
+      {"truth", storage::PropertyValue(true)},
+      {"nothing", storage::PropertyValue()}};
+  ASSERT_EQ(map_v["hello"].type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(map_v["number"].type(), storage::PropertyValue::Type::Int);
+  ASSERT_EQ(map_v["real"].type(), storage::PropertyValue::Type::Double);
+  ASSERT_EQ(map_v["truth"].type(), storage::PropertyValue::Type::Bool);
+  ASSERT_EQ(map_v["nothing"].type(), storage::PropertyValue::Type::Null);
 
-  PropertyValue original(
-      std::vector<PropertyValue>{PropertyValue(vec_v), PropertyValue(map_v)});
-  ASSERT_EQ(original.type(), PropertyValue::Type::List);
+  storage::PropertyValue original(std::vector<storage::PropertyValue>{
+      storage::PropertyValue(vec_v), storage::PropertyValue(map_v)});
+  ASSERT_EQ(original.type(), storage::PropertyValue::Type::List);
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
 
-  PropertyValue decoded;
+  storage::PropertyValue decoded;
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
 

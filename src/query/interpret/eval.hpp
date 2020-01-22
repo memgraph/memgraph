@@ -558,8 +558,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
  private:
   template <class TRecordAccessor>
-  PropertyValue GetProperty(const TRecordAccessor &record_accessor,
-                            PropertyIx prop) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor,
+                                     PropertyIx prop) {
     auto maybe_prop =
         record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop.HasError() &&
@@ -592,8 +592,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  PropertyValue GetProperty(const TRecordAccessor &record_accessor,
-                            const std::string_view &name) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor,
+                                     const std::string_view &name) {
     auto maybe_prop =
         record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     if (maybe_prop.HasError() &&
@@ -625,7 +625,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
-  storage::Label GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
+  storage::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;

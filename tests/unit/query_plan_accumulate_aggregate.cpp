@@ -31,9 +31,9 @@ TEST(QueryPlan, Accumulate) {
     auto prop = dba.NameToProperty("x");
 
     auto v1 = dba.InsertVertex();
-    ASSERT_TRUE(v1.SetProperty(prop, PropertyValue(0)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(prop, storage::PropertyValue(0)).HasValue());
     auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(v2.SetProperty(prop, PropertyValue(0)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop, storage::PropertyValue(0)).HasValue());
     ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
     dba.AdvanceCommand();
 
@@ -147,7 +147,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
   storage::Storage db;
   storage::Storage::Accessor storage_dba{db.Access()};
   query::DbAccessor dba{&storage_dba};
-  storage::Property prop = db.NameToProperty("prop");
+  storage::PropertyId prop = db.NameToProperty("prop");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -156,12 +156,15 @@ class QueryPlanAggregateOps : public ::testing::Test {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
-    ASSERT_TRUE(
-        dba.InsertVertex().SetProperty(prop, PropertyValue(5)).HasValue());
-    ASSERT_TRUE(
-        dba.InsertVertex().SetProperty(prop, PropertyValue(7)).HasValue());
-    ASSERT_TRUE(
-        dba.InsertVertex().SetProperty(prop, PropertyValue(12)).HasValue());
+    ASSERT_TRUE(dba.InsertVertex()
+                    .SetProperty(prop, storage::PropertyValue(5))
+                    .HasValue());
+    ASSERT_TRUE(dba.InsertVertex()
+                    .SetProperty(prop, storage::PropertyValue(7))
+                    .HasValue());
+    ASSERT_TRUE(dba.InsertVertex()
+                    .SetProperty(prop, storage::PropertyValue(12))
+                    .HasValue());
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
     dba.InsertVertex();
@@ -291,9 +294,9 @@ TEST(QueryPlan, AggregateGroupByValues) {
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
 
-  // a vector of PropertyValue to be set as property values on vertices
+  // a vector of storage::PropertyValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
-  std::vector<PropertyValue> group_by_vals;
+  std::vector<storage::PropertyValue> group_by_vals;
   group_by_vals.emplace_back(4);
   group_by_vals.emplace_back(7);
   group_by_vals.emplace_back(7.3);
@@ -303,17 +306,18 @@ TEST(QueryPlan, AggregateGroupByValues) {
   group_by_vals.emplace_back("1");
   group_by_vals.emplace_back(true);
   group_by_vals.emplace_back(false);
-  group_by_vals.emplace_back(std::vector<PropertyValue>{PropertyValue(1)});
   group_by_vals.emplace_back(
-      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)});
-  group_by_vals.emplace_back(
-      std::vector<PropertyValue>{PropertyValue(2), PropertyValue(1)});
-  group_by_vals.emplace_back(PropertyValue());
+      std::vector<storage::PropertyValue>{storage::PropertyValue(1)});
+  group_by_vals.emplace_back(std::vector<storage::PropertyValue>{
+      storage::PropertyValue(1), storage::PropertyValue(2)});
+  group_by_vals.emplace_back(std::vector<storage::PropertyValue>{
+      storage::PropertyValue(2), storage::PropertyValue(1)});
+  group_by_vals.emplace_back(storage::PropertyValue());
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group
-  group_by_vals.emplace_back(
-      std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2.0)});
+  group_by_vals.emplace_back(std::vector<storage::PropertyValue>{
+      storage::PropertyValue(1), storage::PropertyValue(2.0)});
 
   // generate a lot of vertices and set props on them
   auto prop = dba.NameToProperty("prop");
@@ -365,12 +369,13 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   auto prop3 = dba.NameToProperty("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(prop1, PropertyValue(static_cast<bool>(i % 2)))
-                    .HasValue());
-    ASSERT_TRUE(v.SetProperty(prop2, PropertyValue(i % 3)).HasValue());
     ASSERT_TRUE(
-        v.SetProperty(prop3, PropertyValue("value" + std::to_string(i % 5)))
+        v.SetProperty(prop1, storage::PropertyValue(static_cast<bool>(i % 2)))
             .HasValue());
+    ASSERT_TRUE(v.SetProperty(prop2, storage::PropertyValue(i % 3)).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop3, storage::PropertyValue(
+                                         "value" + std::to_string(i % 5)))
+                    .HasValue());
   }
   dba.AdvanceCommand();
 
@@ -454,7 +459,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -465,7 +470,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(2, count());
 }
@@ -480,9 +485,10 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
-  ASSERT_TRUE(v1.SetProperty(prop_string, PropertyValue("johhny")).HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(prop_string, storage::PropertyValue("johhny")).HasValue());
   auto prop_int = dba.NameToProperty("int");
-  ASSERT_TRUE(v1.SetProperty(prop_int, PropertyValue(12)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_int, storage::PropertyValue(12)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -536,14 +542,19 @@ TEST(QueryPlan, AggregateTypes) {
   query::DbAccessor dba(&storage_dba);
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
-  ASSERT_TRUE(
-      dba.InsertVertex().SetProperty(p1, PropertyValue("string")).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertex().SetProperty(p1, PropertyValue("str2")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex()
+                  .SetProperty(p1, storage::PropertyValue("string"))
+                  .HasValue());
+  ASSERT_TRUE(dba.InsertVertex()
+                  .SetProperty(p1, storage::PropertyValue("str2"))
+                  .HasValue());
   auto p2 = dba.NameToProperty("p2");  // combines int and bool
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertex().SetProperty(p2, PropertyValue(true)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex()
+                  .SetProperty(p2, storage::PropertyValue(42))
+                  .HasValue());
+  ASSERT_TRUE(dba.InsertVertex()
+                  .SetProperty(p2, storage::PropertyValue(true))
+                  .HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -597,11 +608,14 @@ TEST(QueryPlan, Unwind) {
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
-  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<PropertyValue>{
-      PropertyValue(std::vector<PropertyValue>{
-          PropertyValue(1), PropertyValue(true), PropertyValue("x")}),
-      PropertyValue(std::vector<PropertyValue>{}),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue("bla")})});
+  auto input_expr =
+      storage.Create<PrimitiveLiteral>(std::vector<storage::PropertyValue>{
+          storage::PropertyValue(std::vector<storage::PropertyValue>{
+              storage::PropertyValue(1), storage::PropertyValue(true),
+              storage::PropertyValue("x")}),
+          storage::PropertyValue(std::vector<storage::PropertyValue>{}),
+          storage::PropertyValue(std::vector<storage::PropertyValue>{
+              storage::PropertyValue("bla")})});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);

@@ -271,30 +271,30 @@ communication::bolt::Path ToBoltPath(const query::Path &path,
   return communication::bolt::Path(vertices, edges);
 }
 
-PropertyValue ToPropertyValue(const Value &value) {
+storage::PropertyValue ToPropertyValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return PropertyValue();
+      return storage::PropertyValue();
     case Value::Type::Bool:
-      return PropertyValue(value.ValueBool());
+      return storage::PropertyValue(value.ValueBool());
     case Value::Type::Int:
-      return PropertyValue(value.ValueInt());
+      return storage::PropertyValue(value.ValueInt());
     case Value::Type::Double:
-      return PropertyValue(value.ValueDouble());
+      return storage::PropertyValue(value.ValueDouble());
     case Value::Type::String:
-      return PropertyValue(value.ValueString());
+      return storage::PropertyValue(value.ValueString());
     case Value::Type::List: {
-      std::vector<PropertyValue> vec;
+      std::vector<storage::PropertyValue> vec;
       vec.reserve(value.ValueList().size());
       for (const auto &value : value.ValueList())
         vec.emplace_back(ToPropertyValue(value));
-      return PropertyValue(std::move(vec));
+      return storage::PropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
-      std::map<std::string, PropertyValue> map;
+      std::map<std::string, storage::PropertyValue> map;
       for (const auto &kv : value.ValueMap())
         map.emplace(kv.first, ToPropertyValue(kv.second));
-      return PropertyValue(std::move(map));
+      return storage::PropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
@@ -305,20 +305,20 @@ PropertyValue ToPropertyValue(const Value &value) {
   }
 }
 
-Value ToBoltValue(const PropertyValue &value) {
+Value ToBoltValue(const storage::PropertyValue &value) {
   switch (value.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       return Value();
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       return Value(value.ValueBool());
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       return Value(value.ValueInt());
       break;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       return Value(value.ValueDouble());
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       return Value(value.ValueString());
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       const auto &values = value.ValueList();
       std::vector<Value> vec;
       vec.reserve(values.size());
@@ -327,7 +327,7 @@ Value ToBoltValue(const PropertyValue &value) {
       }
       return Value(std::move(vec));
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       std::map<std::string, Value> dv_map;
       for (const auto &kv : map) {

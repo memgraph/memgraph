@@ -11,7 +11,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/types/types.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/view.hpp"
 
 namespace query {
@@ -73,10 +73,10 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
+void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key,
                      const TypedValue &value) {
   try {
-    auto maybe_error = record->SetProperty(key, PropertyValue(value));
+    auto maybe_error = record->SetProperty(key, storage::PropertyValue(value));
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:

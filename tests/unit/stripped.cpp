@@ -25,7 +25,7 @@ void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
   EXPECT_PROP_TRUE(a == b);
 }
 
-void EXPECT_PROP_EQ(const PropertyValue &a, const TypedValue &b) {
+void EXPECT_PROP_EQ(const storage::PropertyValue &a, const TypedValue &b) {
   EXPECT_PROP_EQ(TypedValue(a), b);
 }
 

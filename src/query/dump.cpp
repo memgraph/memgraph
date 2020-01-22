@@ -36,24 +36,24 @@ void DumpPreciseDouble(std::ostream *os, double value) {
   *os << temp_oss.str();
 }
 
-void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
+void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
   switch (value.type()) {
-    case PropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       *os << "Null";
       return;
-    case PropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       *os << (value.ValueBool() ? "true" : "false");
       return;
-    case PropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       *os << ::utils::Escape(value.ValueString());
       return;
-    case PropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       *os << value.ValueInt();
       return;
-    case PropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       DumpPreciseDouble(os, value.ValueDouble());
       return;
-    case PropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       *os << "[";
       const auto &list = value.ValueList();
       utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) {
@@ -62,7 +62,7 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
       *os << "]";
       return;
     }
-    case PropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
@@ -75,13 +75,14 @@ void DumpPropertyValue(std::ostream *os, const PropertyValue &value) {
   }
 }
 
-void DumpProperties(std::ostream *os, query::DbAccessor *dba,
+void DumpProperties(
+    std::ostream *os, query::DbAccessor *dba,
 #ifdef MG_SINGLE_NODE_V2
-                    const std::map<storage::Property, PropertyValue> &store,
+    const std::map<storage::PropertyId, storage::PropertyValue> &store,
 #else
-                    const PropertyValueStore &store,
+    const PropertyValueStore &store,
 #endif
-                    std::optional<uint64_t> property_id = std::nullopt) {
+    std::optional<uint64_t> property_id = std::nullopt) {
   *os << "{";
   if (property_id) {
     *os << kInternalPropertyId << ": " << *property_id;

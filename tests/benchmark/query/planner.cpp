@@ -99,7 +99,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba.CreateVertex();
       CHECK(vertex.AddLabel(label).HasValue());
-      CHECK(vertex.SetProperty(prop, PropertyValue(index)).HasValue());
+      CHECK(vertex.SetProperty(prop, storage::PropertyValue(index)).HasValue());
     }
   }
   CHECK(!dba.Commit().HasError());

@@ -384,7 +384,7 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
 }
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
-                               Symbol output_symbol, storage::Label label,
+                               Symbol output_symbol, storage::LabelId label,
                                storage::View view)
     : ScanAll(input, output_symbol, view), label_(label) {}
 
@@ -401,7 +401,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-    storage::Label label, storage::Property property,
+    storage::LabelId label, storage::PropertyId property,
     const std::string &property_name, std::optional<Bound> lower_bound,
     std::optional<Bound> upper_bound, storage::View view)
     : ScanAll(input, output_symbol, view),
@@ -424,13 +424,12 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
                                   context.db_accessor, view_);
-    auto convert =
-        [&evaluator](
-            const auto &bound) -> std::optional<utils::Bound<PropertyValue>> {
+    auto convert = [&evaluator](const auto &bound)
+        -> std::optional<utils::Bound<storage::PropertyValue>> {
       if (!bound) return std::nullopt;
       const auto &value = bound->value()->Accept(evaluator);
       try {
-        const auto &property_value = PropertyValue(value);
+        const auto &property_value = storage::PropertyValue(value);
         switch (property_value.type()) {
           case storage::PropertyValue::Type::Bool:
           case storage::PropertyValue::Type::List:
@@ -447,8 +446,8 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
             // These are all fine, there's also Point, Date and Time data types
             // which were added to Cypher, but we don't have support for those
             // yet.
-            return std::make_optional(
-                utils::Bound<PropertyValue>(property_value, bound->type()));
+            return std::make_optional(utils::Bound<storage::PropertyValue>(
+                property_value, bound->type()));
         }
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.",
@@ -470,7 +469,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-    storage::Label label, storage::Property property,
+    storage::LabelId label, storage::PropertyId property,
     const std::string &property_name, Expression *expression,
     storage::View view)
     : ScanAll(input, output_symbol, view),
@@ -487,7 +486,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
     utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(
-          view_, label_, property_, PropertyValue()))> {
+          view_, label_, property_, storage::PropertyValue()))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
@@ -499,7 +498,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
                                   value.type());
     }
     return std::make_optional(
-        db->Vertices(view_, label_, property_, PropertyValue(value)));
+        db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
@@ -567,7 +566,7 @@ auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, Symbol node_symbol, Symbol edge_symbol,
                EdgeAtom::Direction direction,
-               const std::vector<storage::EdgeType> &edge_types,
+               const std::vector<storage::EdgeTypeId> &edge_types,
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
@@ -712,16 +711,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   }
 }
 
-ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input,
-                               Symbol input_symbol, Symbol node_symbol,
-                               Symbol edge_symbol, EdgeAtom::Type type,
-                               EdgeAtom::Direction direction,
-                               const std::vector<storage::EdgeType> &edge_types,
-                               bool is_reverse, Expression *lower_bound,
-                               Expression *upper_bound, bool existing_node,
-                               ExpansionLambda filter_lambda,
-                               std::optional<ExpansionLambda> weight_lambda,
-                               std::optional<Symbol> total_weight)
+ExpandVariable::ExpandVariable(
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
+    EdgeAtom::Direction direction,
+    const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse,
+    Expression *lower_bound, Expression *upper_bound, bool existing_node,
+    ExpansionLambda filter_lambda, std::optional<ExpansionLambda> weight_lambda,
+    std::optional<Symbol> total_weight)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
@@ -784,7 +781,7 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
  */
 auto ExpandFromVertex(const VertexAccessor &vertex,
                       EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeType> &edge_types,
+                      const std::vector<storage::EdgeTypeId> &edge_types,
                       utils::MemoryResource *memory) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
@@ -2042,7 +2039,7 @@ void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
-                         storage::Property property, PropertyLookup *lhs,
+                         storage::PropertyId property, PropertyLookup *lhs,
                          Expression *rhs)
     : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
 
@@ -2255,7 +2252,7 @@ void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input,
                      Symbol input_symbol,
-                     const std::vector<storage::Label> &labels)
+                     const std::vector<storage::LabelId> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
@@ -2308,7 +2305,8 @@ void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
-                               storage::Property property, PropertyLookup *lhs)
+                               storage::PropertyId property,
+                               PropertyLookup *lhs)
     : input_(input), property_(property), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
@@ -2385,7 +2383,7 @@ void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol,
-                           const std::vector<storage::Label> &labels)
+                           const std::vector<storage::LabelId> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)

@@ -140,8 +140,8 @@ class TypedValue {
     double_v = value;
   }
 
-  // conversion function to PropertyValue
-  explicit operator PropertyValue() const;
+  // conversion function to storage::PropertyValue
+  explicit operator storage::PropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, utils::MemoryResource *memory =
@@ -262,10 +262,11 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value,
+             utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -408,13 +409,13 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
 
   // copy assignment operators
   TypedValue &operator=(const char *);
@@ -490,7 +491,7 @@ class TypedValue {
   bool IsNumeric() const;
 
   /** Convenience function for checking if this TypedValue can be converted into
-   * PropertyValue */
+   * storage::PropertyValue */
   bool IsPropertyValue() const;
 
   utils::MemoryResource *GetMemoryResource() const { return memory_; }

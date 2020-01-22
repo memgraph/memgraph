@@ -68,7 +68,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   auto replace_stripped = [this, &token_strings](int position,
                                                  const auto &value,
                                                  const std::string &new_value) {
-    literals_.Add(position, PropertyValue(value));
+    literals_.Add(position, storage::PropertyValue(value));
     token_strings.push_back(new_value);
   };
 

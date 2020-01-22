@@ -173,7 +173,7 @@ TEST(BoltEncoder, VertexAndEdge) {
   ASSERT_TRUE(va1.AddLabel(l2).HasValue());
   auto p1 = dba.NameToProperty("prop1");
   auto p2 = dba.NameToProperty("prop2");
-  PropertyValue pv1(12), pv2(200);
+  storage::PropertyValue pv1(12), pv2(200);
   ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
   ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
 
@@ -182,7 +182,7 @@ TEST(BoltEncoder, VertexAndEdge) {
   auto ea = dba.CreateEdge(&va1, &va2, et);
   auto p3 = dba.NameToProperty("prop3");
   auto p4 = dba.NameToProperty("prop4");
-  PropertyValue pv3(42), pv4(1234);
+  storage::PropertyValue pv3(42), pv4(1234);
   ASSERT_TRUE(ea->SetProperty(p3, pv3).HasValue());
   ASSERT_TRUE(ea->SetProperty(p4, pv4).HasValue());
 

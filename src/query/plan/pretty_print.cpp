@@ -332,15 +332,15 @@ json ToJson(const utils::Bound<Expression *> &bound) {
 
 json ToJson(const Symbol &symbol) { return symbol.name(); }
 
-json ToJson(storage::EdgeType edge_type, const DbAccessor &dba) {
+json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba) {
   return dba.EdgeTypeToName(edge_type);
 }
 
-json ToJson(storage::Label label, const DbAccessor &dba) {
+json ToJson(storage::LabelId label, const DbAccessor &dba) {
   return dba.LabelToName(label);
 }
 
-json ToJson(storage::Property property, const DbAccessor &dba) {
+json ToJson(storage::PropertyId property, const DbAccessor &dba) {
   return dba.PropertyToName(property);
 }
 
@@ -352,7 +352,7 @@ json ToJson(NamedExpression *nexpr) {
 }
 
 json ToJson(
-    const std::vector<std::pair<storage::Property, Expression *>> &properties,
+    const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
     const DbAccessor &dba) {
   json json;
   for (const auto &prop_pair : properties) {

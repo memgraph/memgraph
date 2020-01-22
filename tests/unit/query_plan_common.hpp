@@ -101,7 +101,7 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table,
  */
 ScanAllTuple MakeScanAllByLabel(
     AstStorage &storage, SymbolTable &symbol_table,
-    const std::string &identifier, storage::Label label,
+    const std::string &identifier, storage::LabelId label,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     storage::View view = storage::View::OLD) {
   auto node = NODE(identifier);
@@ -120,7 +120,7 @@ ScanAllTuple MakeScanAllByLabel(
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    storage::Label label, storage::Property property,
+    storage::LabelId label, storage::PropertyId property,
     const std::string &property_name, std::optional<Bound> lower_bound,
     std::optional<Bound> upper_bound,
     std::shared_ptr<LogicalOperator> input = {nullptr},
@@ -142,7 +142,7 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    storage::Label label, storage::Property property,
+    storage::LabelId label, storage::PropertyId property,
     const std::string &property_name, Expression *value,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     storage::View view = storage::View::OLD) {
@@ -166,7 +166,7 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
                        std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier,
                        EdgeAtom::Direction direction,
-                       const std::vector<storage::EdgeType> &edge_types,
+                       const std::vector<storage::EdgeTypeId> &edge_types,
                        const std::string &node_identifier, bool existing_node,
                        storage::View view) {
   auto edge = EDGE(edge_identifier, direction);

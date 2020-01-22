@@ -148,7 +148,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   query::DbAccessor dba(&storage_dba);
 
   // add a few nodes to the database
-  storage::Label label = dba.NameToLabel("Label");
+  storage::LabelId label = dba.NameToLabel("Label");
   auto property = PROPERTY_PAIR("Property");
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -163,10 +163,14 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   ASSERT_TRUE(v2.AddLabel(label).HasValue());
   ASSERT_TRUE(v3.AddLabel(label).HasValue());
   // v1 and v4 will have the right properties
-  ASSERT_TRUE(v1.SetProperty(property.second, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v2.SetProperty(property.second, PropertyValue(1)).HasValue());
-  ASSERT_TRUE(v4.SetProperty(property.second, PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v5.SetProperty(property.second, PropertyValue(1)).HasValue());
+  ASSERT_TRUE(
+      v1.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(
+      v2.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(
+      v4.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(
+      v5.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -205,9 +209,9 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   query::DbAccessor dba(&storage_dba);
 
   // add a few nodes to the database
-  storage::Label label1 = dba.NameToLabel("label1");
-  storage::Label label2 = dba.NameToLabel("label2");
-  storage::Label label3 = dba.NameToLabel("label3");
+  storage::LabelId label1 = dba.NameToLabel("label1");
+  storage::LabelId label2 = dba.NameToLabel("label2");
+  storage::LabelId label3 = dba.NameToLabel("label3");
   // the test will look for nodes that have label1 and label2
   dba.InsertVertex();                                           // NOT accepted
   ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());  // NOT accepted
@@ -481,9 +485,9 @@ class QueryPlanExpandVariable : public testing::Test {
   storage::Storage::Accessor storage_dba{db.Access()};
   query::DbAccessor dba{&storage_dba};
   // labels for layers in the double chain
-  std::vector<storage::Label> labels;
+  std::vector<storage::LabelId> labels;
   // for all the edges
-  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -509,7 +513,7 @@ class QueryPlanExpandVariable : public testing::Test {
           auto edge = dba.InsertEdge(&v_from, &v_to, edge_type);
           ASSERT_TRUE(
               edge->SetProperty(dba.NameToProperty("p"),
-                                PropertyValue(fmt::format(
+                                storage::PropertyValue(fmt::format(
                                     "V{}{}->V{}{}", from_layer_ind, v_from_ind,
                                     from_layer_ind + 1, v_to_ind)))
                   .HasValue());
@@ -538,7 +542,7 @@ class QueryPlanExpandVariable : public testing::Test {
   std::shared_ptr<LogicalOperator> AddMatch(
       std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
       int layer, EdgeAtom::Direction direction,
-      const std::vector<storage::EdgeType> &edge_types,
+      const std::vector<storage::EdgeTypeId> &edge_types,
       std::optional<size_t> lower, std::optional<size_t> upper, Symbol edge_sym,
       const std::string &node_to, storage::View view, bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
@@ -821,8 +825,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   storage::Storage db;
   storage::Storage::Accessor storage_dba{db.Access()};
   query::DbAccessor dba{&storage_dba};
-  std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
-  storage::EdgeType edge_type = dba.NameToEdgeType("edge_type");
+  std::pair<std::string, storage::PropertyId> prop = PROPERTY_PAIR("property");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   // make 5 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
@@ -846,14 +850,15 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   void SetUp() {
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
-      ASSERT_TRUE(
-          v.back().SetProperty(prop.second, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(v.back()
+                      .SetProperty(prop.second, storage::PropertyValue(i))
+                      .HasValue());
     }
 
     auto add_edge = [&](int from, int to, double weight) {
       auto edge = dba.InsertEdge(&v[from], &v[to], edge_type);
-      ASSERT_TRUE(
-          edge->SetProperty(prop.second, PropertyValue(weight)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(weight))
+                      .HasValue());
       e.emplace(std::make_pair(from, to), *edge);
     };
 
@@ -896,7 +901,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
         last_op, n.sym_, node_sym, edge_list_sym,
         EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
-        std::vector<storage::EdgeType>{}, false, nullptr,
+        std::vector<storage::EdgeTypeId>{}, false, nullptr,
         max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr,
         ExpansionLambda{filter_edge, filter_node, where},
@@ -1099,11 +1104,12 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   }
   {
     auto new_vertex = dba.InsertVertex();
-    ASSERT_TRUE(
-        new_vertex.SetProperty(prop.second, PropertyValue(5)).HasValue());
+    ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
+                    .HasValue());
     auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_TRUE(edge->SetProperty(prop.second, PropertyValue(2)).HasValue());
+    ASSERT_TRUE(
+        edge->SetProperty(prop.second, storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
@@ -1124,11 +1130,13 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
   auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, PropertyValue(5)).HasValue());
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
+                  .HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
   ASSERT_TRUE(
-      edge->SetProperty(prop.second, PropertyValue("not a number")).HasValue());
+      edge->SetProperty(prop.second, storage::PropertyValue("not a number"))
+          .HasValue());
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
                QueryRuntimeException);
@@ -1136,10 +1144,11 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
   auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, PropertyValue(5)).HasValue());
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
+                  .HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, PropertyValue(-10))
+  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(-10))
                   .HasValue());  // negative weight
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
@@ -1163,12 +1172,12 @@ TEST(QueryPlan, ExpandOptional) {
   auto prop = dba.NameToProperty("p");
   auto edge_type = dba.NameToEdgeType("T");
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(prop, PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop, storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(prop, PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(prop, storage::PropertyValue(2)).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(prop, PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(prop, storage::PropertyValue(2)).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
   dba.AdvanceCommand();
 
@@ -1196,7 +1205,7 @@ TEST(QueryPlan, ExpandOptional) {
     ASSERT_EQ(row[0].type(), TypedValue::Type::Vertex);
     auto &va = row[0].ValueVertex();
     auto va_p = *va.GetProperty(storage::View::OLD, prop);
-    ASSERT_EQ(va_p.type(), PropertyValue::Type::Int);
+    ASSERT_EQ(va_p.type(), storage::PropertyValue::Type::Int);
     if (va_p.ValueInt() == 1) {
       v1_is_n_count++;
       EXPECT_EQ(row[1].type(), TypedValue::Type::Edge);
@@ -1298,7 +1307,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   node->identifier_->MapTo(with_n_sym);
   auto expand = std::make_shared<plan::Expand>(
       m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
-      std::vector<storage::EdgeType>{}, true, storage::View::OLD);
+      std::vector<storage::EdgeTypeId>{}, true, storage::View::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))
                   ->MapTo(symbol_table.CreateSymbol("m", true));
@@ -1331,9 +1340,10 @@ TEST(QueryPlan, ExpandExistingNode) {
                           EdgeAtom::Direction::OUT, {}, "n", with_existing,
                           storage::View::OLD);
     if (with_existing)
-      r_n.op_ = std::make_shared<Expand>(
-          n.op_, n.sym_, n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-          std::vector<storage::EdgeType>{}, with_existing, storage::View::OLD);
+      r_n.op_ = std::make_shared<Expand>(n.op_, n.sym_, n.sym_, r_n.edge_sym_,
+                                         r_n.edge_->direction_,
+                                         std::vector<storage::EdgeTypeId>{},
+                                         with_existing, storage::View::OLD);
 
     // make a named expression and a produce
     auto output =
@@ -1380,7 +1390,7 @@ TEST(QueryPlan, EdgeFilter) {
   // where only one edge will qualify
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<storage::EdgeType> edge_types;
+  std::vector<storage::EdgeTypeId> edge_types;
   for (int j = 0; j < 2; ++j)
     edge_types.push_back(dba.NameToEdgeType("et" + std::to_string(j)));
   std::vector<query::VertexAccessor> vertices;
@@ -1393,12 +1403,12 @@ TEST(QueryPlan, EdgeFilter) {
     switch (i % 3) {
       case 0:
         ASSERT_TRUE(edges.back()
-                        .SetProperty(prop.second, PropertyValue(42))
+                        .SetProperty(prop.second, storage::PropertyValue(42))
                         .HasValue());
         break;
       case 1:
         ASSERT_TRUE(edges.back()
-                        .SetProperty(prop.second, PropertyValue(100))
+                        .SetProperty(prop.second, storage::PropertyValue(100))
                         .HasValue());
         break;
       default:
@@ -1438,7 +1448,8 @@ TEST(QueryPlan, EdgeFilter) {
   EXPECT_EQ(1, test_filter());
   // test that edge filtering always filters on old state
   for (auto &edge : edges)
-    ASSERT_TRUE(edge.SetProperty(prop.second, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(
+        edge.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   EXPECT_EQ(1, test_filter());
   dba.AdvanceCommand();
   EXPECT_EQ(3, test_filter());
@@ -1486,9 +1497,10 @@ TEST(QueryPlan, Filter) {
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property = PROPERTY_PAIR("property");
   for (int i = 0; i < 6; ++i)
-    ASSERT_TRUE(dba.InsertVertex()
-                    .SetProperty(property.second, PropertyValue(i % 3 == 0))
-                    .HasValue());
+    ASSERT_TRUE(
+        dba.InsertVertex()
+            .SetProperty(property.second, storage::PropertyValue(i % 3 == 0))
+            .HasValue());
   dba.InsertVertex();  // prop not set, gives NULL
   dba.AdvanceCommand();
 
@@ -1633,21 +1645,24 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   auto label = db.NameToLabel("label");
   auto prop = db.NameToProperty("prop");
   // vertex property values that will be stored into the DB
-  std::vector<PropertyValue> values{
-      PropertyValue(true),
-      PropertyValue(false),
-      PropertyValue("a"),
-      PropertyValue("b"),
-      PropertyValue("c"),
-      PropertyValue(0),
-      PropertyValue(1),
-      PropertyValue(2),
-      PropertyValue(0.5),
-      PropertyValue(1.5),
-      PropertyValue(2.5),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue(0)}),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue(1)}),
-      PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})};
+  std::vector<storage::PropertyValue> values{
+      storage::PropertyValue(true),
+      storage::PropertyValue(false),
+      storage::PropertyValue("a"),
+      storage::PropertyValue("b"),
+      storage::PropertyValue("c"),
+      storage::PropertyValue(0),
+      storage::PropertyValue(1),
+      storage::PropertyValue(2),
+      storage::PropertyValue(0.5),
+      storage::PropertyValue(1.5),
+      storage::PropertyValue(2.5),
+      storage::PropertyValue(
+          std::vector<storage::PropertyValue>{storage::PropertyValue(0)}),
+      storage::PropertyValue(
+          std::vector<storage::PropertyValue>{storage::PropertyValue(1)}),
+      storage::PropertyValue(
+          std::vector<storage::PropertyValue>{storage::PropertyValue(2)})};
   {
     auto storage_dba = db.Access();
     query::DbAccessor dba(&storage_dba);
@@ -1701,23 +1716,25 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5),
         Bound::Type::INCLUSIVE, {TypedValue(2), TypedValue(2.5)});
 
-  auto are_comparable = [](PropertyValue::Type a, PropertyValue::Type b) {
-    auto is_numeric = [](const PropertyValue::Type t) {
-      return t == PropertyValue::Type::Int || t == PropertyValue::Type::Double;
+  auto are_comparable = [](storage::PropertyValue::Type a,
+                           storage::PropertyValue::Type b) {
+    auto is_numeric = [](const storage::PropertyValue::Type t) {
+      return t == storage::PropertyValue::Type::Int ||
+             t == storage::PropertyValue::Type::Double;
     };
 
     return a == b || (is_numeric(a) && is_numeric(b));
   };
 
-  auto is_orderable = [](const PropertyValue &t) {
+  auto is_orderable = [](const storage::PropertyValue &t) {
     return t.IsNull() || t.IsInt() || t.IsDouble() || t.IsString();
   };
 
   // when a range contains different types, nothing should get returned
   for (const auto &value_a : values) {
     for (const auto &value_b : values) {
-      if (are_comparable(static_cast<PropertyValue>(value_a).type(),
-                         static_cast<PropertyValue>(value_b).type()))
+      if (are_comparable(static_cast<storage::PropertyValue>(value_a).type(),
+                         static_cast<storage::PropertyValue>(value_b).type()))
         continue;
       if (is_orderable(value_a) && is_orderable(value_b)) {
         check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
@@ -1756,11 +1773,13 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     query::DbAccessor dba(&storage_dba);
     auto number_vertex = dba.InsertVertex();
     ASSERT_TRUE(number_vertex.AddLabel(label).HasValue());
-    ASSERT_TRUE(number_vertex.SetProperty(prop, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(
+        number_vertex.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     auto string_vertex = dba.InsertVertex();
     ASSERT_TRUE(string_vertex.AddLabel(label).HasValue());
     ASSERT_TRUE(
-        string_vertex.SetProperty(prop, PropertyValue("string")).HasValue());
+        string_vertex.SetProperty(prop, storage::PropertyValue("string"))
+            .HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -1798,7 +1817,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-      ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(
+          vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -1829,7 +1849,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-      ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(
+          vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -1885,8 +1906,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
-    ASSERT_TRUE(
-        vertex_with_prop.SetProperty(prop, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42))
+                    .HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -1922,8 +1943,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
-    ASSERT_TRUE(
-        vertex_with_prop.SetProperty(prop, PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42))
+                    .HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -1956,7 +1977,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     query::DbAccessor dba(&storage_dba);
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop, PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop, storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -1997,10 +2018,10 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     query::DbAccessor dba(&storage_dba);
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
-    ASSERT_TRUE(
-        v.SetProperty(prop, PropertyValue(i < vertex_prop_count ? prop_value1
-                                                                : prop_value2))
-            .HasValue());
+    ASSERT_TRUE(v.SetProperty(prop, storage::PropertyValue(i < vertex_prop_count
+                                                               ? prop_value1
+                                                               : prop_value2))
+                    .HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
 

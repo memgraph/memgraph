@@ -58,9 +58,9 @@ struct mgp_value {
   mgp_value(const query::TypedValue &, const mgp_graph *,
             utils::MemoryResource *);
 
-  /// Construct by copying PropertyValue using utils::MemoryResource.
+  /// Construct by copying storage::PropertyValue using utils::MemoryResource.
   /// @throw std::bad_alloc
-  mgp_value(const PropertyValue &, utils::MemoryResource *);
+  mgp_value(const storage::PropertyValue &, utils::MemoryResource *);
 
   /// Copy construction without utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;
@@ -468,7 +468,6 @@ struct mgp_vertices_iterator {
   decltype(graph->impl->Vertices(graph->view)) vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
-
 };
 
 struct mgp_type {

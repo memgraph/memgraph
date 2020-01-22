@@ -12,7 +12,7 @@ class SingleNodeDb : public Database {
   std::unique_ptr<LogicalOperator> MakeBfsOperator(
       Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
       EdgeAtom::Direction direction,
-      const std::vector<storage::EdgeType> &edge_types,
+      const std::vector<storage::EdgeTypeId> &edge_types,
       const std::shared_ptr<LogicalOperator> &input, bool existing_node,
       Expression *lower_bound, Expression *upper_bound,
       const ExpansionLambda &filter_lambda) override {
@@ -34,7 +34,7 @@ class SingleNodeDb : public Database {
       auto vertex = dba->InsertVertex();
       CHECK(vertex
                 .SetProperty(dba->NameToProperty("id"),
-                             PropertyValue(static_cast<int64_t>(id)))
+                             storage::PropertyValue(static_cast<int64_t>(id)))
                 .HasValue());
       vertex_addr.push_back(vertex);
     }
@@ -46,9 +46,11 @@ class SingleNodeDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      CHECK(edge->SetProperty(dba->NameToProperty("from"), PropertyValue(u))
+      CHECK(edge->SetProperty(dba->NameToProperty("from"),
+                              storage::PropertyValue(u))
                 .HasValue());
-      CHECK(edge->SetProperty(dba->NameToProperty("to"), PropertyValue(v))
+      CHECK(edge->SetProperty(dba->NameToProperty("to"),
+                              storage::PropertyValue(v))
                 .HasValue());
       edge_addr.push_back(*edge);
     }
