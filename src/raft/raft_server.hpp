@@ -16,7 +16,6 @@
 #include "raft/raft_rpc_messages.hpp"
 #include "raft/replication_log.hpp"
 #include "raft/replication_timeout_map.hpp"
-#include "raft/snapshot_metadata.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -84,14 +83,6 @@ class RaftServer final : public RaftInterface {
   /// as its in-memory copy.
   void SetLogSize(uint64_t new_log_size);
 
-  /// Retrieves persisted snapshot metadata or nullopt if not present.
-  /// Snapshot metadata is a triplet consisting of the last included term, last
-  /// last included log entry index and the snapshot filename.
-  std::optional<SnapshotMetadata> GetSnapshotMetadata();
-
-  /// Persists snapshot metadata.
-  void PersistSnapshotMetadata(const SnapshotMetadata &snapshot_metadata);
-
   /// Emplace a new LogEntry in the raft log and start its replication. This
   /// entry is created from a given batched set of StateDelta objects.
   ///
@@ -138,7 +129,6 @@ class RaftServer final : public RaftInterface {
 
  private:
   mutable std::mutex lock_;           ///< Guards all internal state.
-  mutable std::mutex snapshot_lock_;  ///< Guards snapshot creation and removal.
   mutable std::mutex heartbeat_lock_; ///< Guards HB issuing
 
   //////////////////////////////////////////////////////////////////////////////
@@ -173,10 +163,6 @@ class RaftServer final : public RaftInterface {
 
   std::thread no_op_issuer_thread_;  ///< Thread responsible for issuing no-op
                                      ///< command on leader change.
-
-  std::thread snapshot_thread_;  ///< Thread responsible for snapshot creation
-                                 ///< when log size reaches
-                                 ///< `log_size_snapshot_threshold`.
 
   std::condition_variable leader_changed_;  ///< Notifies the
                                             ///< no_op_issuer_thread that a new
@@ -256,8 +242,6 @@ class RaftServer final : public RaftInterface {
 
   std::map<uint64_t, LogEntry> log_;
 
-  std::optional<SnapshotMetadata> snapshot_metadata_;
-
   /// Recovers persistent data from disk and stores its in-memory copies
   /// that insure faster read-only operations. This method should be called
   /// on start-up. If parts of persistent data are missing, the method won't
@@ -285,22 +269,18 @@ class RaftServer final : public RaftInterface {
   /// mode.
   ///
   /// @param peer_id ID of the peer which receives entries.
-  /// @param snapshot_metadata metadata of the last snapshot, if any.
   /// @param lock Lock from the peer thread (released while waiting for
   ///             response)
   void SendLogEntries(uint16_t peer_id,
-                      const std::optional<SnapshotMetadata> &snapshot_metadata,
                       std::unique_lock<std::mutex> *lock);
 
   /// Send Snapshot to peer. This function should only be called in leader
   /// mode.
   ///
   /// @param peer_id ID of the peer which receives entries.
-  /// @param snapshot_metadata metadata of the snapshot to send.
   /// @param lock Lock from the peer thread (released while waiting for
   ///             response)
-  void SendSnapshot(uint16_t peer_id, const SnapshotMetadata &snapshot_metadata,
-                    std::unique_lock<std::mutex> *lock);
+  void SendSnapshot(uint16_t peer_id, std::unique_lock<std::mutex> *lock);
 
   /// Main function of the `election_thread_`. It is responsible for
   /// transition to CANDIDATE mode when election timeout elapses.
@@ -324,11 +304,6 @@ class RaftServer final : public RaftInterface {
   /// force the Raft protocol to commit logs from previous terms that
   /// have been replicated on a majority of peers.
   void NoOpIssuerThreadMain();
-
-  /// Periodically checks if the Log size reached `log_size_snapshot_threshold`
-  /// parameter. If it has, then it performs log compaction and creates
-  /// snapshots.
-  void SnapshotThread();
 
   /// Sets the `TimePoint` for next election.
   void SetNextElectionTimePoint();
@@ -364,7 +339,7 @@ class RaftServer final : public RaftInterface {
   /// Retrieves a log entry from the log at a given index.
   ///
   /// @param index Index of the log entry to be retrieved.
-  LogEntry GetLogEntry(int index);
+  LogEntry GetLogEntry(uint64_t index);
 
   /// Deletes log entries with indexes that are greater or equal to the given
   /// starting index.
@@ -405,9 +380,6 @@ class RaftServer final : public RaftInterface {
 
   /// Deserialized Raft log entry from `std::string`
   LogEntry DeserializeLogEntry(const std::string &serialized_log_entry);
-
-  /// Recovers the given snapshot if it exists in the durability directory.
-  void RecoverSnapshot(const std::string &snapshot_filename);
 
   /// Start a new transaction with a NO-OP StateDelta.
   void NoOpCreate();

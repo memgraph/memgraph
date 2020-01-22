@@ -6,7 +6,6 @@
 
 #include "communication/rpc/messages.hpp"
 #include "raft/log_entry.hpp"
-#include "raft/snapshot_metadata.hpp"
 cpp<#
 
 (lcp:namespace raft)
@@ -40,14 +39,5 @@ cpp<#
   (:response
     ((success :bool)
      (term :uint64_t))))
-
-(lcp:define-rpc install-snapshot
-  (:request
-    ((leader-id :uint16_t)
-     (term :uint64_t)
-     (snapshot-metadata "::raft::SnapshotMetadata")
-     (data "std::string")))
-  (:response
-    ((term :uint64_t))))
 
 (lcp:pop-namespace) ;; raft
