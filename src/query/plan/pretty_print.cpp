@@ -97,8 +97,23 @@ bool PlanPrinter::PreVisit(query::plan::Expand &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
+  using Type = query::EdgeAtom::Type;
   WithPrintLn([&](auto &out) {
-    *out_ << "* ExpandVariable (" << op.input_symbol_.name() << ")"
+    *out_ << "* ";
+    switch (op.type_) {
+      case Type::DEPTH_FIRST:
+        *out_ << "ExpandVariable";
+        break;
+      case Type::BREADTH_FIRST:
+        *out_ << (op.common_.existing_node ? "STShortestPath" : "BFSExpand");
+        break;
+      case Type::WEIGHTED_SHORTEST_PATH:
+        *out_ << "WeightedShortestPath";
+        break;
+      case Type::SINGLE:
+        LOG(FATAL) << "Unexpected ExpandVariable::type_";
+    }
+    *out_ << " (" << op.input_symbol_.name() << ")"
           << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"
                                                                      : "-")
           << "[" << op.common_.edge_symbol.name();
