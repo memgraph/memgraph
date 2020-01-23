@@ -175,9 +175,6 @@ target_link_libraries(${test_prefix}socket mg-io)
 add_unit_test(utils_algorithm.cpp)
 target_link_libraries(${test_prefix}utils_algorithm mg-utils)
 
-add_unit_test(utils_demangle.cpp)
-target_link_libraries(${test_prefix}utils_demangle mg-utils)
-
 add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 
@@ -211,14 +208,8 @@ target_link_libraries(${test_prefix}utils_string mg-utils)
 add_unit_test(utils_synchronized.cpp)
 target_link_libraries(${test_prefix}utils_synchronized mg-utils)
 
-add_unit_test(utils_thread_pool.cpp)
-target_link_libraries(${test_prefix}utils_thread_pool mg-utils)
-
 add_unit_test(utils_timestamp.cpp)
 target_link_libraries(${test_prefix}utils_timestamp mg-utils)
-
-add_unit_test(utils_watchdog.cpp)
-target_link_libraries(${test_prefix}utils_watchdog mg-utils)
 
 # Test mg-auth
 

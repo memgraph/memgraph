@@ -55,7 +55,6 @@ std::optional<communication::rpc::Server> server;
 std::optional<communication::ClientContext> client_context;
 std::optional<communication::rpc::Client> clients[kThreadsNum];
 std::optional<communication::rpc::ClientPool> client_pool;
-std::optional<utils::ThreadPool> thread_pool;
 
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');
@@ -73,15 +72,6 @@ static void BenchmarkRpcPool(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-static void BenchmarkRpcPoolAsync(benchmark::State &state) {
-  std::string data(state.range(0), 'a');
-  while (state.KeepRunning()) {
-    auto future = thread_pool->Run([&data] { client_pool->Call<Echo>(data); });
-    future.get();
-  }
-  state.SetItemsProcessed(state.iterations());
-}
-
 BENCHMARK(BenchmarkRpc)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 13)
@@ -90,13 +80,6 @@ BENCHMARK(BenchmarkRpc)
     ->UseRealTime();
 
 BENCHMARK(BenchmarkRpcPool)
-    ->RangeMultiplier(4)
-    ->Range(4, 1 << 13)
-    ->ThreadRange(1, kThreadsNum)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
-
-BENCHMARK(BenchmarkRpcPoolAsync)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 13)
     ->ThreadRange(1, kThreadsNum)
@@ -159,8 +142,6 @@ int main(int argc, char **argv) {
     for (int i = 0; i < kThreadsNum; ++i) {
       threads[i].join();
     }
-
-    thread_pool.emplace(kThreadsNum, "RPC client");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
