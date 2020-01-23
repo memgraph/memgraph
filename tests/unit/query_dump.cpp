@@ -192,7 +192,7 @@ auto Execute(storage::Storage *db, const std::string &query) {
   return stream;
 }
 
-VertexAccessor CreateVertex(
+storage::VertexAccessor CreateVertex(
     storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
     const std::map<std::string, storage::PropertyValue> &props,
     bool add_property_id = true) {
@@ -214,9 +214,9 @@ VertexAccessor CreateVertex(
   return vertex;
 }
 
-EdgeAccessor CreateEdge(
-    storage::Storage::Accessor *dba, VertexAccessor *from, VertexAccessor *to,
-    const std::string &edge_type_name,
+storage::EdgeAccessor CreateEdge(
+    storage::Storage::Accessor *dba, storage::VertexAccessor *from,
+    storage::VertexAccessor *to, const std::string &edge_type_name,
     const std::map<std::string, storage::PropertyValue> &props,
     bool add_property_id = true) {
   CHECK(dba);
