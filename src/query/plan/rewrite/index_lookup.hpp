@@ -100,6 +100,38 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ExpandVariable &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  // See if it might be better to do ScanAllBy<Index> of the destination and
+  // then do ExpandVariable to existing.
+  bool PostVisit(ExpandVariable &expand) override {
+    prev_ops_.pop_back();
+    if (expand.common_.existing_node) {
+      return true;
+    }
+    std::unique_ptr<ScanAll> indexed_scan;
+    ScanAll dst_scan(expand.input(), expand.common_.node_symbol,
+                     storage::View::OLD);
+    // With expand to existing we only get real gains with BFS, because we use a
+    // different algorithm then, so prefer expand to existing.
+    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
+      // TODO: Perhaps take average node degree into consideration, instead of
+      // unconditionally creating an indexed scan.
+      indexed_scan = GenScanByIndex(dst_scan);
+    } else {
+      indexed_scan =
+          GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+    }
+    if (indexed_scan) {
+      expand.set_input(std::move(indexed_scan));
+      expand.common_.existing_node = true;
+    }
+    return true;
+  }
+
   // The following operators may only use index lookup in filters inside of
   // their own branches. So we handle them all the same.
   //  * Input operator is visited with the current visitor.
@@ -231,15 +263,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
   bool PostVisit(ScanAllById &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ExpandVariable &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ExpandVariable &) override {
     prev_ops_.pop_back();
     return true;
   }

@@ -1549,4 +1549,19 @@ TYPED_TEST(TestPlanner, ScanAllByIdExpandToExisting) {
                        ExpectExpand(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, BfsToExisting) {
+  // Test MATCH (n)-[r *bfs]-(m) WHERE id(m) = 42 RETURN r
+  AstStorage storage;
+  auto *bfs = storage.Create<query::EdgeAtom>(
+      IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::BOTH);
+  bfs->filter_lambda_.inner_edge = IDENT("ie");
+  bfs->filter_lambda_.inner_node = IDENT("in");
+  bfs->filter_lambda_.expression = LITERAL(true);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))),
+                                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))),
+                                   RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(),
+                       ExpectExpandBfs(), ExpectProduce());
+}
+
 }  // namespace
