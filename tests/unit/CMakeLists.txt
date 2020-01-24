@@ -24,9 +24,6 @@ target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
 
-add_unit_test(datastructure_union_find.cpp)
-target_link_libraries(${test_prefix}datastructure_union_find glog gflags)
-
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
 
@@ -111,9 +108,6 @@ add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value mg-query)
 
 # END mg-query
-
-add_unit_test(queue.cpp)
-target_link_libraries(${test_prefix}queue glog gflags)
 
 add_unit_test(skip_list.cpp)
 target_link_libraries(${test_prefix}skip_list mg-utils)
