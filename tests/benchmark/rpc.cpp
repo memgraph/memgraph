@@ -3,10 +3,10 @@
 
 #include <benchmark/benchmark.h>
 
-#include "communication/rpc/client.hpp"
-#include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/messages.hpp"
-#include "communication/rpc/server.hpp"
+#include "rpc/client.hpp"
+#include "rpc/client_pool.hpp"
+#include "rpc/messages.hpp"
+#include "rpc/server.hpp"
 #include "slk/serialization.hpp"
 #include "utils/timer.hpp"
 
@@ -38,7 +38,7 @@ void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
 
 const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
-using Echo = communication::rpc::RequestResponse<EchoMessage, EchoMessage>;
+using Echo = rpc::RequestResponse<EchoMessage, EchoMessage>;
 
 const int kThreadsNum = 16;
 
@@ -51,10 +51,10 @@ DEFINE_bool(run_server, true, "Set to false to use external server");
 DEFINE_bool(run_benchmark, true, "Set to false to only run server");
 
 std::optional<communication::ServerContext> server_context;
-std::optional<communication::rpc::Server> server;
+std::optional<rpc::Server> server;
 std::optional<communication::ClientContext> client_context;
-std::optional<communication::rpc::Client> clients[kThreadsNum];
-std::optional<communication::rpc::ClientPool> client_pool;
+std::optional<rpc::Client> clients[kThreadsNum];
+std::optional<rpc::ClientPool> client_pool;
 
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');

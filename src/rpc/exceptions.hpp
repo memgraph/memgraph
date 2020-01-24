@@ -1,7 +1,7 @@
 #include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 /// Exception that is thrown whenever a RPC call fails.
 /// This exception inherits `std::exception` directly because
@@ -22,4 +22,4 @@ class RpcFailedException final : public utils::BasicException {
  private:
   io::network::Endpoint endpoint_;
 };
-}  // namespace communication::rpc
+}  // namespace rpc

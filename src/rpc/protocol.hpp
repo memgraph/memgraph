@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "communication/rpc/messages.hpp"
 #include "communication/session.hpp"
+#include "rpc/messages.hpp"
 
 /**
  * @brief Protocol
@@ -16,7 +16,7 @@
  * Message layout: MessageSize message_size,
  *                 message_size bytes serialized_message
  */
-namespace communication::rpc {
+namespace rpc {
 
 // Forward declaration of class Server
 class Server;
@@ -54,4 +54,4 @@ class Session {
   communication::OutputStream *output_stream_;
 };
 
-}  // namespace communication::rpc
+}  // namespace rpc

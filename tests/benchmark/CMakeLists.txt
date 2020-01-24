@@ -37,7 +37,7 @@ add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 
 add_benchmark(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-comm-rpc)
+target_link_libraries(${test_prefix}rpc mg-rpc)
 
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)

@@ -146,7 +146,7 @@ add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
 
 add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-comm-rpc)
+target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test data structures
 

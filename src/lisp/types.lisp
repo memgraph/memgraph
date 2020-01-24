@@ -1502,7 +1502,7 @@ DEFINE-RPC introduces the following additional member options:
            (res-name (format nil "~ARes" name))
            (rpc-decl
              #>cpp
-             using ${rpc-name} = communication::rpc::RequestResponse<${req-name}, ${res-name}>;
+             using ${rpc-name} = rpc::RequestResponse<${req-name}, ${res-name}>;
              cpp<#)
            (request-body (cdr (assoc :request options)))
            (response-body (cdr (assoc :response options)))

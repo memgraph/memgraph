@@ -10,6 +10,7 @@ add_subdirectory(telemetry)
 add_subdirectory(communication)
 add_subdirectory(auth)
 add_subdirectory(slk)
+add_subdirectory(rpc)
 add_subdirectory(storage/v2)
 add_subdirectory(query)
 
@@ -93,7 +94,7 @@ add_subdirectory(query)
 #
 #set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
 #    antlr_opencypher_parser_lib dl glog gflags
-#    mg-utils mg-io mg-requests mg-communication mg-comm-rpc
+#    mg-utils mg-io mg-requests mg-communication mg-rpc
 #    mg-auth)
 #
 #if (USE_LTALLOC)

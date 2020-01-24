@@ -10,10 +10,10 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/rpc/client.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/single_node_ha/paths.hpp"
 #include "raft/exceptions.hpp"
+#include "rpc/client.hpp"
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
@@ -719,7 +719,7 @@ void RaftServer::HBThreadMain(uint16_t peer_id) {
   // The heartbeat thread uses a dedicated RPC client for its peer so that it
   // can issue heartbeats in parallel with other RPC requests that are being
   // issued to the peer (replication, voting, etc.)
-  std::unique_ptr<communication::rpc::Client> rpc_client;
+  std::unique_ptr<rpc::Client> rpc_client;
 
   while (!exiting_) {
     TimePoint wait_until;
@@ -736,7 +736,7 @@ void RaftServer::HBThreadMain(uint16_t peer_id) {
 
         lock.unlock();
         if (!rpc_client) {
-          rpc_client = std::make_unique<communication::rpc::Client>(
+          rpc_client = std::make_unique<rpc::Client>(
               coordination_->GetOtherNodeEndpoint(peer_id),
               coordination_->GetRpcClientContext());
         }

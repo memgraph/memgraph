@@ -1,12 +1,12 @@
-#include "communication/rpc/protocol.hpp"
+#include "rpc/protocol.hpp"
 
-#include "communication/rpc/messages.hpp"
-#include "communication/rpc/server.hpp"
+#include "rpc/messages.hpp"
+#include "rpc/server.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 Session::Session(Server *server, const io::network::Endpoint &endpoint,
                  communication::InputStream *input_stream,
@@ -76,4 +76,4 @@ void Session::Execute() {
                    : extended_it->second.res_type.name);
 }
 
-}  // namespace communication::rpc
+}  // namespace rpc

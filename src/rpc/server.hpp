@@ -4,13 +4,13 @@
 #include <mutex>
 #include <vector>
 
-#include "communication/rpc/messages.hpp"
-#include "communication/rpc/protocol.hpp"
 #include "communication/server.hpp"
 #include "io/network/endpoint.hpp"
+#include "rpc/messages.hpp"
+#include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 class Server {
  public:
@@ -90,6 +90,6 @@ class Server {
   std::map<uint64_t, RpcExtendedCallback> extended_callbacks_;
 
   communication::Server<Session, Server> server_;
-};  // namespace communication::rpc
+};
 
-}  // namespace communication::rpc
+}  // namespace rpc

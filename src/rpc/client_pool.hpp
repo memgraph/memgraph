@@ -3,9 +3,9 @@
 #include <mutex>
 #include <stack>
 
-#include "communication/rpc/client.hpp"
+#include "rpc/client.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 /**
  * A simple client pool that creates new RPC clients on demand. Useful when you
@@ -62,4 +62,4 @@ class ClientPool {
   std::stack<std::unique_ptr<Client>> unused_clients_;
 };
 
-}  // namespace communication::rpc
+}  // namespace rpc

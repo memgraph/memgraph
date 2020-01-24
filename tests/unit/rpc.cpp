@@ -3,15 +3,15 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/rpc/client.hpp"
-#include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/messages.hpp"
-#include "communication/rpc/server.hpp"
+#include "rpc/client.hpp"
+#include "rpc/client_pool.hpp"
+#include "rpc/messages.hpp"
+#include "rpc/server.hpp"
 #include "utils/timer.hpp"
 
 #include "rpc_messages.hpp"
 
-using namespace communication::rpc;
+using namespace rpc;
 using namespace std::literals::chrono_literals;
 
 namespace slk {
@@ -97,8 +97,7 @@ TEST(Rpc, Abort) {
   });
 
   utils::Timer timer;
-  EXPECT_THROW(client.Call<Sum>(10, 20),
-               communication::rpc::RpcFailedException);
+  EXPECT_THROW(client.Call<Sum>(10, 20), RpcFailedException);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();

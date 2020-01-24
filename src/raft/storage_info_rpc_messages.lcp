@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 
-#include "communication/rpc/messages.hpp"
+#include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 cpp<#
 

@@ -1,0 +1,8 @@
+set(rpc_src_files
+    client.cpp
+    protocol.cpp
+    server.cpp)
+
+add_library(mg-rpc STATIC ${rpc_src_files})
+target_link_libraries(mg-rpc Threads::Threads mg-communication mg-utils mg-io fmt glog gflags)
+target_link_libraries(mg-rpc mg-slk)

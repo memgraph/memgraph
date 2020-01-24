@@ -4,8 +4,8 @@
 #include <cstring>
 #include <vector>
 
-#include "communication/rpc/messages.hpp"
 #include "raft/log_entry.hpp"
+#include "rpc/messages.hpp"
 cpp<#
 
 (lcp:namespace raft)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "communication/rpc/messages.hpp"
+#include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -41,7 +41,7 @@ void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
 }  // namespace slk
 
-using Sum = communication::rpc::RequestResponse<SumReq, SumRes>;
+using Sum = rpc::RequestResponse<SumReq, SumRes>;
 
 struct EchoMessage {
   static const utils::TypeInfo kType;
@@ -62,4 +62,4 @@ void Save(const EchoMessage &echo, Builder *builder);
 void Load(EchoMessage *echo, Reader *reader);
 }  // namespace slk
 
-using Echo = communication::rpc::RequestResponse<EchoMessage, EchoMessage>;
+using Echo = rpc::RequestResponse<EchoMessage, EchoMessage>;

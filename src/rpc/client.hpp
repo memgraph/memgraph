@@ -7,14 +7,14 @@
 #include <glog/logging.h>
 
 #include "communication/client.hpp"
-#include "communication/rpc/exceptions.hpp"
-#include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
+#include "rpc/exceptions.hpp"
+#include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
@@ -128,4 +128,4 @@ class Client {
   std::mutex mutex_;
 };
 
-}  // namespace communication::rpc
+}  // namespace rpc

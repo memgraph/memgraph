@@ -1,6 +1,6 @@
-#include "communication/rpc/server.hpp"
+#include "rpc/server.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 Server::Server(const io::network::Endpoint &endpoint,
                communication::ServerContext *context, size_t workers_count)
@@ -16,4 +16,4 @@ void Server::AwaitShutdown() { server_.AwaitShutdown(); }
 const io::network::Endpoint &Server::endpoint() const {
   return server_.endpoint();
 }
-}  // namespace communication::rpc
+}  // namespace rpc

@@ -13,10 +13,10 @@
 
 #include <glog/logging.h>
 
-#include "communication/rpc/client.hpp"
-#include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/exceptions.hpp"
+#include "rpc/client.hpp"
+#include "rpc/server.hpp"
 
 namespace raft {
 
@@ -86,8 +86,8 @@ class Coordination final {
 
     if (!client) {
       const auto &endpoint = endpoints_[other_id - 1];
-      client = std::make_unique<communication::rpc::Client>(
-          endpoint, &client_context_.value());
+      client =
+          std::make_unique<rpc::Client>(endpoint, &client_context_.value());
     }
 
     try {
@@ -129,11 +129,11 @@ class Coordination final {
   uint16_t cluster_size_;
 
   std::optional<communication::ServerContext> server_context_;
-  std::optional<communication::rpc::Server> server_;
+  std::optional<rpc::Server> server_;
 
   std::optional<communication::ClientContext> client_context_;
   std::vector<io::network::Endpoint> endpoints_;
-  std::vector<std::unique_ptr<communication::rpc::Client>> clients_;
+  std::vector<std::unique_ptr<rpc::Client>> clients_;
   std::vector<std::unique_ptr<std::mutex>> client_locks_;
 
   std::atomic<bool> alive_{true};

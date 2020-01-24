@@ -1,6 +1,6 @@
-#include "communication/rpc/client.hpp"
+#include "rpc/client.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 Client::Client(const io::network::Endpoint &endpoint,
                communication::ClientContext *context)
@@ -14,4 +14,4 @@ void Client::Abort() {
   client_ = std::nullopt;
 }
 
-}  // namespace communication::rpc
+}  // namespace rpc

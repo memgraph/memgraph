@@ -5,7 +5,7 @@
 
 #include "utils/typeinfo.hpp"
 
-namespace communication::rpc {
+namespace rpc {
 
 using MessageSize = uint32_t;
 
@@ -23,4 +23,4 @@ struct RequestResponse {
   using Response = TResponse;
 };
 
-}  // namespace communication::rpc
+}  // namespace rpc
