@@ -1,10 +1,10 @@
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 
 #include <glog/logging.h>
 
 #include "utils/file.hpp"
 
-namespace storage {
+namespace kvstore {
 
 struct KVStore::impl {};
 
@@ -102,4 +102,4 @@ bool KVStore::CompactRange(const std::string &begin_prefix,
                   "dummy kvstore";
 }
 
-}  // namespace storage
+}  // namespace kvstore

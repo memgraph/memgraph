@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "durability/single_node_ha/state_delta.hpp"
+#include "kvstore/kvstore.hpp"
 #include "raft/config.hpp"
 #include "raft/coordination.hpp"
 #include "raft/log_entry.hpp"
@@ -16,7 +17,6 @@
 #include "raft/raft_rpc_messages.hpp"
 #include "raft/replication_log.hpp"
 #include "raft/replication_timeout_map.hpp"
-#include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
 
@@ -233,7 +233,7 @@ class RaftServer final : public RaftInterface {
   //                              a separate key within KVStore.
   //////////////////////////////////////////////////////////////////////////////
 
-  storage::KVStore disk_storage_;
+  kvstore::KVStore disk_storage_;
 
   std::optional<uint16_t> voted_for_;
 

@@ -5,7 +5,7 @@
 
 #include <json/json.hpp>
 
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 
@@ -58,7 +58,7 @@ class Telemetry final {
   std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>>
       collectors_;
 
-  storage::KVStore storage_;
+  kvstore::KVStore storage_;
 };
 
 }  // namespace telemetry

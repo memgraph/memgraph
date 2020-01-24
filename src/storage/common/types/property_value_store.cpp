@@ -38,7 +38,7 @@ PropertyValueStore::PropertyValueStore(const PropertyValueStore &old)
   // constructor due to mvcc.
   if (!FLAGS_properties_on_disk.empty()) {
     version_key_ = global_key_cnt_++;
-    storage::KVStore::iterator old_disk_it(
+    kvstore::KVStore::iterator old_disk_it(
         &DiskStorage(), DiskKeyPrefix(std::to_string(old.version_key_)));
     iterator it(&old, old.props_.end(), std::move(old_disk_it));
 
@@ -134,7 +134,7 @@ void PropertyValueStore::clear() {
   }
 }
 
-storage::KVStore &PropertyValueStore::DiskStorage() const {
+kvstore::KVStore &PropertyValueStore::DiskStorage() const {
   static auto disk_storage = ConstructDiskStorage();
   return disk_storage;
 }
@@ -147,7 +147,7 @@ PropertyValueStore::iterator::iterator(
 PropertyValueStore::iterator::iterator(
     const PropertyValueStore *pvs,
     std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it,
-    storage::KVStore::iterator disk_it)
+    kvstore::KVStore::iterator disk_it)
     : pvs_(pvs), memory_it_(memory_it), disk_it_(std::move(disk_it)) {}
 
 PropertyValueStore::iterator &PropertyValueStore::iterator::operator++() {
@@ -233,8 +233,8 @@ PropertyValue PropertyValueStore::DeserializeProp(
   return glue::ToPropertyValue(dv);
 }
 
-storage::KVStore PropertyValueStore::ConstructDiskStorage() const {
+kvstore::KVStore PropertyValueStore::ConstructDiskStorage() const {
   auto storage_path = fs::path() / FLAGS_durability_directory / "properties";
   if (fs::exists(storage_path)) fs::remove_all(storage_path);
-  return storage::KVStore(storage_path);
+  return kvstore::KVStore(storage_path);
 }

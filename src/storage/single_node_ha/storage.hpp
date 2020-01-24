@@ -4,8 +4,8 @@
 #include <optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/common/constraints/unique_constraints.hpp"
-#include "storage/common/kvstore/kvstore.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge.hpp"
 #include "storage/single_node_ha/indexes/key_index.hpp"

@@ -25,10 +25,10 @@ add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
 
 add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
+target_link_libraries(${test_prefix}kvstore mg-kvstore glog)
 
 #add_unit_test(replication_log.cpp)
-#target_link_libraries(${test_prefix}replication_log mg-single-node-ha kvstore_lib glog)
+#target_link_libraries(${test_prefix}replication_log mg-single-node-ha mg-kvstore glog)
 
 # Test mg-query
 
@@ -114,7 +114,7 @@ target_link_libraries(${test_prefix}skip_list mg-utils)
 
 ## TODO: REPLACE single-node-ha
 #add_unit_test(slk_advanced.cpp)
-#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha kvstore_dummy_lib)
+#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
 
 add_unit_test(slk_core.cpp)
 target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)

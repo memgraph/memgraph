@@ -7,7 +7,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 
 namespace auth {
 
@@ -158,9 +158,9 @@ class Auth final {
   std::mutex &WithLock();
 
  private:
-  storage::KVStore storage_;
+  kvstore::KVStore storage_;
   auth::Module module_;
-  // Even though the `storage::KVStore` class is guaranteed to be thread-safe we
+  // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe we
   // use a mutex to lock all operations on the `User` and `Role` storage because
   // some operations on the users and/or roles may require more than one
   // operation on the storage.

@@ -5,6 +5,7 @@ add_subdirectory(lisp)
 add_subdirectory(utils)
 add_subdirectory(requests)
 add_subdirectory(io)
+add_subdirectory(kvstore)
 add_subdirectory(telemetry)
 add_subdirectory(communication)
 add_subdirectory(auth)
@@ -123,14 +124,6 @@ add_subdirectory(query)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
-# STATIC library used to store key-value pairs
-add_library(kvstore_lib STATIC storage/common/kvstore/kvstore.cpp)
-target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
-
-# STATIC library for dummy key-value storage
-# add_library(kvstore_dummy_lib STATIC storage/common/kvstore/kvstore_dummy.cpp)
-# target_link_libraries(kvstore_dummy_lib mg-utils)
-
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
@@ -244,7 +237,7 @@ install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
 
 ## memgraph single node high availability executable
 #add_executable(memgraph_ha memgraph_ha.cpp)
-#target_link_libraries(memgraph_ha mg-single-node-ha kvstore_lib telemetry_lib)
+#target_link_libraries(memgraph_ha mg-single-node-ha mg-kvstore telemetry_lib)
 #set_target_properties(memgraph_ha PROPERTIES
 #                      # Set the executable output name to include version information.
 #                      OUTPUT_NAME "memgraph_ha-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"

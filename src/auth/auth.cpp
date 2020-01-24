@@ -45,7 +45,7 @@ const std::string kLinkPrefix = "link:";
 
 /**
  * All data stored in the `Auth` storage is stored in an underlying
- * `storage::KVStore`. Because we are using a key-value store to store the data,
+ * `kvstore::KVStore`. Because we are using a key-value store to store the data,
  * the data has to be encoded. The encoding used is as follows:
  *
  * User: key="user:<username>", value="<json_encoded_members_of_user>"

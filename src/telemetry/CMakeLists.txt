@@ -4,4 +4,4 @@ set(telemetry_src_files
     system_info.cpp)
 
 add_library(telemetry_lib STATIC ${telemetry_src_files})
-target_link_libraries(telemetry_lib glog mg-requests kvstore_lib)
+target_link_libraries(telemetry_lib glog mg-requests mg-kvstore)

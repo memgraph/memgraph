@@ -3,7 +3,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::filesystem;
@@ -20,20 +20,20 @@ class KVStore : public ::testing::Test {
 };
 
 TEST_F(KVStore, PutGet) {
-  storage::KVStore kvstore(test_folder_ / "PutGet");
+  kvstore::KVStore kvstore(test_folder_ / "PutGet");
   ASSERT_TRUE(kvstore.Put("key", "value"));
   ASSERT_EQ(kvstore.Get("key").value(), "value");
 }
 
 TEST_F(KVStore, PutMultipleGet) {
-  storage::KVStore kvstore(test_folder_ / "PutMultipleGet");
+  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
 }
 
 TEST_F(KVStore, PutGetDeleteGet) {
-  storage::KVStore kvstore(test_folder_ / "PutGetDeleteGet");
+  kvstore::KVStore kvstore(test_folder_ / "PutGetDeleteGet");
   ASSERT_TRUE(kvstore.Put("key", "value"));
   ASSERT_EQ(kvstore.Get("key").value(), "value");
   ASSERT_TRUE(kvstore.Delete("key"));
@@ -41,7 +41,7 @@ TEST_F(KVStore, PutGetDeleteGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
-  storage::KVStore kvstore(test_folder_ / "PutMultipleGetDeleteMultipleGet");
+  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
@@ -52,7 +52,7 @@ TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
-  storage::KVStore kvstore(test_folder_ /
+  kvstore::KVStore kvstore(test_folder_ /
                            "PutMultipleGetPutAndDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
@@ -66,17 +66,17 @@ TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
 
 TEST_F(KVStore, Durability) {
   {
-    storage::KVStore kvstore(test_folder_ / "Durability");
+    kvstore::KVStore kvstore(test_folder_ / "Durability");
     ASSERT_TRUE(kvstore.Put("key", "value"));
   }
   {
-    storage::KVStore kvstore(test_folder_ / "Durability");
+    kvstore::KVStore kvstore(test_folder_ / "Durability");
     ASSERT_EQ(kvstore.Get("key").value(), "value");
   }
 }
 
 TEST_F(KVStore, Size) {
-  storage::KVStore kvstore(test_folder_ / "Size");
+  kvstore::KVStore kvstore(test_folder_ / "Size");
 
   ASSERT_TRUE(kvstore.Put("prefix_1", "jedan"));
   ASSERT_TRUE(kvstore.Put("prefix_2", "dva"));
@@ -106,7 +106,7 @@ TEST_F(KVStore, Size) {
 }
 
 TEST_F(KVStore, DeletePrefix) {
-  storage::KVStore kvstore(test_folder_ / "DeletePrefix");
+  kvstore::KVStore kvstore(test_folder_ / "DeletePrefix");
 
   ASSERT_TRUE(kvstore.Put("prefix_1", "jedan"));
   ASSERT_TRUE(kvstore.Put("prefix_2", "dva"));
@@ -144,7 +144,7 @@ TEST_F(KVStore, DeletePrefix) {
 }
 
 TEST_F(KVStore, Iterator) {
-  storage::KVStore kvstore(test_folder_ / "Iterator");
+  kvstore::KVStore kvstore(test_folder_ / "Iterator");
 
   for (int i = 1; i <= 4; ++i)
     ASSERT_TRUE(
@@ -175,7 +175,7 @@ TEST_F(KVStore, Iterator) {
 }
 
 TEST_F(KVStore, IteratorPrefix) {
-  storage::KVStore kvstore(test_folder_ / "Iterator");
+  kvstore::KVStore kvstore(test_folder_ / "Iterator");
 
   ASSERT_TRUE(kvstore.Put("a_1", "value1"));
   ASSERT_TRUE(kvstore.Put("a_2", "value2"));

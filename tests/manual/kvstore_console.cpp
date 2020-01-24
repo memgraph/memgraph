@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/string.hpp"
 
 DEFINE_string(path, "", "Path to the storage directory.");
@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
 
   CHECK(FLAGS_path != "") << "Please specify a path to the KVStore!";
 
-  storage::KVStore kvstore(std::filesystem::path{FLAGS_path});
+  kvstore::KVStore kvstore(std::filesystem::path{FLAGS_path});
 
   while (true) {
     std::string s;

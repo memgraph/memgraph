@@ -9,7 +9,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace storage {
+namespace kvstore {
 
 class KVStoreError : public utils::BasicException {
  public:
@@ -204,4 +204,4 @@ class KVStore final {
   std::unique_ptr<impl> pimpl_;
 };
 
-}  // namespace storage
+}  // namespace kvstore

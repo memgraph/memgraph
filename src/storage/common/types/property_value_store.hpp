@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/common/kvstore/kvstore.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
 
@@ -75,11 +75,11 @@ class PropertyValueStore {
   void clear();
 
   /**
-   * Returns a static storage::KVStore instance used for storing properties on
+   * Returns a static kvstore::KVStore instance used for storing properties on
    * disk. This hack is needed due to statics that are internal to RocksDB and
    * availability of durability_directory flag.
    */
-  storage::KVStore &DiskStorage() const;
+  kvstore::KVStore &DiskStorage() const;
 
   /**
    * Custom PVS iterator behaves as if all properties are stored in a single
@@ -103,7 +103,7 @@ class PropertyValueStore {
     iterator(const PropertyValueStore *pvs,
              std::vector<std::pair<Property, PropertyValue>>::const_iterator
                  memory_it,
-             storage::KVStore::iterator disk_it);
+             kvstore::KVStore::iterator disk_it);
 
     iterator(const iterator &other) = delete;
 
@@ -126,7 +126,7 @@ class PropertyValueStore {
    private:
     const PropertyValueStore *pvs_;
     std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it_;
-    std::optional<storage::KVStore::iterator> disk_it_;
+    std::optional<kvstore::KVStore::iterator> disk_it_;
     std::optional<std::pair<Property, PropertyValue>> disk_prop_;
   };
 
@@ -160,5 +160,5 @@ class PropertyValueStore {
    */
   PropertyValue DeserializeProp(const std::string &serialized_prop) const;
 
-  storage::KVStore ConstructDiskStorage() const;
+  kvstore::KVStore ConstructDiskStorage() const;
 };
