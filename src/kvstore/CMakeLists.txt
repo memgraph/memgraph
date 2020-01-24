@@ -2,7 +2,6 @@
 add_library(mg-kvstore STATIC kvstore.cpp)
 target_link_libraries(mg-kvstore stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
 
-# TODO: ZAKOMENTIRAJ!
 # STATIC library for dummy key-value storage
-add_library(mg-kvstore-dummy STATIC kvstore_dummy.cpp)
-target_link_libraries(mg-kvstore-dummy mg-utils)
+# add_library(mg-kvstore-dummy STATIC kvstore_dummy.cpp)
+# target_link_libraries(mg-kvstore-dummy mg-utils)
