@@ -7,7 +7,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 
 namespace query::plan {
 

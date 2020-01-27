@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 #include "query/parameters.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 
 namespace query::frontend {
 
@@ -50,7 +50,7 @@ class StrippedQuery {
   const auto &literals() const { return literals_; }
   const auto &named_expressions() const { return named_exprs_; }
   const auto &parameters() const { return parameters_; }
-  HashType hash() const { return hash_; }
+  uint64_t hash() const { return hash_; }
 
  private:
   // Return len of matched keyword if something is matched, otherwise 0.
@@ -86,7 +86,7 @@ class StrippedQuery {
   std::unordered_map<int, std::string> named_exprs_;
 
   // Hash based on the stripped query.
-  HashType hash_;
+  uint64_t hash_;
 };
 
 }  // namespace query::frontend

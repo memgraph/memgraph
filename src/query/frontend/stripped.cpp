@@ -14,7 +14,7 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 #include "utils/string.hpp"
 
 namespace query::frontend {
@@ -130,7 +130,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   }
 
   query_ = utils::Join(token_strings, " ");
-  hash_ = fnv(query_);
+  hash_ = utils::Fnv(query_);
 
   auto it = tokens.begin();
   while (it != tokens.end()) {

@@ -422,7 +422,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage,
  * cache a fresh one if it doesn't yet exist.
  */
 std::shared_ptr<CachedPlan> CypherQueryToPlan(
-    HashType hash, AstStorage ast_storage, CypherQuery *query,
+    uint64_t hash, AstStorage ast_storage, CypherQuery *query,
     const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
     DbAccessor *db_accessor) {
   auto plan_cache_access = plan_cache->access();

@@ -27,7 +27,7 @@
 #include "query/procedure/module.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"

@@ -151,10 +151,10 @@ struct QueryCacheEntry {
   bool operator<(const QueryCacheEntry &other) const {
     return first < other.first;
   }
-  bool operator==(const HashType &other) const { return first == other; }
-  bool operator<(const HashType &other) const { return first < other; }
+  bool operator==(const uint64_t &other) const { return first == other; }
+  bool operator<(const uint64_t &other) const { return first < other; }
 
-  HashType first;
+  uint64_t first;
   // TODO: Maybe store the query string here and use it as a key with the hash
   // so that we eliminate the risk of hash collisions.
   CachedQuery second;
@@ -167,10 +167,10 @@ struct PlanCacheEntry {
   bool operator<(const PlanCacheEntry &other) const {
     return first < other.first;
   }
-  bool operator==(const HashType &other) const { return first == other; }
-  bool operator<(const HashType &other) const { return first < other; }
+  bool operator==(const uint64_t &other) const { return first == other; }
+  bool operator<(const uint64_t &other) const { return first < other; }
 
-  HashType first;
+  uint64_t first;
   // TODO: Maybe store the query string here and use it as a key with the hash
   // so that we eliminate the risk of hash collisions.
   std::shared_ptr<CachedPlan> second;

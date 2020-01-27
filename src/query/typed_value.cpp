@@ -10,7 +10,7 @@
 #include "glog/logging.h"
 
 #include "utils/exceptions.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 
 namespace query {
 

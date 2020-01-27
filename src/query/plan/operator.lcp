@@ -16,7 +16,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/bound.hpp"
-#include "utils/hashing/fnv.hpp"
+#include "utils/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/visitor.hpp"
 cpp<#

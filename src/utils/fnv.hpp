@@ -1,38 +1,20 @@
 #pragma once
 
 #include <cstdlib>
-#include <string>
-
-#include "utils/platform.hpp"
-
-#include "fnv32.hpp"
-#include "fnv64.hpp"
-
-// fnv1a is recommended so use it as a default implementation. also use the
-// platform specific version of the function
-
-namespace {
-
-#ifdef MEMGRAPH64
-
-__attribute__((unused)) uint64_t fnv(const std::string &s) {
-  return fnv1a64(s);
-}
-
-using HashType = uint64_t;
-
-#else
-
-__attribute__((unused)) uint32_t fnv(const std::string &s) {
-  return fnv1a32(s);
-}
-
-using HashType = uint32_t;
-
-#endif
-}
+#include <string_view>
 
 namespace utils {
+
+inline uint64_t Fnv(const std::string_view &s) {
+  // fnv1a is recommended so use it as the default implementation.
+  uint64_t hash = 14695981039346656037UL;
+
+  for (const auto &ch : s) {
+    hash = (hash ^ (uint64_t)ch) * 1099511628211UL;
+  }
+
+  return hash;
+}
 
 /**
  * Does FNV-like hashing on a collection. Not truly FNV
