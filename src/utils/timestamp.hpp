@@ -8,7 +8,6 @@
 #include <fmt/format.h>
 
 #include "utils/exceptions.hpp"
-#include "utils/total_ordering.hpp"
 
 namespace utils {
 
@@ -17,7 +16,7 @@ class TimestampError : public StacktraceException {
   using StacktraceException::StacktraceException;
 };
 
-class Timestamp : public TotalOrdering<Timestamp> {
+class Timestamp final {
  public:
   Timestamp() : Timestamp(0, 0) {}
 
@@ -27,9 +26,6 @@ class Timestamp : public TotalOrdering<Timestamp> {
     if (result == nullptr)
       throw TimestampError("Unable to construct from {}", time);
   }
-
-  Timestamp(const Timestamp &) = default;
-  Timestamp(Timestamp &&) = default;
 
   static Timestamp Now() {
     timespec time;
@@ -83,6 +79,22 @@ class Timestamp : public TotalOrdering<Timestamp> {
   constexpr friend bool operator<(const Timestamp &a, const Timestamp &b) {
     return a.unix_time < b.unix_time ||
            (a.unix_time == b.unix_time && a.nsec < b.nsec);
+  }
+
+  constexpr friend bool operator!=(const Timestamp &a, const Timestamp &b) {
+    return !(a == b);
+  }
+
+  constexpr friend bool operator<=(const Timestamp &a, const Timestamp &b) {
+    return a < b || a == b;
+  }
+
+  constexpr friend bool operator>(const Timestamp &a, const Timestamp &b) {
+    return !(a <= b);
+  }
+
+  constexpr friend bool operator>=(const Timestamp &a, const Timestamp &b) {
+    return !(a < b);
   }
 
  private:
