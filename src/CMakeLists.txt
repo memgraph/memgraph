@@ -13,6 +13,7 @@ add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(storage/v2)
 add_subdirectory(query)
+add_subdirectory(audit)
 
 ## ----------------------------------------------------------------------------
 ## Common LCP files
@@ -35,7 +36,6 @@ add_subdirectory(query)
 ## ----------------------------------------------------------------------------
 #set(mg_single_node_ha_sources
 #    ${lcp_common_cpp_files}
-#    audit/log.cpp
 #    data_structures/concurrent/skiplist_gc.cpp
 #    database/single_node_ha/config.cpp
 #    database/single_node_ha/graph_db.cpp
@@ -95,7 +95,7 @@ add_subdirectory(query)
 #set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
 #    antlr_opencypher_parser_lib dl glog gflags
 #    mg-utils mg-io mg-requests mg-communication mg-rpc
-#    mg-auth)
+#    mg-auth mg-audit)
 #
 #if (USE_LTALLOC)
 #  list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)
@@ -134,7 +134,6 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
-    audit/log.cpp
     glue/auth.cpp
     glue/communication.cpp
     memgraph_init.cpp
@@ -144,7 +143,7 @@ set(mg_single_node_v2_sources
 set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
     telemetry_lib mg-query mg-communication)
 # These are enterprise subsystems
-set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth)
+set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
