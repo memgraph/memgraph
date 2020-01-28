@@ -1,8 +1,0 @@
----
-Language:     Cpp
-BasedOnStyle: Google
-Standard:     "C++11"
-UseTab:       Never
-DerivePointerAlignment: false
-PointerAlignment: Right
-...

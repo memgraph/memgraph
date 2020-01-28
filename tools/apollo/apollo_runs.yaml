@@ -7,7 +7,6 @@
     - cppcheck # cppcheck script
     - ../../src # src source dir
     - ../../tests # tests source dir
-    - ../../poc # poc source dir
     - ../../.git # git directory (used to find out changed files in commit)
     - ../../.clang-format # clang-format config file
   outfile_paths:

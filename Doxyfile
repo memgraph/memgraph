@@ -839,7 +839,6 @@ EXCLUDE_PATTERNS      += */Testing/*
 EXCLUDE_PATTERNS      += */tests/*
 EXCLUDE_PATTERNS      += */dist/*
 EXCLUDE_PATTERNS      += */tools/*
-EXCLUDE_PATTERNS      += */customers/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the

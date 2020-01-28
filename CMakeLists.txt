@@ -193,9 +193,6 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # -----------------------------------------------------------------------------
 
 # Optional subproject configuration -------------------------------------------
-option(POC "Build proof of concept binaries" OFF)
-option(EXPERIMENTAL "Build experimental binaries" OFF)
-option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
@@ -277,18 +274,6 @@ endif()
 # Add subprojects
 include_directories(src)
 add_subdirectory(src)
-
-if(POC)
-  add_subdirectory(poc)
-endif()
-
-if(EXPERIMENTAL)
-  add_subdirectory(experimental)
-endif()
-
-if(CUSTOMERS)
-  add_subdirectory(customers)
-endif()
 
 enable_testing()
 add_subdirectory(tests)
