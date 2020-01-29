@@ -18,46 +18,35 @@ function(add_unit_test test_cpp)
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)
 
-add_unit_test(bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
-
-add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
-
-add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore mg-kvstore glog)
-
 #add_unit_test(replication_log.cpp)
 #target_link_libraries(${test_prefix}replication_log mg-single-node-ha mg-kvstore glog)
 
-# Test mg-query
 
-add_unit_test(cypher_main_visitor.cpp)
-target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
+# Test mg-query
 
 add_unit_test(bfs_single_node.cpp)
 target_link_libraries(${test_prefix}bfs_single_node mg-query)
 
+add_unit_test(cypher_main_visitor.cpp)
+target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
+
 add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}interpreter mg-communication mg-query)
-
-add_unit_test(query_cost_estimator.cpp)
-target_link_libraries(${test_prefix}query_cost_estimator mg-query)
-
-add_unit_test(query_expression_evaluator.cpp)
-target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-query)
 
+add_unit_test(query_cost_estimator.cpp)
+target_link_libraries(${test_prefix}query_cost_estimator mg-query)
+
 add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
 
-add_unit_test(query_pretty_print.cpp)
-target_link_libraries(${test_prefix}query_pretty_print mg-query)
+add_unit_test(query_expression_evaluator.cpp)
+target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 
-add_unit_test(query_profile.cpp)
-target_link_libraries(${test_prefix}query_profile mg-query)
+add_unit_test(query_plan.cpp)
+target_link_libraries(${test_prefix}query_plan mg-query)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
@@ -68,19 +57,17 @@ target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query)
 add_unit_test(query_plan_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
 
-# Storage V2 in query execution
-add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
-# END Storage V2 in query execution
-
 add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
-add_unit_test(query_plan.cpp)
-target_link_libraries(${test_prefix}query_plan mg-query)
+add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
+
+add_unit_test(query_pretty_print.cpp)
+target_link_libraries(${test_prefix}query_pretty_print mg-query)
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
@@ -91,6 +78,9 @@ add_unit_test(query_procedure_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_module mg-query)
 target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
+
+add_unit_test(query_profile.cpp)
+target_link_libraries(${test_prefix}query_profile mg-query)
 
 add_unit_test(query_required_privileges.cpp)
 target_link_libraries(${test_prefix}query_required_privileges mg-query)
@@ -107,23 +97,6 @@ target_link_libraries(${test_prefix}stripped mg-query)
 add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value mg-query)
 
-# END mg-query
-
-add_unit_test(skip_list.cpp)
-target_link_libraries(${test_prefix}skip_list mg-utils)
-
-## TODO: REPLACE single-node-ha
-#add_unit_test(slk_advanced.cpp)
-#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
-
-add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
-
-add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
-
-add_unit_test(small_vector.cpp)
-target_link_libraries(${test_prefix}small_vector mg-utils)
 
 # Test mg-communication
 
@@ -136,6 +109,9 @@ target_link_libraries(${test_prefix}bolt_chunked_encoder_buffer mg-communication
 add_unit_test(bolt_decoder.cpp)
 target_link_libraries(${test_prefix}bolt_decoder mg-communication)
 
+add_unit_test(bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
+
 add_unit_test(bolt_session.cpp)
 target_link_libraries(${test_prefix}bolt_session mg-communication)
 
@@ -145,13 +121,18 @@ target_link_libraries(${test_prefix}communication_buffer mg-communication)
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
 
-add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-rpc)
+
+# Test mg-kvstore
+
+add_unit_test(kvstore.cpp)
+target_link_libraries(${test_prefix}kvstore mg-kvstore glog)
+
 
 # Test data structures
 
 add_unit_test(ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-utils)
+
 
 # Test mg-io
 
@@ -163,6 +144,7 @@ target_link_libraries(${test_prefix}network_utils mg-io)
 
 add_unit_test(socket.cpp)
 target_link_libraries(${test_prefix}socket mg-io)
+
 
 # Test mg-utils
 
@@ -187,11 +169,11 @@ target_link_libraries(${test_prefix}utils_memory mg-utils)
 add_unit_test(utils_on_scope_exit.cpp)
 target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 
-add_unit_test(utils_scheduler.cpp)
-target_link_libraries(${test_prefix}utils_scheduler mg-utils)
-
 add_unit_test(utils_rwlock.cpp)
 target_link_libraries(${test_prefix}utils_rwlock mg-utils)
+
+add_unit_test(utils_scheduler.cpp)
+target_link_libraries(${test_prefix}utils_scheduler mg-utils)
 
 add_unit_test(utils_signals.cpp)
 target_link_libraries(${test_prefix}utils_signals mg-utils)
@@ -205,15 +187,23 @@ target_link_libraries(${test_prefix}utils_synchronized mg-utils)
 add_unit_test(utils_timestamp.cpp)
 target_link_libraries(${test_prefix}utils_timestamp mg-utils)
 
-# Test mg-auth
+add_unit_test(skip_list.cpp)
+target_link_libraries(${test_prefix}skip_list mg-utils)
 
-add_unit_test(auth.cpp)
-target_link_libraries(${test_prefix}auth mg-auth)
+add_unit_test(small_vector.cpp)
+target_link_libraries(${test_prefix}small_vector mg-utils)
 
-# Test storage v2
+
+# Test mg-storage-v2
+
+add_unit_test(commit_log_v2.cpp)
+target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
 
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
+
+add_unit_test(storage_v2.cpp)
+target_link_libraries(${test_prefix}storage_v2 mg-storage-v2)
 
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
@@ -226,9 +216,6 @@ target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
 
 add_unit_test(storage_v2_edge.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
-
-add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2)
 
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
@@ -244,6 +231,32 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
+
+
+# Test mg-auth
+
+add_unit_test(auth.cpp)
+target_link_libraries(${test_prefix}auth mg-auth)
+
+
+# Test mg-slk
+
+## TODO: REPLACE single-node-ha
+#add_unit_test(slk_advanced.cpp)
+#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
+
+add_unit_test(slk_core.cpp)
+target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
+
+add_unit_test(slk_streams.cpp)
+target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
+
+
+# Test mg-rpc
+
+add_unit_test(rpc.cpp)
+target_link_libraries(${test_prefix}rpc mg-rpc)
+
 
 # Test LCP
 
