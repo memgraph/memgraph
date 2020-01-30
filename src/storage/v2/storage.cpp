@@ -15,9 +15,9 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
                             std::optional<VertexAccessor> *vertex,
                             Transaction *tx, View view, Indices *indices,
-                            Config::Items config) {
+                            Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, config, view);
+    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -32,7 +32,8 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self,
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(),
                                  &self->vertex_, self->transaction_,
-                                 self->view_, self->indices_, self->config_)) {}
+                                 self->view_, self->indices_,
+                                 self_->constraints_, self->config_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const {
   return *self_->vertex_;
@@ -42,7 +43,8 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(),
                                &self_->vertex_, self_->transaction_,
-                               self_->view_, self_->indices_, self_->config_);
+                               self_->view_, self_->indices_,
+                               self_->constraints_, self_->config_);
   return *this;
 }
 
@@ -288,7 +290,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Storage::Storage(Config config)
-    : indices_(config.items),
+    : indices_(&constraints_, config.items),
       config_(config),
       durability_(config.durability, &vertices_, &edges_, &name_id_mapper_,
                   &edge_count_, &indices_, &constraints_, config.items) {
@@ -356,7 +358,8 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   CHECK(inserted) << "The vertex must be inserted here!";
   CHECK(it != acc.end()) << "Invalid Vertex accessor!";
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, config_);
+  return VertexAccessor(&*it, &transaction_, &storage_->indices_,
+                        &storage_->constraints_, config_);
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
@@ -365,7 +368,7 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_,
-                                config_, view);
+                                &storage_->constraints_, config_, view);
 }
 
 Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -414,7 +417,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_,
-                   &storage_->indices_, config_);
+                   &storage_->indices_, &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -425,7 +428,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_,
-                   &storage_->indices_, config_);
+                   &storage_->indices_, &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
@@ -514,7 +517,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_,
-                      &storage_->indices_, config_);
+                      &storage_->indices_, &storage_->constraints_, config_);
 }
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
@@ -635,7 +638,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ExistenceConstraintViolation, void>
+utils::BasicResult<ConstraintViolation, void>
 Storage::Accessor::Commit() {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
   CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
@@ -662,6 +665,11 @@ Storage::Accessor::Commit() {
       }
     }
 
+    // Result of validating the vertex against unqiue constraints. It has to be
+    // declared outside of the critical section scope because its value is
+    // tested for Abort call which has to be done out of the scope.
+    std::optional<ConstraintViolation> unique_constraint_violation;
+
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
     uint64_t commit_timestamp;
@@ -670,35 +678,72 @@ Storage::Accessor::Commit() {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       commit_timestamp = storage_->timestamp_++;
 
-      // Write transaction to WAL while holding the engine lock to make sure
-      // that committed transactions are sorted by the commit timestamp in the
-      // WAL files. We supply the new commit timestamp to the function so that
-      // it knows what will be the final commit timestamp. The WAL must be
-      // written before actually committing the transaction (before setting the
-      // commit timestamp) so that no other transaction can see the
-      // modifications before they are written to disk.
-      storage_->durability_.AppendToWal(transaction_, commit_timestamp);
+      // Before committing and validating vertices against unique constraints,
+      // we have to update unique constraints with the vertices that are going
+      // to be validated/committed.
+      for (const auto &delta : transaction_.deltas) {
+        auto prev = delta.prev.Get();
+        if (prev.type != PreviousPtr::Type::VERTEX) {
+          continue;
+        }
+        storage_->constraints_.unique_constraints.UpdateBeforeCommit(
+            prev.vertex, transaction_);
+      }
 
-      // Take committed_transactions lock while holding the engine lock to
-      // make sure that committed transactions are sorted by the commit
-      // timestamp in the list.
-      storage_->committed_transactions_.WithLock(
-          [&](auto &committed_transactions) {
-            // TODO: release lock, and update all deltas to have a local copy
-            // of the commit timestamp
-            CHECK(transaction_.commit_timestamp != nullptr)
-                << "Invalid database state!";
-            transaction_.commit_timestamp->store(commit_timestamp,
+      // Validate that unique constraints are satisfied for all modified
+      // vertices.
+      for (const auto &delta : transaction_.deltas) {
+        auto prev = delta.prev.Get();
+        if (prev.type != PreviousPtr::Type::VERTEX) {
+          continue;
+        }
+
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        unique_constraint_violation = storage_->constraints_.unique_constraints
+            .Validate(*prev.vertex, transaction_, commit_timestamp);
+        if (unique_constraint_violation) {
+          break;
+        }
+      }
+
+      if (!unique_constraint_violation) {
+        // Write transaction to WAL while holding the engine lock to make sure
+        // that committed transactions are sorted by the commit timestamp in the
+        // WAL files. We supply the new commit timestamp to the function so that
+        // it knows what will be the final commit timestamp. The WAL must be
+        // written before actually committing the transaction (before setting the
+        // commit timestamp) so that no other transaction can see the
+        // modifications before they are written to disk.
+        storage_->durability_.AppendToWal(transaction_, commit_timestamp);
+
+        // Take committed_transactions lock while holding the engine lock to
+        // make sure that committed transactions are sorted by the commit
+        // timestamp in the list.
+        storage_->committed_transactions_.WithLock(
+            [&](auto &committed_transactions) {
+              // TODO: release lock, and update all deltas to have a local copy
+              // of the commit timestamp
+              CHECK(transaction_.commit_timestamp != nullptr)
+                  << "Invalid database state!";
+              transaction_.commit_timestamp->store(commit_timestamp,
                                                  std::memory_order_release);
-            // Release engine lock because we don't have to hold it anymore and
-            // emplace back could take a long time.
-            engine_guard.unlock();
-            committed_transactions.emplace_back(std::move(transaction_));
-          });
+              // Release engine lock because we don't have to hold it anymore and
+              // emplace back could take a long time.
+              engine_guard.unlock();
+              committed_transactions.emplace_back(std::move(transaction_));
+            });
+
+        storage_->commit_log_.MarkFinished(start_timestamp);
+        storage_->commit_log_.MarkFinished(commit_timestamp);
+      }
     }
 
-    storage_->commit_log_.MarkFinished(start_timestamp);
-    storage_->commit_log_.MarkFinished(commit_timestamp);
+    if (unique_constraint_violation) {
+      Abort();
+      storage_->commit_log_.MarkFinished(commit_timestamp);
+      return *unique_constraint_violation;
+    }
   }
   is_transaction_active_ = false;
 
@@ -987,7 +1032,7 @@ IndicesInfo Storage::ListAllIndices() const {
           indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<ExistenceConstraintViolation, bool>
+utils::BasicResult<ConstraintViolation, bool>
 Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = ::storage::CreateExistenceConstraint(&constraints_, label,
@@ -1011,9 +1056,26 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
   return true;
 }
 
+utils::BasicResult<ConstraintViolation, bool>
+Storage::CreateUniqueConstraint(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = constraints_.unique_constraints.CreateConstraint(
+      label, property, vertices_.access());
+  if (ret.HasError() || !ret.GetValue()) return ret;
+  // TODO(tsabolcec): Append action to the WAL.
+  return true;
+}
+
+bool Storage::DropUniqueConstraint(LabelId label, PropertyId property) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  // TODO(tsabolcec): Append action to the WAL.
+  return constraints_.unique_constraints.DropConstraint(label, property);
+}
+
 ConstraintsInfo Storage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {ListExistenceConstraints(constraints_)};
+  return {ListExistenceConstraints(constraints_),
+          constraints_.unique_constraints.ListConstraints()};
 }
 
 StorageInfo Storage::GetInfo() const {
@@ -1239,6 +1301,8 @@ void Storage::CollectGarbage() {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
     RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+    constraints_.unique_constraints.RemoveObsoleteEntries(
+        oldest_active_start_timestamp);
   }
 
   {

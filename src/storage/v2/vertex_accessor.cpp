@@ -12,6 +12,7 @@ namespace storage {
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
                                                      Transaction *transaction,
                                                      Indices *indices,
+                                                     Constraints *constraints,
                                                      Config::Items config,
                                                      View view) {
   bool is_visible = true;
@@ -43,7 +44,7 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
                        }
                      });
   if (!is_visible) return std::nullopt;
-  return VertexAccessor{vertex, transaction, indices, config};
+  return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
@@ -435,7 +436,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_,
-                     indices_, config_);
+                     indices_, constraints_, config_);
   }
   return std::move(ret);
 }
@@ -528,7 +529,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_,
-                     indices_, config_);
+                     indices_, constraints_, config_);
   }
   return std::move(ret);
 }

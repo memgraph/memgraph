@@ -37,6 +37,7 @@ class AllVerticesIterable final {
   Transaction *transaction_;
   View view_;
   Indices *indices_;
+  Constraints *constraints_;
   Config::Items config_;
   std::optional<VertexAccessor> vertex_;
 
@@ -61,11 +62,12 @@ class AllVerticesIterable final {
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
                       Transaction *transaction, View view, Indices *indices,
-                      Config::Items config)
+                      Constraints *constraints, Config::Items config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
+        constraints_(constraints),
         config_(config) {}
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
@@ -144,6 +146,7 @@ struct IndicesInfo {
 /// storage.
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
+  std::vector<std::pair<LabelId, PropertyId>> unique;
 };
 
 /// Structure used to return information about the storage.
@@ -188,7 +191,8 @@ class Storage final {
     VerticesIterable Vertices(View view) {
       return VerticesIterable(
           AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                              &storage_->indices_, storage_->config_.items));
+                              &storage_->indices_, &storage_->constraints_,
+                              storage_->config_.items));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -284,16 +288,17 @@ class Storage final {
     }
 
     ConstraintsInfo ListAllConstraints() const {
-      return {ListExistenceConstraints(storage_->constraints_)};
+      return {ListExistenceConstraints(storage_->constraints_),
+              storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
     void AdvanceCommand();
 
-    /// Commit returns `ExistenceConstraintViolation` if the changes made by
-    /// this transaction violate an existence constraint. In that case the
+    /// Commit returns `ConstraintViolation` if the changes made by this
+    /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ExistenceConstraintViolation, void> Commit();
+    utils::BasicResult<ConstraintViolation, void> Commit();
 
     /// @throw std::bad_alloc
     void Abort();
@@ -333,19 +338,30 @@ class Storage final {
 
   IndicesInfo ListAllIndices() const;
 
-  /// Creates a unique constraint`. Returns true if the constraint was
-  /// successfuly added, false if it already exists and an
-  /// `ExistenceConstraintViolation` if there is an existing vertex violating
-  /// the constraint.
+  /// Creates an existence constraint. Returns true if the constraint was
+  /// successfuly added, false if it already exists and a `ConstraintViolation`
+  /// if there is an existing vertex violating the constraint.
   ///
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  utils::BasicResult<ExistenceConstraintViolation, bool>
+  utils::BasicResult<ConstraintViolation, bool>
   CreateExistenceConstraint(LabelId label, PropertyId property);
+
+  /// Removes an existence constraint. Returns true if the constraint was
+  /// removed, and false if it doesn't exist.
+  bool DropExistenceConstraint(LabelId label, PropertyId property);
+
+  /// Creates a unique constraint. Returns true if the constraint was
+  /// successfully added, false if it already exists and a `ConstraintViolation`
+  /// if there are at least two vertices violating the constraint.
+  ///
+  /// @throw std::bad_alloc
+  utils::BasicResult<ConstraintViolation, bool>
+  CreateUniqueConstraint(LabelId label, PropertyId property);
 
   /// Removes a unique constraint. Returns true if the constraint was removed,
   /// and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property);
+  bool DropUniqueConstraint(LabelId label, PropertyId property);
 
   ConstraintsInfo ListAllConstraints() const;
 
@@ -378,8 +394,8 @@ class Storage final {
 
   NameIdMapper name_id_mapper_;
 
-  Indices indices_;
   Constraints constraints_;
+  Indices indices_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

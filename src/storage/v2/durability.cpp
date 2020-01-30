@@ -1621,10 +1621,10 @@ void Durability::CreateSnapshot(Transaction *transaction) {
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea = EdgeAccessor{edge_ref,    EdgeTypeId::FromUint(0UL),
-                             nullptr,     nullptr,
-                             transaction, indices_,
-                             items_};
+      auto ea = EdgeAccessor{edge_ref,     EdgeTypeId::FromUint(0UL),
+                             nullptr,      nullptr,
+                             transaction,  indices_,
+                             constraints_, items_};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -1652,8 +1652,8 @@ void Durability::CreateSnapshot(Transaction *transaction) {
     auto acc = vertices_->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices_, items_,
-                                       View::OLD);
+      auto va = VertexAccessor::Create(&vertex, transaction, indices_,
+                                       constraints_, items_, View::OLD);
       if (!va) continue;
 
       // Get vertex data.

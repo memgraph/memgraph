@@ -302,7 +302,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::ExistenceConstraintViolation, void> Commit() {
+  utils::BasicResult<storage::ConstraintViolation, void> Commit() {
     return accessor_->Commit();
   }
 

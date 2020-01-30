@@ -1,4 +1,5 @@
 set(storage_v2_src_files
+    constraints.cpp
     durability.cpp
     edge_accessor.cpp
     indices.cpp

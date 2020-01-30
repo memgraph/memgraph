@@ -14,6 +14,7 @@ namespace storage {
 class EdgeAccessor;
 class Storage;
 struct Indices;
+struct Constraints;
 
 class VertexAccessor final {
  private:
@@ -21,15 +22,17 @@ class VertexAccessor final {
 
  public:
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices,
-                 Config::Items config)
+                 Constraints *constraints, Config::Items config)
       : vertex_(vertex),
         transaction_(transaction),
         indices_(indices),
+        constraints_(constraints),
         config_(config) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex,
                                               Transaction *transaction,
                                               Indices *indices,
+                                              Constraints *constraints,
                                               Config::Items config, View view);
 
   /// Add a label and return `true` if insertion took place.
@@ -96,6 +99,7 @@ class VertexAccessor final {
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;
+  Constraints *constraints_;
   Config::Items config_;
 };
 
