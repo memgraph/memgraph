@@ -156,41 +156,7 @@ include_directories(SYSTEM ${BZIP2_INCLUDE_DIR})
 include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
 include_directories(SYSTEM ${ROCKSDB_INCLUDE_DIR})
 include_directories(SYSTEM ${LIBRDKAFKA_INCLUDE_DIR})
-# -----------------------------------------------------------------------------
 
-# openCypher parser -----------------------------------------------------------
-set(opencypher_frontend ${CMAKE_SOURCE_DIR}/src/query/frontend/opencypher)
-set(opencypher_generated ${opencypher_frontend}/generated)
-set(opencypher_lexer_grammar ${opencypher_frontend}/grammar/MemgraphCypherLexer.g4)
-set(opencypher_parser_grammar ${opencypher_frontend}/grammar/MemgraphCypher.g4)
-
-# enumerate all files that are generated from antlr
-set(antlr_opencypher_generated_src
-   ${opencypher_generated}/MemgraphCypherLexer.cpp
-   ${opencypher_generated}/MemgraphCypher.cpp
-   ${opencypher_generated}/MemgraphCypherBaseVisitor.cpp
-   ${opencypher_generated}/MemgraphCypherVisitor.cpp
-)
-
-# Provide a command to generate sources if missing. If this were a
-# custom_target, it would always run and we don't want that.
-add_custom_command(OUTPUT ${antlr_opencypher_generated_src}
-  COMMAND
-  ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
-  COMMAND
-  java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
-  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-  DEPENDS ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
-          ${opencypher_frontend}/grammar/CypherLexer.g4
-          ${opencypher_frontend}/grammar/Cypher.g4)
-
-# add custom target for generation
-add_custom_target(generate_opencypher_parser
-  DEPENDS ${antlr_opencypher_generated_src})
-
-add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
-target_link_libraries(antlr_opencypher_parser_lib antlr4)
-# -----------------------------------------------------------------------------
 
 # Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)

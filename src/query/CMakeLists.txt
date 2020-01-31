@@ -31,7 +31,49 @@ set(mg_query_sources
 
 add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
-add_dependencies(mg-query generate_opencypher_parser)
 target_include_directories(mg-query PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-query dl cppitertools antlr_opencypher_parser_lib)
+target_link_libraries(mg-query dl cppitertools)
 target_link_libraries(mg-query mg-storage-v2)
+
+# Generate Antlr openCypher parser
+
+set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)
+set(opencypher_generated ${opencypher_frontend}/generated)
+set(opencypher_lexer_grammar ${opencypher_frontend}/grammar/MemgraphCypherLexer.g4)
+set(opencypher_parser_grammar ${opencypher_frontend}/grammar/MemgraphCypher.g4)
+
+set(antlr_opencypher_generated_src
+    ${opencypher_generated}/MemgraphCypherLexer.cpp
+    ${opencypher_generated}/MemgraphCypher.cpp
+    ${opencypher_generated}/MemgraphCypherBaseVisitor.cpp
+    ${opencypher_generated}/MemgraphCypherVisitor.cpp
+)
+set(antlr_opencypher_generated_include
+    ${opencypher_generated}/MemgraphCypherLexer.h
+    ${opencypher_generated}/MemgraphCypher.h
+    ${opencypher_generated}/MemgraphCypherBaseVisitor.h
+    ${opencypher_generated}/MemgraphCypherVisitor.h
+)
+
+add_custom_command(
+    OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
+    COMMAND
+        java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar
+            -Dlanguage=Cpp -visitor -package antlropencypher
+            -o ${opencypher_generated}
+            ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    DEPENDS
+        ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
+        ${opencypher_frontend}/grammar/CypherLexer.g4
+        ${opencypher_frontend}/grammar/Cypher.g4)
+
+add_custom_target(generate_opencypher_parser
+    DEPENDS ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include})
+
+add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
+add_dependencies(antlr_opencypher_parser_lib generate_opencypher_parser)
+target_link_libraries(antlr_opencypher_parser_lib antlr4)
+
+target_link_libraries(mg-query antlr_opencypher_parser_lib)
