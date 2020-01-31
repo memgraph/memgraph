@@ -1,5 +1,3 @@
-include_directories(${GTEST_INCLUDE_DIR})
-
 # benchmark test binaries
 add_subdirectory(benchmark)
 

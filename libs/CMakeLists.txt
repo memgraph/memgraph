@@ -17,7 +17,7 @@ function(import_header_library name include_dir)
   mark_as_advanced(${_upper_name}_INCLUDE_DIR)
 endfunction(import_header_library)
 
-function(import_library name type location)
+function(import_library name type location include_dir)
   add_library(${name} ${type} IMPORTED GLOBAL)
   if (${ARGN})
     # Optional argument is the name of the external project that we need to
@@ -26,10 +26,12 @@ function(import_library name type location)
   else()
     add_dependencies(${name} ${name}-proj)
   endif()
-  # Unfortunately, we cannot use include_dir before it is built.
-  # set_property(TARGET ${name} PROPERTY
-  #              INTERFACE_INCLUDE_DIRECTORIES ${include_dir})
   set_property(TARGET ${name} PROPERTY IMPORTED_LOCATION ${location})
+  # We need to create the include directory first in order to be able to add it
+  # as an include directory. The header files in the include directory will be
+  # generated later during the build process.
+  file(MAKE_DIRECTORY ${include_dir})
+  target_include_directories(${name} INTERFACE ${include_dir})
 endfunction(import_library)
 
 # Calls `ExternalProject_Add(${name}-proj` with default arguments for cmake
@@ -74,7 +76,7 @@ macro(import_external_library name type library_location include_dir)
   set(${_upper_name}_INCLUDE_DIR ${include_dir} CACHE FILEPATH
       "Path to ${name} include directory" FORCE)
   mark_as_advanced(${_upper_name}_LIBRARY ${_upper_name}_INCLUDE_DIR)
-  import_library(${name} ${type} ${${_upper_name}_LIBRARY})
+  import_library(${name} ${type} ${${_upper_name}_LIBRARY} ${${_upper_name}_INCLUDE_DIR})
 endmacro(import_external_library)
 
 # setup antlr
@@ -131,10 +133,10 @@ set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
 set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
     CACHE FILEPATH "Path to gtest_main library" FORCE)
 mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
-import_library(gtest STATIC ${GTEST_LIBRARY} gtest-proj)
-import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} gtest-proj)
-import_library(gmock STATIC ${GMOCK_LIBRARY} gtest-proj)
-import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} gtest-proj)
+import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
 
 # setup google flags
 set(GFLAGS_NO_FILENAMES "0")

@@ -148,16 +148,6 @@ find_package(OpenSSL REQUIRED)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
-include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
-include_directories(SYSTEM ${FMT_INCLUDE_DIR})
-include_directories(SYSTEM ${ANTLR4_INCLUDE_DIR})
-include_directories(SYSTEM ${BZIP2_INCLUDE_DIR})
-include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
-include_directories(SYSTEM ${ROCKSDB_INCLUDE_DIR})
-include_directories(SYSTEM ${LIBRDKAFKA_INCLUDE_DIR})
-
-
 # Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)

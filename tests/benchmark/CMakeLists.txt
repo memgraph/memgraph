@@ -12,7 +12,6 @@ function(add_benchmark test_cpp)
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} benchmark)
-  target_include_directories(${target_name} PRIVATE ${BENCHMARK_INCLUDE_DIR})
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__benchmark ${target_name})
