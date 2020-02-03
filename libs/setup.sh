@@ -116,11 +116,6 @@ cd json
 wget -nv http://deps.memgraph.io/json.hpp
 cd ..
 
-# ltalloc
-# git clone https://github.com/r-lyeh/ltalloc.git
-ltalloc_tag="43b51c14857111f993f277c46151fdfac91525a2" # Nov 16, 2017
-clone git://deps.memgraph.io/ltalloc.git ltalloc $ltalloc_tag
-
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
 clone git://deps.memgraph.io/bzip2.git bzip2 $bzip2_tag
 

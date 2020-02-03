@@ -107,13 +107,6 @@ else()
     set(CMAKE_CXX_FLAGS_DEBUG "-g")
 endif()
 
-# ndebug
-option(NDEBUG "No debug" OFF)
-message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \
-append this flag)")
-if(NDEBUG)
-    add_definitions( -DNDEBUG )
-endif()
 # -----------------------------------------------------------------------------
 
 # default build type is debug
@@ -127,11 +120,6 @@ message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 
 # threading
 find_package(Threads REQUIRED)
-
-# optional Ltalloc
-option(USE_LTALLOC "Use Ltalloc instead of default allocator (default OFF). \
-Set this to ON to link with Ltalloc." OFF)
-
 # optional readline
 option(USE_READLINE "Use GNU Readline library if available (default ON). \
 Set this to OFF to prevent linking with Readline even if it is available." ON)
@@ -142,9 +130,6 @@ if (USE_READLINE)
   endif()
 endif()
 
-# OpenSSL
-find_package(OpenSSL REQUIRED)
-
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
@@ -152,11 +137,9 @@ add_subdirectory(libs EXCLUDE_FROM_ALL)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
-option(MG_COMMUNITY "Build Memgraph Community Edition" OFF)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
-option(THIN_LTO "Build with link time optimization" OFF)
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -165,10 +148,6 @@ if (TEST_COVERAGE)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
-endif()
-
-if (MG_COMMUNITY)
-  add_definitions(-DMG_COMMUNITY)
 endif()
 
 if (ASAN)
@@ -220,11 +199,6 @@ if (UBSAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined -fno-sanitize=vptr")
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1
   # Make sure llvm-symbolizer binary is in path
-endif()
-
-if (THIN_LTO)
-  set(CMAKE_CXX_FLAGS"${CMAKE_CXX_FLAGS} -flto=thin")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto=thin")
 endif()
 
 # Add subprojects

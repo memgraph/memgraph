@@ -97,12 +97,6 @@ add_subdirectory(audit)
 #    mg-utils mg-io mg-requests mg-communication mg-rpc
 #    mg-auth mg-audit)
 #
-#if (USE_LTALLOC)
-#  list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)
-#  # TODO(mferencevic): Enable this when clang is updated on apollo.
-#  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-#endif()
-#
 #add_library(mg-single-node-ha STATIC ${mg_single_node_ha_sources})
 #target_include_directories(mg-single-node-ha PUBLIC ${CMAKE_SOURCE_DIR}/include)
 #target_link_libraries(mg-single-node-ha ${MG_SINGLE_NODE_HA_LIBS})
@@ -144,12 +138,6 @@ set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
     telemetry_lib mg-query mg-communication)
 # These are enterprise subsystems
 set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
-
-if (USE_LTALLOC)
-  list(APPEND MG_SINGLE_NODE_V2_LIBS ltalloc)
-  # TODO(mferencevic): Enable this when clang is updated on apollo.
-  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
 
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
