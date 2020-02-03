@@ -10,5 +10,6 @@ Currently we support distributing Memgraph binary through the following
 packages.
 
   * Debian package
+  * RPM package
   * Docker image
   * ArchLinux package
