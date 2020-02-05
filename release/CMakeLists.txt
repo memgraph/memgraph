@@ -1,3 +1,26 @@
+# Install the license file.
+if (MG_ENTERPRISE)
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_ENTERPRISE_TRIAL.md
+          DESTINATION share/doc/memgraph RENAME copyright)
+else()
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_COMMUNITY.md
+          DESTINATION share/doc/memgraph RENAME copyright)
+endif()
+
+# Install systemd service (must use absolute path).
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
+        DESTINATION /lib/systemd/system)
+
+# Install examples
+set(examples ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+install(
+  CODE
+  "execute_process(COMMAND ${examples}/build_examples
+                   ${CMAKE_BINARY_DIR}/memgraph
+                   ${CMAKE_BINARY_DIR}/tools/src/mg_client
+                   WORKING_DIRECTORY ${examples})")
+install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
+
 # ---- Setup CPack --------
 
 # General setup

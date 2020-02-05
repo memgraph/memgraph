@@ -219,27 +219,6 @@ endif()
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                    \$ENV{DESTDIR}/var/lib/memgraph)")
-# Install the license file.
-if (MG_ENTERPRISE)
-  install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE_ENTERPRISE_TRIAL.md
-          DESTINATION share/doc/memgraph RENAME copyright)
-else()
-  install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE_COMMUNITY.md
-          DESTINATION share/doc/memgraph RENAME copyright)
-endif()
-# Install systemd service (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/release/memgraph.service
-        DESTINATION /lib/systemd/system)
-
-# Install examples
-set(examples ${CMAKE_SOURCE_DIR}/release/examples)
-install(
-  CODE
-  "execute_process(COMMAND ${examples}/build_examples
-                   ${CMAKE_BINARY_DIR}/memgraph
-                   ${CMAKE_BINARY_DIR}/tools/src/mg_client
-                   WORKING_DIRECTORY ${examples})")
-install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
 
 
 ## memgraph single node high availability executable
