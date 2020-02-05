@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 
 #include "config.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
@@ -12,6 +11,10 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "glue/auth.hpp"
+#endif
 
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_HIDDEN_string(
@@ -34,9 +37,11 @@ BoltSession::BoltSession(SessionData *data,
                                                                 output_stream),
       db_(data->db),
       interpreter_(data->interpreter_context),
+#ifdef MG_ENTERPRISE
 #ifndef MG_SINGLE_NODE_HA
       auth_(data->auth),
       audit_log_(data->audit_log),
+#endif
 #endif
       endpoint_(endpoint) {
 }
@@ -51,12 +56,15 @@ std::vector<std::string> BoltSession::Interpret(
   std::map<std::string, storage::PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+#ifdef MG_ENTERPRISE
 #ifndef MG_SINGLE_NODE_HA
   audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
                      storage::PropertyValue(params_pv));
 #endif
+#endif
   try {
     auto result = interpreter_.Prepare(query, params_pv);
+#ifdef MG_ENTERPRISE
 #ifndef MG_SINGLE_NODE_HA
     if (user_) {
       const auto &permissions = user_->GetPermissions();
@@ -70,6 +78,7 @@ std::vector<std::string> BoltSession::Interpret(
         }
       }
     }
+#endif
 #endif
     return result.first;
 
@@ -113,12 +122,16 @@ void BoltSession::Abort() { interpreter_.Abort(); }
 
 bool BoltSession::Authenticate(const std::string &username,
                                const std::string &password) {
+#ifdef MG_ENTERPRISE
 #ifdef MG_SINGLE_NODE_HA
   return true;
 #else
   if (!auth_->HasUsers()) return true;
   user_ = auth_->Authenticate(username, password);
   return !!user_;
+#endif
+#else
+  return true;
 #endif
 }
 

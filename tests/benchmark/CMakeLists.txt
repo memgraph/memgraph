@@ -35,8 +35,10 @@ target_link_libraries(${test_prefix}profile mg-query)
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 
+if (MG_ENTERPRISE)
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
+endif()
 
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)

@@ -10,15 +10,18 @@
 #include <glog/logging.h>
 
 #include "communication/server.hpp"
-#include "storage/v2/storage.hpp"
-#include "glue/auth.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/storage.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "glue/auth.hpp"
+#endif
 
 // General purpose flags.
 DEFINE_string(bolt_address, "0.0.0.0",
@@ -83,6 +86,7 @@ DEFINE_bool(telemetry_enabled, false,
             "to allow for easier improvement of the product.");
 
 // Audit logging flags.
+#ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
 DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault,
                        "Maximum number of items in the audit log buffer.",
@@ -91,6 +95,7 @@ DEFINE_VALIDATED_int32(
     audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
     "Interval (in milliseconds) used for flushing the audit log buffer.",
     FLAG_IN_RANGE(10, INT32_MAX));
+#endif
 
 // Query flags.
 DEFINE_uint64(query_execution_timeout_sec, 180,
@@ -110,6 +115,7 @@ DEFINE_VALIDATED_string(
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
+#ifdef MG_ENTERPRISE
 class AuthQueryHandler final : public query::AuthQueryHandler {
   auth::Auth *auth_;
 
@@ -415,11 +421,87 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 };
+#else
+class NoAuthInCommunity : public query::QueryRuntimeException {
+ public:
+  NoAuthInCommunity()
+      : query::QueryRuntimeException::QueryRuntimeException(
+            "Auth is not supported in Memgraph Community!") {}
+};
+
+class AuthQueryHandler final : public query::AuthQueryHandler {
+ public:
+  bool CreateUser(const std::string &,
+                  const std::optional<std::string> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
+
+  void SetPassword(const std::string &,
+                   const std::optional<std::string> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  std::vector<query::TypedValue> GetUsernames() override {
+    throw NoAuthInCommunity();
+  }
+
+  std::vector<query::TypedValue> GetRolenames() override {
+    throw NoAuthInCommunity();
+  }
+
+  std::optional<std::string> GetRolenameForUser(const std::string &) override {
+    throw NoAuthInCommunity();
+  }
+
+  std::vector<query::TypedValue> GetUsernamesForRole(
+      const std::string &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void SetRole(const std::string &, const std::string &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  std::vector<std::vector<query::TypedValue>> GetPrivileges(
+      const std::string &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void GrantPrivilege(
+      const std::string &,
+      const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void DenyPrivilege(
+      const std::string &,
+      const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void RevokePrivilege(
+      const std::string &,
+      const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+};
+#endif
 
 void SingleNodeMain() {
   std::cout << "You are running Memgraph v" << gflags::VersionString()
             << std::endl;
 
+  auto data_directory = std::filesystem::path(FLAGS_data_directory);
+
+#ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
@@ -430,8 +512,6 @@ void SingleNodeMain() {
   // to minimise the impact of their failure on the main storage.
 
   // Begin enterprise features initialization
-
-  auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
   // Auth
   auth::Auth auth{data_directory / "auth"};
@@ -450,6 +530,7 @@ void SingleNodeMain() {
       << "Unable to register SIGUSR2 handler!";
 
   // End enterprise features initialization
+#endif
 
   // Main storage and execution engines initialization
 
@@ -486,7 +567,11 @@ void SingleNodeMain() {
   query::InterpreterContext interpreter_context{&db};
   query::SetExecutionTimeout(&interpreter_context,
                              FLAGS_query_execution_timeout_sec);
+#ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+#else
+  SessionData session_data{&db, &interpreter_context};
+#endif
 
   // Register modules
   if (!FLAGS_query_modules_directory.empty()) {
@@ -497,7 +582,11 @@ void SingleNodeMain() {
     }
   }
   // Register modules END
+#ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth);
+#else
+  AuthQueryHandler auth_handler;
+#endif
   interpreter_context.auth = &auth_handler;
 
   ServerContext context;

@@ -134,6 +134,7 @@ set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
 # Optional subproject configuration -------------------------------------------
+option(MG_ENTERPRISE "Build Memgraph Enterprise Edition" ON)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
@@ -148,6 +149,10 @@ if (TEST_COVERAGE)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+endif()
+
+if (MG_ENTERPRISE)
+  add_definitions(-DMG_ENTERPRISE)
 endif()
 
 if (ASAN)

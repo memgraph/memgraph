@@ -9,31 +9,46 @@
 
 #include <gflags/gflags.h>
 
-#include "audit/log.hpp"
-#include "auth/auth.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
 #include "communication/session.hpp"
 #include "query/interpreter.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "audit/log.hpp"
+#include "auth/auth.hpp"
+#endif
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
+#ifdef MG_ENTERPRISE
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *_db,
-              query::InterpreterContext *_interpreter_context,
-              auth::Auth *_auth, audit::Log *_audit_log)
-      : db(_db),
-        interpreter_context(_interpreter_context),
-        auth(_auth),
-        audit_log(_audit_log) {}
+  SessionData(storage::Storage *db,
+              query::InterpreterContext *interpreter_context, auth::Auth *auth,
+              audit::Log *audit_log)
+      : db(db),
+        interpreter_context(interpreter_context),
+        auth(auth),
+        audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
   auth::Auth *auth;
   audit::Log *audit_log;
 };
+#else
+struct SessionData {
+  // Explicit constructor here to ensure that pointers to all objects are
+  // supplied.
+  SessionData(storage::Storage *db,
+              query::InterpreterContext *interpreter_context)
+      : db(db), interpreter_context(interpreter_context) {}
+  storage::Storage *db;
+  query::InterpreterContext *interpreter_context;
+};
+#endif
 
 class BoltSession final
     : public communication::bolt::Session<communication::InputStream,
@@ -78,10 +93,12 @@ class BoltSession final
   // NOTE: Needed only for ToBoltValue conversions
   const storage::Storage *db_;
   query::Interpreter interpreter_;
+#ifdef MG_ENTERPRISE
 #ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;
   std::optional<auth::User> user_;
   audit::Log *audit_log_;
+#endif
 #endif
   io::network::Endpoint endpoint_;
 };

@@ -235,12 +235,15 @@ target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
 # Test mg-auth
 
+if (MG_ENTERPRISE)
 add_unit_test(auth.cpp)
 target_link_libraries(${test_prefix}auth mg-auth)
+endif()
 
 
 # Test mg-slk
 
+if (MG_ENTERPRISE)
 ## TODO: REPLACE single-node-ha
 #add_unit_test(slk_advanced.cpp)
 #target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
@@ -250,12 +253,15 @@ target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
 
 add_unit_test(slk_streams.cpp)
 target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
+endif()
 
 
 # Test mg-rpc
 
+if (MG_ENTERPRISE)
 add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
+endif()
 
 
 # Test LCP

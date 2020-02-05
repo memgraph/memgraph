@@ -8,12 +8,14 @@ add_subdirectory(io)
 add_subdirectory(kvstore)
 add_subdirectory(telemetry)
 add_subdirectory(communication)
-add_subdirectory(auth)
-add_subdirectory(slk)
-add_subdirectory(rpc)
 add_subdirectory(storage/v2)
 add_subdirectory(query)
-add_subdirectory(audit)
+if (MG_ENTERPRISE)
+  add_subdirectory(audit)
+  add_subdirectory(auth)
+  add_subdirectory(slk)
+  add_subdirectory(rpc)
+endif()
 
 ## ----------------------------------------------------------------------------
 ## Common LCP files
@@ -44,7 +46,6 @@ add_subdirectory(audit)
 #    durability/single_node_ha/paths.cpp
 #    durability/single_node_ha/snapshooter.cpp
 #    durability/single_node_ha/recovery.cpp
-#    glue/auth.cpp
 #    glue/communication.cpp
 #    raft/coordination.cpp
 #    raft/raft_server.cpp
@@ -79,6 +80,11 @@ add_subdirectory(audit)
 #    transactions/single_node_ha/engine.cpp
 #    memgraph_init.cpp
 #)
+#if (MG_ENTERPRISE)
+#  set(mg_single_node_ha_sources
+#      ${mg_single_node_ha_sources}
+#      glue/auth.cpp)
+#endif()
 #
 #define_add_lcp(add_lcp_single_node_ha mg_single_node_ha_sources generated_lcp_single_node_ha_files)
 #
@@ -128,16 +134,22 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
-    glue/auth.cpp
     glue/communication.cpp
     memgraph_init.cpp
     memgraph.cpp
 )
+if (MG_ENTERPRISE)
+  set(mg_single_node_v2_sources
+      ${mg_single_node_v2_sources}
+      glue/auth.cpp)
+endif()
 
 set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
     telemetry_lib mg-query mg-communication)
-# These are enterprise subsystems
-set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
+if (MG_ENTERPRISE)
+  # These are enterprise subsystems
+  set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
+endif()
 
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
@@ -200,14 +212,21 @@ install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
         DESTINATION /etc/logrotate.d RENAME memgraph)
+if (MG_ENTERPRISE)
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_audit.conf
         DESTINATION /etc/logrotate.d RENAME memgraph_audit)
+endif()
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                    \$ENV{DESTDIR}/var/lib/memgraph)")
 # Install the license file.
-install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE.md
-        DESTINATION share/doc/memgraph RENAME copyright)
+if (MG_ENTERPRISE)
+  install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE_ENTERPRISE_TRIAL.md
+          DESTINATION share/doc/memgraph RENAME copyright)
+else()
+  install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE_COMMUNITY.md
+          DESTINATION share/doc/memgraph RENAME copyright)
+endif()
 # Install systemd service (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/memgraph.service
         DESTINATION /lib/systemd/system)
