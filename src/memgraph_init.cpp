@@ -4,6 +4,7 @@
 
 #include "config.hpp"
 #include "glue/communication.hpp"
+#include "py/py.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/view.hpp"
@@ -223,6 +224,15 @@ int WithInit(int argc, char **argv,
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
 
+  // Initialize Python
+  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
+  CHECK(program_name);
+  // Set program name, so Python can find its way to runtime libraries relative
+  // to executable.
+  Py_SetProgramName(program_name);
+  Py_InitializeEx(0 /* = initsigs */);
+  PyEval_InitThreads();
+  Py_BEGIN_ALLOW_THREADS;
   // Initialize the communication library.
   communication::Init();
 
@@ -247,5 +257,9 @@ int WithInit(int argc, char **argv,
   requests::Init();
 
   memgraph_main();
+  Py_END_ALLOW_THREADS;
+  // Shutdown Python
+  Py_Finalize();
+  PyMem_RawFree(program_name);
   return 0;
 }

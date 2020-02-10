@@ -6,6 +6,7 @@ extern "C" {
 
 #include <optional>
 
+#include "py/py.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
@@ -14,6 +15,34 @@ namespace query::procedure {
 ModuleRegistry gModuleRegistry;
 
 namespace {
+
+std::optional<Module> LoadModuleFromPythonFile(std::filesystem::path path) {
+  LOG(INFO) << "Loading module " << path << " ...";
+  auto gil = py::EnsureGIL();
+  auto *py_path = PySys_GetObject("path");
+  CHECK(py_path);
+  py::Object import_dir(PyUnicode_FromString(path.parent_path().c_str()));
+  int import_dir_in_path = PySequence_Contains(py_path, import_dir);
+  if (import_dir_in_path == -1) {
+    LOG(ERROR) << "Unexpected error when loading module " << path;
+    return std::nullopt;
+  }
+  if (import_dir_in_path == 0) {
+    if (PyList_Append(py_path, import_dir) != 0) {
+      auto exc_info = py::FetchError().value();
+      LOG(ERROR) << "Unable to load module " << path << "; " << exc_info;
+      return std::nullopt;
+    }
+  }
+  py::Object py_module(PyImport_ImportModule(path.stem().c_str()));
+  if (!py_module) {
+    auto exc_info = py::FetchError().value();
+    LOG(ERROR) << "Unable to load module " << path << "; " << exc_info;
+    return std::nullopt;
+  }
+  // TODO: Actually create a module
+  return std::nullopt;
+}
 
 std::optional<Module> LoadModuleFromSharedLibrary(std::filesystem::path path) {
   LOG(INFO) << "Loading module " << path << " ...";
@@ -210,7 +239,15 @@ bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
     LOG(ERROR) << "Unable to overwrite an already loaded module " << path;
     return false;
   }
-  auto maybe_module = LoadModuleFromSharedLibrary(path);
+  std::optional<Module> maybe_module;
+  if (path.extension() == ".so") {
+    maybe_module = LoadModuleFromSharedLibrary(path);
+  } else if (path.extension() == ".py") {
+    maybe_module = LoadModuleFromPythonFile(path);
+  } else {
+    LOG(ERROR) << "Unkown query module file " << path;
+    return false;
+  }
   if (!maybe_module) return false;
   modules_[module_name] = std::move(*maybe_module);
   return true;

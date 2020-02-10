@@ -577,7 +577,7 @@ void SingleNodeMain() {
   if (!FLAGS_query_modules_directory.empty()) {
     for (const auto &entry :
          std::filesystem::directory_iterator(FLAGS_query_modules_directory)) {
-      if (entry.is_regular_file() && entry.path().extension() == ".so")
+      if (entry.is_regular_file())
         query::procedure::gModuleRegistry.LoadModuleLibrary(entry.path());
     }
   }
