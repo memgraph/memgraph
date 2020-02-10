@@ -4,6 +4,7 @@
 
 #include <ostream>
 #include <string_view>
+#include <optional>
 
 // Define to use Py_ssize_t for API returning length of something. Some future
 // Python version will only support Py_ssize_t, so it's best to always define
@@ -14,6 +15,8 @@
 #if PY_MAJOR_VERSION != 3 || PY_MINOR_VERSION < 5
 #error "Minimum supported Python API is 3.5"
 #endif
+
+#include <glog/logging.h>
 
 namespace py {
 
