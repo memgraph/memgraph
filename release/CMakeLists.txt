@@ -71,8 +71,10 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
 set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
 if (ME_ENTERPRISE)
   set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/enterprise/memgraph.spec.in")
+  set(CPACK_RPM_PACKAGE_LICENSE "Memgraph Enterprise Trial License")
 else()
   set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/community/memgraph.spec.in")
+  set(CPACK_RPM_PACKAGE_LICENSE "Memgraph Community License")
 endif()
 # Description formatting is important, no line must be greater than 80 characters.
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
