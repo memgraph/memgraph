@@ -28,11 +28,6 @@ set(CPACK_PACKAGE_NAME memgraph)
 set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
-set(CPACK_PACKAGE_VERSION_MAJOR ${memgraph_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${memgraph_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${memgraph_VERSION_PATCH})
-set(CPACK_PACKAGE_VERSION_TWEAK ${memgraph_VERSION_TWEAK})
-set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${memgraph_VERSION}-${COMMIT_HASH}${CPACK_SYSTEM_NAME})
 
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
@@ -40,6 +35,8 @@ set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${memgraph_VERSION}-${COMMIT_H
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
+set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
+set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_amd64.deb")
 if (MG_ENTERPRISE)
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/conffiles;"
@@ -66,6 +63,8 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0)")
 
 # RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
+set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
+set(CPACK_RPM_FILE_NAME "memgraph_${MEMGRAPH_VERSION_RPM}.x86_64.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /var /var/lib /var/log /etc/logrotate.d
   /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)

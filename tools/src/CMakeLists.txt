@@ -1,5 +1,5 @@
 # Generate a version.hpp file
-set(VERSION_STRING ${memgraph_VERSION})
+set(VERSION_STRING ${MEMGRAPH_VERSION})
 configure_file(../../src/version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 

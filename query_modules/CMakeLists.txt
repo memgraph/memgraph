@@ -2,7 +2,7 @@
 # You should use the top level CMake configuration with -DQUERY_MODULES=ON
 # These modules are meant to be shipped with Memgraph installation.
 
-project(memgraph_query_modules VERSION ${memgraph_VERSION})
+project(memgraph_query_modules)
 
 disallow_in_source_build()
 

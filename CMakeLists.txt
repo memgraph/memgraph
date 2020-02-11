@@ -35,16 +35,97 @@ else()
   message(FATAL_ERROR "Couldn't find clang and/or clang++!")
 endif()
 
-# Get current commit hash.
-execute_process(
-    OUTPUT_VARIABLE COMMIT_HASH
-    COMMAND git rev-parse --short HEAD
-)
-string(STRIP ${COMMIT_HASH} COMMIT_HASH)
-
 # -----------------------------------------------------------------------------
 
-project(memgraph VERSION 0.50.0)
+project(memgraph)
+
+# For more information about how to release a new version of Memgraph, see
+# `release/README.md`.
+
+# Option that is used to specify which version of Memgraph should be built. The
+# default is `ON` which causes the build system to build Memgraph Enterprise.
+# Memgraph Community is built if explicitly set to `OFF`.
+option(MG_ENTERPRISE "Build Memgraph Enterprise Edition" ON)
+
+# Set the current version here to override the automatic version detection. The
+# version must be specified as `X.Y.Z`. Primarily used when building new patch
+# versions.
+set(MEMGRAPH_OVERRIDE_VERSION "")
+
+# Custom suffix that this version should have. The suffix can be any arbitrary
+# string. Primarily used when building a version for a specific customer.
+set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "")
+
+# Variables used to generate the versions.
+if (MG_ENTERPRISE)
+  set(get_version_enterprise "--enterprise")
+else()
+  set(get_version_enterprise "")
+endif()
+set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
+
+# Get version that should be used in the binary.
+execute_process(
+    OUTPUT_VARIABLE MEMGRAPH_VERSION
+    COMMAND "${get_version_script}" ${get_version_enterprise}
+                "${MEMGRAPH_OVERRIDE_VERSION}"
+                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+)
+
+# Get version that should be used in the DEB package.
+execute_process(
+    OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
+    COMMAND "${get_version_script}" ${get_version_enterprise}
+                --variant deb
+                "${MEMGRAPH_OVERRIDE_VERSION}"
+                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+)
+
+# Get version that should be used in the RPM package.
+execute_process(
+    OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
+    COMMAND "${get_version_script}" ${get_version_enterprise}
+                --variant rpm
+                "${MEMGRAPH_OVERRIDE_VERSION}"
+                "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+)
+
+# We want the above variables to be updated each time something is committed to
+# the repository. That is why we include a dependency on the current git HEAD
+# to trigger a new CMake run when the git repository state changes. This is a
+# hack, as CMake doesn't have a mechanism to regenerate variables when
+# something changes (only files can be regenerated).
+# https://cmake.org/pipermail/cmake/2018-October/068389.html
+#
+# The hack in the above link is nearly correct but it has a fatal flaw. The
+# `CMAKE_CONFIGURE_DEPENDS` isn't a `GLOBAL` property, it is instead a
+# `DIRECTORY` property and as such must be set in the `DIRECTORY` scope.
+# https://cmake.org/cmake/help/v3.14/manual/cmake-properties.7.html
+#
+# Unlike the above mentioned hack, we don't use the `.git/index` file. That
+# file changes on every `git add` (even on `git status`) so it triggers
+# unnecessary recalculations of the release version. The release version only
+# changes on every `git commit` or `git checkout`. That is why we watch the
+# following files for changes:
+#   - `.git/HEAD` -> changes each time a `git checkout` is issued
+#   - `.git/refs/heads/...` -> the value in `.git/HEAD` is a branch name (when
+#     you are on a branch) and you have to monitor the file of the specific
+#     branch to detect when a `git commit` was issued
+# More details about the contents of the `.git` directory and the specific
+# files used can be seen here:
+# https://git-scm.com/book/en/v2/Git-Internals-Git-References
+set(git_directory "${CMAKE_SOURCE_DIR}/.git")
+if (EXISTS "${git_directory}")
+  set_property(DIRECTORY APPEND PROPERTY
+      CMAKE_CONFIGURE_DEPENDS "${git_directory}/HEAD")
+  file(STRINGS "${git_directory}/HEAD" git_head_data)
+  if (git_head_data MATCHES "^ref: ")
+    string(SUBSTRING "${git_head_data}" 5 -1 git_head_ref)
+    set_property(DIRECTORY APPEND PROPERTY
+        CMAKE_CONFIGURE_DEPENDS "${git_directory}/${git_head_ref}")
+  endif()
+endif()
+
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
@@ -134,7 +215,6 @@ set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
 # Optional subproject configuration -------------------------------------------
-option(MG_ENTERPRISE "Build Memgraph Enterprise Edition" ON)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)

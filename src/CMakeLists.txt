@@ -126,7 +126,7 @@ endif()
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # Generate a version.hpp file
-set(VERSION_STRING ${memgraph_VERSION})
+set(VERSION_STRING ${MEMGRAPH_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
@@ -161,7 +161,7 @@ target_link_libraries(memgraph ${MG_SINGLE_NODE_V2_LIBS})
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
-                      OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
+                      OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
                       # Output the executable in main binary dir.
                       RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # Create symlink to the built executable.
@@ -226,7 +226,7 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 #target_link_libraries(memgraph_ha mg-single-node-ha mg-kvstore telemetry_lib)
 #set_target_properties(memgraph_ha PROPERTIES
 #                      # Set the executable output name to include version information.
-#                      OUTPUT_NAME "memgraph_ha-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
+#                      OUTPUT_NAME "memgraph_ha-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
 #                      # Output the executable in main binary dir.
 #                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 ## Create symlink to the built executable.

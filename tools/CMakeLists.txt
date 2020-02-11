@@ -1,7 +1,7 @@
 # MemGraph Tools CMake configuration
 # You should use the top level CMake configuration with -DTOOLS=ON option set.
 
-project(memgraph_tools VERSION ${memgraph_VERSION})
+project(memgraph_tools)
 
 disallow_in_source_build()
 
