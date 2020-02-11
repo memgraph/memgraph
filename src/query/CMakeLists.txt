@@ -27,6 +27,7 @@ set(mg_query_sources
     plan/variable_start_planner.cpp
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
+    procedure/py_module.cpp
     typed_value.cpp)
 
 add_library(mg-query STATIC ${mg_query_sources})

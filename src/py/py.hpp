@@ -71,6 +71,13 @@ class Object final {
 
   operator bool() const { return ptr_; }
 
+  /// Release the ownership on this PyObject, i.e. we steal the reference.
+  PyObject *Steal() {
+    auto *p = ptr_;
+    ptr_ = nullptr;
+    return p;
+  }
+
   /// Equivalent to `str(o)` in Python.
   ///
   /// Returned Object is nullptr if an error occurred.

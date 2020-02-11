@@ -77,6 +77,10 @@ target_include_directories(${test_prefix}query_procedure_mgp_type PRIVATE ${CMAK
 add_unit_test(query_procedure_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_module mg-query)
 target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_unit_test(query_procedure_py_module.cpp)
+target_link_libraries(${test_prefix}query_procedure_py_module mg-query)
+target_include_directories(${test_prefix}query_procedure_py_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
 
 add_unit_test(query_profile.cpp)
