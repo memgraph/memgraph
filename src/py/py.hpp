@@ -2,9 +2,9 @@
 /// Provides a C++ API for working with Python's original C API.
 #pragma once
 
+#include <optional>
 #include <ostream>
 #include <string_view>
-#include <optional>
 
 // Define to use Py_ssize_t for API returning length of something. Some future
 // Python version will only support Py_ssize_t, so it's best to always define

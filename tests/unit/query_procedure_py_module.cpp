@@ -57,6 +57,42 @@ TEST(PyModule, MgpValueToPyObject) {
   // TODO: Vertex, Edge and Path values
 }
 
+TEST(PyModule, PyObjectToMgpValue) {
+  mgp_memory memory{utils::NewDeleteResource()};
+  auto gil = py::EnsureGIL();
+  py::Object py_value{Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one",
+                                    2, 2.0, "two", "three", 3, "four", 4.0)};
+  mgp_value *value = query::procedure::PyObjectToMgpValue(py_value, &memory);
+
+  ASSERT_TRUE(mgp_value_is_list(value));
+  const mgp_list *list1 = mgp_value_get_list(value);
+  EXPECT_EQ(mgp_list_size(list1), 5);
+  ASSERT_TRUE(mgp_value_is_int(mgp_list_at(list1, 0)));
+  EXPECT_EQ(mgp_value_get_int(mgp_list_at(list1, 0)), 1);
+  ASSERT_TRUE(mgp_value_is_double(mgp_list_at(list1, 1)));
+  EXPECT_EQ(mgp_value_get_double(mgp_list_at(list1, 1)), 1.0);
+  ASSERT_TRUE(mgp_value_is_string(mgp_list_at(list1, 2)));
+  EXPECT_STREQ(mgp_value_get_string(mgp_list_at(list1, 2)), "one");
+  ASSERT_TRUE(mgp_value_is_list(mgp_list_at(list1, 3)));
+  const mgp_list *list2 = mgp_value_get_list(mgp_list_at(list1, 3));
+  EXPECT_EQ(mgp_list_size(list2), 3);
+  ASSERT_TRUE(mgp_value_is_int(mgp_list_at(list2, 0)));
+  EXPECT_EQ(mgp_value_get_int(mgp_list_at(list2, 0)), 2);
+  ASSERT_TRUE(mgp_value_is_double(mgp_list_at(list2, 1)));
+  EXPECT_EQ(mgp_value_get_double(mgp_list_at(list2, 1)), 2.0);
+  ASSERT_TRUE(mgp_value_is_string(mgp_list_at(list2, 2)));
+  EXPECT_STREQ(mgp_value_get_string(mgp_list_at(list2, 2)), "two");
+  ASSERT_TRUE(mgp_value_is_map(mgp_list_at(list1, 4)));
+  const mgp_map *map = mgp_value_get_map(mgp_list_at(list1, 4));
+  EXPECT_EQ(mgp_map_size(map), 2);
+  const mgp_value *v1 = mgp_map_at(map, "three");
+  ASSERT_TRUE(mgp_value_is_int(v1));
+  EXPECT_EQ(mgp_value_get_int(v1), 3);
+  const mgp_value *v2 = mgp_map_at(map, "four");
+  ASSERT_TRUE(mgp_value_is_double(v2));
+  EXPECT_EQ(mgp_value_get_double(v2), 4.0);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   // Initialize Python

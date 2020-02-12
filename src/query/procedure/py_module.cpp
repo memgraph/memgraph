@@ -1,5 +1,7 @@
 #include "query/procedure/py_module.hpp"
 
+#include <stdexcept>
+
 #include "query/procedure/mg_procedure_impl.hpp"
 
 namespace query::procedure {
@@ -48,6 +50,137 @@ py::Object MgpValueToPyObject(const mgp_value &value) {
     case MGP_VALUE_TYPE_PATH:
       throw utils::NotYetImplemented("MgpValueToPyObject");
   }
+}
+
+mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
+  mgp_value *mgp_v{nullptr};
+
+  if (o == Py_None) {
+    mgp_v = mgp_value_make_null(memory);
+  } else if (PyBool_Check(o)) {
+    mgp_v = mgp_value_make_bool(static_cast<int>(o == Py_True), memory);
+  } else if (PyLong_Check(o)) {
+    int64_t value = PyLong_AsLong(o);
+    if (PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::overflow_error("Python integer is out of range");
+    }
+    mgp_v = mgp_value_make_int(value, memory);
+  } else if (PyFloat_Check(o)) {
+    mgp_v = mgp_value_make_double(PyFloat_AsDouble(o), memory);
+  } else if (PyUnicode_Check(o)) {
+    mgp_v = mgp_value_make_string(PyUnicode_AsUTF8(o), memory);
+  } else if (PyList_Check(o)) {
+    Py_ssize_t len = PyList_Size(o);
+    mgp_list *list = mgp_list_make_empty(len, memory);
+
+    if (!list) {
+      throw std::bad_alloc();
+    }
+
+    for (Py_ssize_t i = 0; i < len; ++i) {
+      PyObject *e = PyList_GET_ITEM(o, i);
+      mgp_value *v{nullptr};
+
+      try {
+        v = PyObjectToMgpValue(e, memory);
+      } catch (...) {
+        mgp_list_destroy(list);
+        throw;
+      }
+
+      if (!mgp_list_append(list, v)) {
+        mgp_value_destroy(v);
+        mgp_list_destroy(list);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_list(list);
+  } else if (PyTuple_Check(o)) {
+    Py_ssize_t len = PyTuple_Size(o);
+    mgp_list *list = mgp_list_make_empty(len, memory);
+
+    if (!list) {
+      throw std::bad_alloc();
+    }
+
+    for (Py_ssize_t i = 0; i < len; ++i) {
+      PyObject *e = PyTuple_GET_ITEM(o, i);
+      mgp_value *v{nullptr};
+
+      try {
+        v = PyObjectToMgpValue(e, memory);
+      } catch (...) {
+        mgp_list_destroy(list);
+        throw;
+      }
+
+      if (!mgp_list_append(list, v)) {
+        mgp_value_destroy(v);
+        mgp_list_destroy(list);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_list(list);
+  } else if (PyDict_Check(o)) {
+    mgp_map *map = mgp_map_make_empty(memory);
+
+    if (!map) {
+      throw std::bad_alloc();
+    }
+
+    PyObject *key{nullptr};
+    PyObject *value{nullptr};
+    Py_ssize_t pos{0};
+    while (PyDict_Next(o, &pos, &key, &value)) {
+      if (!PyUnicode_Check(key)) {
+        mgp_map_destroy(map);
+        throw std::invalid_argument("Dictionary keys must be strings");
+      }
+
+      const char *k = PyUnicode_AsUTF8(key);
+      mgp_value *v{nullptr};
+
+      if (!k) {
+        PyErr_Clear();
+        mgp_map_destroy(map);
+        throw std::bad_alloc();
+      }
+
+      try {
+        v = PyObjectToMgpValue(value, memory);
+      } catch (...) {
+        mgp_map_destroy(map);
+        throw;
+      }
+
+      if (!mgp_map_insert(map, k, v)) {
+        mgp_value_destroy(v);
+        mgp_map_destroy(map);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_map(map);
+  } else {
+    // TODO: Check for Vertex, Edge and Path. Throw std::invalid_argument for
+    // everything else.
+    throw utils::NotYetImplemented("PyObjectToMgpValue");
+  }
+
+  if (!mgp_v) {
+    throw std::bad_alloc();
+  }
+
+  return mgp_v;
 }
 
 // Definitions of types wrapping C API types
