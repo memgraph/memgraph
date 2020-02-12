@@ -6,6 +6,7 @@
 #include "glue/communication.hpp"
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
+#include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/signals.hpp"
@@ -230,6 +231,7 @@ int WithInit(int argc, char **argv,
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
+  PyImport_AppendInittab("_mgp", &query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
   PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;

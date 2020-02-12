@@ -17,6 +17,8 @@ This module provides the API for usage in custom openCypher procedures.
 from collections import namedtuple
 import typing
 
+import _mgp
+
 
 class Label:
     '''Label of a Vertex.'''
@@ -166,6 +168,9 @@ class Vertex:
     invalid Vertex instance will raise InvalidVertexError.
     '''
 
+    def __init__(self, vertex):
+        raise NotImplementedError()
+
     @property
     def id(self) -> VertexId:
         '''Raise InvalidVertexError.'''
@@ -244,14 +249,42 @@ class InvalidProcCtxError(Exception):
 
 class Vertices:
     '''Iterable over vertices in a graph.'''
+    __slots__ = ('_graph',)
+
+    def __init__(self, graph):
+        if not isinstance(graph, _mgp.Graph):
+            raise TypeError("Expected '_mgp.Graph', got '{}'".fmt(type(graph)))
+        self._graph = graph
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used.'''
+        return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
         '''Raise InvalidProcCtxError if context is invalid.'''
-        pass
+        if not self.is_valid():
+            raise InvalidProcCtxError()
+        vertices_it = self._graph.iter_vertices()
+        vertex = vertices_it.get()
+        while vertex is not None:
+            yield Vertex(vertex)
+            if not self.is_valid():
+                raise InvalidProcCtxError()
+            vertex = vertices_it.next()
 
 
 class Graph:
     '''State of the graph database in current ProcCtx.'''
+    __slots__ = ('_graph',)
+
+    def __init__(self, graph):
+        if not isinstance(graph, _mgp.Graph):
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+        self._graph = graph
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used.'''
+        return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
         '''Return the Vertex corresponding to given vertex_id from the graph.
@@ -263,7 +296,10 @@ class Graph:
         Raise IndexError if unable to find the given vertex_id.
         Raise InvalidProcCtxError if context is invalid.
         '''
-        pass
+        if not self.is_valid():
+            raise InvalidProcCtxError()
+        vertex = self._graph.get_vertex_by_id(vertex_id)
+        return Vertex(vertex)
 
     @property
     def vertices(self) -> Vertices:
@@ -275,7 +311,9 @@ class Graph:
 
         Raise InvalidProcCtxError if context is invalid.
         '''
-        pass
+        if not self.is_valid():
+            raise InvalidProcCtxError()
+        return Vertices(self._graph)
 
 
 class ProcCtx:
