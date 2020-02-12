@@ -150,8 +150,9 @@ inline std::ostream &operator<<(std::ostream &os,
   Object format_exception_fn(
       PyObject_GetAttrString(traceback_mod, "format_exception"));
   CHECK(format_exception_fn);
-  auto list = format_exception_fn.Call(exc_info.type, exc_info.value,
-                                       exc_info.traceback);
+  auto list = format_exception_fn.Call(
+      exc_info.type, exc_info.value ? exc_info.value : Py_None,
+      exc_info.traceback ? exc_info.traceback : Py_None);
   CHECK(list);
   auto len = PyList_GET_SIZE(static_cast<PyObject *>(list));
   for (Py_ssize_t i = 0; i < len; ++i) {
@@ -168,6 +169,7 @@ inline std::optional<ExceptionInfo> FetchError() {
   PyObject *exc_type, *exc_value, *traceback;
   PyErr_Fetch(&exc_type, &exc_value, &traceback);
   if (!exc_type) return std::nullopt;
+  PyErr_NormalizeException(&exc_type, &exc_value, &traceback);
   return ExceptionInfo{Object(exc_type), Object(exc_value), Object(traceback)};
 }
 
