@@ -13,7 +13,6 @@
     - \./memgraph/tools/apollo/\.cppcheck_errors
 
 - name: code_coverage
-  project: ^NEVER$ # TODO (mferencevic): remove when the coverage is split into two (single node and distributed)
   type: data process
   require_runs: ^unit__.+ # regex to match all unit runs
   commands: |

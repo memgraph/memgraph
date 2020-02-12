@@ -25,15 +25,13 @@
 
     # Build coverage binaries.
     cd ..
-    # TODO: uncomment this build once single node and ha are split
-    # mkdir build_coverage
-    # cd build_coverage
-    # cmake -DTEST_COVERAGE=ON ..
-    # TIMEOUT=1200 make -j$THREADS memgraph__unit
-    ln -s build_debug build_coverage
+    mkdir build_coverage
+    cd build_coverage
+    cmake -DTEST_COVERAGE=ON ..
+    TIMEOUT=1200 make -j$THREADS memgraph__unit
 
     # Build release binaries.
-    # cd ..
+    cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
@@ -74,15 +72,13 @@
 
     # Build coverage binaries.
     cd ..
-    # TODO: uncomment this build once single node and ha are split
-    # mkdir build_coverage
-    # cd build_coverage
-    # cmake -DTEST_COVERAGE=ON ..
-    # TIMEOUT=1200 make -j$THREADS memgraph__unit
-    ln -s build_debug build_coverage
+    mkdir build_coverage
+    cd build_coverage
+    cmake -DTEST_COVERAGE=ON ..
+    TIMEOUT=1200 make -j$THREADS memgraph__unit
 
     # Build release binaries.
-    # cd ..
+    cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..

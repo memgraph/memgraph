@@ -18,7 +18,7 @@ mkdir "$generated_dir"
 
 # merge raw coverage info
 raw_files="$( find "$HOME" -name "*.profraw" | tr '\n' ' ' )"
-llvm-profdata-5.0 merge -sparse $raw_files -o "$data_file"
+llvm-profdata merge -sparse $raw_files -o "$data_file"
 
 # create list of binaries
 cnt=0
@@ -35,7 +35,7 @@ done
 src_files=$( find "$HOME" \( -name '*.cpp' -o -name '*.hpp' \) -print | sort | tr '\n' ' ' )
 
 # generate html output
-llvm-cov-5.0 show $obj_files \
+llvm-cov show $obj_files \
     -format html \
     -instr-profile "$data_file" \
     -o "$html_dir" \
@@ -52,7 +52,7 @@ find $coverage_dir -name "*.html" -exec sed -i 's@../../style.css@style.css@g' {
 sed -i 's@/workspace/memgraph@@g' $html_dir/index.html
 
 # generate json output
-llvm-cov-5.0 export $obj_files \
+llvm-cov export $obj_files \
     -instr-profile "$data_file" \
     -Xdemangler c++filt -Xdemangler -n \
     $src_files > "$json_file"
