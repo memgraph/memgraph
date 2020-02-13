@@ -146,7 +146,7 @@ struct IndicesInfo {
 /// storage.
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
-  std::vector<std::pair<LabelId, PropertyId>> unique;
+  std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
 };
 
 /// Structure used to return information about the storage.
@@ -344,24 +344,29 @@ class Storage final {
   ///
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  utils::BasicResult<ConstraintViolation, bool>
-  CreateExistenceConstraint(LabelId label, PropertyId property);
+  utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
+      LabelId label, PropertyId property);
 
   /// Removes an existence constraint. Returns true if the constraint was
   /// removed, and false if it doesn't exist.
   bool DropExistenceConstraint(LabelId label, PropertyId property);
 
-  /// Creates a unique constraint. Returns true if the constraint was
-  /// successfully added, false if it already exists and a `ConstraintViolation`
-  /// if there are at least two vertices violating the constraint.
+  /// Creates a unique constraint. In the case of two vertices violating the
+  /// constraint, it returns `ConstraintViolation`. Otherwise returns a
+  /// `UniqueConstraints::CreationStatus` enum with the following possibilities:
+  ///     * `SUCCESS` if the constraint was successfully created,
+  ///     * `ALREADY_EXISTS` if the constraint already existed, or
+  ///     * `INVALID_PROPERTIES_SIZE` if the property set is empty or exceeds
+  ///       the limit of maximum number of properties.
   ///
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, bool>
-  CreateUniqueConstraint(LabelId label, PropertyId property);
+  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties);
 
   /// Removes a unique constraint. Returns true if the constraint was removed,
   /// and false if it doesn't exist.
-  bool DropUniqueConstraint(LabelId label, PropertyId property);
+  bool DropUniqueConstraint(LabelId label,
+                            const std::set<PropertyId> &properties);
 
   ConstraintsInfo ListAllConstraints() const;
 

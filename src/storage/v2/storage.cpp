@@ -17,7 +17,8 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    *vertex =
+        VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -638,8 +639,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ConstraintViolation, void>
-Storage::Accessor::Commit() {
+utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
   CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
 
@@ -700,8 +700,9 @@ Storage::Accessor::Commit() {
 
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
-        unique_constraint_violation = storage_->constraints_.unique_constraints
-            .Validate(*prev.vertex, transaction_, commit_timestamp);
+        unique_constraint_violation =
+            storage_->constraints_.unique_constraints.Validate(
+                *prev.vertex, transaction_, commit_timestamp);
         if (unique_constraint_violation) {
           break;
         }
@@ -712,8 +713,8 @@ Storage::Accessor::Commit() {
         // that committed transactions are sorted by the commit timestamp in the
         // WAL files. We supply the new commit timestamp to the function so that
         // it knows what will be the final commit timestamp. The WAL must be
-        // written before actually committing the transaction (before setting the
-        // commit timestamp) so that no other transaction can see the
+        // written before actually committing the transaction (before setting
+        // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
         storage_->durability_.AppendToWal(transaction_, commit_timestamp);
 
@@ -727,9 +728,9 @@ Storage::Accessor::Commit() {
               CHECK(transaction_.commit_timestamp != nullptr)
                   << "Invalid database state!";
               transaction_.commit_timestamp->store(commit_timestamp,
-                                                 std::memory_order_release);
-              // Release engine lock because we don't have to hold it anymore and
-              // emplace back could take a long time.
+                                                   std::memory_order_release);
+              // Release engine lock because we don't have to hold it anymore
+              // and emplace back could take a long time.
               engine_guard.unlock();
               committed_transactions.emplace_back(std::move(transaction_));
             });
@@ -1056,20 +1057,20 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
   return true;
 }
 
-utils::BasicResult<ConstraintViolation, bool>
-Storage::CreateUniqueConstraint(LabelId label, PropertyId property) {
+utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
+Storage::CreateUniqueConstraint(LabelId label,
+                                const std::set<PropertyId> &properties) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(
-      label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
   // TODO(tsabolcec): Append action to the WAL.
-  return true;
+  return constraints_.unique_constraints.CreateConstraint(label, properties,
+                                                          vertices_.access());
 }
 
-bool Storage::DropUniqueConstraint(LabelId label, PropertyId property) {
+bool Storage::DropUniqueConstraint(LabelId label,
+                                   const std::set<PropertyId> &properties) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   // TODO(tsabolcec): Append action to the WAL.
-  return constraints_.unique_constraints.DropConstraint(label, property);
+  return constraints_.unique_constraints.DropConstraint(label, properties);
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
@@ -11,6 +12,25 @@
 
 namespace storage {
 
+// NOLINTNEXTLINE(misc-definitions-in-headers)
+const size_t kUniqueConstraintsMaxProperties = 32;
+
+/// Utility class to store data in a fixed size array. The array is used
+/// instead of `std::vector` to avoid `std::bad_alloc` exception where not
+/// necessary.
+template <class T>
+struct FixedCapacityArray {
+  size_t size;
+  T values[kUniqueConstraintsMaxProperties];
+
+  explicit FixedCapacityArray(size_t array_size) : size(array_size) {
+    CHECK(size <= kUniqueConstraintsMaxProperties) << "Invalid array size!";
+  }
+};
+
+using PropertyValueArray = FixedCapacityArray<const PropertyValue *>;
+using PropertyIdArray = FixedCapacityArray<PropertyId>;
+
 struct ConstraintViolation {
   enum class Type {
     EXISTENCE,
@@ -19,51 +39,65 @@ struct ConstraintViolation {
 
   Type type;
   LabelId label;
-  PropertyId property;
+
+  // While multiple properties are supported by unique constraints, the
+  // `properties` set will always have exactly one element in the case of
+  // existence constraint violation.
+  std::set<PropertyId> properties;
 };
 
-bool operator==(const ConstraintViolation &lhs,
-                const ConstraintViolation &rhs);
+bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs);
 
-// TODO(tsabolcec): Support property sets. Unique constraints could be defined
-// for pairs (label, property set). However, current implementation supports
-// only pairs of label and a single property.
 class UniqueConstraints {
  private:
   struct Entry {
-    PropertyValue value;
+    std::vector<PropertyValue> values;
     const Vertex *vertex;
     uint64_t timestamp;
 
     bool operator<(const Entry &rhs);
     bool operator==(const Entry &rhs);
 
-    bool operator<(const PropertyValue &rhs);
-    bool operator==(const PropertyValue &rhs);
+    bool operator<(const std::vector<PropertyValue> &rhs);
+    bool operator==(const std::vector<PropertyValue> &rhs);
+
+    bool operator<(const PropertyValueArray &rhs);
+    bool operator==(const PropertyValueArray &rhs);
   };
 
  public:
+  /// Status for creation of unique constraints.
+  /// Note that this does not cover the case when the constraint is violated.
+  enum class CreationStatus {
+    SUCCESS,
+    ALREADY_EXISTS,
+    INVALID_PROPERTIES_SIZE,
+  };
+
   /// Indexes the given vertex for relevant labels and properties.
   /// This method should be called before committing and validating vertices
   /// against unique constraints.
   /// @throw std::bad_alloc
   void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx);
 
-  /// Creates unique constraint on the given `label` and `property`.
+  /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
-  /// label and property values. Returns false if constraint already existed and
-  /// true on success.
+  /// label and property values. Returns `CreationStatus::ALREADY_EXISTS` if
+  /// constraint already existed, `CreationStatus::INVALID_PROPERTY_SIZE` if
+  /// the given list of properties is empty or the list of properties exceeds
+  /// the maximum allowed number of properties, and `CreationStatus::SUCCESS` on
+  /// success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, bool> CreateConstraint(
-      LabelId label, PropertyId property,
+  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
+      LabelId label, const std::set<PropertyId> &properties,
       utils::SkipList<Vertex>::Accessor vertices);
 
-  bool DropConstraint(LabelId label, PropertyId property) {
-    return constraints_.erase({label, property}) > 0;
+  bool DropConstraint(LabelId label, const std::set<PropertyId> &properties) {
+    return constraints_.erase({label, properties}) > 0;
   }
 
-  bool ConstraintExists(LabelId label, PropertyId property) const {
-    return constraints_.find({label, property}) != constraints_.end();
+  bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) {
+    return constraints_.find({label, properties}) != constraints_.end();
   }
 
   /// Validates the given vertex against unique constraints before committing.
@@ -73,14 +107,16 @@ class UniqueConstraints {
                                               const Transaction &tx,
                                               uint64_t commit_timestamp) const;
 
-  std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
+  std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const;
 
+  /// GC method that removes outdated entries from constraints' storages.
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   void Clear() { constraints_.clear(); }
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> constraints_;
+  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>>
+      constraints_;
 };
 
 struct Constraints {
@@ -89,16 +125,15 @@ struct Constraints {
 };
 
 /// Adds a unique constraint to `constraints`. Returns true if the constraint
-/// was successfuly added, false if it already exists and an
-/// `ExistenceConstraintViolation` if there is an existing vertex violating the
+/// was successfully added, false if it already exists and a
+/// `ConstraintViolation` if there is an existing vertex violating the
 /// constraint.
 ///
 /// @throw std::bad_alloc
 /// @throw std::length_error
-inline utils::BasicResult<ConstraintViolation, bool>
-CreateExistenceConstraint(Constraints *constraints, LabelId label,
-                          PropertyId property,
-                          utils::SkipList<Vertex>::Accessor vertices) {
+inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
+    Constraints *constraints, LabelId label, PropertyId property,
+    utils::SkipList<Vertex>::Accessor vertices) {
   if (utils::Contains(constraints->existence_constraints,
                       std::make_pair(label, property))) {
     return false;
@@ -107,7 +142,7 @@ CreateExistenceConstraint(Constraints *constraints, LabelId label,
     if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
         vertex.properties.find(property) == vertex.properties.end()) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
-                                 property};
+                                 std::set<PropertyId>{property}};
     }
   }
   constraints->existence_constraints.emplace_back(label, property);
@@ -129,8 +164,8 @@ inline bool DropExistenceConstraint(Constraints *constraints, LabelId label,
 }
 
 /// Verifies that the given vertex satisfies all existence constraints. Returns
-/// nullopt if all checks pass, and `ExistenceConstraintViolation` describing
-/// the violated constraint otherwise.
+/// `std::nullopt` if all checks pass, and `ConstraintViolation` describing the
+/// violated constraint otherwise.
 [[nodiscard]] inline std::optional<ConstraintViolation>
 ValidateExistenceConstraints(const Vertex &vertex,
                              const Constraints &constraints) {
@@ -138,7 +173,7 @@ ValidateExistenceConstraints(const Vertex &vertex,
     if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
         vertex.properties.find(property) == vertex.properties.end()) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
-                                 property};
+                                 std::set<PropertyId>{property}};
     }
   }
   return std::nullopt;

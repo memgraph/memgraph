@@ -930,8 +930,10 @@ PreparedQuery PrepareConstraintQuery(
               auto violation = res.GetError();
               auto label_name =
                   interpreter_context->db->LabelToName(violation.label);
+              CHECK(violation.properties.size() == 1U);
               auto property_name =
-                  interpreter_context->db->PropertyToName(violation.property);
+                  interpreter_context->db->PropertyToName(
+                                               *violation.properties.begin());
               throw QueryRuntimeException(
                   "Unable to create a constraint :{}({}), because an existing "
                   "node violates it.",
@@ -1111,8 +1113,10 @@ void Interpreter::Commit() {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
     auto label_name =
         execution_db_accessor_->LabelToName(constraint_violation.label);
+    CHECK(constraint_violation.properties.size() == 1U);
     auto property_name =
-        execution_db_accessor_->PropertyToName(constraint_violation.property);
+        execution_db_accessor_->PropertyToName(
+            *constraint_violation.properties.begin());
     execution_db_accessor_ = std::nullopt;
     db_accessor_ = std::nullopt;
     throw QueryException(
