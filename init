@@ -12,6 +12,7 @@ required_pkgs=(git arcanist # source code control
                uuid-dev # mg-utils
                libcurl4-openssl-dev # mg-requests
                sbcl # for custom Lisp C++ preprocessing
+               php-xml # for arcanist linters
               )
 
 optional_pkgs=(doxygen graphviz # source documentation generators
