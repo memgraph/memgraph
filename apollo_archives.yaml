@@ -1,11 +1,12 @@
 - name: Binaries
   archive:
     - build_debug/memgraph
-    #- build_debug/memgraph_ha
+    - build_debug/config/memgraph.conf
     - build_release/memgraph
-    #- build_release/memgraph_ha
+    - build_release/config/memgraph.conf
     - build_release/tools/src/mg_client
-    - config
+    - build_community/memgraph
+    - build_community/config/memgraph.conf
   filename: binaries.tar.gz
 
 - name: Doxygen documentation

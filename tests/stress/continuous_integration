@@ -70,7 +70,6 @@ LARGE_DATASET = [
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
-BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
@@ -85,6 +84,14 @@ if "THREADS" in os.environ:
     THREADS = os.environ["THREADS"]
 else:
     THREADS = multiprocessing.cpu_count()
+
+
+def get_build_dir():
+    if os.path.exists(os.path.join(BASE_DIR, "build_release")):
+        return os.path.join(BASE_DIR, "build_release")
+    if os.path.exists(os.path.join(BASE_DIR, "build_community")):
+        return os.path.join(BASE_DIR, "build_community")
+    return os.path.join(BASE_DIR, "build")
 
 
 def wait_for_server(port, delay=0.1):
@@ -104,10 +111,7 @@ def run_test(args, test, options, timeout):
         binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test),
                 "--logging", logging]
     elif test.endswith(".cpp"):
-        exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
-        if not os.path.exists(exe):
-            exe = os.path.join(BASE_DIR, "build_release", "tests", "stress",
-                    test[:-4])
+        exe = os.path.join(get_build_dir(), "tests", "stress", test[:-4])
         binary = [exe]
     else:
         raise Exception("Test '{}' binary not supported!".format(test))
@@ -129,7 +133,7 @@ def run_test(args, test, options, timeout):
 
 # parse arguments
 parser = argparse.ArgumentParser(description = "Run stress tests on Memgraph.")
-parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
+parser.add_argument("--memgraph", default = os.path.join(get_build_dir(),
         "memgraph"))
 parser.add_argument("--log-file", default = "")
 parser.add_argument("--data-directory", default = "")
@@ -142,10 +146,6 @@ parser.add_argument("--use-ssl", action = "store_const",
 parser.add_argument("--verbose", action = "store_const",
         const = True, default = False)
 args = parser.parse_args()
-
-# find memgraph binary
-if not os.path.exists(args.memgraph):
-    args.memgraph = os.path.join(BASE_DIR, "build_release", "memgraph")
 
 # generate temporary SSL certs
 if args.use_ssl:

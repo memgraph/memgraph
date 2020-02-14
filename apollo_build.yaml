@@ -36,6 +36,13 @@
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
     TIMEOUT=1200 make -j$THREADS
+
+    # Build community binaries.
+    cd ..
+    mkdir build_community
+    cd build_community
+    cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+    TIMEOUT=1200 make -j$THREADS
     cd ..
 
     # Checkout to parent commit and initialize.
@@ -82,6 +89,19 @@
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
+    TIMEOUT=1200 make -j$THREADS
+
+    # Create Debian package.
+    mkdir output
+    cd output
+    cpack -G DEB --config ../CPackConfig.cmake
+    cd ..
+
+    # Build community binaries.
+    cd ..
+    mkdir build_community
+    cd build_community
+    cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
     TIMEOUT=1200 make -j$THREADS
 
     # Create Debian package.

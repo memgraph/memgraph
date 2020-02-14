@@ -3,7 +3,6 @@
   infiles: &STRESS_INFILES
     - . # current directory
     - ../../build_release/memgraph # memgraph release binary
-    - ../../config # directory with config files
     - ../../build_release/tests/stress # stress client binaries
 
 - name: stress_ssl
@@ -14,6 +13,18 @@
   project: release
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset
   infiles: *STRESS_INFILES
+
+- name: community__stress
+  commands: TIMEOUT=600 ./continuous_integration
+  infiles: &COMMUNITY_STRESS_INFILES
+    - . # current directory
+    - ../../build_community/memgraph # memgraph community binary
+    - ../../build_community/tests/stress # stress client binaries
+
+- name: community__stress_large
+  project: release
+  commands: TIMEOUT=43200 ./continuous_integration --large-dataset
+  infiles: *COMMUNITY_STRESS_INFILES
 
 #- name: stress_ha_normal_operation
 #  commands: TIMEOUT=200 ./continuous_integration_ha
@@ -32,7 +43,6 @@
   infiles: &DURABILITY_INFILES
     - . # current directory
     - ../../build_release/memgraph # memgraph release binary
-    - ../../config # directory with config files
 
 - name: durability_large
   project: release
