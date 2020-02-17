@@ -637,6 +637,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
   if (ctx->STATS()) return AuthQuery::Privilege::STATS;
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
+  if (ctx->DUMP()) return AuthQuery::Privilege::DUMP;
   LOG(FATAL) << "Should not get here - unknown privilege!";
 }
 

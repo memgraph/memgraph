@@ -2273,6 +2273,37 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+  // Verify that all privileges are correctly visited.
+  check_auth_query(&ast_generator, "GRANT CREATE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CREATE});
+  check_auth_query(&ast_generator, "GRANT DELETE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DELETE});
+  check_auth_query(&ast_generator, "GRANT MERGE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MERGE});
+  check_auth_query(&ast_generator, "GRANT SET TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SET});
+  check_auth_query(&ast_generator, "GRANT REMOVE TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::REMOVE});
+  check_auth_query(&ast_generator, "GRANT INDEX TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::INDEX});
+  check_auth_query(&ast_generator, "GRANT STATS TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::STATS});
+  check_auth_query(&ast_generator, "GRANT AUTH TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::AUTH});
+  check_auth_query(&ast_generator, "GRANT CONSTRAINT TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CONSTRAINT});
+  check_auth_query(&ast_generator, "GRANT DUMP TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DUMP});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2291,6 +2322,37 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user",
                    AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+  // Verify that all privileges are correctly visited.
+  check_auth_query(&ast_generator, "DENY CREATE TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CREATE});
+  check_auth_query(&ast_generator, "DENY DELETE TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DELETE});
+  check_auth_query(&ast_generator, "DENY MERGE TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MERGE});
+  check_auth_query(&ast_generator, "DENY SET TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SET});
+  check_auth_query(&ast_generator, "DENY REMOVE TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::REMOVE});
+  check_auth_query(&ast_generator, "DENY INDEX TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::INDEX});
+  check_auth_query(&ast_generator, "DENY STATS TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::STATS});
+  check_auth_query(&ast_generator, "DENY AUTH TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::AUTH});
+  check_auth_query(&ast_generator, "DENY CONSTRAINT TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CONSTRAINT});
+  check_auth_query(&ast_generator, "DENY DUMP TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DUMP});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2312,6 +2374,37 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user",
                    AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    kPrivilegesAll);
+  // Verify that all privileges are correctly visited.
+  check_auth_query(&ast_generator, "REVOKE CREATE FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CREATE});
+  check_auth_query(&ast_generator, "REVOKE DELETE FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DELETE});
+  check_auth_query(&ast_generator, "REVOKE MERGE FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MERGE});
+  check_auth_query(&ast_generator, "REVOKE SET FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SET});
+  check_auth_query(&ast_generator, "REVOKE REMOVE FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::REMOVE});
+  check_auth_query(&ast_generator, "REVOKE INDEX FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::INDEX});
+  check_auth_query(&ast_generator, "REVOKE STATS FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::STATS});
+  check_auth_query(&ast_generator, "REVOKE AUTH FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::AUTH});
+  check_auth_query(&ast_generator, "REVOKE CONSTRAINT FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CONSTRAINT});
+  check_auth_query(&ast_generator, "REVOKE DUMP FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DUMP});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
