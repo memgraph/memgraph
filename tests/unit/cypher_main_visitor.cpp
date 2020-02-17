@@ -2142,16 +2142,16 @@ void check_auth_query(Base *ast_generator, std::string input,
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE `us|er`"),
-               SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE `us er`"),
-               SyntaxException);
   check_auth_query(&ast_generator, "CREATE ROLE `user`",
                    AuthQuery::Action::CREATE_ROLE, "", "user", "", {}, {});
   check_auth_query(&ast_generator, "CREATE ROLE us___er",
                    AuthQuery::Action::CREATE_ROLE, "", "us___er", "", {}, {});
   check_auth_query(&ast_generator, "CREATE ROLE `us+er`",
                    AuthQuery::Action::CREATE_ROLE, "", "us+er", "", {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE `us|er`",
+                   AuthQuery::Action::CREATE_ROLE, "", "us|er", "", {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE `us er`",
+                   AuthQuery::Action::CREATE_ROLE, "", "us er", "", {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateRole) {

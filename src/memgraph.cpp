@@ -4,6 +4,7 @@
 #include <exception>
 #include <functional>
 #include <limits>
+#include <regex>
 #include <thread>
 
 #include <gflags/gflags.h>
@@ -116,14 +117,24 @@ using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 #ifdef MG_ENTERPRISE
+
+DEFINE_string(
+    auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+    "Set to the regular expression that each user or role name must fulfill.");
+
 class AuthQueryHandler final : public query::AuthQueryHandler {
   auth::Auth *auth_;
+  std::regex name_regex_;
 
  public:
-  explicit AuthQueryHandler(auth::Auth *auth) : auth_(auth) {}
+  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex)
+      : auth_(auth), name_regex_(name_regex) {}
 
   bool CreateUser(const std::string &username,
                   const std::optional<std::string> &password) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       return !!auth_->AddUser(username, password);
@@ -133,6 +144,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
   }
 
   bool DropUser(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
@@ -145,6 +159,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   void SetPassword(const std::string &username,
                    const std::optional<std::string> &password) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
@@ -160,6 +177,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
   }
 
   bool CreateRole(const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       return !!auth_->AddRole(rolename);
@@ -169,6 +189,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
   }
 
   bool DropRole(const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto role = auth_->GetRole(rolename);
@@ -211,6 +234,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::optional<std::string> GetRolenameForUser(
       const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
@@ -227,6 +253,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<query::TypedValue> GetUsernamesForRole(
       const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto role = auth_->GetRole(rolename);
@@ -248,6 +277,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   void SetRole(const std::string &username,
                const std::string &rolename) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
@@ -273,6 +308,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
   }
 
   void ClearRole(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
@@ -289,6 +327,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<std::vector<query::TypedValue>> GetPrivileges(
       const std::string &user_or_role) override {
+    if (!std::regex_match(user_or_role, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user or role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       std::vector<std::vector<query::TypedValue>> grants;
@@ -392,6 +433,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       const std::string &user_or_role,
       const std::vector<query::AuthQuery::Privilege> &privileges,
       const TEditFun &edit_fun) {
+    if (!std::regex_match(user_or_role, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user or role name.");
+    }
     try {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       std::vector<auth::Permission> permissions;
@@ -583,7 +627,8 @@ void SingleNodeMain() {
   }
   // Register modules END
 #ifdef MG_ENTERPRISE
-  AuthQueryHandler auth_handler(&auth);
+  AuthQueryHandler auth_handler(&auth,
+                                std::regex(FLAGS_auth_user_or_role_name_regex));
 #else
   AuthQueryHandler auth_handler;
 #endif

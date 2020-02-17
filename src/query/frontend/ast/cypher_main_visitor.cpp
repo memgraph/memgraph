@@ -5,7 +5,6 @@
 #include <codecvt>
 #include <cstring>
 #include <limits>
-#include <regex>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -455,12 +454,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(
  */
 antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(
     MemgraphCypher::UserOrRoleNameContext *ctx) {
-  std::string value = ctx->symbolicName()->accept(this).as<std::string>();
-  const std::regex NAME_REGEX("[a-zA-Z0-9_.+-]+");
-  if (!std::regex_match(value, NAME_REGEX)) {
-    throw SyntaxException("Invalid user or role name.");
-  }
-  return value;
+  return ctx->symbolicName()->accept(this).as<std::string>();
 }
 
 /**
