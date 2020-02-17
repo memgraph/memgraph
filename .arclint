@@ -6,11 +6,6 @@
       "script-and-regex.script": "./tools/arc-clang-tidy",
       "script-and-regex.regex": "/^(?P<file>.*):(?P<line>\\d+):(?P<char>\\d+): (?P<severity>warning|error): (?P<message>.*)$/m"
     },
-    "cppcheck": {
-      "type": "cppcheck",
-      "include": "(\\.(cpp|cc|cxx)$)",
-      "flags": ["--suppress=useStlAlgorithm"]
-    },
     "clang-format": {
       "type": "script-and-regex",
       "include": "(\\.(cpp|cc|cxx|c|h|hpp)$)",
