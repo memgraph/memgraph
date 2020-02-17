@@ -16,11 +16,11 @@ and parameters contained on Licensor’s quotation, website, or order form
 non-transferable and non-exclusive license to install, access and use the
 Software (in object code form only) and Documentation for Licensee’s internal
 business purposes only. All rights relating to the Software and Documentation
-that are not expressly licensed in this License Agreement, whether now
-existing or which may hereafter come into existence are reserved for Licensor.
-Licensee shall not remove, obscure, or alter any proprietary rights notices
-(including without limitation copyright and trademark notices), which may be
-affixed to or contained within the Software or Documentation.
+that are not expressly licensed in this License Agreement, whether now existing
+or which may hereafter come into existence are reserved for Licensor. Licensee
+shall not remove, obscure, or alter any proprietary rights notices (including
+without limitation copyright and trademark notices), which may be affixed to or
+contained within the Software or Documentation.
 
 3. Restrictions
 
@@ -58,5 +58,4 @@ NEITHER THIS LICENSE AGREEMENT NOR ANY DOCUMENTATION FURNISHED UNDER IT IS
 INTENDED TO EXPRESS OR IMPLY ANY WARRANTY THAT THE OPERATION OF THE SOFTWARE
 WILL BE UNINTERRUPTED, TIMELY, OR ERROR-FREE.
 
-BY DOWNLOADING AND/OR ACCESSING THIS EARLY ACCESS SOFTWARE, YOU AGREE TO SUCH
-TERMS.
+BY DOWNLOADING AND/OR ACCESSING THIS SOFTWARE, YOU AGREE TO SUCH TERMS.
