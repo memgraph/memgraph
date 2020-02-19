@@ -7,6 +7,7 @@ extern "C" {
 #include <optional>
 
 #include "py/py.hpp"
+#include "query/procedure/py_module.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
@@ -14,7 +15,50 @@ namespace query::procedure {
 
 ModuleRegistry gModuleRegistry;
 
+Module::~Module() {}
+
+class BuiltinModule final : public Module {
+ public:
+  BuiltinModule();
+  ~BuiltinModule() override;
+  BuiltinModule(const BuiltinModule &) = delete;
+  BuiltinModule(BuiltinModule &&) = delete;
+  BuiltinModule &operator=(const BuiltinModule &) = delete;
+  BuiltinModule &operator=(BuiltinModule &&) = delete;
+
+  bool Close() override;
+
+  bool Reload() override;
+
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
+      const override;
+
+  void AddProcedure(std::string_view name, mgp_proc proc);
+
+ private:
+  /// Registered procedures
+  std::map<std::string, mgp_proc, std::less<>> procedures_;
+};
+
+BuiltinModule::BuiltinModule() {}
+
+BuiltinModule::~BuiltinModule() {}
+
+bool BuiltinModule::Reload() { return true; }
+
+bool BuiltinModule::Close() { return true; }
+
+const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures()
+    const {
+  return &procedures_;
+}
+
+void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) {
+  procedures_.emplace(name, std::move(proc));
+}
+
 namespace {
+
 void RegisterMgReload(ModuleRegistry *module_registry, utils::RWLock *lock,
                       BuiltinModule *module) {
   // Reloading relies on the fact that regular procedure invocation through
@@ -129,26 +173,58 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
+// Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
+// a `true` value, store the `mgp_module::procedures` into `proc_map`. The
+// return value of WithModuleRegistration is the same as that of `fun`. Note,
+// the return value need only be convertible to `bool`, it does not have to be
+// `bool` itself.
+template <class TProcMap, class TFun>
+auto WithModuleRegistration(TProcMap *proc_map, const TFun &fun) {
+  // We probably don't need more than 256KB for module initialization.
+  constexpr size_t stack_bytes = 256 * 1024;
+  unsigned char stack_memory[stack_bytes];
+  utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
+  mgp_memory memory{&monotonic_memory};
+  mgp_module module_def{memory.impl};
+  auto res = fun(&module_def, &memory);
+  if (res)
+    // Copy procedures into resulting proc_map.
+    for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
+  return res;
+}
+
 }  // namespace
 
-Module::~Module() {}
+class SharedLibraryModule final : public Module {
+ public:
+  SharedLibraryModule();
+  ~SharedLibraryModule() override;
+  SharedLibraryModule(const SharedLibraryModule &) = delete;
+  SharedLibraryModule(SharedLibraryModule &&) = delete;
+  SharedLibraryModule &operator=(const SharedLibraryModule &) = delete;
+  SharedLibraryModule &operator=(SharedLibraryModule &&) = delete;
 
-BuiltinModule::BuiltinModule() {}
+  bool Load(std::filesystem::path file_path);
 
-BuiltinModule::~BuiltinModule() {}
+  bool Close() override;
 
-bool BuiltinModule::Reload() { return true; }
+  bool Reload() override;
 
-bool BuiltinModule::Close() { return true; }
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
+      const override;
 
-const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures()
-    const {
-  return &procedures_;
-}
-
-void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) {
-  procedures_.emplace(name, std::move(proc));
-}
+ private:
+  /// Path as requested for loading the module from a library.
+  std::filesystem::path file_path_;
+  /// System handle to shared library.
+  void *handle_;
+  /// Required initialization function called on module load.
+  std::function<int(mgp_module *, mgp_memory *)> init_fn_;
+  /// Optional shutdown function called on module unload.
+  std::function<int()> shutdown_fn_;
+  /// Registered procedures
+  std::map<std::string, mgp_proc, std::less<>> procedures_;
+};
 
 SharedLibraryModule::SharedLibraryModule() : handle_(nullptr) {}
 
@@ -176,24 +252,21 @@ bool SharedLibraryModule::Load(std::filesystem::path file_path) {
     handle_ = nullptr;
     return false;
   }
-  // We probably don't need more than 256KB for module initialazation.
-  constexpr size_t stack_bytes = 256 * 1024;
-  unsigned char stack_memory[stack_bytes];
-  utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
-  mgp_memory memory{&monotonic_memory};
-  mgp_module module_def{memory.impl};
-  // Run mgp_init_module which must succeed.
-  int init_res = init_fn_(&module_def, &memory);
-  if (init_res != 0) {
-    LOG(ERROR) << "Unable to load module " << file_path
-               << "; mgp_init_module returned " << init_res;
-    dlclose(handle_);
-    handle_ = nullptr;
+  if (!WithModuleRegistration(
+          &procedures_, [&](auto *module_def, auto *memory) {
+            // Run mgp_init_module which must succeed.
+            int init_res = init_fn_(module_def, memory);
+            if (init_res != 0) {
+              LOG(ERROR) << "Unable to load module " << file_path
+                         << "; mgp_init_module returned " << init_res;
+              dlclose(handle_);
+              handle_ = nullptr;
+              return false;
+            }
+            return true;
+          })) {
     return false;
   }
-  // Copy procedures into our memory.
-  for (const auto &proc : module_def.procedures)
-    procedures_.emplace(proc);
   // Get optional mgp_shutdown_module
   shutdown_fn_ =
       reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
@@ -228,7 +301,6 @@ bool SharedLibraryModule::Close() {
 
 bool SharedLibraryModule::Reload() {
   CHECK(handle_) << "Attempting to reload a module that has not been loaded...";
-  LOG(INFO) << "Reloading module " << file_path_ << " ...";
   if (!Close()) return false;
   return Load(file_path_);
 }
@@ -240,11 +312,37 @@ const std::map<std::string, mgp_proc, std::less<>>
   return &procedures_;
 }
 
+class PythonModule final : public Module {
+ public:
+  PythonModule();
+  ~PythonModule() override;
+  PythonModule(const PythonModule &) = delete;
+  PythonModule(PythonModule &&) = delete;
+  PythonModule &operator=(const PythonModule &) = delete;
+  PythonModule &operator=(PythonModule &&) = delete;
+
+  bool Load(std::filesystem::path file_path);
+
+  bool Close() override;
+
+  bool Reload() override;
+
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
+      const override;
+
+ private:
+  py::Object py_module_;
+  std::map<std::string, mgp_proc, std::less<>> procedures_;
+};
+
 PythonModule::PythonModule() {}
 
-PythonModule::~PythonModule() {}
+PythonModule::~PythonModule() {
+  if (py_module_) Close();
+}
 
 bool PythonModule::Load(std::filesystem::path file_path) {
+  CHECK(!py_module_) << "Attempting to load an already loaded module...";
   LOG(INFO) << "Loading module " << file_path << " ...";
   auto gil = py::EnsureGIL();
   auto *py_path = PySys_GetObject("path");
@@ -262,29 +360,47 @@ bool PythonModule::Load(std::filesystem::path file_path) {
       return false;
     }
   }
-  py::Object py_module(PyImport_ImportModule(file_path.stem().c_str()));
-  if (!py_module) {
-    auto exc_info = py::FetchError().value();
-    LOG(ERROR) << "Unable to load module " << file_path << "; " << exc_info;
-    return false;
-  }
-  // TODO: Actually create a module
+  py_module_ =
+      WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
+        return ImportPyModule(file_path.stem().c_str(), module_def);
+      });
+  if (py_module_) return true;
+  auto exc_info = py::FetchError().value();
+  LOG(ERROR) << "Unable to load module " << file_path << "; " << exc_info;
   return false;
 }
 
 bool PythonModule::Close() {
-  //TODO: implement
-  return false;
+  CHECK(py_module_)
+      << "Attempting to close a module that has not been loaded...";
+  // Deleting procedures will probably release PyObject closures, so we need to
+  // take the GIL.
+  auto gil = py::EnsureGIL();
+  procedures_.clear();
+  py_module_ = py::Object(nullptr);
+  return true;
 }
 
 bool PythonModule::Reload() {
-  //TODO: implement
+  CHECK(py_module_)
+      << "Attempting to reload a module that has not been loaded...";
+  auto gil = py::EnsureGIL();
+  procedures_.clear();
+  py_module_ =
+      WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
+        return ReloadPyModule(py_module_, module_def);
+      });
+  if (py_module_) return true;
+  auto exc_info = py::FetchError().value();
+  LOG(ERROR) << "Unable to reload module; " << exc_info;
   return false;
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures()
     const {
-  return nullptr;
+  CHECK(py_module_) << "Attempting to access procedures of a module that has "
+                       "not been loaded...";
+  return &procedures_;
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -312,7 +428,7 @@ bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
     if (!loaded) return false;
     modules_[module_name] = std::move(module);
   } else {
-    LOG(ERROR) << "Unkown query module file " << path;
+    LOG(ERROR) << "Unknown query module file " << path;
     return false;
   }
   return true;
@@ -334,6 +450,7 @@ bool ModuleRegistry::ReloadModuleNamed(const std::string_view &name) {
     return false;
   }
   auto &module = found_it->second;
+  LOG(INFO) << "Reloading module '" << name << "' ...";
   if (!module->Reload()) {
     modules_.erase(found_it);
     return false;
@@ -344,6 +461,7 @@ bool ModuleRegistry::ReloadModuleNamed(const std::string_view &name) {
 bool ModuleRegistry::ReloadAllModules() {
   std::unique_lock<utils::RWLock> guard(lock_);
   for (auto &[name, module] : modules_) {
+    LOG(INFO) << "Reloading module '" << name << "' ...";
     if (!module->Reload()) {
       modules_.erase(name);
       return false;

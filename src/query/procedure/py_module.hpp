@@ -6,6 +6,7 @@
 
 struct mgp_graph;
 struct mgp_memory;
+struct mgp_module;
 struct mgp_value;
 
 namespace query::procedure {
@@ -29,5 +30,21 @@ PyObject *PyInitMgpModule();
 
 /// Create an instance of _mgp.Graph class.
 PyObject *MakePyGraph(const mgp_graph *, mgp_memory *);
+
+/// Import a module with given name in the context of mgp_module.
+///
+/// This function can only be called when '_mgp' module has been initialized in
+/// Python.
+///
+/// Return nullptr and set appropriate Python exception on failure.
+py::Object ImportPyModule(const char *, mgp_module *);
+
+/// Reload already loaded Python module in the context of mgp_module.
+///
+/// This function can only be called when '_mgp' module has been initialized in
+/// Python.
+///
+/// Return nullptr and set appropriate Python exception on failure.
+py::Object ReloadPyModule(PyObject *, mgp_module *);
 
 }  // namespace query::procedure

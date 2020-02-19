@@ -340,6 +340,177 @@ PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   return PyObject_Init(reinterpret_cast<PyObject *>(py_graph), &PyGraphType);
 }
 
+struct PyQueryProc {
+  PyObject_HEAD
+  mgp_proc *proc;
+};
+
+PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
+  CHECK(self->proc);
+  const char *name = nullptr;
+  PyObject *py_type = nullptr;
+  if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
+  // TODO: Convert Python type to mgp_type
+  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (!mgp_proc_add_arg(self->proc, name, type)) {
+    PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_arg.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
+  CHECK(self->proc);
+  const char *name = nullptr;
+  PyObject *py_type = nullptr;
+  PyObject *py_value = nullptr;
+  if (!PyArg_ParseTuple(args, "sOO", &name, &py_type, &py_value))
+    return nullptr;
+  // TODO: Convert Python type to mgp_type
+  const auto *type = mgp_type_nullable(mgp_type_any());
+  mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
+  mgp_value *value;
+  try {
+    value = PyObjectToMgpValue(py_value, &memory);
+  } catch (const std::bad_alloc &e) {
+    PyErr_SetString(PyExc_MemoryError, e.what());
+    return nullptr;
+  } catch (const std::overflow_error &e) {
+    PyErr_SetString(PyExc_OverflowError, e.what());
+    return nullptr;
+  } catch (const std::invalid_argument &e) {
+    PyErr_SetString(PyExc_ValueError, e.what());
+    return nullptr;
+  } catch (const std::exception &e) {
+    PyErr_SetString(PyExc_RuntimeError, e.what());
+    return nullptr;
+  }
+  CHECK(value);
+  if (!mgp_proc_add_opt_arg(self->proc, name, type, value)) {
+    mgp_value_destroy(value);
+    PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_opt_arg.");
+    return nullptr;
+  }
+  mgp_value_destroy(value);
+  Py_RETURN_NONE;
+}
+
+PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
+  CHECK(self->proc);
+  const char *name = nullptr;
+  PyObject *py_type = nullptr;
+  if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
+  // TODO: Convert Python type to mgp_type
+  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (!mgp_proc_add_result(self->proc, name, type)) {
+    PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_result.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
+  CHECK(self->proc);
+  const char *name = nullptr;
+  PyObject *py_type = nullptr;
+  if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
+  // TODO: Convert Python type to mgp_type
+  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (!mgp_proc_add_deprecated_result(self->proc, name, type)) {
+    PyErr_SetString(PyExc_ValueError,
+                    "Invalid call to mgp_proc_add_deprecated_result.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+static PyMethodDef PyQueryProcMethods[] = {
+    {"add_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddArg), METH_VARARGS,
+     "Add a required argument to a procedure."},
+    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg),
+     METH_VARARGS,
+     "Add an optional argument with a default value to a procedure."},
+    {"add_result", reinterpret_cast<PyCFunction>(PyQueryProcAddResult),
+     METH_VARARGS, "Add a result field to a procedure."},
+    {"add_deprecated_result",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult),
+     METH_VARARGS,
+     "Add a result field to a procedure and mark it as deprecated."},
+    {nullptr},
+};
+
+static PyTypeObject PyQueryProcType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Proc",
+    .tp_doc = "Wraps struct mgp_proc.",
+    .tp_basicsize = sizeof(PyQueryProc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyQueryProcMethods,
+};
+
+struct PyQueryModule {
+  PyObject_HEAD
+  mgp_module *module;
+};
+
+PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
+  CHECK(self->module);
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  Py_INCREF(cb);
+  py::Object py_cb(cb);
+  py::Object py_name(PyObject_GetAttrString(py_cb, "__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name);
+  // TODO: Validate name
+  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  mgp_proc proc(
+      name,
+      [py_cb](const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {
+        auto gil = py::EnsureGIL();
+        throw utils::NotYetImplemented("Invoking Python procedures");
+      },
+      memory);
+  const auto &[proc_it, did_insert] =
+      self->module->procedures.emplace(name, std::move(proc));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError,
+                    "Already registered a procedure with the same name.");
+    return nullptr;
+  }
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);
+  if (!py_proc) return nullptr;
+  py_proc->proc = &proc_it->second;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_proc), &PyQueryProcType);
+}
+
+static PyMethodDef PyQueryModuleMethods[] = {
+    {"add_read_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
+     "Register a read-only procedure with this module."},
+    {nullptr},
+};
+
+static PyTypeObject PyQueryModuleType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Module",
+    .tp_doc = "Wraps struct mgp_module.",
+    .tp_basicsize = sizeof(PyQueryModule),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyQueryModuleMethods,
+};
+
+PyObject *MakePyQueryModule(mgp_module *module) {
+  auto *py_query_module = PyObject_New(PyQueryModule, &PyQueryModuleType);
+  if (!py_query_module) return nullptr;
+  py_query_module->module = module;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_query_module),
+                       &PyQueryModuleType);
+}
+
 static PyModuleDef PyMgpModule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_mgp",
@@ -348,26 +519,68 @@ static PyModuleDef PyMgpModule = {
 };
 
 PyObject *PyInitMgpModule() {
-  if (PyType_Ready(&PyVerticesIteratorType) < 0) return nullptr;
-  if (PyType_Ready(&PyGraphType) < 0) return nullptr;
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
-  Py_INCREF(&PyVerticesIteratorType);
-  if (PyModule_AddObject(
-          mgp, "VerticesIterator",
-          reinterpret_cast<PyObject *>(&PyVerticesIteratorType)) < 0) {
-    Py_DECREF(&PyVerticesIteratorType);
-    Py_DECREF(mgp);
+  auto register_type = [mgp](auto *type, const auto *name) -> bool {
+    if (PyType_Ready(type) < 0) {
+      Py_DECREF(mgp);
+      return false;
+    }
+    Py_INCREF(type);
+    if (PyModule_AddObject(mgp, name, reinterpret_cast<PyObject *>(type)) < 0) {
+      Py_DECREF(type);
+      Py_DECREF(mgp);
+      return false;
+    }
+    return true;
+  };
+  if (!register_type(&PyVerticesIteratorType, "VerticesIterator"))
     return nullptr;
-  }
-  Py_INCREF(&PyGraphType);
-  if (PyModule_AddObject(mgp, "Graph",
-                         reinterpret_cast<PyObject *>(&PyGraphType)) < 0) {
-    Py_DECREF(&PyGraphType);
+  if (!register_type(&PyGraphType, "Graph")) return nullptr;
+  if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
+  if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
+  Py_INCREF(Py_None);
+  if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
+    Py_DECREF(Py_None);
     Py_DECREF(mgp);
     return nullptr;
   }
   return mgp;
+}
+
+namespace {
+
+template <class TFun>
+auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
+  py::Object py_mgp(PyImport_ImportModule("_mgp"));
+  py::Object py_mgp_module(PyObject_GetAttrString(py_mgp, "_MODULE"));
+  CHECK(py_mgp_module) << "Expected '_mgp' to have attribute '_MODULE'";
+  // NOTE: This check is not thread safe, but this should only go through
+  // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
+  CHECK(py_mgp_module == Py_None)
+      << "Expected '_mgp._MODULE' to be None as we are just starting to "
+         "import a new module. Is some other thread also importing Python "
+         "modules?";
+  CHECK(py_mgp) << "Expected builtin '_mgp' to be available for import";
+  auto *py_query_module = MakePyQueryModule(module_def);
+  CHECK(py_query_module);
+  CHECK(0 <= PyObject_SetAttrString(py_mgp, "_MODULE", py_query_module));
+  auto ret = fun();
+  CHECK(0 <= PyObject_SetAttrString(py_mgp, "_MODULE", Py_None));
+  return ret;
+}
+
+}  // namespace
+
+py::Object ImportPyModule(const char *name, mgp_module *module_def) {
+  return WithMgpModule(
+      module_def, [name]() { return py::Object(PyImport_ImportModule(name)); });
+}
+
+py::Object ReloadPyModule(PyObject *py_module, mgp_module *module_def) {
+  return WithMgpModule(module_def, [py_module]() {
+    return py::Object(PyImport_ReloadModule(py_module));
+  });
 }
 
 }  // namespace query::procedure

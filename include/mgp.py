@@ -15,6 +15,9 @@ This module provides the API for usage in custom openCypher procedures.
 # 3.5, but variable type annotations are only available with Python 3.6+
 
 from collections import namedtuple
+import functools
+import inspect
+import sys
 import typing
 
 import _mgp
@@ -236,10 +239,11 @@ class Path:
 
 class Record:
     '''Represents a record of resulting field values.'''
+    __slots__ = ('fields',)
 
     def __init__(self, **kwargs):
         '''Initialize with name=value fields in kwargs.'''
-        pass
+        self.fields = kwargs
 
 
 class InvalidProcCtxError(Exception):
@@ -346,8 +350,12 @@ Nullable = typing.Optional
 
 class Deprecated:
     '''Annotate a resulting Record's field as deprecated.'''
+    __slots__ = ('field_type',)
+
     def __init__(self, type_):
-        pass
+        if not isinstance(type_, type):
+            raise TypeError("Expected 'type', got '{}'".format(type_))
+        self.field_type = type_
 
 
 def read_proc(func: typing.Callable[..., Record]):
@@ -390,4 +398,47 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     '''
-    pass
+    if not callable(func):
+        raise TypeError("Expected a callable object, got an instance of '{}'"
+                        .format(type(func)))
+    if inspect.iscoroutinefunction(func):
+        raise TypeError("Callable must not be 'async def' function")
+    if sys.version_info.minor >= 6:
+        if inspect.isasyncgenfunction(func):
+            raise TypeError("Callable must not be 'async def' function")
+    if inspect.isgeneratorfunction(func):
+        raise NotImplementedError("Generator functions are not supported")
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is ProcCtx:
+        params = params[1:]
+        mgp_proc = _mgp._MODULE.add_read_procedure(func)
+    else:
+        @functools.wraps(func)
+        def wrapper(*args):
+            args_without_context = args[1:]
+            return func(*args_without_context)
+        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        # TODO: Convert type_ to _mgp.CypherType
+        if type_ is param.empty:
+            type_ = object
+        if param.default is param.empty:
+            mgp_proc.add_arg(name, type_)
+        else:
+            mgp_proc.add_opt_arg(name, type_, param.default)
+    if sig.return_annotation is not sig.empty:
+        record = sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
+                            .format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            # TODO: Convert type_ to _mgp.CypherType
+            if isinstance(type_, Deprecated):
+                field_type = type_.field_type
+                mgp_proc.add_deprecated_result(name, field_type)
+            else:
+                mgp_proc.add_result(name, type_)
+    return func
