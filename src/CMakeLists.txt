@@ -135,7 +135,6 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
     glue/communication.cpp
-    memgraph_init.cpp
     memgraph.cpp
 )
 if (MG_ENTERPRISE)
