@@ -275,17 +275,15 @@ class DbAccessor final {
   }
 
   storage::PropertyId NameToProperty(const std::string_view &name) {
-    // TODO: New storage should work with string_view to avoid needless
-    // allocation.
-    return accessor_->NameToProperty(std::string(name));
+    return accessor_->NameToProperty(name);
   }
 
   storage::LabelId NameToLabel(const std::string_view &name) {
-    return accessor_->NameToLabel(std::string(name));
+    return accessor_->NameToLabel(name);
   }
 
   storage::EdgeTypeId NameToEdgeType(const std::string_view &name) {
-    return accessor_->NameToEdgeType(std::string(name));
+    return accessor_->NameToEdgeType(name);
   }
 
   const std::string &PropertyToName(storage::PropertyId prop) const {

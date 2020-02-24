@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <string>
+#include <string_view>
 
 #include "utils/skip_list.hpp"
 
@@ -16,8 +17,8 @@ class NameIdMapper final {
     bool operator<(const MapNameToId &other) { return name < other.name; }
     bool operator==(const MapNameToId &other) { return name == other.name; }
 
-    bool operator<(const std::string &other) { return name < other; }
-    bool operator==(const std::string &other) { return name == other; }
+    bool operator<(const std::string_view &other) { return name < other; }
+    bool operator==(const std::string_view &other) { return name == other; }
   };
 
   struct MapIdToName {
@@ -33,7 +34,7 @@ class NameIdMapper final {
 
  public:
   /// @throw std::bad_alloc if unable to insert a new mapping
-  uint64_t NameToId(const std::string &name) {
+  uint64_t NameToId(const std::string_view &name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
     uint64_t id;
@@ -45,7 +46,7 @@ class NameIdMapper final {
       // return an iterator to the existing item. This prevents assignment of
       // two IDs to the same name when the mapping is being inserted
       // concurrently from two threads. One ID is wasted in that case, though.
-      id = name_to_id_acc.insert({name, new_id}).first->id;
+      id = name_to_id_acc.insert({std::string(name), new_id}).first->id;
     } else {
       id = found->id;
     }
@@ -56,7 +57,7 @@ class NameIdMapper final {
     if (id_to_name_acc.find(id) == id_to_name_acc.end()) {
       // We first try to find the `id` in the map to avoid making an unnecessary
       // temporary memory allocation when the object already exists.
-      id_to_name_acc.insert({id, name});
+      id_to_name_acc.insert({id, std::string(name)});
     }
     return id;
   }

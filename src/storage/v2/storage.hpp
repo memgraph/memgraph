@@ -265,13 +265,13 @@ class Storage final {
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(const std::string &name);
+    LabelId NameToLabel(const std::string_view &name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(const std::string &name);
+    PropertyId NameToProperty(const std::string_view &name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(const std::string &name);
+    EdgeTypeId NameToEdgeType(const std::string_view &name);
 
     bool LabelIndexExists(LabelId label) const {
       return storage_->indices_.label_index.IndexExists(label);
@@ -318,13 +318,13 @@ class Storage final {
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(const std::string &name);
+  LabelId NameToLabel(const std::string_view &name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(const std::string &name);
+  PropertyId NameToProperty(const std::string_view &name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(const std::string &name);
+  EdgeTypeId NameToEdgeType(const std::string_view &name);
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label);
