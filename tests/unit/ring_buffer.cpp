@@ -1,10 +1,11 @@
+#include <mutex>
 #include <thread>
 #include <unordered_set>
 
 #include "gtest/gtest.h"
 
 #include "data_structures/ring_buffer.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 TEST(RingBuffer, MultithreadedUsage) {
   auto test_f = [](int producer_count, int elems_per_producer,

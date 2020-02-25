@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
@@ -10,7 +11,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
 
 using communication::ClientContext;
@@ -77,9 +78,8 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
       }
       utils::Timer t;
       std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));
-      while (t.Elapsed() < to_sleep) {
-        utils::CpuRelax();
-      }
+      while (t.Elapsed() < to_sleep)
+        ;
     }
   }
 }

@@ -1,4 +1,5 @@
 #include <fstream>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -6,8 +7,8 @@
 #include <glog/logging.h>
 
 #include "utils/algorithm.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
-#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"

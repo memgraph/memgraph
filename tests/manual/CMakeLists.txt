@@ -24,9 +24,6 @@ target_link_libraries(${test_prefix}antlr_sigsegv gtest gtest_main
 add_manual_test(antlr_tree_pretty_print.cpp)
 target_link_libraries(${test_prefix}antlr_tree_pretty_print antlr_opencypher_parser_lib)
 
-add_manual_test(binomial.cpp)
-target_link_libraries(${test_prefix}binomial mg-utils)
-
 add_manual_test(bolt_client.cpp)
 target_link_libraries(${test_prefix}bolt_client mg-communication)
 
@@ -63,7 +60,3 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
-
-add_manual_test(xorshift.cpp)
-target_link_libraries(${test_prefix}xorshift mg-utils)
-

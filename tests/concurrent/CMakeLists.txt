@@ -26,9 +26,6 @@ target_link_libraries(${test_prefix}network_server mg-communication)
 add_concurrent_test(network_session_leak.cpp)
 target_link_libraries(${test_prefix}network_session_leak mg-communication)
 
-add_concurrent_test(push_queue.cpp)
-target_link_libraries(${test_prefix}push_queue glog gflags Threads::Threads)
-
 add_concurrent_test(stack.cpp)
 target_link_libraries(${test_prefix}stack mg-utils)
 
