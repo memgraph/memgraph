@@ -63,6 +63,9 @@ Property = namedtuple('Property', ('name', 'value'))
 class Properties:
     '''A collection of properties either on a Vertex or an Edge.'''
 
+    def __init__(self, obj):
+        raise NotImplementedError()
+
     def get(self, property_name: str, default=None) -> object:
         '''Get the value of a property with the given name or return default.
 
@@ -111,10 +114,14 @@ class Properties:
 
 class EdgeType:
     '''Type of an Edge.'''
+    __slots__ = ('_name',)
+
+    def __init__(self, name):
+        self._name = name
 
     @property
     def name(self) -> str:
-        pass
+        return self._name
 
 
 class InvalidEdgeError(Exception):
@@ -129,30 +136,50 @@ class Edge:
     a query. You should not globally store an instance of an Edge. Using an
     invalid Edge instance will raise InvalidEdgeError.
     '''
+    __slots__ = ('_edge',)
+
+    def __init__(self, edge):
+        if not isinstance(edge, _mgp.Edge):
+            raise TypeError("Expected '_mgp.Edge', got '{}'".fmt(type(edge)))
+        self._edge = edge
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used.'''
+        return self._edge.is_valid()
 
     @property
     def type(self) -> EdgeType:
         '''Raise InvalidEdgeError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidEdgeError()
+        return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self):  # -> Vertex:
         '''Raise InvalidEdgeError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidEdgeError()
+        return Vertex(self._edge.from_vertex())
 
     @property
     def to_vertex(self):  # -> Vertex:
         '''Raise InvalidEdgeError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidEdgeError()
+        return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
         '''Raise InvalidEdgeError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidEdgeError()
+        return Properties(self._edge)
 
     def __eq__(self, other) -> bool:
         '''Raise InvalidEdgeError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidEdgeError()
+        return self._edge == other._edge
 
 
 VertexId = typing.NewType('VertexId', int)

@@ -11,8 +11,18 @@ struct mgp_value;
 
 namespace query::procedure {
 
-py::Object MgpValueToPyObject(const mgp_value &);
+struct PyGraph;
 
+/// Convert an `mgp_value` into a Python object, referencing the given `PyGraph`
+/// instance and using the same allocator as the graph.
+///
+/// Return a non-null `py::Object` instance on success. Otherwise, return a null
+/// `py::Object` instance and set the appropriate Python exception.
+py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph);
+
+/// Convert a Python object into `mgp_value`, constructing it using the given
+/// `mgp_memory` allocator.
+///
 /// @throw std::bad_alloc
 /// @throw std::overflow_error if attempting to convert a Python integer which
 ///   too large to fit into int64_t.

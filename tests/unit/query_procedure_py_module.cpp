@@ -27,7 +27,10 @@ TEST(PyModule, MgpValueToPyObject) {
   mgp_value_destroy(list_val);
   auto *map_val = mgp_value_make_map(map);
   auto gil = py::EnsureGIL();
-  auto py_dict = query::procedure::MgpValueToPyObject(*map_val);
+  py::Object py_graph(query::procedure::MakePyGraph(nullptr, &memory));
+  auto py_dict = query::procedure::MgpValueToPyObject(
+      *map_val, reinterpret_cast<query::procedure::PyGraph *>(
+                    static_cast<PyObject *>(py_graph)));
   mgp_value_destroy(map_val);
   // We should now have in Python:
   // {"list": [None, False, True, 42, 0.1, "some text"]}
@@ -101,12 +104,16 @@ int main(int argc, char **argv) {
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
+  PyImport_AppendInittab("_mgp", &query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
   PyEval_InitThreads();
   int test_result;
-  Py_BEGIN_ALLOW_THREADS;
-  test_result = RUN_ALL_TESTS();
-  Py_END_ALLOW_THREADS;
+  {
+    py::Object mgp(PyImport_ImportModule("_mgp"));
+    Py_BEGIN_ALLOW_THREADS;
+    test_result = RUN_ALL_TESTS();
+    Py_END_ALLOW_THREADS;
+  }
   // Shutdown Python
   Py_Finalize();
   PyMem_RawFree(program_name);

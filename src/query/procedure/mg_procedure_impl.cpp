@@ -1122,6 +1122,10 @@ mgp_edge *mgp_edge_copy(const mgp_edge *v, mgp_memory *memory) {
 
 void mgp_edge_destroy(mgp_edge *e) { delete_mgp_object(e); }
 
+int mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2) {
+  return e1->impl == e2->impl ? 1 : 0;
+}
+
 mgp_edge_type mgp_edge_get_type(const mgp_edge *e) {
   const auto &name = e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType());
   static_assert(

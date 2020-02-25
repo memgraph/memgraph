@@ -538,6 +538,9 @@ struct mgp_edge *mgp_edge_copy(const struct mgp_edge *e,
 /// Free the memory used by a mgp_edge.
 void mgp_edge_destroy(struct mgp_edge *e);
 
+/// Return non-zero if given edges are equal, otherwise 0.
+int mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2);
+
 /// Return the type of the given edge.
 struct mgp_edge_type mgp_edge_get_type(const struct mgp_edge *e);
 

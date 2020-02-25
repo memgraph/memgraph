@@ -6,183 +6,6 @@
 
 namespace query::procedure {
 
-py::Object MgpValueToPyObject(const mgp_value &value) {
-  switch (mgp_value_get_type(&value)) {
-    case MGP_VALUE_TYPE_NULL:
-      Py_INCREF(Py_None);
-      return py::Object(Py_None);
-    case MGP_VALUE_TYPE_BOOL:
-      return py::Object(PyBool_FromLong(mgp_value_get_bool(&value)));
-    case MGP_VALUE_TYPE_INT:
-      return py::Object(PyLong_FromLongLong(mgp_value_get_int(&value)));
-    case MGP_VALUE_TYPE_DOUBLE:
-      return py::Object(PyFloat_FromDouble(mgp_value_get_double(&value)));
-    case MGP_VALUE_TYPE_STRING:
-      return py::Object(PyUnicode_FromString(mgp_value_get_string(&value)));
-    case MGP_VALUE_TYPE_LIST: {
-      const auto *list = mgp_value_get_list(&value);
-      const size_t len = mgp_list_size(list);
-      py::Object py_list(PyList_New(len));
-      CHECK(py_list);
-      for (size_t i = 0; i < len; ++i) {
-        auto elem = MgpValueToPyObject(*mgp_list_at(list, i));
-        CHECK(elem);
-        // Explicitly convert `py_list`, which is `py::Object`, via static_cast.
-        // Then the macro will cast it to `PyList *`.
-        PyList_SET_ITEM(static_cast<PyObject *>(py_list), i, elem.Steal());
-      }
-      return py_list;
-    }
-    case MGP_VALUE_TYPE_MAP: {
-      const auto *map = mgp_value_get_map(&value);
-      py::Object py_dict(PyDict_New());
-      CHECK(py_dict);
-      for (const auto &[key, val] : map->items) {
-        auto py_val = MgpValueToPyObject(val);
-        CHECK(py_val);
-        // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
-        CHECK(PyDict_SetItemString(py_dict, key.c_str(), py_val) == 0);
-      }
-      return py_dict;
-    }
-    case MGP_VALUE_TYPE_VERTEX:
-    case MGP_VALUE_TYPE_EDGE:
-    case MGP_VALUE_TYPE_PATH:
-      throw utils::NotYetImplemented("MgpValueToPyObject");
-  }
-}
-
-mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
-  mgp_value *mgp_v{nullptr};
-
-  if (o == Py_None) {
-    mgp_v = mgp_value_make_null(memory);
-  } else if (PyBool_Check(o)) {
-    mgp_v = mgp_value_make_bool(static_cast<int>(o == Py_True), memory);
-  } else if (PyLong_Check(o)) {
-    int64_t value = PyLong_AsLong(o);
-    if (PyErr_Occurred()) {
-      PyErr_Clear();
-      throw std::overflow_error("Python integer is out of range");
-    }
-    mgp_v = mgp_value_make_int(value, memory);
-  } else if (PyFloat_Check(o)) {
-    mgp_v = mgp_value_make_double(PyFloat_AsDouble(o), memory);
-  } else if (PyUnicode_Check(o)) {
-    mgp_v = mgp_value_make_string(PyUnicode_AsUTF8(o), memory);
-  } else if (PyList_Check(o)) {
-    Py_ssize_t len = PyList_Size(o);
-    mgp_list *list = mgp_list_make_empty(len, memory);
-
-    if (!list) {
-      throw std::bad_alloc();
-    }
-
-    for (Py_ssize_t i = 0; i < len; ++i) {
-      PyObject *e = PyList_GET_ITEM(o, i);
-      mgp_value *v{nullptr};
-
-      try {
-        v = PyObjectToMgpValue(e, memory);
-      } catch (...) {
-        mgp_list_destroy(list);
-        throw;
-      }
-
-      if (!mgp_list_append(list, v)) {
-        mgp_value_destroy(v);
-        mgp_list_destroy(list);
-        throw std::bad_alloc();
-      }
-
-      mgp_value_destroy(v);
-    }
-
-    mgp_v = mgp_value_make_list(list);
-  } else if (PyTuple_Check(o)) {
-    Py_ssize_t len = PyTuple_Size(o);
-    mgp_list *list = mgp_list_make_empty(len, memory);
-
-    if (!list) {
-      throw std::bad_alloc();
-    }
-
-    for (Py_ssize_t i = 0; i < len; ++i) {
-      PyObject *e = PyTuple_GET_ITEM(o, i);
-      mgp_value *v{nullptr};
-
-      try {
-        v = PyObjectToMgpValue(e, memory);
-      } catch (...) {
-        mgp_list_destroy(list);
-        throw;
-      }
-
-      if (!mgp_list_append(list, v)) {
-        mgp_value_destroy(v);
-        mgp_list_destroy(list);
-        throw std::bad_alloc();
-      }
-
-      mgp_value_destroy(v);
-    }
-
-    mgp_v = mgp_value_make_list(list);
-  } else if (PyDict_Check(o)) {
-    mgp_map *map = mgp_map_make_empty(memory);
-
-    if (!map) {
-      throw std::bad_alloc();
-    }
-
-    PyObject *key{nullptr};
-    PyObject *value{nullptr};
-    Py_ssize_t pos{0};
-    while (PyDict_Next(o, &pos, &key, &value)) {
-      if (!PyUnicode_Check(key)) {
-        mgp_map_destroy(map);
-        throw std::invalid_argument("Dictionary keys must be strings");
-      }
-
-      const char *k = PyUnicode_AsUTF8(key);
-      mgp_value *v{nullptr};
-
-      if (!k) {
-        PyErr_Clear();
-        mgp_map_destroy(map);
-        throw std::bad_alloc();
-      }
-
-      try {
-        v = PyObjectToMgpValue(value, memory);
-      } catch (...) {
-        mgp_map_destroy(map);
-        throw;
-      }
-
-      if (!mgp_map_insert(map, k, v)) {
-        mgp_value_destroy(v);
-        mgp_map_destroy(map);
-        throw std::bad_alloc();
-      }
-
-      mgp_value_destroy(v);
-    }
-
-    mgp_v = mgp_value_make_map(map);
-  } else {
-    // TODO: Check for Vertex, Edge and Path. Throw std::invalid_argument for
-    // everything else.
-    throw utils::NotYetImplemented("PyObjectToMgpValue");
-  }
-
-  if (!mgp_v) {
-    throw std::bad_alloc();
-  }
-
-  return mgp_v;
-}
-
 // Definitions of types wrapping C API types
 //
 // These should all be in the private `_mgp` Python module, which will be used
@@ -263,7 +86,6 @@ static PyTypeObject PyVerticesIteratorType = {
     .tp_methods = PyVerticesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
 };
-
 
 PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(!!self->graph);
@@ -518,6 +340,118 @@ static PyModuleDef PyMgpModule = {
     .m_size = -1,
 };
 
+struct PyEdge {
+  PyObject_HEAD
+  mgp_edge *edge;
+  PyGraph *py_graph;
+};
+
+PyObject *PyEdgeGetTypeName(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  return PyUnicode_FromString(mgp_edge_get_type(self->edge).name);
+}
+
+PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *vertex = mgp_edge_get_from(self->edge);
+  CHECK(vertex);
+  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
+  PyErr_SetString(PyExc_NotImplementedError, "from_vertex");
+  return nullptr;
+}
+
+PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *vertex = mgp_edge_get_to(self->edge);
+  CHECK(vertex);
+  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
+  PyErr_SetString(PyExc_NotImplementedError, "to_vertex");
+  return nullptr;
+}
+
+void PyEdgeDealloc(PyEdge *self) {
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  // Avoid invoking `mgp_edge_destroy` if we are not in valid execution context.
+  // The query execution should free all memory used during execution, so we may
+  // cause a double free issue.
+  if (self->py_graph->graph) mgp_edge_destroy(self->edge);
+  Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
+}
+
+PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(!!self->py_graph->graph);
+}
+
+static PyMethodDef PyEdgeMethods[] = {
+    {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
+     "Return True if Edge is in valid context and may be used."},
+    {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName),
+     METH_NOARGS, "Return the edge's type name."},
+    {"from_vertex", reinterpret_cast<PyCFunction>(PyEdgeFromVertex),
+     METH_NOARGS, "Return the edge's source vertex."},
+    {"to_vertex", reinterpret_cast<PyCFunction>(PyEdgeToVertex), METH_NOARGS,
+     "Return the edge's destination vertex."},
+    {nullptr}};
+
+PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
+
+static PyTypeObject PyEdgeType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Edge",
+    .tp_doc = "Wraps struct mgp_edge.",
+    .tp_basicsize = sizeof(PyEdge),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyEdgeMethods,
+    .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
+    .tp_richcompare = PyEdgeRichCompare,
+};
+
+/// Create an instance of `_mgp.Edge` class.
+///
+/// The ownership of the edge is given to the created instance and will be
+/// destroyed once the instance itself is destroyed, taking care that the
+/// execution context is still valid.
+///
+/// The created instance references an existing `_mgp.Graph` instance, which
+/// marks the execution context.
+PyObject *MakePyEdge(mgp_edge *edge, PyGraph *py_graph) {
+  CHECK(edge->GetMemoryResource() == py_graph->memory->impl);
+  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
+  if (!py_edge) return nullptr;
+  py_edge->edge = edge;
+  py_edge->py_graph = py_graph;
+  Py_INCREF(py_graph);
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_edge), &PyEdgeType);
+}
+
+PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
+  CHECK(self);
+  CHECK(other);
+
+  if (Py_TYPE(self) != &PyEdgeType || Py_TYPE(other) != &PyEdgeType ||
+      op != Py_EQ) {
+    Py_RETURN_NOTIMPLEMENTED;
+  }
+
+  auto *e1 = reinterpret_cast<PyEdge *>(self);
+  auto *e2 = reinterpret_cast<PyEdge *>(other);
+  CHECK(e1->edge);
+  CHECK(e2->edge);
+
+  return PyBool_FromLong(mgp_edge_equal(e1->edge, e2->edge));
+}
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -537,6 +471,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyVerticesIteratorType, "VerticesIterator"))
     return nullptr;
   if (!register_type(&PyGraphType, "Graph")) return nullptr;
+  if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   Py_INCREF(Py_None);
@@ -581,6 +516,200 @@ py::Object ReloadPyModule(PyObject *py_module, mgp_module *module_def) {
   return WithMgpModule(module_def, [py_module]() {
     return py::Object(PyImport_ReloadModule(py_module));
   });
+}
+
+py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
+  switch (mgp_value_get_type(&value)) {
+    case MGP_VALUE_TYPE_NULL:
+      Py_INCREF(Py_None);
+      return py::Object(Py_None);
+    case MGP_VALUE_TYPE_BOOL:
+      return py::Object(PyBool_FromLong(mgp_value_get_bool(&value)));
+    case MGP_VALUE_TYPE_INT:
+      return py::Object(PyLong_FromLongLong(mgp_value_get_int(&value)));
+    case MGP_VALUE_TYPE_DOUBLE:
+      return py::Object(PyFloat_FromDouble(mgp_value_get_double(&value)));
+    case MGP_VALUE_TYPE_STRING:
+      return py::Object(PyUnicode_FromString(mgp_value_get_string(&value)));
+    case MGP_VALUE_TYPE_LIST: {
+      const auto *list = mgp_value_get_list(&value);
+      const size_t len = mgp_list_size(list);
+      py::Object py_list(PyList_New(len));
+      CHECK(py_list);
+      for (size_t i = 0; i < len; ++i) {
+        auto elem = MgpValueToPyObject(*mgp_list_at(list, i), py_graph);
+        CHECK(elem);
+        // Explicitly convert `py_list`, which is `py::Object`, via static_cast.
+        // Then the macro will cast it to `PyList *`.
+        PyList_SET_ITEM(static_cast<PyObject *>(py_list), i, elem.Steal());
+      }
+      return py_list;
+    }
+    case MGP_VALUE_TYPE_MAP: {
+      const auto *map = mgp_value_get_map(&value);
+      py::Object py_dict(PyDict_New());
+      CHECK(py_dict);
+      for (const auto &[key, val] : map->items) {
+        auto py_val = MgpValueToPyObject(val, py_graph);
+        CHECK(py_val);
+        // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
+        CHECK(PyDict_SetItemString(py_dict, key.c_str(), py_val) == 0);
+      }
+      return py_dict;
+    }
+    case MGP_VALUE_TYPE_VERTEX:
+      throw utils::NotYetImplemented("MgpValueToPyObject");
+    case MGP_VALUE_TYPE_EDGE: {
+      // Copy the edge and pass the ownership to the created _mgp.Edge
+      // instance.
+      auto *e = mgp_edge_copy(mgp_value_get_edge(&value), py_graph->memory);
+      if (!e) {
+        PyErr_NoMemory();
+        return py::Object();
+      }
+      return py::Object(reinterpret_cast<PyObject *>(MakePyEdge(e, py_graph)));
+    }
+    case MGP_VALUE_TYPE_PATH:
+      throw utils::NotYetImplemented("MgpValueToPyObject");
+  }
+}
+
+mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
+  mgp_value *mgp_v{nullptr};
+
+  if (o == Py_None) {
+    mgp_v = mgp_value_make_null(memory);
+  } else if (PyBool_Check(o)) {
+    mgp_v = mgp_value_make_bool(static_cast<int>(o == Py_True), memory);
+  } else if (PyLong_Check(o)) {
+    int64_t value = PyLong_AsLong(o);
+    if (PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::overflow_error("Python integer is out of range");
+    }
+    mgp_v = mgp_value_make_int(value, memory);
+  } else if (PyFloat_Check(o)) {
+    mgp_v = mgp_value_make_double(PyFloat_AsDouble(o), memory);
+  } else if (PyUnicode_Check(o)) {
+    mgp_v = mgp_value_make_string(PyUnicode_AsUTF8(o), memory);
+  } else if (PyList_Check(o)) {
+    Py_ssize_t len = PyList_Size(o);
+    mgp_list *list = mgp_list_make_empty(len, memory);
+
+    if (!list) {
+      throw std::bad_alloc();
+    }
+
+    for (Py_ssize_t i = 0; i < len; ++i) {
+      PyObject *e = PyList_GET_ITEM(o, i);
+      mgp_value *v{nullptr};
+
+      try {
+        v = PyObjectToMgpValue(e, memory);
+      } catch (...) {
+        mgp_list_destroy(list);
+        throw;
+      }
+
+      if (!mgp_list_append(list, v)) {
+        mgp_value_destroy(v);
+        mgp_list_destroy(list);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_list(list);
+  } else if (PyTuple_Check(o)) {
+    Py_ssize_t len = PyTuple_Size(o);
+    mgp_list *list = mgp_list_make_empty(len, memory);
+
+    if (!list) {
+      throw std::bad_alloc();
+    }
+
+    for (Py_ssize_t i = 0; i < len; ++i) {
+      PyObject *e = PyTuple_GET_ITEM(o, i);
+      mgp_value *v{nullptr};
+
+      try {
+        v = PyObjectToMgpValue(e, memory);
+      } catch (...) {
+        mgp_list_destroy(list);
+        throw;
+      }
+
+      if (!mgp_list_append(list, v)) {
+        mgp_value_destroy(v);
+        mgp_list_destroy(list);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_list(list);
+  } else if (PyDict_Check(o)) {
+    mgp_map *map = mgp_map_make_empty(memory);
+
+    if (!map) {
+      throw std::bad_alloc();
+    }
+
+    PyObject *key{nullptr};
+    PyObject *value{nullptr};
+    Py_ssize_t pos{0};
+    while (PyDict_Next(o, &pos, &key, &value)) {
+      if (!PyUnicode_Check(key)) {
+        mgp_map_destroy(map);
+        throw std::invalid_argument("Dictionary keys must be strings");
+      }
+
+      const char *k = PyUnicode_AsUTF8(key);
+      mgp_value *v{nullptr};
+
+      if (!k) {
+        PyErr_Clear();
+        mgp_map_destroy(map);
+        throw std::bad_alloc();
+      }
+
+      try {
+        v = PyObjectToMgpValue(value, memory);
+      } catch (...) {
+        mgp_map_destroy(map);
+        throw;
+      }
+
+      if (!mgp_map_insert(map, k, v)) {
+        mgp_value_destroy(v);
+        mgp_map_destroy(map);
+        throw std::bad_alloc();
+      }
+
+      mgp_value_destroy(v);
+    }
+
+    mgp_v = mgp_value_make_map(map);
+  } else if (Py_TYPE(o) == &PyEdgeType) {
+    // Copy the edge and pass the ownership to the created mgp_value.
+    auto *e = mgp_edge_copy(reinterpret_cast<PyEdge *>(o)->edge, memory);
+    if (!e) {
+      throw std::bad_alloc();
+    }
+    mgp_v = mgp_value_make_edge(e);
+  } else {
+    // TODO: Check for Vertex and Path. Throw std::invalid_argument for
+    // everything else.
+    throw utils::NotYetImplemented("PyObjectToMgpValue");
+  }
+
+  if (!mgp_v) {
+    throw std::bad_alloc();
+  }
+
+  return mgp_v;
 }
 
 }  // namespace query::procedure
