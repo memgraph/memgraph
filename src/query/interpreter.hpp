@@ -2,8 +2,6 @@
 
 #include <gflags/gflags.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"

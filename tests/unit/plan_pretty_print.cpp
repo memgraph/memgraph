@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include "database/graph_db.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/pretty_print.hpp"

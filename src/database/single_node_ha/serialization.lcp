@@ -1,9 +1,0 @@
-#>cpp
-#pragma once
-
-#include "durability/single_node_ha/state_delta.hpp"
-#include "storage/common/types/slk.hpp"
-cpp<#
-
-;; Generate serialization of state-delta
-(load "durability/single_node_ha/state_delta.lcp")
