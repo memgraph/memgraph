@@ -34,6 +34,8 @@ struct PyVerticesIterator {
   PyGraph *py_graph;
 };
 
+PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph);
+
 void PyVerticesIteratorDealloc(PyVerticesIterator *self) {
   CHECK(self->it);
   CHECK(self->py_graph);
@@ -51,9 +53,8 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_vertices_iterator_get(self->it);
   if (!vertex) Py_RETURN_NONE;
-  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
-  PyErr_SetString(PyExc_NotImplementedError, "get");
-  return nullptr;
+  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
+                      self->py_graph);
 }
 
 PyObject *PyVerticesIteratorNext(PyVerticesIterator *self,
@@ -63,9 +64,8 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_vertices_iterator_next(self->it);
   if (!vertex) Py_RETURN_NONE;
-  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
-  PyErr_SetString(PyExc_NotImplementedError, "next");
-  return nullptr;
+  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
+                      self->py_graph);
 }
 
 static PyMethodDef PyVerticesIteratorMethods[] = {
@@ -104,11 +104,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
                     "Unable to find the vertex with given ID.");
     return nullptr;
   }
-  // TODO: Wrap into _mgp.Vertex and let it handle mgp_vertex_destroy via
-  // dealloc function.
-  mgp_vertex_destroy(vertex);
-  PyErr_SetString(PyExc_NotImplementedError, "get_vertex_by_id");
-  return nullptr;
+  return MakePyVertex(mgp_vertex_copy(vertex, self->memory), self);
 }
 
 PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
@@ -452,6 +448,112 @@ PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
   return PyBool_FromLong(mgp_edge_equal(e1->edge, e2->edge));
 }
 
+struct PyVertex {
+  PyObject_HEAD
+  mgp_vertex *vertex;
+  PyGraph *py_graph;
+};
+
+void PyVertexDealloc(PyVertex *self) {
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  // Avoid invoking `mgp_vertex_destroy` if we are not in valid execution
+  // context. The query execution should free all memory used during
+  // execution, so  we may cause a double free issue.
+  if (self->py_graph->graph) mgp_vertex_destroy(self->vertex);
+  Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
+}
+
+PyObject *PyVertexIsValid(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(!!self->py_graph->graph);
+}
+
+PyObject *PyVertexGetId(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  return PyLong_FromLongLong(mgp_vertex_get_id(self->vertex).as_int);
+}
+
+PyObject *PyVertexLabelsCount(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  return PyLong_FromSize_t(mgp_vertex_labels_count(self->vertex));
+}
+
+PyObject *PyVertexLabelAt(PyVertex *self, PyObject *args) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  static_assert(std::numeric_limits<Py_ssize_t>::max() <=
+                std::numeric_limits<size_t>::max());
+  Py_ssize_t id;
+  if (!PyArg_ParseTuple(args, "n", &id)) return nullptr;
+  auto label = mgp_vertex_label_at(self->vertex, id);
+  if (label.name == nullptr || id < 0) {
+    PyErr_SetString(PyExc_IndexError,
+                    "Unable to find the label with given ID.");
+    return nullptr;
+  }
+  return PyUnicode_FromString(label.name);
+}
+
+static PyMethodDef PyVertexMethods[] = {
+    {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
+     "Return True if Vertex is in valid context and may be used."},
+    {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS,
+     "Return vertex id."},
+    {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount),
+     METH_NOARGS, "Return number of lables of a vertex."},
+    {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
+     "Return label of a vertex on a given index."},
+    {nullptr}};
+
+PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
+
+static PyTypeObject PyVertexType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Vertex",
+    .tp_doc = "Wraps struct mgp_vertex.",
+    .tp_basicsize = sizeof(PyVertex),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyVertexMethods,
+    .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
+    .tp_richcompare = PyVertexRichCompare,
+};
+
+PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
+  CHECK(vertex->GetMemoryResource() == py_graph->memory->impl);
+  auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
+  if (!py_vertex) return nullptr;
+  py_vertex->vertex = vertex;
+  py_vertex->py_graph = py_graph;
+  Py_INCREF(py_graph);
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_vertex), &PyVertexType);
+}
+
+PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
+  CHECK(self);
+  CHECK(other);
+
+  if (Py_TYPE(self) != &PyVertexType || Py_TYPE(other) != &PyVertexType ||
+      op != Py_EQ) {
+    Py_RETURN_NOTIMPLEMENTED;
+  }
+
+  auto *v1 = reinterpret_cast<PyVertex *>(self);
+  auto *v2 = reinterpret_cast<PyVertex *>(other);
+  CHECK(v1->vertex);
+  CHECK(v2->vertex);
+
+  return PyBool_FromLong(mgp_vertex_equal(v1->vertex, v2->vertex));
+}
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -474,6 +576,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
+  if (!register_type(&PyVertexType, "Vertex")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     Py_DECREF(Py_None);

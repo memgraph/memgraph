@@ -25,34 +25,21 @@ import _mgp
 
 class Label:
     '''Label of a Vertex.'''
+    __slots__ = ('_name',)
+
+    def __init__(self, name):
+        self._name = name;
 
     @property
     def name(self) -> str:
-        pass
+        return self._name;
 
-
-class Labels:
-    '''A collection of labels on a Vertex.'''
-
-    def __len__(self) -> int:
-        '''Raise InvalidVertexError.'''
-        pass
-
-    def __getitem__(self, index: int) -> Label:
-        '''Raise InvalidVertexError.'''
-        pass
-
-    def __iter__(self) -> typing.Iterable[Label]:
-        '''Raise InvalidVertexError.'''
-        pass
-
-    def __contains__(self, label: typing.Union[Label, str]) -> bool:
-        '''Test whether a label exists, either by name or another Label.
-
-        Raise InvalidVertexError.
-        '''
-        pass
-
+    def __eq__(self, other) -> bool:
+        if isinstance(other, Label):
+            return self._name == other.name
+        if isinstance(other, str):
+            return self._name == other
+        return NotImplemented
 
 # Named property value of a Vertex or an Edge.
 # It would be better to use typing.NamedTuple with typed fields, but that is
@@ -197,38 +184,58 @@ class Vertex:
     in a query. You should not globally store an instance of a Vertex. Using an
     invalid Vertex instance will raise InvalidVertexError.
     '''
+    __slots__ = ('_vertex',)
 
     def __init__(self, vertex):
-        raise NotImplementedError()
+        if not isinstance(vertex, _mgp.Vertex):
+            raise TypeError("Expected '_mgp.Vertex', got '{}'".fmt(type(vertex)))
+        self._vertex = vertex
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used'''
+        return self._vertex.is_valid()
 
     @property
     def id(self) -> VertexId:
         '''Raise InvalidVertexError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidVertexError()
+        return self._vertex.get_id()
 
     @property
-    def labels(self) -> Labels:
+    def labels(self) -> typing.List[Label]:
         '''Raise InvalidVertexError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidVertexError()
+        return tuple(Label(self._vertex.label_at(i))
+                     for i in range(self._vertex.labels_count()))
 
     @property
     def properties(self) -> Properties:
         '''Raise InvalidVertexError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidVertexError()
+        return Properties(self._vertex)
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
         '''Raise InvalidVertexError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidVertexError()
+        raise NotImplementedError()
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
         '''Raise InvalidVertexError.'''
-        pass
+        if not self.is_valid():
+            raise InvalidVertexError()
+        raise NotImplementedError()
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidVertexError.'''
-        pass
+        '''Raise InvalidVertexError'''
+        if not self.is_valid():
+            raise InvalidVertexError()
+        return self._vertex == other._vertex
 
 
 class Path:
