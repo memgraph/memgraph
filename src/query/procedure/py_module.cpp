@@ -158,6 +158,28 @@ PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   return PyObject_Init(reinterpret_cast<PyObject *>(py_graph), &PyGraphType);
 }
 
+struct PyCypherType {
+  PyObject_HEAD
+  const mgp_type *type;
+};
+
+static PyTypeObject PyCypherTypeType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Type",
+    .tp_doc = "Wraps struct mgp_type.",
+    .tp_basicsize = sizeof(PyCypherType),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+};
+
+PyObject *MakePyCypherType(const mgp_type *type) {
+  auto *py_type = PyObject_New(PyCypherType, &PyCypherTypeType);
+  if (!py_type) return nullptr;
+  py_type->type = type;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_type),
+                       &PyCypherTypeType);
+}
+
 struct PyQueryProc {
   PyObject_HEAD
   mgp_proc *proc;
@@ -168,8 +190,11 @@ PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
   const char *name = nullptr;
   PyObject *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
-  // TODO: Convert Python type to mgp_type
-  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (Py_TYPE(py_type) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   if (!mgp_proc_add_arg(self->proc, name, type)) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_arg.");
     return nullptr;
@@ -184,8 +209,11 @@ PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
   PyObject *py_value = nullptr;
   if (!PyArg_ParseTuple(args, "sOO", &name, &py_type, &py_value))
     return nullptr;
-  // TODO: Convert Python type to mgp_type
-  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (Py_TYPE(py_type) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
   mgp_value *value;
   try {
@@ -218,8 +246,11 @@ PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
   const char *name = nullptr;
   PyObject *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
-  // TODO: Convert Python type to mgp_type
-  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (Py_TYPE(py_type) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   if (!mgp_proc_add_result(self->proc, name, type)) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_result.");
     return nullptr;
@@ -232,8 +263,11 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
   const char *name = nullptr;
   PyObject *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO", &name, &py_type)) return nullptr;
-  // TODO: Convert Python type to mgp_type
-  const auto *type = mgp_type_nullable(mgp_type_any());
+  if (Py_TYPE(py_type) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   if (!mgp_proc_add_deprecated_result(self->proc, name, type)) {
     PyErr_SetString(PyExc_ValueError,
                     "Invalid call to mgp_proc_add_deprecated_result.");
@@ -329,11 +363,100 @@ PyObject *MakePyQueryModule(mgp_module *module) {
                        &PyQueryModuleType);
 }
 
+PyObject *PyMgpModuleTypeNullable(PyObject *mod, PyObject *obj) {
+  if (Py_TYPE(obj) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  auto *py_type = reinterpret_cast<PyCypherType *>(obj);
+  return MakePyCypherType(mgp_type_nullable(py_type->type));
+}
+
+PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
+  if (Py_TYPE(obj) != &PyCypherTypeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
+    return nullptr;
+  }
+  auto *py_type = reinterpret_cast<PyCypherType *>(obj);
+  return MakePyCypherType(mgp_type_list(py_type->type));
+}
+
+PyObject *PyMgpModuleTypeAny(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_any());
+}
+
+PyObject *PyMgpModuleTypeBool(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_bool());
+}
+
+PyObject *PyMgpModuleTypeString(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_string());
+}
+
+PyObject *PyMgpModuleTypeInt(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_int());
+}
+
+PyObject *PyMgpModuleTypeFloat(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_float());
+}
+
+PyObject *PyMgpModuleTypeNumber(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_number());
+}
+
+PyObject *PyMgpModuleTypeMap(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_map());
+}
+
+PyObject *PyMgpModuleTypeNode(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_node());
+}
+
+PyObject *PyMgpModuleTypeRelationship(PyObject *mod,
+                                      PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_relationship());
+}
+
+PyObject *PyMgpModuleTypePath(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(mgp_type_path());
+}
+
+static PyMethodDef PyMgpModuleMethods[] = {
+    {"type_nullable", PyMgpModuleTypeNullable, METH_O,
+     "Build a type representing either a `null` value or a value of given "
+     "type."},
+    {"type_list", PyMgpModuleTypeList, METH_O,
+     "Build a type representing a list of values of given type."},
+    {"type_any", PyMgpModuleTypeAny, METH_NOARGS,
+     "Get the type representing any value that isn't `null`."},
+    {"type_bool", PyMgpModuleTypeBool, METH_NOARGS,
+     "Get the type representing boolean values."},
+    {"type_string", PyMgpModuleTypeString, METH_NOARGS,
+     "Get the type representing string values."},
+    {"type_int", PyMgpModuleTypeInt, METH_NOARGS,
+     "Get the type representing integer values."},
+    {"type_float", PyMgpModuleTypeFloat, METH_NOARGS,
+     "Get the type representing floating-point values."},
+    {"type_number", PyMgpModuleTypeNumber, METH_NOARGS,
+     "Get the type representing any number value."},
+    {"type_map", PyMgpModuleTypeMap, METH_NOARGS,
+     "Get the type representing map values."},
+    {"type_node", PyMgpModuleTypeNode, METH_NOARGS,
+     "Get the type representing graph node values."},
+    {"type_relationship", PyMgpModuleTypeRelationship, METH_NOARGS,
+     "Get the type representing graph relationship values."},
+    {"type_path", PyMgpModuleTypePath, METH_NOARGS,
+     "Get the type representing a graph path (walk) from one node to another."},
+    {nullptr},
+};
+
 static PyModuleDef PyMgpModule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_mgp",
     .m_doc = "Contains raw bindings to mg_procedure.h C API.",
     .m_size = -1,
+    .m_methods = PyMgpModuleMethods,
 };
 
 struct PyEdge {
@@ -403,7 +526,8 @@ static PyMethodDef PyEdgeMethods[] = {
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
 static PyTypeObject PyEdgeType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Edge",
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Edge",
     .tp_doc = "Wraps struct mgp_edge.",
     .tp_basicsize = sizeof(PyEdge),
     .tp_flags = Py_TPFLAGS_DEFAULT,
@@ -577,6 +701,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
+  if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     Py_DECREF(Py_None);
@@ -591,6 +716,7 @@ namespace {
 template <class TFun>
 auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   py::Object py_mgp(PyImport_ImportModule("_mgp"));
+  CHECK(py_mgp) << "Expected builtin '_mgp' to be available for import";
   py::Object py_mgp_module(PyObject_GetAttrString(py_mgp, "_MODULE"));
   CHECK(py_mgp_module) << "Expected '_mgp' to have attribute '_MODULE'";
   // NOTE: This check is not thread safe, but this should only go through
@@ -599,7 +725,6 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
       << "Expected '_mgp._MODULE' to be None as we are just starting to "
          "import a new module. Is some other thread also importing Python "
          "modules?";
-  CHECK(py_mgp) << "Expected builtin '_mgp' to be available for import";
   auto *py_query_module = MakePyQueryModule(module_def);
   CHECK(py_query_module);
   CHECK(0 <= PyObject_SetAttrString(py_mgp, "_MODULE", py_query_module));

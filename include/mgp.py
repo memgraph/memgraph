@@ -28,11 +28,11 @@ class Label:
     __slots__ = ('_name',)
 
     def __init__(self, name):
-        self._name = name;
+        self._name = name
 
     @property
     def name(self) -> str:
-        return self._name;
+        return self._name
 
     def __eq__(self, other) -> bool:
         if isinstance(other, Label):
@@ -40,6 +40,7 @@ class Label:
         if isinstance(other, str):
             return self._name == other
         return NotImplemented
+
 
 # Named property value of a Vertex or an Edge.
 # It would be better to use typing.NamedTuple with typed fields, but that is
@@ -169,7 +170,10 @@ class Edge:
         return self._edge == other._edge
 
 
-VertexId = typing.NewType('VertexId', int)
+if sys.version_info >= (3, 5, 2):
+    VertexId = typing.NewType('VertexId', int)
+else:
+    VertexId = int
 
 
 class InvalidVertexError(Exception):
@@ -371,13 +375,108 @@ class ProcCtx:
 
 Number = typing.Union[int, float]
 
-List = typing.List
-
 Map = typing.Union[dict, Edge, Vertex]
 
 Any = typing.Union[bool, str, Number, Map, Path, list]
 
+List = typing.List
+
 Nullable = typing.Optional
+
+
+class UnsupportedTypingError(Exception):
+    '''Signals a typing annotation is not supported as a _mgp.CypherType.'''
+
+    def __init__(self, type_):
+        super().__init__("Unsupported typing annotation '{}'".format(type_))
+
+
+def _typing_to_cypher_type(type_):
+    '''Convert typing annotation to a _mgp.CypherType instance.'''
+    simple_types = {
+        typing.Any: _mgp.type_nullable(_mgp.type_any()),
+        object: _mgp.type_nullable(_mgp.type_any()),
+        list: _mgp.type_list(_mgp.type_nullable(_mgp.type_any())),
+        Any: _mgp.type_any(),
+        bool: _mgp.type_bool(),
+        str: _mgp.type_string(),
+        int: _mgp.type_int(),
+        float: _mgp.type_float(),
+        Number: _mgp.type_number(),
+        Map: _mgp.type_map(),
+        Vertex: _mgp.type_node(),
+        Edge: _mgp.type_relationship(),
+        Path: _mgp.type_path()
+    }
+    try:
+        return simple_types[type_]
+    except KeyError:
+        pass
+    if sys.version_info >= (3, 8):
+        complex_type = typing.get_origin(type_)
+        type_args = typing.get_args(type_)
+        if complex_type == typing.Union:
+            # If we have a Union with NoneType inside, it means we are building
+            # a nullable type.
+            if isinstance(None, type_args):
+                types = tuple(t for t in type_args if not isinstance(None, t))
+                if len(types) == 1:
+                    type_arg, = types
+                else:
+                    # We cannot do typing.Union[*types], so do the equivalent
+                    # with __getitem__ which does not even need arg unpacking.
+                    type_arg = typing.Union.__getitem__(types)
+                return _mgp.type_nullable(_typing_to_cypher_type(type_arg))
+        elif complex_type == list:
+            type_arg, = type_args
+            return _mgp.type_list(_typing_to_cypher_type(type_arg))
+        raise UnsupportedTypingError(type_)
+    else:
+        # We cannot get to type args in any reliable way prior to 3.8, but we
+        # still want to support typing.Optional and typing.List, so just parse
+        # their string representations. Hopefully, that is always pretty
+        # printed the same way. `typing.List[type]` is printed as such, while
+        # `typing.Optional[type]` is printed as 'typing.Union[type, NoneType]'
+        def parse_type_args(type_as_str):
+            return tuple(map(str.strip,
+                             type_as_str[type_as_str.index('[') + 1: -1].split(',')))
+
+        def get_simple_type(type_as_str):
+            for simple_type, cypher_type in simple_types.items():
+                if type_as_str == str(simple_type):
+                    return cypher_type
+                # Fallback to comparing to __name__ if it exits. This handles
+                # the cases like when we have 'object' which is
+                # `object.__name__`, but `str(object)` is "<class 'object'>"
+                try:
+                    if type_as_str == simple_type.__name__:
+                        return cypher_type
+                except AttributeError:
+                    pass
+
+        def parse_typing(type_as_str):
+            if type_as_str.startswith('typing.Union'):
+                type_args_as_str = parse_type_args(type_as_str)
+                none_type_as_str = type(None).__name__
+                if none_type_as_str in type_args_as_str:
+                    types = tuple(t for t in type_args_as_str if t != none_type_as_str)
+                    if len(types) == 1:
+                        type_arg_as_str, = types
+                    else:
+                        type_arg_as_str = 'typing.Union[' + ', '.join(types) + ']'
+                    simple_type = get_simple_type(type_arg_as_str)
+                    if simple_type is not None:
+                        return _mgp.type_nullable(simple_type)
+                    return _mgp.type_nullable(parse_typing(type_arg_as_str))
+            elif type_as_str.startswith('typing.List'):
+                type_arg_as_str, = parse_type_args(type_as_str)
+                simple_type = get_simple_type(type_arg_as_str)
+                if simple_type is not None:
+                    return _mgp.type_list(simple_type)
+                return _mgp.type_list(parse_typing(type_arg_as_str))
+            raise UnsupportedTypingError(type_)
+
+        return parse_typing(str(type_))
 
 
 # Procedure registration
@@ -387,8 +486,6 @@ class Deprecated:
     __slots__ = ('field_type',)
 
     def __init__(self, type_):
-        if not isinstance(type_, type):
-            raise TypeError("Expected 'type', got '{}'".format(type_))
         self.field_type = type_
 
 
@@ -437,7 +534,7 @@ def read_proc(func: typing.Callable[..., Record]):
                         .format(type(func)))
     if inspect.iscoroutinefunction(func):
         raise TypeError("Callable must not be 'async def' function")
-    if sys.version_info.minor >= 6:
+    if sys.version_info >= (3, 6):
         if inspect.isasyncgenfunction(func):
             raise TypeError("Callable must not be 'async def' function")
     if inspect.isgeneratorfunction(func):
@@ -456,23 +553,22 @@ def read_proc(func: typing.Callable[..., Record]):
     for param in params:
         name = param.name
         type_ = param.annotation
-        # TODO: Convert type_ to _mgp.CypherType
         if type_ is param.empty:
             type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
         if param.default is param.empty:
-            mgp_proc.add_arg(name, type_)
+            mgp_proc.add_arg(name, cypher_type)
         else:
-            mgp_proc.add_opt_arg(name, type_, param.default)
+            mgp_proc.add_opt_arg(name, cypher_type, param.default)
     if sig.return_annotation is not sig.empty:
         record = sig.return_annotation
         if not isinstance(record, Record):
             raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
                             .format(func.__name__, type(record)))
         for name, type_ in record.fields.items():
-            # TODO: Convert type_ to _mgp.CypherType
             if isinstance(type_, Deprecated):
-                field_type = type_.field_type
-                mgp_proc.add_deprecated_result(name, field_type)
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
             else:
-                mgp_proc.add_result(name, type_)
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
     return func
