@@ -31,14 +31,6 @@ the following steps.
      After the generation, the execution cost of each plan is estimated. This
      estimation is used to select the best plan which will be executed.
 
-  5. [Distributed Planning](#distributed-planning)
-
-     In case we are running distributed Memgraph, the final plan is adapted
-     for distributed execution. NOTE: This appears to be an error in the
-     workflow. Distributed planning should be moved before step 3. or
-     integrated with it. With the workflow ordered as is now, cost estimation
-     doesn't consider the distributed plan.
-
 The implementation can be found in the `query/plan` directory, with the public
 entry point being `query/plan/planner.hpp`.
 
@@ -476,12 +468,59 @@ finally for this example, the `Merge` would have:
 
 ## Logical Plan Postprocessing
 
-NOTE: TODO
+Postprocessing of a logical plan is done by rewriting the original plan into
+a more efficient one while preserving the original semantic of operations.
+The rewriters are found in `query/plan/rewrite` directory, and currently we
+only have one -- `IndexLookupRewriter`.
+
+### IndexLookupRewriter
+
+The job of this rewriter is to merge `Filter` and `ScanAll` operations into
+equivalent `ScanAllBy<Index>` operations. In almost all cases using indexed
+lookup will be faster than regular lookup, so `IndexLookupRewriter` simply
+does the transformations whenever possible. The simplest case being the
+following, assuming we have an index over `id`.
+
+  * Original Plan
+
+    `ScanAll (n) > Filter (id(n) == 42) > Produce (n)`
+
+  * Rewritten Plan
+
+    `ScanAllById (n, id=42) > Produce (n)`
+
+Naturally, there are some cases we need to be careful about.
+
+  1. Operators with Multiple Branches
+
+     Here we may not carry `Filter` operations outside of the operator into
+     its branches, so the branches are rewritten as stand alone plans with a
+     branch new `IndexLookupRewriter`. Some of the operators with multiple
+     branches are `Merge`, `Optional`, `Cartesian` and `Union`.
+
+  2. Expand Operators
+
+     Expand operations aren't that tricky to handle, but they have a special
+     case where we want to use an indexed lookup of the destination so that the
+     expansion is performed between known nodes. This decision may depend on
+     various parameters which may need further tweaking as we encounter more
+     use-cases of Cypher queries.
 
 ## Cost Estimation
 
-NOTE: TODO
+Cost estimation is the final step of processing a logical plan. The
+implementation can be found in `query/plan/cost_estimator.hpp`. We give each
+operator a cost based on the estimated cardinality of results of that operator
+and on the preset coefficient of the runtime performance of that operator.
 
-## Distributed Planning
+This scheme is rather simple and works quite well, but there are couple of
+improvements we may want to do at some point.
 
-NOTE: TODO
+  * Track more information about the stored graph and use that to improve the
+    estimates.
+  * Do a quick, partial run of the plan and tweak the estimation based on how
+    much each operator produced results. This may require us having some kind
+    of representative subset of the stored graph.
+  * Write micro benchmarks for each operator and based on the results create
+    sensible preset coefficients. This would replace the current coefficients
+    which are just assumptions on how each operator implementation performs.
