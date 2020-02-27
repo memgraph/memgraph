@@ -541,9 +541,8 @@ PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_edge_get_from(self->edge);
   CHECK(vertex);
-  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
-  PyErr_SetString(PyExc_NotImplementedError, "from_vertex");
-  return nullptr;
+  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
+                      self->py_graph);
 }
 
 PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -553,9 +552,8 @@ PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_edge_get_to(self->edge);
   CHECK(vertex);
-  // TODO: Wrap mgp_vertex_copy(vertex) into _mgp.Vertex and return it.
-  PyErr_SetString(PyExc_NotImplementedError, "to_vertex");
-  return nullptr;
+  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
+                      self->py_graph);
 }
 
 void PyEdgeDealloc(PyEdge *self) {
