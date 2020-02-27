@@ -226,14 +226,26 @@ class Vertex:
         '''Raise InvalidVertexError.'''
         if not self.is_valid():
             raise InvalidVertexError()
-        raise NotImplementedError()
+        edges_it = self._vertex.iter_in_edges()
+        edge = edges_it.get()
+        while edge is not None:
+            yield Edge(edge)
+            if not self.is_valid():
+                raise InvalidVertexError()
+            edge = edges_it.next()
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
         '''Raise InvalidVertexError.'''
         if not self.is_valid():
             raise InvalidVertexError()
-        raise NotImplementedError()
+        edges_it = self._vertex.iter_out_edges()
+        edge = edges_it.get()
+        while edge is not None:
+            yield Edge(edge)
+            if not self.is_valid():
+                raise InvalidVertexError()
+            edge = edges_it.next()
 
     def __eq__(self, other) -> bool:
         '''Raise InvalidVertexError'''

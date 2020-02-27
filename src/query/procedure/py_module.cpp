@@ -44,6 +44,7 @@ void PyVerticesIteratorDealloc(PyVerticesIterator *self) {
   // execution, so we may cause a double free issue.
   if (self->py_graph->graph) mgp_vertices_iterator_destroy(self->it);
   Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
 }
 
 PyObject *PyVerticesIteratorGet(PyVerticesIterator *self,
@@ -87,6 +88,66 @@ static PyTypeObject PyVerticesIteratorType = {
     .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
 };
 
+struct PyEdgesIterator {
+  PyObject_HEAD
+  mgp_edges_iterator *it;
+  PyGraph *py_graph;
+};
+
+PyObject *MakePyEdge(mgp_edge *edge, PyGraph *py_graph);
+
+void PyEdgesIteratorDealloc(PyEdgesIterator *self) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  // Avoid invoking `mgp_edges_iterator_destroy` if we are not in valid
+  // execution context. The query execution should free all memory used during
+  // execution, so we may cause a double free issue.
+  if (self->py_graph->graph) mgp_edges_iterator_destroy(self->it);
+  Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
+}
+
+PyObject *PyEdgesIteratorGet(PyEdgesIterator *self,
+                             PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *edge = mgp_edges_iterator_get(self->it);
+  if (!edge) Py_RETURN_NONE;
+  return MakePyEdge(mgp_edge_copy(edge, self->py_graph->memory),
+                    self->py_graph);
+}
+
+PyObject *PyEdgesIteratorNext(PyEdgesIterator *self,
+                              PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *edge = mgp_edges_iterator_next(self->it);
+  if (!edge) Py_RETURN_NONE;
+  return MakePyEdge(mgp_edge_copy(edge, self->py_graph->memory),
+                    self->py_graph);
+}
+
+static PyMethodDef PyEdgesIteratorMethods[] = {
+    {"get", reinterpret_cast<PyCFunction>(PyEdgesIteratorGet), METH_NOARGS,
+     "Get the current edge pointed to by the iterator or return None."},
+    {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
+     "Advance the iterator to the next edge and return it."},
+    {nullptr},
+};
+
+static PyTypeObject PyEdgesIteratorType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.EdgesIterator",
+    .tp_doc = "Wraps struct mgp_edges_iterator.",
+    .tp_basicsize = sizeof(PyEdgesIterator),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyEdgesIteratorMethods,
+    .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
+};
+
 PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(!!self->graph);
 }
@@ -118,7 +179,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   }
   auto *py_vertices_it =
       PyObject_New(PyVerticesIterator, &PyVerticesIteratorType);
-  if (!vertices_it) {
+  if (!py_vertices_it) {
     PyErr_SetString(PyExc_MemoryError,
                     "Unable to allocate _mgp.VerticesIterator.");
     return nullptr;
@@ -627,6 +688,56 @@ PyObject *PyVertexLabelAt(PyVertex *self, PyObject *args) {
   return PyUnicode_FromString(label.name);
 }
 
+PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  auto *edges_it =
+      mgp_vertex_iter_in_edges(self->vertex, self->py_graph->memory);
+  if (!edges_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_edges_iterator for in edges.");
+    return nullptr;
+  }
+  auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
+  if (!py_edges_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate _mgp.EdgesIterator for in edges.");
+    return nullptr;
+  }
+  py_edges_it->it = edges_it;
+  Py_INCREF(self->py_graph);
+  py_edges_it->py_graph = self->py_graph;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_edges_it),
+                       &PyEdgesIteratorType);
+}
+
+PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  auto *edges_it =
+      mgp_vertex_iter_out_edges(self->vertex, self->py_graph->memory);
+  if (!edges_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_edges_iterator for out edges.");
+    return nullptr;
+  }
+  auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
+  if (!py_edges_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate _mgp.EdgesIterator for out edges.");
+    return nullptr;
+  }
+  py_edges_it->it = edges_it;
+  Py_INCREF(self->py_graph);
+  py_edges_it->py_graph = self->py_graph;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_edges_it),
+                       &PyEdgesIteratorType);
+}
+
 static PyMethodDef PyVertexMethods[] = {
     {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
      "Return True if Vertex is in valid context and may be used."},
@@ -636,6 +747,10 @@ static PyMethodDef PyVertexMethods[] = {
      METH_NOARGS, "Return number of lables of a vertex."},
     {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
      "Return label of a vertex on a given index."},
+    {"iter_in_edges", reinterpret_cast<PyCFunction>(PyVertexIterInEdges),
+     METH_NOARGS, "Return _mgp.EdgesIterator for in edges"},
+    {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges),
+     METH_NOARGS, "Return _mgp.EdgesIterator for out edges"},
     {nullptr}};
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
@@ -696,6 +811,7 @@ PyObject *PyInitMgpModule() {
   };
   if (!register_type(&PyVerticesIteratorType, "VerticesIterator"))
     return nullptr;
+  if (!register_type(&PyEdgesIteratorType, "EdgesIterator")) return nullptr;
   if (!register_type(&PyGraphType, "Graph")) return nullptr;
   if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
