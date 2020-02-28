@@ -729,6 +729,10 @@ mgp_path *mgp_path_make_with_start(const mgp_vertex *vertex,
   return path;
 }
 
+mgp_path *mgp_path_copy(const mgp_path *path, mgp_memory *memory) {
+  return new_mgp_object<mgp_path>(memory, *path);
+}
+
 void mgp_path_destroy(mgp_path *path) { delete_mgp_object(path); }
 
 int mgp_path_expand(mgp_path *path, const mgp_edge *edge) {

@@ -344,6 +344,12 @@ const struct mgp_map_item *mgp_map_items_iterator_next(
 struct mgp_path *mgp_path_make_with_start(const struct mgp_vertex *vertex,
                                           struct mgp_memory *memory);
 
+/// Copy a mgp_path.
+/// Returned pointer must be freed with mgp_path_destroy.
+/// NULL is returned if unable to allocate a mgp_path.
+struct mgp_path *mgp_path_copy(const struct mgp_path *path,
+                               struct mgp_memory *memory);
+
 /// Free the memory used by the given mgp_path and contained vertices and edges.
 void mgp_path_destroy(struct mgp_path *path);
 
