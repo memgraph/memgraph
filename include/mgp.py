@@ -128,8 +128,15 @@ class Edge:
 
     def __init__(self, edge):
         if not isinstance(edge, _mgp.Edge):
-            raise TypeError("Expected '_mgp.Edge', got '{}'".fmt(type(edge)))
+            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
         self._edge = edge
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Edge as that is actually a reference to a graph element
+        # and not a proper value.
+        return Edge(self._edge)
 
     def is_valid(self) -> bool:
         '''Return True if `self` is in valid context and may be used.'''
@@ -192,8 +199,15 @@ class Vertex:
 
     def __init__(self, vertex):
         if not isinstance(vertex, _mgp.Vertex):
-            raise TypeError("Expected '_mgp.Vertex', got '{}'".fmt(type(vertex)))
+            raise TypeError("Expected '_mgp.Vertex', got '{}'".format(type(vertex)))
         self._vertex = vertex
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Vertex as that is actually a reference to a graph element
+        # and not a proper value.
+        return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
         '''Return True if `self` is in valid context and may be used'''
@@ -254,15 +268,60 @@ class Vertex:
         return self._vertex == other._vertex
 
 
+class InvalidPathError(Exception):
+    '''Signals using a Path instance not part of the procedure context.'''
+    pass
+
+
 class Path:
     '''Path containing Vertex and Edge instances.'''
+    __slots__ = ('_path', '_vertices', '_edges')
 
-    def __init__(self, starting_vertex: Vertex):
+    def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         '''Initialize with a starting Vertex.
 
         Raise InvalidVertexError if passed in Vertex is invalid.
         '''
-        pass
+        # We cache calls to `vertices` and `edges`, so as to avoid needless
+        # allocations at the C level.
+        self._vertices = None
+        self._edges = None
+        # Accepting _mgp.Path is just for internal usage.
+        if isinstance(starting_vertex_or_path, _mgp.Path):
+            self._path = starting_vertex_or_path
+        elif isinstance(starting_vertex_or_path, Vertex):
+            vertex = starting_vertex_or_path._vertex
+            if not vertex.is_valid():
+                raise InvalidVertexError()
+            self._path = _mgp.Path.make_with_start(vertex)
+        else:
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Path', got '{}'"
+                            .format(type(starting_vertex_or_path)))
+
+    def __copy__(self):
+        if not self.is_valid():
+            raise InvalidPathError()
+        assert len(self.vertices) >= 1
+        path = Path(self.vertices[0])
+        for e in self.edges:
+            path.expand(e)
+        return path
+
+    def __deepcopy__(self, memo):
+        try:
+            return Path(memo[id(self._path)])
+        except KeyError:
+            pass
+        # This is the same as the shallow copy, as the underlying C API should
+        # not support deepcopy. Besides, it doesn't make much sense to actually
+        # copy Edge and Vertex types as they are actually references to graph
+        # elements and not proper values.
+        path = self.__copy__()
+        memo[id(self._path)] = path._path
+        return path
+
+    def is_valid(self) -> bool:
+        return self._path.is_valid()
 
     def expand(self, edge: Edge):
         '''Append an edge continuing from the last vertex on the path.
@@ -273,18 +332,44 @@ class Path:
         Raise ValueError if the current last vertex in the path is not part of
         the given edge.
         Raise InvalidEdgeError if passed in edge is invalid.
+        Raise InvalidPathError if using an invalid Path instance.
         '''
-        pass
+        if not isinstance(edge, Edge):
+            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
+        if not self.is_valid():
+            raise InvalidPathError()
+        if not edge.is_valid():
+            raise InvalidEdgeError()
+        self._path.expand(edge._edge)
+        # Invalidate our cached tuples
+        self._vertices = None
+        self._edges = None
 
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
-        '''Vertices ordered from the start to the end of the path.'''
-        pass
+        '''Vertices ordered from the start to the end of the path.
+
+        Raise InvalidPathError if using an invalid Path instance.'''
+        if not self.is_valid():
+            raise InvalidPathError()
+        if self._vertices is None:
+            num_vertices = self._path.size() + 1
+            self._vertices = tuple(Vertex(self._path.vertex_at(i))
+                                   for i in range(num_vertices))
+        return self._vertices
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
-        '''Edges ordered from the start to the end of the path.'''
-        pass
+        '''Edges ordered from the start to the end of the path.
+
+        Raise InvalidPathError if using an invalid Path instance.'''
+        if not self.is_valid():
+            raise InvalidPathError()
+        if self._edges is None:
+            num_edges = self._path.size()
+            self._edges = tuple(Edge(self._path.edge_at(i))
+                                for i in range(num_edges))
+        return self._edges
 
 
 class Record:
@@ -297,7 +382,7 @@ class Record:
 
 
 class InvalidProcCtxError(Exception):
-    '''Signals using an ProcCtx instance outside of the registered procedure.'''
+    '''Signals using a ProcCtx instance outside of the registered procedure.'''
     pass
 
 
@@ -307,8 +392,14 @@ class Vertices:
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError("Expected '_mgp.Graph', got '{}'".fmt(type(graph)))
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Graph as that always references the whole graph state.
+        return Vertices(self._graph)
 
     def is_valid(self) -> bool:
         '''Return True if `self` is in valid context and may be used.'''
@@ -335,6 +426,12 @@ class Graph:
         if not isinstance(graph, _mgp.Graph):
             raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Graph as that always references the whole graph state.
+        return Graph(self._graph)
 
     def is_valid(self) -> bool:
         '''Return True if `self` is in valid context and may be used.'''

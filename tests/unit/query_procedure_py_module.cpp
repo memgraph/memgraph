@@ -57,7 +57,78 @@ TEST(PyModule, MgpValueToPyObject) {
     ASSERT_TRUE(PyUnicode_Check(py_str));
     EXPECT_EQ(std::string(PyUnicode_AsUTF8(py_str)), "some text");
   }
-  // TODO: Vertex, Edge and Path values
+}
+
+// Our _mgp types should not support (by default) pickling and copying.
+static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
+  py::Object pickle_mod(PyImport_ImportModule("pickle"));
+  ASSERT_TRUE(pickle_mod);
+  ASSERT_FALSE(py::FetchError());
+  py::Object dumps_res(pickle_mod.CallMethod("dumps", py_obj));
+  ASSERT_FALSE(dumps_res);
+  ASSERT_TRUE(py::FetchError());
+  py::Object copy_mod(PyImport_ImportModule("copy"));
+  ASSERT_TRUE(pickle_mod);
+  ASSERT_FALSE(py::FetchError());
+  py::Object copy_res(pickle_mod.CallMethod("copy", py_obj));
+  ASSERT_FALSE(copy_res);
+  ASSERT_TRUE(py::FetchError());
+  // We should have cleared the error state.
+  ASSERT_FALSE(py::FetchError());
+  py::Object deepcopy_res(pickle_mod.CallMethod("deepcopy", py_obj));
+  ASSERT_FALSE(deepcopy_res);
+  ASSERT_TRUE(py::FetchError());
+}
+
+// TODO: Test Vertex and Edge values
+TEST(PyModule, PyPath) {
+  storage::Storage db;
+  {
+    auto dba = db.Access();
+    auto v1 = dba.CreateVertex();
+    auto v2 = dba.CreateVertex();
+    ASSERT_TRUE(
+        dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type")).HasValue());
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  mgp_memory memory{utils::NewDeleteResource()};
+  mgp_graph graph{&dba, storage::View::OLD};
+  auto *start_v = mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{0}, &memory);
+  ASSERT_TRUE(start_v);
+  auto *path = mgp_path_make_with_start(start_v, &memory);
+  ASSERT_TRUE(path);
+  auto *edges_it = mgp_vertex_iter_out_edges(start_v, &memory);
+  ASSERT_TRUE(edges_it);
+  for (const auto *edge = mgp_edges_iterator_get(edges_it); edge;
+       edge = mgp_edges_iterator_next(edges_it)) {
+    ASSERT_TRUE(mgp_path_expand(path, edge));
+  }
+  ASSERT_EQ(mgp_path_size(path), 1);
+  mgp_edges_iterator_destroy(edges_it);
+  mgp_vertex_destroy(start_v);
+  auto *path_value = mgp_value_make_path(path);
+  ASSERT_TRUE(path_value);
+  auto gil = py::EnsureGIL();
+  py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
+  ASSERT_TRUE(py_graph);
+  // We have setup the C structs, so create convert to PyObject.
+  py::Object py_path_value(
+      query::procedure::MgpValueToPyObject(*path_value, py_graph));
+  ASSERT_TRUE(py_path_value);
+  AssertPickleAndCopyAreNotSupported(py_path_value);
+  // Convert back to C struct and check equality.
+  auto *new_path_value =
+      query::procedure::PyObjectToMgpValue(py_path_value, &memory);
+  ASSERT_TRUE(new_path_value);
+  ASSERT_NE(new_path_value, path_value);  // Pointer compare.
+  ASSERT_TRUE(mgp_value_is_path(new_path_value));
+  ASSERT_TRUE(mgp_path_equal(mgp_value_get_path(path_value),
+                             mgp_value_get_path(new_path_value)));
+  mgp_value_destroy(new_path_value);
+  mgp_value_destroy(path_value);
+  ASSERT_FALSE(dba.Commit().HasError());
 }
 
 TEST(PyModule, PyObjectToMgpValue) {

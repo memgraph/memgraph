@@ -20,6 +20,8 @@ struct PyGraph;
 /// `py::Object` instance and set the appropriate Python exception.
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph);
 
+py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph);
+
 /// Convert a Python object into `mgp_value`, constructing it using the given
 /// `mgp_memory` allocator.
 ///

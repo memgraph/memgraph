@@ -43,6 +43,7 @@ class Object final {
 
  public:
   Object() = default;
+  Object(std::nullptr_t) {}
   explicit Object(PyObject *ptr) noexcept : ptr_(ptr) {}
 
   ~Object() noexcept { Py_XDECREF(ptr_); }

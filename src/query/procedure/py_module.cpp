@@ -1,10 +1,23 @@
 #include "query/procedure/py_module.hpp"
 
+#include <sstream>
 #include <stdexcept>
+#include <string>
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
 namespace query::procedure {
+
+// Set this as a __reduce__ special method on our types to prevent `pickle` and
+// `copy` module operations on our types.
+PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+  auto *type = Py_TYPE(self);
+  std::stringstream ss;
+  ss << "cannot pickle nor copy '" << type->tp_name << "' object";
+  const auto &msg = ss.str();
+  PyErr_SetString(PyExc_TypeError, msg.c_str());
+  return nullptr;
+}
 
 // Definitions of types wrapping C API types
 //
@@ -68,6 +81,8 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self,
 }
 
 static PyMethodDef PyVerticesIteratorMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"get", reinterpret_cast<PyCFunction>(PyVerticesIteratorGet), METH_NOARGS,
      "Get the current vertex pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyVerticesIteratorNext), METH_NOARGS,
@@ -126,6 +141,8 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self,
 }
 
 static PyMethodDef PyEdgesIteratorMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"get", reinterpret_cast<PyCFunction>(PyEdgesIteratorGet), METH_NOARGS,
      "Get the current edge pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
@@ -189,6 +206,8 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 static PyMethodDef PyGraphMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyGraphIsValid), METH_NOARGS,
      "Return True if Graph is in valid context and may be used."},
     {"get_vertex_by_id", reinterpret_cast<PyCFunction>(PyGraphGetVertexById),
@@ -337,6 +356,8 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
 }
 
 static PyMethodDef PyQueryProcMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"add_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddArg), METH_VARARGS,
      "Add a required argument to a procedure."},
     {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg),
@@ -399,6 +420,8 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
 }
 
 static PyMethodDef PyQueryModuleMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure",
      reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
      "Register a read-only procedure with this module."},
@@ -566,10 +589,12 @@ void PyEdgeDealloc(PyEdge *self) {
 }
 
 PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
-  return PyBool_FromLong(!!self->py_graph->graph);
+  return PyBool_FromLong(self->py_graph && self->py_graph->graph);
 }
 
 static PyMethodDef PyEdgeMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
      "Return True if Edge is in valid context and may be used."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName),
@@ -578,7 +603,8 @@ static PyMethodDef PyEdgeMethods[] = {
      METH_NOARGS, "Return the edge's source vertex."},
     {"to_vertex", reinterpret_cast<PyCFunction>(PyEdgeToVertex), METH_NOARGS,
      "Return the edge's destination vertex."},
-    {nullptr}};
+    {nullptr},
+};
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
@@ -652,7 +678,7 @@ void PyVertexDealloc(PyVertex *self) {
 }
 
 PyObject *PyVertexIsValid(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
-  return PyBool_FromLong(!!self->py_graph->graph);
+  return PyBool_FromLong(self->py_graph && self->py_graph->graph);
 }
 
 PyObject *PyVertexGetId(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -742,6 +768,8 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 static PyMethodDef PyVertexMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
      "Return True if Vertex is in valid context and may be used."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS,
@@ -754,7 +782,8 @@ static PyMethodDef PyVertexMethods[] = {
      METH_NOARGS, "Return _mgp.EdgesIterator for in edges"},
     {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges),
      METH_NOARGS, "Return _mgp.EdgesIterator for out edges"},
-    {nullptr}};
+    {nullptr},
+};
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
@@ -805,6 +834,170 @@ PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
   return PyBool_FromLong(mgp_vertex_equal(v1->vertex, v2->vertex));
 }
 
+struct PyPath {
+  PyObject_HEAD
+  mgp_path *path;
+  PyGraph *py_graph;
+};
+
+void PyPathDealloc(PyPath *self) {
+  CHECK(self->path);
+  CHECK(self->py_graph);
+  // Avoid invoking `mgp_path_destroy` if we are not in valid execution
+  // context. The query execution should free all memory used during
+  // execution, so  we may cause a double free issue.
+  if (self->py_graph->graph) mgp_path_destroy(self->path);
+  Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
+}
+
+PyObject *PyPathIsValid(PyPath *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(self->py_graph && self->py_graph->graph);
+}
+
+PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex);
+
+PyObject *PyPathExpand(PyPath *self, PyObject *edge) {
+  CHECK(self->path);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  if (Py_TYPE(edge) != &PyEdgeType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Edge.");
+    return nullptr;
+  }
+  auto *py_edge = reinterpret_cast<PyEdge *>(edge);
+  const auto *to = mgp_edge_get_to(py_edge->edge);
+  const auto *from = mgp_edge_get_from(py_edge->edge);
+  const auto *last_vertex =
+      mgp_path_vertex_at(self->path, mgp_path_size(self->path));
+  if (!mgp_vertex_equal(last_vertex, to) &&
+      !mgp_vertex_equal(last_vertex, from)) {
+    PyErr_SetString(PyExc_ValueError,
+                    "Edge is not a continuation of the path.");
+    return nullptr;
+  }
+  if (!mgp_path_expand(self->path, py_edge->edge)) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to expand mgp_path.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyPathSize(PyPath *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->path);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  return PyLong_FromSize_t(mgp_path_size(self->path));
+}
+
+PyObject *PyPathVertexAt(PyPath *self, PyObject *args) {
+  CHECK(self->path);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  static_assert(std::numeric_limits<Py_ssize_t>::max() <=
+                std::numeric_limits<size_t>::max());
+  Py_ssize_t i;
+  if (!PyArg_ParseTuple(args, "n", &i)) return nullptr;
+  const auto *vertex = mgp_path_vertex_at(self->path, i);
+  if (!vertex) {
+    PyErr_SetString(PyExc_IndexError, "Index is out of range.");
+    return nullptr;
+  }
+  return MakePyVertex(*vertex, self->py_graph);
+}
+
+PyObject *PyPathEdgeAt(PyPath *self, PyObject *args) {
+  CHECK(self->path);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  static_assert(std::numeric_limits<Py_ssize_t>::max() <=
+                std::numeric_limits<size_t>::max());
+  Py_ssize_t i;
+  if (!PyArg_ParseTuple(args, "n", &i)) return nullptr;
+  const auto *edge = mgp_path_edge_at(self->path, i);
+  if (!edge) {
+    PyErr_SetString(PyExc_IndexError, "Index is out of range.");
+    return nullptr;
+  }
+  return MakePyEdge(*edge, self->py_graph);
+}
+
+static PyMethodDef PyPathMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
+     METH_NOARGS, "__reduce__ is not supported"},
+    {"is_valid", reinterpret_cast<PyCFunction>(PyPathIsValid), METH_NOARGS,
+     "Return True if Path is in valid context and may be used."},
+    {"make_with_start", reinterpret_cast<PyCFunction>(PyPathMakeWithStart),
+     METH_O | METH_CLASS, "Create a path with a starting vertex."},
+    {"expand", reinterpret_cast<PyCFunction>(PyPathExpand), METH_O,
+     "Append an edge continuing from the last vertex on the path."},
+    {"size", reinterpret_cast<PyCFunction>(PyPathSize), METH_NOARGS,
+     "Return the number of edges in a mgp_path."},
+    {"vertex_at", reinterpret_cast<PyCFunction>(PyPathVertexAt), METH_VARARGS,
+     "Return the vertex from a path at given index."},
+    {"edge_at", reinterpret_cast<PyCFunction>(PyPathEdgeAt), METH_VARARGS,
+     "Return the edge from a path at given index."},
+    {nullptr},
+};
+
+static PyTypeObject PyPathType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Path",
+    .tp_doc = "Wraps struct mgp_path.",
+    .tp_basicsize = sizeof(PyPath),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyPathMethods,
+    .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
+};
+
+PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
+  CHECK(path);
+  CHECK(py_graph->graph && py_graph->memory);
+  CHECK(path->GetMemoryResource() == py_graph->memory->impl);
+  auto *py_path = PyObject_New(PyPath, &PyPathType);
+  if (!py_path) return nullptr;
+  py_path->path = path;
+  py_path->py_graph = py_graph;
+  Py_INCREF(py_graph);
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_path), &PyPathType);
+}
+
+PyObject *MakePyPath(const mgp_path &path, PyGraph *py_graph) {
+  CHECK(py_graph);
+  CHECK(py_graph->graph && py_graph->memory);
+  auto *path_copy = mgp_path_copy(&path, py_graph->memory);
+  if (!path_copy) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_path.");
+    return nullptr;
+  }
+  auto *py_path = MakePyPath(path_copy, py_graph);
+  if (!py_path) mgp_path_destroy(path_copy);
+  return py_path;
+}
+
+PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
+  if (type != &PyPathType) {
+    PyErr_SetString(PyExc_TypeError,
+                    "Expected '<class _mgp.Path>' as the first argument.");
+    return nullptr;
+  }
+  if (Py_TYPE(vertex) != &PyVertexType) {
+    PyErr_SetString(PyExc_TypeError,
+                    "Expected a '_mgp.Vertex' as the second argument.");
+    return nullptr;
+  }
+  auto *py_vertex = reinterpret_cast<PyVertex *>(vertex);
+  auto *path =
+      mgp_path_make_with_start(py_vertex->vertex, py_vertex->py_graph->memory);
+  if (!path) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_path.");
+    return nullptr;
+  }
+  auto *py_path = MakePyPath(path, py_vertex->py_graph);
+  if (!py_path) mgp_path_destroy(path);
+  return py_path;
+}
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -829,6 +1022,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
+  if (!register_type(&PyPathType, "Path")) return nullptr;
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
@@ -872,6 +1066,14 @@ py::Object ReloadPyModule(PyObject *py_module, mgp_module *module_def) {
   return WithMgpModule(module_def, [py_module]() {
     return py::Object(PyImport_ReloadModule(py_module));
   });
+}
+
+py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
+  if (Py_TYPE(py_graph) != &PyGraphType) {
+    PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
+    return nullptr;
+  }
+  return MgpValueToPyObject(value, reinterpret_cast<PyGraph *>(py_graph));
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
@@ -919,8 +1121,10 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       const auto *e = mgp_value_get_edge(&value);
       return py::Object(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
     }
-    case MGP_VALUE_TYPE_PATH:
-      throw utils::NotYetImplemented("MgpValueToPyObject");
+    case MGP_VALUE_TYPE_PATH: {
+      const auto *p = mgp_value_get_path(&value);
+      return py::Object(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
+    }
   }
 }
 
@@ -1037,10 +1241,20 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       mgp_edge_destroy(e);
       throw std::bad_alloc();
     }
-  } else {
-    // TODO: Check for Vertex and Path. Throw std::invalid_argument for
-    // everything else.
+  } else if (Py_TYPE(o) == &PyPathType) {
+    auto *p = mgp_path_copy(reinterpret_cast<PyPath *>(o)->path, memory);
+    if (!p) {
+      throw std::bad_alloc();
+    }
+    mgp_v = mgp_value_make_path(p);
+    if (!mgp_v) {
+      mgp_path_destroy(p);
+      throw std::bad_alloc();
+    }
+  } else if (Py_TYPE(o) == &PyVertexType) {
     throw utils::NotYetImplemented("PyObjectToMgpValue");
+  } else {
+    throw std::invalid_argument("Unsupported PyObject conversion");
   }
 
   if (!mgp_v) {
