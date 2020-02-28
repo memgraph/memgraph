@@ -917,6 +917,36 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
 }
 
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
+  auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len,
+                                 const auto &py_seq_get_item) {
+    static_assert(std::numeric_limits<Py_ssize_t>::max() <=
+                  std::numeric_limits<size_t>::max());
+    mgp_list *list = mgp_list_make_empty(len, memory);
+    if (!list) throw std::bad_alloc();
+    for (Py_ssize_t i = 0; i < len; ++i) {
+      PyObject *e = py_seq_get_item(seq, i);
+      mgp_value *v{nullptr};
+      try {
+        v = PyObjectToMgpValue(e, memory);
+      } catch (...) {
+        mgp_list_destroy(list);
+        throw;
+      }
+      if (!mgp_list_append(list, v)) {
+        mgp_value_destroy(v);
+        mgp_list_destroy(list);
+        throw std::bad_alloc();
+      }
+      mgp_value_destroy(v);
+    }
+    auto *v = mgp_value_make_list(list);
+    if (!v) {
+      mgp_list_destroy(list);
+      throw std::bad_alloc();
+    }
+    return v;
+  };
+
   mgp_value *mgp_v{nullptr};
 
   if (o == Py_None) {
@@ -935,63 +965,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   } else if (PyUnicode_Check(o)) {
     mgp_v = mgp_value_make_string(PyUnicode_AsUTF8(o), memory);
   } else if (PyList_Check(o)) {
-    Py_ssize_t len = PyList_Size(o);
-    mgp_list *list = mgp_list_make_empty(len, memory);
-
-    if (!list) {
-      throw std::bad_alloc();
-    }
-
-    for (Py_ssize_t i = 0; i < len; ++i) {
-      PyObject *e = PyList_GET_ITEM(o, i);
-      mgp_value *v{nullptr};
-
-      try {
-        v = PyObjectToMgpValue(e, memory);
-      } catch (...) {
-        mgp_list_destroy(list);
-        throw;
-      }
-
-      if (!mgp_list_append(list, v)) {
-        mgp_value_destroy(v);
-        mgp_list_destroy(list);
-        throw std::bad_alloc();
-      }
-
-      mgp_value_destroy(v);
-    }
-
-    mgp_v = mgp_value_make_list(list);
+    mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) {
+      return PyList_GET_ITEM(list, i);
+    });
   } else if (PyTuple_Check(o)) {
-    Py_ssize_t len = PyTuple_Size(o);
-    mgp_list *list = mgp_list_make_empty(len, memory);
-
-    if (!list) {
-      throw std::bad_alloc();
-    }
-
-    for (Py_ssize_t i = 0; i < len; ++i) {
-      PyObject *e = PyTuple_GET_ITEM(o, i);
-      mgp_value *v{nullptr};
-
-      try {
-        v = PyObjectToMgpValue(e, memory);
-      } catch (...) {
-        mgp_list_destroy(list);
-        throw;
-      }
-
-      if (!mgp_list_append(list, v)) {
-        mgp_value_destroy(v);
-        mgp_list_destroy(list);
-        throw std::bad_alloc();
-      }
-
-      mgp_value_destroy(v);
-    }
-
-    mgp_v = mgp_value_make_list(list);
+    mgp_v = py_seq_to_list(o, PyTuple_Size(o), [](auto *tuple, const auto i) {
+      return PyTuple_GET_ITEM(tuple, i);
+    });
   } else if (PyDict_Check(o)) {
     mgp_map *map = mgp_map_make_empty(memory);
 
@@ -1034,6 +1014,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     }
 
     mgp_v = mgp_value_make_map(map);
+    if (!mgp_v) {
+      mgp_map_destroy(map);
+      throw std::bad_alloc();
+    }
   } else if (Py_TYPE(o) == &PyEdgeType) {
     // Copy the edge and pass the ownership to the created mgp_value.
     auto *e = mgp_edge_copy(reinterpret_cast<PyEdge *>(o)->edge, memory);
@@ -1041,6 +1025,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::bad_alloc();
     }
     mgp_v = mgp_value_make_edge(e);
+    if (!mgp_v) {
+      mgp_edge_destroy(e);
+      throw std::bad_alloc();
+    }
   } else {
     // TODO: Check for Vertex and Path. Throw std::invalid_argument for
     // everything else.
