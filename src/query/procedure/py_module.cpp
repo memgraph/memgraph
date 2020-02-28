@@ -34,7 +34,7 @@ struct PyVerticesIterator {
   PyGraph *py_graph;
 };
 
-PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph);
+PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph);
 
 void PyVerticesIteratorDealloc(PyVerticesIterator *self) {
   CHECK(self->it);
@@ -54,8 +54,7 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_vertices_iterator_get(self->it);
   if (!vertex) Py_RETURN_NONE;
-  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
-                      self->py_graph);
+  return MakePyVertex(*vertex, self->py_graph);
 }
 
 PyObject *PyVerticesIteratorNext(PyVerticesIterator *self,
@@ -65,8 +64,7 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_vertices_iterator_next(self->it);
   if (!vertex) Py_RETURN_NONE;
-  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
-                      self->py_graph);
+  return MakePyVertex(*vertex, self->py_graph);
 }
 
 static PyMethodDef PyVerticesIteratorMethods[] = {
@@ -94,7 +92,7 @@ struct PyEdgesIterator {
   PyGraph *py_graph;
 };
 
-PyObject *MakePyEdge(mgp_edge *edge, PyGraph *py_graph);
+PyObject *MakePyEdge(const mgp_edge &edge, PyGraph *py_graph);
 
 void PyEdgesIteratorDealloc(PyEdgesIterator *self) {
   CHECK(self->it);
@@ -114,8 +112,7 @@ PyObject *PyEdgesIteratorGet(PyEdgesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *edge = mgp_edges_iterator_get(self->it);
   if (!edge) Py_RETURN_NONE;
-  return MakePyEdge(mgp_edge_copy(edge, self->py_graph->memory),
-                    self->py_graph);
+  return MakePyEdge(*edge, self->py_graph);
 }
 
 PyObject *PyEdgesIteratorNext(PyEdgesIterator *self,
@@ -125,8 +122,7 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self,
   CHECK(self->py_graph->graph);
   const auto *edge = mgp_edges_iterator_next(self->it);
   if (!edge) Py_RETURN_NONE;
-  return MakePyEdge(mgp_edge_copy(edge, self->py_graph->memory),
-                    self->py_graph);
+  return MakePyEdge(*edge, self->py_graph);
 }
 
 static PyMethodDef PyEdgesIteratorMethods[] = {
@@ -165,7 +161,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
                     "Unable to find the vertex with given ID.");
     return nullptr;
   }
-  return MakePyVertex(mgp_vertex_copy(vertex, self->memory), self);
+  return MakePyVertex(*vertex, self);
 }
 
 PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
@@ -212,6 +208,7 @@ static PyTypeObject PyGraphType = {
 };
 
 PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
+  CHECK(!graph || (graph && memory));
   auto *py_graph = PyObject_New(PyGraph, &PyGraphType);
   if (!py_graph) return nullptr;
   py_graph->graph = graph;
@@ -234,6 +231,7 @@ static PyTypeObject PyCypherTypeType = {
 };
 
 PyObject *MakePyCypherType(const mgp_type *type) {
+  CHECK(type);
   auto *py_type = PyObject_New(PyCypherType, &PyCypherTypeType);
   if (!py_type) return nullptr;
   py_type->type = type;
@@ -417,6 +415,7 @@ static PyTypeObject PyQueryModuleType = {
 };
 
 PyObject *MakePyQueryModule(mgp_module *module) {
+  CHECK(module);
   auto *py_query_module = PyObject_New(PyQueryModule, &PyQueryModuleType);
   if (!py_query_module) return nullptr;
   py_query_module->module = module;
@@ -541,8 +540,7 @@ PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_edge_get_from(self->edge);
   CHECK(vertex);
-  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
-                      self->py_graph);
+  return MakePyVertex(*vertex, self->py_graph);
 }
 
 PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -552,8 +550,7 @@ PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self->py_graph->graph);
   const auto *vertex = mgp_edge_get_to(self->edge);
   CHECK(vertex);
-  return MakePyVertex(mgp_vertex_copy(vertex, self->py_graph->memory),
-                      self->py_graph);
+  return MakePyVertex(*vertex, self->py_graph);
 }
 
 void PyEdgeDealloc(PyEdge *self) {
@@ -598,17 +595,22 @@ static PyTypeObject PyEdgeType = {
 
 /// Create an instance of `_mgp.Edge` class.
 ///
-/// The ownership of the edge is given to the created instance and will be
-/// destroyed once the instance itself is destroyed, taking care that the
-/// execution context is still valid.
-///
 /// The created instance references an existing `_mgp.Graph` instance, which
 /// marks the execution context.
-PyObject *MakePyEdge(mgp_edge *edge, PyGraph *py_graph) {
-  CHECK(edge->GetMemoryResource() == py_graph->memory->impl);
+PyObject *MakePyEdge(const mgp_edge &edge, PyGraph *py_graph) {
+  CHECK(py_graph);
+  CHECK(py_graph->graph && py_graph->memory);
+  auto *edge_copy = mgp_edge_copy(&edge, py_graph->memory);
+  if (!edge_copy) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edge.");
+    return nullptr;
+  }
   auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
-  if (!py_edge) return nullptr;
-  py_edge->edge = edge;
+  if (!py_edge) {
+    mgp_edge_destroy(edge_copy);
+    return nullptr;
+  }
+  py_edge->edge = edge_copy;
   py_edge->py_graph = py_graph;
   Py_INCREF(py_graph);
   return PyObject_Init(reinterpret_cast<PyObject *>(py_edge), &PyEdgeType);
@@ -764,11 +766,20 @@ static PyTypeObject PyVertexType = {
     .tp_richcompare = PyVertexRichCompare,
 };
 
-PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
-  CHECK(vertex->GetMemoryResource() == py_graph->memory->impl);
+PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph) {
+  CHECK(py_graph);
+  CHECK(py_graph->graph && py_graph->memory);
+  auto *vertex_copy = mgp_vertex_copy(&vertex, py_graph->memory);
+  if (!vertex_copy) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertex.");
+    return nullptr;
+  }
   auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
-  if (!py_vertex) return nullptr;
-  py_vertex->vertex = vertex;
+  if (!py_vertex) {
+    mgp_vertex_destroy(vertex_copy);
+    return nullptr;
+  }
+  py_vertex->vertex = vertex_copy;
   py_vertex->py_graph = py_graph;
   Py_INCREF(py_graph);
   return PyObject_Init(reinterpret_cast<PyObject *>(py_vertex), &PyVertexType);
@@ -902,14 +913,8 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_VERTEX:
       throw utils::NotYetImplemented("MgpValueToPyObject");
     case MGP_VALUE_TYPE_EDGE: {
-      // Copy the edge and pass the ownership to the created _mgp.Edge
-      // instance.
-      auto *e = mgp_edge_copy(mgp_value_get_edge(&value), py_graph->memory);
-      if (!e) {
-        PyErr_NoMemory();
-        return py::Object();
-      }
-      return py::Object(reinterpret_cast<PyObject *>(MakePyEdge(e, py_graph)));
+      const auto *e = mgp_value_get_edge(&value);
+      return py::Object(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
     }
     case MGP_VALUE_TYPE_PATH:
       throw utils::NotYetImplemented("MgpValueToPyObject");
