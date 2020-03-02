@@ -378,6 +378,10 @@ const struct mgp_vertex *mgp_path_vertex_at(const struct mgp_path *path,
 /// NULL is returned if index is out of range.
 const struct mgp_edge *mgp_path_edge_at(const struct mgp_path *path,
                                         size_t index);
+
+/// Return non-zero if given paths are equal, otherwise 0.
+int mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2);
+
 ///@}
 
 /// @name Procedure Result

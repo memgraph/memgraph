@@ -782,6 +782,21 @@ const mgp_edge *mgp_path_edge_at(const mgp_path *path, size_t i) {
   return &path->edges[i];
 }
 
+int mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2) {
+  CHECK(mgp_path_size(p1) == p1->vertices.size() - 1);
+  CHECK(mgp_path_size(p2) == p2->vertices.size() - 1);
+  if (mgp_path_size(p1) != mgp_path_size(p2)) return 0;
+  const auto *start1 = mgp_path_vertex_at(p1, 0);
+  const auto *start2 = mgp_path_vertex_at(p2, 0);
+  if (!mgp_vertex_equal(start1, start2)) return 0;
+  for (size_t i = 0; i < mgp_path_size(p1); ++i) {
+    const auto *e1 = mgp_path_edge_at(p1, i);
+    const auto *e2 = mgp_path_edge_at(p2, i);
+    if (!mgp_edge_equal(e1, e2)) return 0;
+  }
+  return 1;
+}
+
 /// Plugin Result
 
 int mgp_result_set_error_msg(mgp_result *res, const char *msg) {
