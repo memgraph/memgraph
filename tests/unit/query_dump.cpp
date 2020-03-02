@@ -45,11 +45,17 @@ struct DatabaseState {
     std::string property;
   };
 
+  struct LabelPropertiesItem {
+    std::string label;
+    std::set<std::string> properties;
+  };
+
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
   std::set<LabelPropertyItem> label_property_indices;
   std::set<LabelPropertyItem> existence_constraints;
+  std::set<LabelPropertiesItem> unique_constraints;
 };
 
 bool operator<(const DatabaseState::Vertex &first,
@@ -79,6 +85,12 @@ bool operator<(const DatabaseState::LabelPropertyItem &first,
   return first.property < second.property;
 }
 
+bool operator<(const DatabaseState::LabelPropertiesItem &first,
+               const DatabaseState::LabelPropertiesItem &second) {
+  if (first.label != second.label) return first.label < second.label;
+  return first.properties < second.properties;
+}
+
 bool operator==(const DatabaseState::Vertex &first,
                 const DatabaseState::Vertex &second) {
   return first.id == second.id && first.labels == second.labels &&
@@ -101,11 +113,17 @@ bool operator==(const DatabaseState::LabelPropertyItem &first,
   return first.label == second.label && first.property == second.property;
 }
 
+bool operator==(const DatabaseState::LabelPropertiesItem &first,
+                const DatabaseState::LabelPropertiesItem &second) {
+  return first.label == second.label && first.properties == second.properties;
+}
+
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
          first.label_indices == second.label_indices &&
          first.label_property_indices == second.label_property_indices &&
-         first.existence_constraints == second.existence_constraints;
+         first.existence_constraints == second.existence_constraints &&
+         first.unique_constraints == second.unique_constraints;
 }
 
 DatabaseState GetState(storage::Storage *db) {
@@ -167,16 +185,29 @@ DatabaseState GetState(storage::Storage *db) {
 
   // Capture all constraints
   std::set<DatabaseState::LabelPropertyItem> existence_constraints;
+  std::set<DatabaseState::LabelPropertiesItem> unique_constraints;
   {
     auto info = dba.ListAllConstraints();
     for (const auto &item : info.existence) {
       existence_constraints.insert(
           {dba.LabelToName(item.first), dba.PropertyToName(item.second)});
     }
+    for (const auto &item : info.unique) {
+      std::set<std::string> properties;
+      for (const auto &property : item.second) {
+        properties.insert(dba.PropertyToName(property));
+      }
+      unique_constraints.insert(
+          {dba.LabelToName(item.first), std::move(properties)});
+    }
   }
 
-  return {vertices, edges, label_indices, label_property_indices,
-          existence_constraints};
+  return {vertices,
+          edges,
+          label_indices,
+          label_property_indices,
+          existence_constraints,
+          unique_constraints};
 }
 
 auto Execute(storage::Storage *db, const std::string &query) {
@@ -537,6 +568,47 @@ TEST(DumpTest, ExistenceConstraints) {
   }
 }
 
+TEST(DumpTest, UniqueConstraints) {
+  storage::Storage db;
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {"Label"},
+                 {{"prop", storage::PropertyValue(1)},
+                  {"prop2", storage::PropertyValue(2)}},
+                 false);
+    CreateVertex(&dba, {"Label"},
+                 {{"prop", storage::PropertyValue(2)},
+                  {"prop2", storage::PropertyValue(2)}},
+                 false);
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto res = db.CreateUniqueConstraint(
+        db.NameToLabel("Label"),
+        {db.NameToProperty("prop"), db.NameToProperty("prop2")});
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_EQ(res.GetValue(),
+              storage::UniqueConstraints::CreationStatus::SUCCESS);
+  }
+
+  {
+    ResultStreamFaker stream(&db);
+    query::AnyStream query_stream(&stream, utils::NewDeleteResource());
+    {
+      auto acc = db.Access();
+      query::DbAccessor dba(&acc);
+      query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+    }
+    VerifyQueries(
+        stream.GetResults(),
+        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop, u.prop2 IS UNIQUE;",
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1, prop2: 2});",
+        "CREATE (:__mg_vertex__:Label {__mg_id__: 1, prop: 2, prop2: 2});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   storage::Storage db;
@@ -606,6 +678,13 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_TRUE(ret.HasValue());
     ASSERT_TRUE(ret.GetValue());
   }
+  {
+    auto ret = db.CreateUniqueConstraint(db.NameToLabel("Person"),
+                                         {db.NameToProperty("name")});
+    ASSERT_TRUE(ret.HasValue());
+    ASSERT_EQ(ret.GetValue(),
+              storage::UniqueConstraints::CreationStatus::SUCCESS);
+  }
   ASSERT_TRUE(
       db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")));
   ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"),
@@ -622,9 +701,9 @@ TEST(DumpTest, CheckStateSimpleGraph) {
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
     const auto &results = stream.GetResults();
-    // Indices and constraints are 3 queries and there must be at least one more
+    // Indices and constraints are 4 queries and there must be at least one more
     // query for the data.
-    ASSERT_GE(results.size(), 4);
+    ASSERT_GE(results.size(), 5);
     for (const auto &item : results) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());

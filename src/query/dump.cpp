@@ -189,6 +189,17 @@ void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba,
       << ") ASSERT EXISTS (u." << dba->PropertyToName(property) << ");";
 }
 
+void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba,
+                          storage::LabelId label,
+                          const std::set<storage::PropertyId> &properties) {
+  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(label) << ") ASSERT ";
+  utils::PrintIterable(*os, properties, ", ",
+                       [&dba](auto &stream, const auto &property) {
+                         stream << "u." << dba->PropertyToName(property);
+                       });
+  *os << " IS UNIQUE;";
+}
+
 }  // namespace
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
@@ -210,6 +221,11 @@ void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
     for (const auto &item : info.existence) {
       std::ostringstream os;
       DumpExistenceConstraint(&os, dba, item.first, item.second);
+      stream->Result({TypedValue(os.str())});
+    }
+    for (const auto &item : info.unique) {
+      std::ostringstream os;
+      DumpUniqueConstraint(&os, dba, item.first, item.second);
       stream->Result({TypedValue(os.str())});
     }
   }
