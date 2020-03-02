@@ -353,9 +353,11 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
 UniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties,
     utils::SkipList<Vertex>::Accessor vertices) {
-  if (properties.empty() ||
-      properties.size() > kUniqueConstraintsMaxProperties) {
-    return CreationStatus::INVALID_PROPERTIES_SIZE;
+  if (properties.empty()) {
+    return CreationStatus::EMPTY_PROPERTIES;
+  }
+  if (properties.size() > kUniqueConstraintsMaxProperties) {
+    return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
 
   auto [constraint, emplaced] = constraints_.emplace(
@@ -402,6 +404,20 @@ UniqueConstraints::CreateConstraint(
                                properties};
   }
   return CreationStatus::SUCCESS;
+}
+
+UniqueConstraints::DeletionStatus UniqueConstraints::DropConstraint(
+    LabelId label, const std::set<PropertyId> &properties) {
+  if (properties.empty()) {
+    return UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES;
+  }
+  if (properties.size() > kUniqueConstraintsMaxProperties) {
+    return UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
+  }
+  if (constraints_.erase({label, properties}) > 0) {
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
+  return UniqueConstraints::DeletionStatus::NOT_FOUND;
 }
 
 std::optional<ConstraintViolation> UniqueConstraints::Validate(

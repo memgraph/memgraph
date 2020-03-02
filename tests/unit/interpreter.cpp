@@ -337,6 +337,78 @@ TEST_F(InterpreterTest, ExistenceConstraintTest) {
   Interpret("CREATE (:A{a:2})");
   Interpret("MATCH (n:A{a:2}) DETACH DELETE n");
   Interpret("CREATE (n:A{a:2})");
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.b);"),
+               query::QueryRuntimeException);
+}
+
+TEST_F(InterpreterTest, UniqueConstraintTest) {
+  // Empty property list should result with syntax exception.
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+               query::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+               query::SyntaxException);
+
+  // Too large list of properties should also result with syntax exception.
+  {
+    std::stringstream stream;
+    stream << " ON (n:A) ASSERT ";
+    for (size_t i = 0; i < 33; ++i) {
+      if (i > 0) stream << ", ";
+      stream << "n.prop" << i;
+    }
+    stream << " IS UNIQUE;";
+    std::string create_query = "CREATE CONSTRAINT" + stream.str();
+    std::string drop_query = "DROP CONSTRAINT" + stream.str();
+    ASSERT_THROW(Interpret(create_query), query::SyntaxException);
+    ASSERT_THROW(Interpret(drop_query), query::SyntaxException);
+  }
+
+  // Providing property list with duplicates results with syntax exception.
+  ASSERT_THROW(
+      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
+      query::SyntaxException);
+  ASSERT_THROW(
+      Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
+      query::SyntaxException);
+
+  // Commit of vertex should fail if a constraint is violated.
+  Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
+  Interpret("CREATE (:A{a:1, b:2})");
+  Interpret("CREATE (:A{a:1, b:3})");
+  ASSERT_THROW(Interpret("CREATE (:A{a:1, b:2})"), query::QueryException);
+
+  // Attempt to create a constraint should fail if it's violated.
+  Interpret("CREATE (:A{a:1, c:2})");
+  Interpret("CREATE (:A{a:1, c:2})");
+  ASSERT_THROW(
+      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.c IS UNIQUE;"),
+      query::QueryRuntimeException);
+
+  Interpret("MATCH (n:A{a:2, b:2}) SET n.a=1");
+  Interpret("CREATE (:A{a:2})");
+  Interpret("MATCH (n:A{a:2}) DETACH DELETE n");
+  Interpret("CREATE (n:A{a:2})");
+
+  // Show constraint info.
+  {
+    auto stream = Interpret("SHOW CONSTRAINT INFO");
+    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    const auto &header = stream.GetHeader();
+    ASSERT_EQ(header[0], "constraint type");
+    ASSERT_EQ(header[1], "label");
+    ASSERT_EQ(header[2], "properties");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    const auto &result = stream.GetResults().front();
+    ASSERT_EQ(result.size(), 3U);
+    ASSERT_EQ(result[0].ValueString(), "unique");
+    ASSERT_EQ(result[1].ValueString(), "A");
+    ASSERT_EQ(result[2].ValueString(), "a, b");
+  }
+
+  // Drop constraint.
+  Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
+  // Removing the same constraint twice should not throw any exception.
+  Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
 }
 
 TEST_F(InterpreterTest, ExplainQuery) {

@@ -20,6 +20,7 @@
 #ifdef MG_SINGLE_NODE_HA
 #include "raft/exceptions.hpp"
 #endif
+#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
@@ -857,11 +858,21 @@ PreparedQuery PrepareInfoQuery(
         auto *db = interpreter_context->db;
         auto info = db->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.existence.size());
+        results.reserve(info.existence.size() + info.unique.size());
         for (const auto &item : info.existence) {
           results.push_back({TypedValue("exists"),
                              TypedValue(db->LabelToName(item.first)),
                              TypedValue(db->PropertyToName(item.second))});
+        }
+        for (const auto &item : info.unique) {
+          std::stringstream properties;
+          utils::PrintIterable(properties, item.second, ", ",
+                               [&db](auto &stream, const auto &entry) {
+                                 stream << db->PropertyToName(entry);
+                               });
+          results.push_back({TypedValue("unique"),
+                             TypedValue(db->LabelToName(item.first)),
+                             TypedValue(properties.str())});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
@@ -935,14 +946,61 @@ PreparedQuery PrepareConstraintQuery(
                   interpreter_context->db->PropertyToName(
                                                *violation.properties.begin());
               throw QueryRuntimeException(
-                  "Unable to create a constraint :{}({}), because an existing "
-                  "node violates it.",
+                  "Unable to create existence constraint :{}({}), because an "
+                  "existing node violates it.",
                   label_name, property_name);
             }
           };
           break;
         case Constraint::Type::UNIQUE:
-          throw utils::NotYetImplemented("Unique constraints");
+          std::set<storage::PropertyId> property_set;
+          for (const auto &property : properties) {
+            property_set.insert(property);
+          }
+          if (property_set.size() != properties.size()) {
+            throw SyntaxException(
+                "The given set of properties contains duplicates.");
+          }
+          handler = [interpreter_context, label,
+                     property_set = std::move(property_set)] {
+            auto res = interpreter_context->db->CreateUniqueConstraint(
+                label, property_set);
+            if (res.HasError()) {
+              auto violation = res.GetError();
+              auto label_name =
+                  interpreter_context->db->LabelToName(violation.label);
+              std::stringstream property_names_stream;
+              utils::PrintIterable(
+                  property_names_stream, violation.properties, ", ",
+                  [&interpreter_context](auto &stream, const auto &prop) {
+                    stream << interpreter_context->db->PropertyToName(prop);
+                  });
+              throw QueryRuntimeException(
+                  "Unable to create unique constraint :{}({}), because an "
+                  "existing node violates it.",
+                  label_name, property_names_stream.str());
+            } else {
+              switch (res.GetValue()) {
+                case storage::UniqueConstraints::CreationStatus::
+                    EMPTY_PROPERTIES:
+                  throw SyntaxException(
+                      "At least one property must be used for unique "
+                      "constraints.");
+                  break;
+                case storage::UniqueConstraints::CreationStatus::
+                    PROPERTIES_SIZE_LIMIT_EXCEEDED:
+                  throw SyntaxException(
+                      "Too many properties specified. Limit of {} properties "
+                      "for unique constraints is exceeded.",
+                      storage::kUniqueConstraintsMaxProperties);
+                  break;
+                case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
+                case storage::UniqueConstraints::CreationStatus::SUCCESS:
+                  break;
+              }
+            }
+          };
+          break;
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
@@ -962,7 +1020,37 @@ PreparedQuery PrepareConstraintQuery(
           };
           break;
         case Constraint::Type::UNIQUE:
-          throw utils::NotYetImplemented("Unique constraints");
+          std::set<storage::PropertyId> property_set;
+          for (const auto &property : properties) {
+            property_set.insert(property);
+          }
+          if (property_set.size() != properties.size()) {
+            throw SyntaxException(
+                "The given set of properties contains duplicates.");
+          }
+          handler = [interpreter_context, label,
+                     property_set = std::move(property_set)] {
+            auto res = interpreter_context->db->DropUniqueConstraint(
+                label, property_set);
+            switch (res) {
+              case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
+                throw SyntaxException(
+                    "At least one property must be used for unique "
+                    "constraints.");
+                break;
+              case storage::UniqueConstraints::DeletionStatus::
+                  PROPERTIES_SIZE_LIMIT_EXCEEDED:
+                throw SyntaxException(
+                    "Too many properties specified. Limit of {} properties for "
+                    "unique constraints is exceeded.",
+                    storage::kUniqueConstraintsMaxProperties);
+                break;
+              case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
+              case storage::UniqueConstraints::DeletionStatus::SUCCESS:
+                break;
+            }
+            return std::vector<std::vector<TypedValue>>();
+          };
       }
     } break;
   }
@@ -1111,17 +1199,37 @@ void Interpreter::Commit() {
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
-    auto label_name =
-        execution_db_accessor_->LabelToName(constraint_violation.label);
-    CHECK(constraint_violation.properties.size() == 1U);
-    auto property_name =
-        execution_db_accessor_->PropertyToName(
+    switch (constraint_violation.type) {
+      case storage::ConstraintViolation::Type::EXISTENCE: {
+        auto label_name =
+            execution_db_accessor_->LabelToName(constraint_violation.label);
+        CHECK(constraint_violation.properties.size() == 1U);
+        auto property_name = execution_db_accessor_->PropertyToName(
             *constraint_violation.properties.begin());
-    execution_db_accessor_ = std::nullopt;
-    db_accessor_ = std::nullopt;
-    throw QueryException(
-        "Unable to commit due to existence constraint violation on :{}({}).",
-        label_name, property_name);
+        execution_db_accessor_ = std::nullopt;
+        db_accessor_ = std::nullopt;
+        throw QueryException(
+            "Unable to commit due to existence constraint violation on :{}({})",
+            label_name, property_name);
+        break;
+      }
+      case storage::ConstraintViolation::Type::UNIQUE: {
+        auto label_name =
+            execution_db_accessor_->LabelToName(constraint_violation.label);
+        std::stringstream property_names_stream;
+        utils::PrintIterable(
+            property_names_stream, constraint_violation.properties, ", ",
+            [this](auto &stream, const auto &prop) {
+              stream << execution_db_accessor_->PropertyToName(prop);
+            });
+        execution_db_accessor_ = std::nullopt;
+        db_accessor_ = std::nullopt;
+        throw QueryException(
+            "Unable to commit due to unique constraint violation on :{}({})",
+            label_name, property_names_stream.str());
+        break;
+      }
+    }
   }
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;

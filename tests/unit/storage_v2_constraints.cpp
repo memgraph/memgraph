@@ -182,7 +182,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(ConstraintsTest, UniqueConstraintsCreateAndDrop) {
+TEST_F(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   EXPECT_EQ(storage.ListAllConstraints().unique.size(), 0);
   {
     auto res = storage.CreateUniqueConstraint(label1, {prop1});
@@ -211,13 +211,17 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateAndDrop) {
               UnorderedElementsAre(
                   std::make_pair(label1, std::set<PropertyId>{prop1}),
                   std::make_pair(label2, std::set<PropertyId>{prop1})));
-  EXPECT_TRUE(storage.DropUniqueConstraint(label1, {prop1}));
-  EXPECT_FALSE(storage.DropUniqueConstraint(label1, {prop1}));
+  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}),
+            UniqueConstraints::DeletionStatus::SUCCESS);
+  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}),
+            UniqueConstraints::DeletionStatus::NOT_FOUND);
   EXPECT_THAT(storage.ListAllConstraints().unique,
               UnorderedElementsAre(
                   std::make_pair(label2, std::set<PropertyId>{prop1})));
-  EXPECT_TRUE(storage.DropUniqueConstraint(label2, {prop1}));
-  EXPECT_FALSE(storage.DropUniqueConstraint(label2, {prop2}));
+  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop1}),
+            UniqueConstraints::DeletionStatus::SUCCESS);
+  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop2}),
+            UniqueConstraints::DeletionStatus::NOT_FOUND);
   EXPECT_EQ(storage.ListAllConstraints().unique.size(), 0);
   {
     auto res = storage.CreateUniqueConstraint(label2, {prop1});
@@ -618,7 +622,6 @@ TEST_F(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     ASSERT_NO_ERROR(vertex1->RemoveLabel(label1));
     ASSERT_NO_ERROR(vertex1->AddLabel(label1));
 
-
     // Commit the first transaction.
     ASSERT_NO_ERROR(acc1.Commit());
   }
@@ -682,8 +685,12 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
     auto res = storage.CreateUniqueConstraint(label1, {});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(),
-              UniqueConstraints::CreationStatus::INVALID_PROPERTIES_SIZE);
+              UniqueConstraints::CreationStatus::EMPTY_PROPERTIES);
   }
+
+  // Removing a constraint with empty property set should also fail.
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, {}),
+            UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
 
   // Create a set of 33 properties.
   std::set<PropertyId> properties;
@@ -696,9 +703,14 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
     // properties, which is 32.
     auto res = storage.CreateUniqueConstraint(label1, properties);
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(),
-              UniqueConstraints::CreationStatus::INVALID_PROPERTIES_SIZE);
+    ASSERT_EQ(
+        res.GetValue(),
+        UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
   }
+
+  // An attempt to delete constraint with too large property set should fail.
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties),
+            UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
 
   // Remove one property from the set.
   properties.erase(properties.begin());
@@ -712,6 +724,11 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
 
   EXPECT_THAT(storage.ListAllConstraints().unique,
               UnorderedElementsAre(std::make_pair(label1, properties)));
+
+  // Removing a constraint with 32 properties should succeed.
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties),
+            UniqueConstraints::DeletionStatus::SUCCESS);
+  ASSERT_TRUE(storage.ListAllConstraints().unique.empty());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -936,7 +953,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  ASSERT_TRUE(storage.DropUniqueConstraint(label1, {prop2, prop1}));
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, {prop2, prop1}),
+            UniqueConstraints::DeletionStatus::SUCCESS);
 
   {
     auto acc = storage.Access();
@@ -949,10 +967,10 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
 }
 
 TEST_F(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
-   // Purpose of this test is to make sure that extracted property values
-   // are correctly compared.
+  // Purpose of this test is to make sure that extracted property values
+  // are correctly compared.
 
-   {
+  {
     auto res = storage.CreateUniqueConstraint(label1, {prop1, prop2});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);

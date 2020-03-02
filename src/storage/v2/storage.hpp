@@ -355,18 +355,24 @@ class Storage final {
   /// constraint, it returns `ConstraintViolation`. Otherwise returns a
   /// `UniqueConstraints::CreationStatus` enum with the following possibilities:
   ///     * `SUCCESS` if the constraint was successfully created,
-  ///     * `ALREADY_EXISTS` if the constraint already existed, or
-  ///     * `INVALID_PROPERTIES_SIZE` if the property set is empty or exceeds
-  ///       the limit of maximum number of properties.
+  ///     * `ALREADY_EXISTS` if the constraint already existed,
+  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
+  //      * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
+  //        limit of maximum number of properties.
   ///
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
   CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties);
 
-  /// Removes a unique constraint. Returns true if the constraint was removed,
-  /// and false if it doesn't exist.
-  bool DropUniqueConstraint(LabelId label,
-                            const std::set<PropertyId> &properties);
+  /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
+  /// enum with the following possibilities:
+  ///     * `SUCCESS` if constraint was successfully removed,
+  ///     * `NOT_FOUND` if the specified constraint was not found,
+  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
+  ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
+  //        limit of maximum number of properties.
+  UniqueConstraints::DeletionStatus DropUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties);
 
   ConstraintsInfo ListAllConstraints() const;
 

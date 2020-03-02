@@ -1066,8 +1066,8 @@ Storage::CreateUniqueConstraint(LabelId label,
                                                           vertices_.access());
 }
 
-bool Storage::DropUniqueConstraint(LabelId label,
-                                   const std::set<PropertyId> &properties) {
+UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
+    LabelId label, const std::set<PropertyId> &properties) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   // TODO(tsabolcec): Append action to the WAL.
   return constraints_.unique_constraints.DropConstraint(label, properties);

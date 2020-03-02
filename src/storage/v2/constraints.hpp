@@ -71,7 +71,16 @@ class UniqueConstraints {
   enum class CreationStatus {
     SUCCESS,
     ALREADY_EXISTS,
-    INVALID_PROPERTIES_SIZE,
+    EMPTY_PROPERTIES,
+    PROPERTIES_SIZE_LIMIT_EXCEEDED,
+  };
+
+  /// Status for deletion of unique constraints.
+  enum class DeletionStatus {
+    SUCCESS,
+    NOT_FOUND,
+    EMPTY_PROPERTIES,
+    PROPERTIES_SIZE_LIMIT_EXCEEDED,
   };
 
   /// Indexes the given vertex for relevant labels and properties.
@@ -83,18 +92,24 @@ class UniqueConstraints {
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
   /// label and property values. Returns `CreationStatus::ALREADY_EXISTS` if
-  /// constraint already existed, `CreationStatus::INVALID_PROPERTY_SIZE` if
-  /// the given list of properties is empty or the list of properties exceeds
-  /// the maximum allowed number of properties, and `CreationStatus::SUCCESS` on
-  /// success.
+  /// constraint already existed, `CreationStatus::EMPTY_PROPERTIES` if the
+  /// given list of properties is empty,
+  /// `CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED` if the list of properties
+  /// exceeds the maximum allowed number of properties, and
+  /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties,
       utils::SkipList<Vertex>::Accessor vertices);
 
-  bool DropConstraint(LabelId label, const std::set<PropertyId> &properties) {
-    return constraints_.erase({label, properties}) > 0;
-  }
+  /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
+  /// there is not such constraint in the storage,
+  /// `DeletionStatus::EMPTY_PROPERTIES` if the given set of `properties` is
+  /// empty, `DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED` if the given set
+  /// of `properties` exceeds the maximum allowed number of properties, and
+  /// `DeletionStatus::SUCCESS` on success.
+  DeletionStatus DropConstraint(LabelId label,
+                                const std::set<PropertyId> &properties);
 
   bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) {
     return constraints_.find({label, properties}) != constraints_.end();
