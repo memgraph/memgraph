@@ -176,6 +176,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   auto *py_vertices_it =
       PyObject_New(PyVerticesIterator, &PyVerticesIteratorType);
   if (!py_vertices_it) {
+    mgp_vertices_iterator_destroy(vertices_it);
     PyErr_SetString(PyExc_MemoryError,
                     "Unable to allocate _mgp.VerticesIterator.");
     return nullptr;
@@ -702,6 +703,7 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   }
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
   if (!py_edges_it) {
+    mgp_edges_iterator_destroy(edges_it);
     PyErr_SetString(PyExc_MemoryError,
                     "Unable to allocate _mgp.EdgesIterator for in edges.");
     return nullptr;
@@ -727,6 +729,7 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   }
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
   if (!py_edges_it) {
+    mgp_edges_iterator_destroy(edges_it);
     PyErr_SetString(PyExc_MemoryError,
                     "Unable to allocate _mgp.EdgesIterator for out edges.");
     return nullptr;
