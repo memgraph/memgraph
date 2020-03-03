@@ -575,9 +575,10 @@ class SkipList final {
 
     ConstIterator &operator++() {
       while (true) {
-        TNode *next = node_->nexts[0].load(std::memory_order_acquire);
-        if (next == nullptr || !next->marked.load(std::memory_order_acquire)) {
-          node_ = next;
+        node_ = node_->nexts[0].load(std::memory_order_acquire);
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
+          continue;
+        } else {
           return *this;
         }
       }
