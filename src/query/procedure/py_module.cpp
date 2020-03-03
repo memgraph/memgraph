@@ -387,6 +387,22 @@ struct PyQueryModule {
   mgp_module *module;
 };
 
+py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
+  CHECK(list);
+  CHECK(py_graph);
+  const size_t len = mgp_list_size(list);
+  py::Object py_tuple(PyTuple_New(len));
+  if (!py_tuple) return nullptr;
+  for (size_t i = 0; i < len; ++i) {
+    auto elem = MgpValueToPyObject(*mgp_list_at(list, i), py_graph);
+    if (!elem) return nullptr;
+    // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
+    // Then the macro will cast it to `PyTuple *`.
+    PyTuple_SET_ITEM(static_cast<PyObject *>(py_tuple), i, elem.Steal());
+  }
+  return py_tuple;
+}
+
 PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   CHECK(self->module);
   if (!PyCallable_Check(cb)) {
@@ -1089,29 +1105,18 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py::Object(PyFloat_FromDouble(mgp_value_get_double(&value)));
     case MGP_VALUE_TYPE_STRING:
       return py::Object(PyUnicode_FromString(mgp_value_get_string(&value)));
-    case MGP_VALUE_TYPE_LIST: {
-      const auto *list = mgp_value_get_list(&value);
-      const size_t len = mgp_list_size(list);
-      py::Object py_list(PyList_New(len));
-      CHECK(py_list);
-      for (size_t i = 0; i < len; ++i) {
-        auto elem = MgpValueToPyObject(*mgp_list_at(list, i), py_graph);
-        CHECK(elem);
-        // Explicitly convert `py_list`, which is `py::Object`, via static_cast.
-        // Then the macro will cast it to `PyList *`.
-        PyList_SET_ITEM(static_cast<PyObject *>(py_list), i, elem.Steal());
-      }
-      return py_list;
-    }
+    case MGP_VALUE_TYPE_LIST:
+      return MgpListToPyTuple(mgp_value_get_list(&value), py_graph);
     case MGP_VALUE_TYPE_MAP: {
       const auto *map = mgp_value_get_map(&value);
       py::Object py_dict(PyDict_New());
-      CHECK(py_dict);
+      if (!py_dict) return nullptr;
       for (const auto &[key, val] : map->items) {
         auto py_val = MgpValueToPyObject(val, py_graph);
-        CHECK(py_val);
+        if (!py_val) return nullptr;
         // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
-        CHECK(PyDict_SetItemString(py_dict, key.c_str(), py_val) == 0);
+        if (PyDict_SetItemString(py_dict, key.c_str(), py_val) != 0)
+          return nullptr;
       }
       return py_dict;
     }

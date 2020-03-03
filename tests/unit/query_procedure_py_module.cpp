@@ -33,7 +33,7 @@ TEST(PyModule, MgpValueToPyObject) {
                     static_cast<PyObject *>(py_graph)));
   mgp_value_destroy(map_val);
   // We should now have in Python:
-  // {"list": [None, False, True, 42, 0.1, "some text"]}
+  // {"list": (None, False, True, 42, 0.1, "some text")}
   ASSERT_TRUE(PyDict_Check(py_dict));
   EXPECT_EQ(PyDict_Size(py_dict), 1);
   PyObject *key = nullptr;
@@ -42,18 +42,18 @@ TEST(PyModule, MgpValueToPyObject) {
   while (PyDict_Next(py_dict, &pos, &key, &value)) {
     ASSERT_TRUE(PyUnicode_Check(key));
     EXPECT_EQ(std::string(PyUnicode_AsUTF8(key)), "list");
-    ASSERT_TRUE(PyList_Check(value));
-    ASSERT_EQ(PyList_Size(value), 6);
-    EXPECT_EQ(PyList_GetItem(value, 0), Py_None);
-    EXPECT_EQ(PyList_GetItem(value, 1), Py_False);
-    EXPECT_EQ(PyList_GetItem(value, 2), Py_True);
-    auto *py_long = PyList_GetItem(value, 3);
+    ASSERT_TRUE(PyTuple_Check(value));
+    ASSERT_EQ(PyTuple_Size(value), 6);
+    EXPECT_EQ(PyTuple_GetItem(value, 0), Py_None);
+    EXPECT_EQ(PyTuple_GetItem(value, 1), Py_False);
+    EXPECT_EQ(PyTuple_GetItem(value, 2), Py_True);
+    auto *py_long = PyTuple_GetItem(value, 3);
     ASSERT_TRUE(PyLong_Check(py_long));
     EXPECT_EQ(PyLong_AsLong(py_long), 42);
-    auto *py_float = PyList_GetItem(value, 4);
+    auto *py_float = PyTuple_GetItem(value, 4);
     ASSERT_TRUE(PyFloat_Check(py_float));
     EXPECT_EQ(PyFloat_AsDouble(py_float), 0.1);
-    auto *py_str = PyList_GetItem(value, 5);
+    auto *py_str = PyTuple_GetItem(value, 5);
     ASSERT_TRUE(PyUnicode_Check(py_str));
     EXPECT_EQ(std::string(PyUnicode_AsUTF8(py_str)), "some text");
   }
