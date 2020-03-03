@@ -23,6 +23,11 @@ import typing
 import _mgp
 
 
+class InvalidContextError(Exception):
+    '''Signals using a graph element instance outside of the registered procedure.'''
+    pass
+
+
 class Label:
     '''Label of a Vertex.'''
     __slots__ = ('_name',)
@@ -57,43 +62,43 @@ class Properties:
     def get(self, property_name: str, default=None) -> object:
         '''Get the value of a property with the given name or return default.
 
-        Raise InvalidEdgeError or InvalidVertexError.
+        Raise InvalidContextError.
         '''
         pass
 
     def items(self) -> typing.Iterable[Property]:
-        '''Raise InvalidEdgeError or InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         pass
 
     def keys(self) -> typing.Iterable[str]:
         '''Iterate over property names.
 
-        Raise InvalidEdgeError or InvalidVertexError.
+        Raise InvalidContextError.
         '''
         pass
 
     def values(self) -> typing.Iterable[object]:
         '''Iterate over property values.
 
-        Raise InvalidEdgeError or InvalidVertexError.
+        Raise InvalidContextError.
         '''
         pass
 
     def __len__(self) -> int:
-        '''Raise InvalidEdgeError or InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         pass
 
     def __iter__(self) -> typing.Iterable[str]:
         '''Iterate over property names.
 
-        Raise InvalidEdgeError or InvalidVertexError.
+        Raise InvalidContextError.
         '''
         pass
 
     def __getitem__(self, property_name: str) -> object:
         '''Get the value of a property with the given name or raise KeyError.
 
-        Raise InvalidEdgeError or InvalidVertexError.'''
+        Raise InvalidContextError.'''
         pass
 
     def __contains__(self, property_name: str) -> bool:
@@ -112,17 +117,12 @@ class EdgeType:
         return self._name
 
 
-class InvalidEdgeError(Exception):
-    '''Signals using an Edge instance not part of the procedure context.'''
-    pass
-
-
 class Edge:
     '''Edge in the graph database.
 
     Access to an Edge is only valid during a single execution of a procedure in
     a query. You should not globally store an instance of an Edge. Using an
-    invalid Edge instance will raise InvalidEdgeError.
+    invalid Edge instance will raise InvalidContextError.
     '''
     __slots__ = ('_edge',)
 
@@ -144,36 +144,36 @@ class Edge:
 
     @property
     def type(self) -> EdgeType:
-        '''Raise InvalidEdgeError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidEdgeError()
+            raise InvalidContextError()
         return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self):  # -> Vertex:
-        '''Raise InvalidEdgeError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidEdgeError()
+            raise InvalidContextError()
         return Vertex(self._edge.from_vertex())
 
     @property
     def to_vertex(self):  # -> Vertex:
-        '''Raise InvalidEdgeError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidEdgeError()
+            raise InvalidContextError()
         return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidEdgeError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidEdgeError()
+            raise InvalidContextError()
         return Properties(self._edge)
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidEdgeError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidEdgeError()
+            raise InvalidContextError()
         return self._edge == other._edge
 
 
@@ -183,17 +183,12 @@ else:
     VertexId = int
 
 
-class InvalidVertexError(Exception):
-    '''Signals using a Vertex instance not part of the procedure context.'''
-    pass
-
-
 class Vertex:
     '''Vertex in the graph database.
 
     Access to a Vertex is only valid during a single execution of a procedure
     in a query. You should not globally store an instance of a Vertex. Using an
-    invalid Vertex instance will raise InvalidVertexError.
+    invalid Vertex instance will raise InvalidContextError.
     '''
     __slots__ = ('_vertex',)
 
@@ -215,62 +210,57 @@ class Vertex:
 
     @property
     def id(self) -> VertexId:
-        '''Raise InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         return self._vertex.get_id()
 
     @property
     def labels(self) -> typing.List[Label]:
-        '''Raise InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         return tuple(Label(self._vertex.label_at(i))
                      for i in range(self._vertex.labels_count()))
 
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         return Properties(self._vertex)
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         edges_it = self._vertex.iter_in_edges()
         edge = edges_it.get()
         while edge is not None:
             yield Edge(edge)
             if not self.is_valid():
-                raise InvalidVertexError()
+                raise InvalidContextError()
             edge = edges_it.next()
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidVertexError.'''
+        '''Raise InvalidContextError.'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         edges_it = self._vertex.iter_out_edges()
         edge = edges_it.get()
         while edge is not None:
             yield Edge(edge)
             if not self.is_valid():
-                raise InvalidVertexError()
+                raise InvalidContextError()
             edge = edges_it.next()
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidVertexError'''
+        '''Raise InvalidContextError'''
         if not self.is_valid():
-            raise InvalidVertexError()
+            raise InvalidContextError()
         return self._vertex == other._vertex
-
-
-class InvalidPathError(Exception):
-    '''Signals using a Path instance not part of the procedure context.'''
-    pass
 
 
 class Path:
@@ -280,7 +270,7 @@ class Path:
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         '''Initialize with a starting Vertex.
 
-        Raise InvalidVertexError if passed in Vertex is invalid.
+        Raise InvalidContextError if passed in Vertex is invalid.
         '''
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
@@ -292,7 +282,7 @@ class Path:
         elif isinstance(starting_vertex_or_path, Vertex):
             vertex = starting_vertex_or_path._vertex
             if not vertex.is_valid():
-                raise InvalidVertexError()
+                raise InvalidContextError()
             self._path = _mgp.Path.make_with_start(vertex)
         else:
             raise TypeError("Expected '_mgp.Vertex' or '_mgp.Path', got '{}'"
@@ -300,7 +290,7 @@ class Path:
 
     def __copy__(self):
         if not self.is_valid():
-            raise InvalidPathError()
+            raise InvalidContextError()
         assert len(self.vertices) >= 1
         path = Path(self.vertices[0])
         for e in self.edges:
@@ -331,15 +321,13 @@ class Path:
 
         Raise ValueError if the current last vertex in the path is not part of
         the given edge.
-        Raise InvalidEdgeError if passed in edge is invalid.
-        Raise InvalidPathError if using an invalid Path instance.
+        Raise InvalidContextError if using an invalid Path instance or if
+        passed in edge is invalid.
         '''
         if not isinstance(edge, Edge):
             raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
-        if not self.is_valid():
-            raise InvalidPathError()
-        if not edge.is_valid():
-            raise InvalidEdgeError()
+        if not self.is_valid() or not edge.is_valid():
+            raise InvalidContextError()
         self._path.expand(edge._edge)
         # Invalidate our cached tuples
         self._vertices = None
@@ -349,9 +337,9 @@ class Path:
     def vertices(self) -> typing.Tuple[Vertex, ...]:
         '''Vertices ordered from the start to the end of the path.
 
-        Raise InvalidPathError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance.'''
         if not self.is_valid():
-            raise InvalidPathError()
+            raise InvalidContextError()
         if self._vertices is None:
             num_vertices = self._path.size() + 1
             self._vertices = tuple(Vertex(self._path.vertex_at(i))
@@ -362,9 +350,9 @@ class Path:
     def edges(self) -> typing.Tuple[Edge, ...]:
         '''Edges ordered from the start to the end of the path.
 
-        Raise InvalidPathError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance.'''
         if not self.is_valid():
-            raise InvalidPathError()
+            raise InvalidContextError()
         if self._edges is None:
             num_edges = self._path.size()
             self._edges = tuple(Edge(self._path.edge_at(i))
@@ -379,11 +367,6 @@ class Record:
     def __init__(self, **kwargs):
         '''Initialize with name=value fields in kwargs.'''
         self.fields = kwargs
-
-
-class InvalidProcCtxError(Exception):
-    '''Signals using a ProcCtx instance outside of the registered procedure.'''
-    pass
 
 
 class Vertices:
@@ -406,15 +389,15 @@ class Vertices:
         return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
-        '''Raise InvalidProcCtxError if context is invalid.'''
+        '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
-            raise InvalidProcCtxError()
+            raise InvalidContextError()
         vertices_it = self._graph.iter_vertices()
         vertex = vertices_it.get()
         while vertex is not None:
             yield Vertex(vertex)
             if not self.is_valid():
-                raise InvalidProcCtxError()
+                raise InvalidContextError()
             vertex = vertices_it.next()
 
 
@@ -445,10 +428,10 @@ class Graph:
         Vertex.
 
         Raise IndexError if unable to find the given vertex_id.
-        Raise InvalidProcCtxError if context is invalid.
+        Raise InvalidContextError if context is invalid.
         '''
         if not self.is_valid():
-            raise InvalidProcCtxError()
+            raise InvalidContextError()
         vertex = self._graph.get_vertex_by_id(vertex_id)
         return Vertex(vertex)
 
@@ -460,10 +443,10 @@ class Graph:
         procedure in a query. You should not globally store the returned Vertex
         instances.
 
-        Raise InvalidProcCtxError if context is invalid.
+        Raise InvalidContextError if context is invalid.
         '''
         if not self.is_valid():
-            raise InvalidProcCtxError()
+            raise InvalidContextError()
         return Vertices(self._graph)
 
 
@@ -476,7 +459,7 @@ class ProcCtx:
 
     @property
     def graph(self) -> Graph:
-        '''Raise InvalidProcCtxError if context is invalid.'''
+        '''Raise InvalidContextError if context is invalid.'''
         pass
 
 
