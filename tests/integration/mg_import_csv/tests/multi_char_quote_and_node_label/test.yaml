@@ -1,0 +1,44 @@
+- name: good_configuration
+  nodes:
+    - nodes_comment.csv
+    - nodes_forum.csv
+  node_label:
+    - First
+    - Second
+  relationships:
+    - relationships_0.csv
+    - relationships_1.csv
+  delimiter: "|"
+  quote: "Ö"
+  array_delimiter: ";"
+  expected: expected.cypher
+
+- name: wrong_delimiter
+  nodes:
+    - nodes_comment.csv
+    - nodes_forum.csv
+  node_label:
+    - First
+    - Second
+  relationships:
+    - relationships_0.csv
+    - relationships_1.csv
+  delimiter: ","
+  quote: "Ö"
+  array_delimiter: ";"
+  import_should_fail: True
+
+- name: wrong_quote
+  nodes:
+    - nodes_comment.csv
+    - nodes_forum.csv
+  node_label:
+    - First
+    - Second
+  relationships:
+    - relationships_0.csv
+    - relationships_1.csv
+  delimiter: "|"
+  quote: "\""
+  array_delimiter: ";"
+  import_should_fail: True

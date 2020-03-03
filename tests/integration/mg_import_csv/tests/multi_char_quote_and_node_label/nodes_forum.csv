@@ -1,0 +1,6 @@
+id:ID(FORUM_ID)|title:string|:LABEL|emptyColumn
+0|General|Forum|
+1|Support|Forum|
+2|Music|Forum|
+3|Film|Forum|
+4|Programming|Forum|

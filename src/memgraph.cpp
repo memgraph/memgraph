@@ -20,8 +20,8 @@
 #include "communication/init.hpp"
 #include "communication/server.hpp"
 #include "communication/session.hpp"
-#include "config.hpp"
 #include "glue/communication.hpp"
+#include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -70,6 +70,8 @@ DEFINE_string(bolt_server_name_for_init, "",
               "Bolt INIT message.");
 
 // General purpose flags.
+// NOTE: The `data_directory` flag must be the same here and in
+// `mg_import_csv`. If you change it, make sure to change it there as well.
 DEFINE_string(data_directory, "mg_data",
               "Path to directory in which to save all permanent data.");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
@@ -85,6 +87,8 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30,
                         "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
+// NOTE: The `storage_properties_on_edges` flag must be the same here and in
+// `mg_import_csv`. If you change it, make sure to change it there as well.
 DEFINE_bool(storage_properties_on_edges, false,
             "Controls whether edges have properties.");
 DEFINE_bool(storage_recover_on_startup, false,
@@ -811,7 +815,7 @@ int main(int argc, char **argv) {
 
   // Load config before parsing arguments, so that flags from the command line
   // overwrite the config.
-  LoadConfig();
+  LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   google::InitGoogleLogging(argv[0]);
@@ -820,6 +824,10 @@ int main(int argc, char **argv) {
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
+
+  // Verify that the user that started the Memgraph process is the same user
+  // that is the owner of the data directory.
+  VerifyDataDirectoryOwnerAndProcessUser(FLAGS_data_directory);
 
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);

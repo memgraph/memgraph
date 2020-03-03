@@ -55,6 +55,16 @@
     - ../../../build_debug/tests/integration/ldap/tester # tester binary
   enable_network: true
 
+- name: integration__mg_import_csv
+  cd: mg_import_csv
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - tests # tests directory
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/src/mg_import_csv # mg_import_csv binary
+    - ../../../build_debug/tests/integration/mg_import_csv/tester # tester binary
+
 #- name: integration__ha_basic
 #  cd: ha/basic
 #  commands: TIMEOUT=480 ./runner.py

@@ -80,10 +80,6 @@ add_custom_command(TARGET memgraph POST_BUILD
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
                    COMMENT "Generating memgraph configuration file")
 
-# ----------------------------------------------------------------------------
-# END Memgraph Single Node v2 Executable
-# ----------------------------------------------------------------------------
-
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 
@@ -112,3 +108,27 @@ endif()
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                    \$ENV{DESTDIR}/var/lib/memgraph)")
+
+# ----------------------------------------------------------------------------
+# END Memgraph Single Node v2 Executable
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# Memgraph CSV Import Tool Executable
+# ----------------------------------------------------------------------------
+
+add_executable(mg_import_csv mg_import_csv.cpp)
+target_link_libraries(mg_import_csv mg-storage-v2)
+
+# Strip the executable in release build.
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET mg_import_csv POST_BUILD
+                     COMMAND strip -s mg_import_csv
+                     COMMENT "Stripping symbols and sections from mg_import_csv")
+endif()
+
+install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
+
+# ----------------------------------------------------------------------------
+# Memgraph CSV Import Tool Executable
+# ----------------------------------------------------------------------------

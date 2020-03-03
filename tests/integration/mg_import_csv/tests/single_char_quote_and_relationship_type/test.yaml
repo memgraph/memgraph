@@ -1,0 +1,21 @@
+- name: good_configuration
+  nodes:
+    - nodes_comment.csv
+  relationships:
+    - relationships.csv
+  relationship_type: "TYPE "
+  delimiter: "|"
+  quote: "\""
+  array_delimiter: ";"
+  expected: expected.cypher
+
+- name: wrong_delimiter
+  nodes:
+    - nodes_comment.csv
+  relationships:
+    - relationships.csv
+  relationship_type: "TYPE "
+  delimiter: ","
+  quote: "\""
+  array_delimiter: ";"
+  import_should_fail: True

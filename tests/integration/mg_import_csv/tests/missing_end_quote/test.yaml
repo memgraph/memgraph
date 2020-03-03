@@ -1,0 +1,3 @@
+- name: quote_not_closed
+  nodes: "nodes.csv"
+  import_should_fail: True

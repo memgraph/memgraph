@@ -1,0 +1,18 @@
+CREATE INDEX ON :__mg_vertex__(__mg_id__);
+CREATE (:__mg_vertex__:Message:Comment:First:Second {__mg_id__: 0, content: "yes", browser: "Chrome", id: "0", country: "Croatia"});
+CREATE (:__mg_vertex__:Message:Comment:First:Second {__mg_id__: 1, content: "thanks", browser: "Chrome", id: "1", country: "United Kingdom"});
+CREATE (:__mg_vertex__:Message:Comment:First:Second {__mg_id__: 2, content: "LOL", id: "2", country: "Germany"});
+CREATE (:__mg_vertex__:Message:Comment:First:Second {__mg_id__: 3, content: "I see", browser: "Firefox", id: "3", country: "France"});
+CREATE (:__mg_vertex__:Message:Comment:First:Second {__mg_id__: 4, content: "fine", browser: "Internet Explorer", id: "4", country: "Italy"});
+CREATE (:__mg_vertex__:Forum:First:Second {__mg_id__: 5, title: "General", id: "0"});
+CREATE (:__mg_vertex__:Forum:First:Second {__mg_id__: 6, title: "Support", id: "1"});
+CREATE (:__mg_vertex__:Forum:First:Second {__mg_id__: 7, title: "Music", id: "2"});
+CREATE (:__mg_vertex__:Forum:First:Second {__mg_id__: 8, title: "Film", id: "3"});
+CREATE (:__mg_vertex__:Forum:First:Second {__mg_id__: 9, title: "Programming", id: "4"});
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 5 CREATE (u)-[:POSTED_ON]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 6 CREATE (u)-[:POSTED_ON]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 2 AND v.__mg_id__ = 7 CREATE (u)-[:POSTED_ON]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 8 CREATE (u)-[:POSTED_ON]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 4 AND v.__mg_id__ = 9 CREATE (u)-[:POSTED_ON]->(v);
+DROP INDEX ON :__mg_vertex__(__mg_id__);
+MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;

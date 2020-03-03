@@ -1,0 +1,3 @@
+- name: empty_lines
+  nodes: "nodes.csv"
+  import_should_fail: True

@@ -33,3 +33,6 @@ add_subdirectory(audit)
 
 # ldap test binaries
 add_subdirectory(ldap)
+
+# mg_import_csv test binaries
+add_subdirectory(mg_import_csv)
