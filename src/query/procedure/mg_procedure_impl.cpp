@@ -456,6 +456,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m)
                     "Expected to move list_v by copying pointers.");
       if (*other.GetMemoryResource() == *m) {
         list_v = other.list_v;
+        other.type = MGP_VALUE_TYPE_NULL;
       } else {
         utils::Allocator<mgp_list> allocator(m);
         list_v = allocator.new_object<mgp_list>(std::move(*other.list_v));
@@ -466,6 +467,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m)
                     "Expected to move map_v by copying pointers.");
       if (*other.GetMemoryResource() == *m) {
         map_v = other.map_v;
+        other.type = MGP_VALUE_TYPE_NULL;
       } else {
         utils::Allocator<mgp_map> allocator(m);
         map_v = allocator.new_object<mgp_map>(std::move(*other.map_v));
@@ -476,6 +478,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m)
                     "Expected to move vertex_v by copying pointers.");
       if (*other.GetMemoryResource() == *m) {
         vertex_v = other.vertex_v;
+        other.type = MGP_VALUE_TYPE_NULL;
       } else {
         utils::Allocator<mgp_vertex> allocator(m);
         vertex_v = allocator.new_object<mgp_vertex>(std::move(*other.vertex_v));
@@ -486,6 +489,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m)
                     "Expected to move edge_v by copying pointers.");
       if (*other.GetMemoryResource() == *m) {
         edge_v = other.edge_v;
+        other.type = MGP_VALUE_TYPE_NULL;
       } else {
         utils::Allocator<mgp_edge> allocator(m);
         edge_v = allocator.new_object<mgp_edge>(std::move(*other.edge_v));
@@ -496,6 +500,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m)
                     "Expected to move path_v by copying pointers.");
       if (*other.GetMemoryResource() == *m) {
         path_v = other.path_v;
+        other.type = MGP_VALUE_TYPE_NULL;
       } else {
         utils::Allocator<mgp_path> allocator(m);
         path_v = allocator.new_object<mgp_path>(std::move(*other.path_v));
@@ -730,6 +735,7 @@ mgp_path *mgp_path_make_with_start(const mgp_vertex *vertex,
 }
 
 mgp_path *mgp_path_copy(const mgp_path *path, mgp_memory *memory) {
+  CHECK(mgp_path_size(path) == path->vertices.size() - 1) << "Invalid mgp_path";
   return new_mgp_object<mgp_path>(memory, *path);
 }
 
