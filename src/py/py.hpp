@@ -38,7 +38,7 @@ class EnsureGIL final {
 };
 
 /// Owns a `PyObject *` and supports a more C++ idiomatic API to objects.
-class Object final {
+class [[nodiscard]] Object final {
   PyObject *ptr_{nullptr};
 
  public:
@@ -84,6 +84,56 @@ class Object final {
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
   Object Str() const { return Object(PyObject_Str(ptr_)); }
+
+  /// Equivalent to `hasattr(this, attr_name)` in Python.
+  ///
+  /// This function always succeeds, meaning that exceptions that occur while
+  /// calling __getattr__ and __getattribute__ will get suppressed. To get error
+  /// reporting, use GetAttr instead.
+  bool HasAttr(const char *attr_name) const {
+    return PyObject_HasAttrString(ptr_, attr_name);
+  }
+
+  /// Equivalent to `hasattr(this, attr_name)` in Python.
+  ///
+  /// This function always succeeds, meaning that exceptions that occur while
+  /// calling __getattr__ and __getattribute__ will get suppressed. To get error
+  /// reporting, use GetAttr instead.
+  bool HasAttr(PyObject *attr_name) const {
+    return PyObject_HasAttr(ptr_, attr_name);
+  }
+
+  /// Equivalent to `this.attr_name` in Python.
+  ///
+  /// Returned Object is nullptr if an error occurred.
+  /// @sa FetchError
+  Object GetAttr(const char *attr_name) const {
+    return Object(PyObject_GetAttrString(ptr_, attr_name));
+  }
+
+  /// Equivalent to `this.attr_name` in Python.
+  ///
+  /// Returned Object is nullptr if an error occurred.
+  /// @sa FetchError
+  Object GetAttr(PyObject *attr_name) const {
+    return Object(PyObject_GetAttr(ptr_, attr_name));
+  }
+
+  /// Equivalent to `this.attr_name = v` in Python.
+  ///
+  /// False is returned if an error occurred.
+  /// @sa FetchError
+  [[nodiscard]] bool SetAttr(const char *attr_name, PyObject *v) {
+    return PyObject_SetAttrString(ptr_, attr_name, v) == 0;
+  }
+
+  /// Equivalent to `this.attr_name = v` in Python.
+  ///
+  /// False is returned if an error occurred.
+  /// @sa FetchError
+  [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) {
+    return PyObject_SetAttr(ptr_, attr_name, v) == 0;
+  }
 
   /// Equivalent to `callable()` in Python.
   ///
@@ -148,8 +198,7 @@ inline std::ostream &operator<<(std::ostream &os,
   if (!exc_info.type) return os;
   Object traceback_mod(PyImport_ImportModule("traceback"));
   CHECK(traceback_mod);
-  Object format_exception_fn(
-      PyObject_GetAttrString(traceback_mod, "format_exception"));
+  Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
   CHECK(format_exception_fn);
   auto list = format_exception_fn.Call(
       exc_info.type, exc_info.value ? exc_info.value : Py_None,

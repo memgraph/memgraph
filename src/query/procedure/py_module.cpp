@@ -411,7 +411,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   }
   Py_INCREF(cb);
   py::Object py_cb(cb);
-  py::Object py_name(PyObject_GetAttrString(py_cb, "__name__"));
+  py::Object py_name(py_cb.GetAttr("__name__"));
   const auto *name = PyUnicode_AsUTF8(py_name);
   // TODO: Validate name
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
@@ -1055,7 +1055,7 @@ template <class TFun>
 auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   py::Object py_mgp(PyImport_ImportModule("_mgp"));
   CHECK(py_mgp) << "Expected builtin '_mgp' to be available for import";
-  py::Object py_mgp_module(PyObject_GetAttrString(py_mgp, "_MODULE"));
+  py::Object py_mgp_module(py_mgp.GetAttr("_MODULE"));
   CHECK(py_mgp_module) << "Expected '_mgp' to have attribute '_MODULE'";
   // NOTE: This check is not thread safe, but this should only go through
   // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
@@ -1065,9 +1065,9 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
          "modules?";
   auto *py_query_module = MakePyQueryModule(module_def);
   CHECK(py_query_module);
-  CHECK(0 <= PyObject_SetAttrString(py_mgp, "_MODULE", py_query_module));
+  CHECK(py_mgp.SetAttr("_MODULE", py_query_module));
   auto ret = fun();
-  CHECK(0 <= PyObject_SetAttrString(py_mgp, "_MODULE", Py_None));
+  CHECK(py_mgp.SetAttr("_MODULE", Py_None));
   return ret;
 }
 
