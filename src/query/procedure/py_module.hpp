@@ -16,6 +16,12 @@ struct PyGraph;
 /// Convert an `mgp_value` into a Python object, referencing the given `PyGraph`
 /// instance and using the same allocator as the graph.
 ///
+/// Values of type `MGP_VALUE_TYPE_VERTEX`, `MGP_VALUE_TYPE_EDGE` and
+/// `MGP_VALUE_TYPE_PATH` are returned as `mgp.Vertex`, `mgp.Edge` and
+/// `mgp.Path` respectively, and *not* their internal `_mgp`
+/// representations. Other value types are converted to equivalent builtin
+/// Python objects.
+///
 /// Return a non-null `py::Object` instance on success. Otherwise, return a null
 /// `py::Object` instance and set the appropriate Python exception.
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph);
@@ -24,6 +30,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph);
 
 /// Convert a Python object into `mgp_value`, constructing it using the given
 /// `mgp_memory` allocator.
+///
+/// If the user-facing 'mgp' module can be imported, this function will handle
+/// conversion of 'mgp.Vertex', 'mgp.Edge' and 'mgp.Path' values.
 ///
 /// @throw std::bad_alloc
 /// @throw std::overflow_error if attempting to convert a Python integer which

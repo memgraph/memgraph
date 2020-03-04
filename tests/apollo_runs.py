@@ -75,6 +75,11 @@ def get_runs(build_dir, include=None, exclude=None, outfile=None,
         if name.endswith("storage_v2_durability"):
             prefix = "TIMEOUT=300 "
 
+        # py_module unit test requires user-facing 'mgp' module
+        if name.endswith("py_module"):
+            mgp_path = os.path.join("..", "include", "mgp.py")
+            files.append(os.path.relpath(mgp_path, dirname))
+
         # get output files
         outfile_paths = []
         if outfile:

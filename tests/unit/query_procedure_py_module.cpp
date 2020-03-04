@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <string>
 
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -180,7 +181,25 @@ int main(int argc, char **argv) {
   PyEval_InitThreads();
   int test_result;
   {
-    py::Object mgp(PyImport_ImportModule("_mgp"));
+    // Setup importing 'mgp' module by adding its directory to `sys.path`.
+    std::filesystem::path invocation_path(argv[0]);
+    auto mgp_py_path =
+        invocation_path.parent_path() / "../../../include/mgp.py";
+    CHECK(std::filesystem::exists(mgp_py_path));
+    auto *py_path = PySys_GetObject("path");
+    CHECK(py_path);
+    py::Object import_dir(
+        PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
+    if (PyList_Append(py_path, import_dir) != 0) {
+      auto exc_info = py::FetchError().value();
+      LOG(FATAL) << exc_info;
+    }
+    py::Object mgp(PyImport_ImportModule("mgp"));
+    if (!mgp) {
+      auto exc_info = py::FetchError().value();
+      LOG(FATAL) << exc_info;
+    }
+    // Now run tests.
     Py_BEGIN_ALLOW_THREADS;
     test_result = RUN_ALL_TESTS();
     Py_END_ALLOW_THREADS;

@@ -1123,12 +1123,20 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_VERTEX:
       throw utils::NotYetImplemented("MgpValueToPyObject");
     case MGP_VALUE_TYPE_EDGE: {
+      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      if (!py_mgp) return nullptr;
       const auto *e = mgp_value_get_edge(&value);
-      return py::Object(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
+      py::Object py_edge(
+          reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
+      return py_mgp.CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
+      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      if (!py_mgp) return nullptr;
       const auto *p = mgp_value_get_path(&value);
-      return py::Object(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
+      py::Object py_path(
+          reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
+      return py_mgp.CallMethod("Path", py_path);
     }
   }
 }
@@ -1162,6 +1170,31 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::bad_alloc();
     }
     return v;
+  };
+
+  auto is_mgp_instance = [](PyObject *obj, const char *mgp_type_name) {
+    py::Object py_mgp(PyImport_ImportModule("mgp"));
+    if (!py_mgp) {
+      PyErr_Clear();
+      // This way we skip conversions of types from user-facing 'mgp' module.
+      return false;
+    }
+    auto mgp_type = py_mgp.GetAttr(mgp_type_name);
+    if (!mgp_type) {
+      PyErr_Clear();
+      std::stringstream ss;
+      ss << "'mgp' module is missing '" << mgp_type_name << "' type";
+      throw std::invalid_argument(ss.str());
+    }
+    int res = PyObject_IsInstance(obj, mgp_type);
+    if (res == -1) {
+      PyErr_Clear();
+      std::stringstream ss;
+      ss << "Error when checking object is instance of 'mgp." << mgp_type_name
+         << "' type";
+      throw std::invalid_argument(ss.str());
+    }
+    return static_cast<bool>(res);
   };
 
   mgp_value *mgp_v{nullptr};
@@ -1258,6 +1291,28 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     }
   } else if (Py_TYPE(o) == &PyVertexType) {
     throw utils::NotYetImplemented("PyObjectToMgpValue");
+  } else if (is_mgp_instance(o, "Edge")) {
+    py::Object edge(PyObject_GetAttrString(o, "_edge"));
+    if (!edge) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Edge' is missing '_edge' attribute");
+    }
+    return PyObjectToMgpValue(edge, memory);
+  } else if (is_mgp_instance(o, "Vertex")) {
+    py::Object vertex(PyObject_GetAttrString(o, "_vertex"));
+    if (!vertex) {
+      PyErr_Clear();
+      throw std::invalid_argument(
+          "'mgp.Vertex' is missing '_vertex' attribute");
+    }
+    return PyObjectToMgpValue(vertex, memory);
+  } else if (is_mgp_instance(o, "Path")) {
+    py::Object path(PyObject_GetAttrString(o, "_path"));
+    if (!path) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Path' is missing '_path' attribute");
+    }
+    return PyObjectToMgpValue(path, memory);
   } else {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
