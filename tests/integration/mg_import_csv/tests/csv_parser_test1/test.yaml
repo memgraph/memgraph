@@ -1,0 +1,8 @@
+- name: good_configuration
+  nodes: "nodes.csv"
+  expected: expected.cypher
+
+- name: wrong_delimiter
+  nodes: "nodes.csv"
+  delimiter: "-"
+  import_should_fail: True

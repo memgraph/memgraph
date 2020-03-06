@@ -16,12 +16,16 @@
 #include "utils/timer.hpp"
 #include "version.hpp"
 
-bool ValidateNotNewline(const char *flagname, const std::string &value) {
-  auto has_no_newline = value.find('\n') == std::string::npos;
-  if (!has_no_newline) {
-    printf("The argument '%s' cannot contain newline character\n", flagname);
+bool ValidateControlCharacter(const char *flagname, const std::string &value) {
+  if (value.empty()) {
+    printf("The argument '%s' cannot be empty\n", flagname);
+    return false;
   }
-  return has_no_newline;
+  if (value.find('\n') != std::string::npos) {
+    printf("The argument '%s' cannot contain a newline character\n", flagname);
+    return false;
+  }
+  return true;
 }
 
 bool ValidateNoWhitespace(const char *flagname, const std::string &value) {
@@ -53,10 +57,12 @@ DEFINE_bool(storage_properties_on_edges, false,
 // CSV import flags.
 DEFINE_string(array_delimiter, ";",
               "Delimiter between elements of array values.");
+DEFINE_validator(array_delimiter, &ValidateControlCharacter);
 DEFINE_string(delimiter, ",", "Delimiter between each field in the CSV.");
+DEFINE_validator(delimiter, &ValidateControlCharacter);
 DEFINE_string(quote, "\"",
               "Quotation character for data in the CSV. Cannot contain '\n'");
-DEFINE_validator(quote, &ValidateNotNewline);
+DEFINE_validator(quote, &ValidateControlCharacter);
 DEFINE_bool(skip_duplicate_nodes, false,
             "Set to true to skip duplicate nodes instead of raising an error.");
 // Arguments `--nodes` and `--relationships` can be input multiple times and are
@@ -139,60 +145,168 @@ class LoadException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+enum class CsvParserState {
+  INITIAL_FIELD,
+  NEXT_FIELD,
+  QUOTING,
+  NOT_QUOTING,
+  EXPECT_DELIMITER,
+};
+
+bool SubstringStartsWith(const std::string_view &str, size_t pos,
+                         const std::string_view &what) {
+  return utils::StartsWith(utils::Substr(str, pos), what);
+}
+
+/// This function reads a row from a CSV stream.
+///
+/// Each CSV field must be divided using the `delimiter` and each CSV field can
+/// either be quoted or unquoted. When the field is quoted, the first and last
+/// character in the field *must* be the quote character. If the field isn't
+/// quoted, and a quote character appears in it, it is treated as a regular
+/// character. If a quote character appears inside a quoted string then the
+/// quote character must be doubled in order to escape it. Line feeds and
+/// carriage returns are ignored in the CSV file, also, the file can't contain a
+/// NULL character.
+///
+/// The function uses the same logic as the standard Python CSV parser. The data
+/// is parsed in the same way as the following snippet:
+/// ```
+/// import csv
+/// for row in csv.reader(stream, strict=True):
+///     # process `row`
+/// ```
+///
+/// Python uses 'excel' as the default dialect when parsing CSV files and the
+/// default settings for the CSV parser are:
+///  - delimiter: ','
+///  - doublequote: True
+///  - escapechar: None
+///  - lineterminator: '\r\n'
+///  - quotechar: '"'
+///  - skipinitialspace: False
+///
+/// The above snippet can be expanded to:
+/// ```
+/// import csv
+/// for row in csv.reader(stream, delimiter=',', doublequote=True,
+///                       escapechar=None, lineterminator='\r\n',
+///                       quotechar='"', skipinitialspace=False,
+///                       strict=True):
+///     # process `row`
+/// ```
+///
+/// For more information about the meaning of the above values, see:
+/// https://docs.python.org/3/library/csv.html#csv.Dialect
+///
 /// @throw LoadException
 std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
   std::vector<std::string> row;
-  bool quoting = false;
-  std::vector<char> column;
-  std::string line;
+  std::string column;
   uint64_t lines_count = 0;
 
-  auto check_quote = [&line](int curr_idx) {
-    return curr_idx + FLAGS_quote.size() <= line.size() &&
-           line.compare(curr_idx, FLAGS_quote.size(), FLAGS_quote) == 0;
-  };
+  auto state = CsvParserState::INITIAL_FIELD;
 
   do {
+    std::string line;
     if (!std::getline(stream, line)) {
-      if (quoting) {
-        throw LoadException(
-            "There is no more data left to load while inside a quoted string. "
-            "Did you forget to close the quote?");
-      } else {
-        // The whole row was processed.
-        break;
-      }
+      // The whole file was processed.
+      break;
     }
     ++lines_count;
+
     for (size_t i = 0; i < line.size(); ++i) {
       auto c = line[i];
-      if (quoting) {
-        if (check_quote(i)) {
-          quoting = false;
-          i += FLAGS_quote.size() - 1;
-        } else {
-          column.push_back(c);
+
+      // Line feeds and carriage returns are ignored in CSVs.
+      if (c == '\n' || c == '\r') continue;
+      // Null bytes aren't allowed in CSVs.
+      if (c == '\0') throw LoadException("Line contains NULL byte");
+
+      switch (state) {
+        case CsvParserState::INITIAL_FIELD:
+        case CsvParserState::NEXT_FIELD: {
+          if (SubstringStartsWith(line, i, FLAGS_quote)) {
+            // The current field is a quoted field.
+            state = CsvParserState::QUOTING;
+            i += FLAGS_quote.size() - 1;
+          } else if (SubstringStartsWith(line, i, FLAGS_delimiter)) {
+            // The current field has an empty value.
+            row.emplace_back("");
+            state = CsvParserState::NEXT_FIELD;
+            i += FLAGS_delimiter.size() - 1;
+          } else {
+            // The current field is a regular field.
+            column.push_back(c);
+            state = CsvParserState::NOT_QUOTING;
+          }
+          break;
         }
-      } else if (check_quote(i)) {
-        // Hopefully, escaping isn't needed
-        quoting = true;
-        i += FLAGS_quote.size() - 1;
-      } else if (c == FLAGS_delimiter.front()) {
-        row.emplace_back(column.begin(), column.end());
-        column.clear();
-        // Handle special case when delimiter is the last
-        // character in line. This means that another
-        // empty column needs to be added.
-        if (i == line.size() - 1) {
-          row.emplace_back("");
+        case CsvParserState::QUOTING: {
+          auto quote_now = SubstringStartsWith(line, i, FLAGS_quote);
+          auto quote_next =
+              SubstringStartsWith(line, i + FLAGS_quote.size(), FLAGS_quote);
+          if (quote_now && quote_next) {
+            // This is an escaped quote character.
+            column += FLAGS_quote;
+            i += FLAGS_quote.size() * 2 - 1;
+          } else if (quote_now && !quote_next) {
+            // This is the end of the quoted field.
+            row.emplace_back(std::move(column));
+            state = CsvParserState::EXPECT_DELIMITER;
+            i += FLAGS_quote.size() - 1;
+          } else {
+            column.push_back(c);
+          }
+          break;
         }
-      } else {
-        column.push_back(c);
+        case CsvParserState::NOT_QUOTING: {
+          if (SubstringStartsWith(line, i, FLAGS_delimiter)) {
+            row.emplace_back(std::move(column));
+            state = CsvParserState::NEXT_FIELD;
+            i += FLAGS_delimiter.size() - 1;
+          } else {
+            column.push_back(c);
+          }
+          break;
+        }
+        case CsvParserState::EXPECT_DELIMITER: {
+          if (SubstringStartsWith(line, i, FLAGS_delimiter)) {
+            state = CsvParserState::NEXT_FIELD;
+            i += FLAGS_delimiter.size() - 1;
+          } else {
+            throw LoadException("Expected '{}' after '{}', but got '{}'",
+                                FLAGS_delimiter, FLAGS_quote, c);
+          }
+          break;
+        }
       }
     }
-  } while (quoting);
+  } while (state == CsvParserState::QUOTING);
 
-  if (!column.empty()) row.emplace_back(column.begin(), column.end());
+  switch (state) {
+    case CsvParserState::INITIAL_FIELD: {
+      break;
+    }
+    case CsvParserState::NEXT_FIELD: {
+      row.emplace_back(std::move(column));
+      break;
+    }
+    case CsvParserState::QUOTING: {
+      throw LoadException(
+          "There is no more data left to load while inside a quoted string. "
+          "Did you forget to close the quote?");
+      break;
+    }
+    case CsvParserState::NOT_QUOTING: {
+      row.emplace_back(std::move(column));
+      break;
+    }
+    case CsvParserState::EXPECT_DELIMITER: {
+      break;
+    }
+  }
+
   return {std::move(row), lines_count};
 }
 
