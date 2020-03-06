@@ -990,8 +990,8 @@ bool Storage::CreateIndex(LabelId label) {
   // next regular transaction after this operation. This prevents collisions of
   // commit timestamps between non-transactional operations and transactional
   // operations.
-  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_CREATE, label,
-                          std::nullopt, timestamp_);
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
+                          timestamp_);
   return true;
 }
 
@@ -1003,7 +1003,7 @@ bool Storage::CreateIndex(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   durability_.AppendToWal(StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
-                          label, property, timestamp_);
+                          label, {property}, timestamp_);
   return true;
 }
 
@@ -1012,8 +1012,8 @@ bool Storage::DropIndex(LabelId label) {
   if (!indices_.label_index.DropIndex(label)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_DROP, label,
-                          std::nullopt, timestamp_);
+  durability_.AppendToWal(StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
+                          timestamp_);
   return true;
 }
 
@@ -1023,7 +1023,7 @@ bool Storage::DropIndex(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   durability_.AppendToWal(StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
-                          label, property, timestamp_);
+                          label, {property}, timestamp_);
   return true;
 }
 
@@ -1042,7 +1042,7 @@ Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   durability_.AppendToWal(StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
-                          label, property, timestamp_);
+                          label, {property}, timestamp_);
   return true;
 }
 
@@ -1053,7 +1053,7 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   durability_.AppendToWal(StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
-                          label, property, timestamp_);
+                          label, {property}, timestamp_);
   return true;
 }
 
@@ -1061,16 +1061,31 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
 Storage::CreateUniqueConstraint(LabelId label,
                                 const std::set<PropertyId> &properties) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  // TODO(tsabolcec): Append action to the WAL.
-  return constraints_.unique_constraints.CreateConstraint(label, properties,
-                                                          vertices_.access());
+  auto ret = constraints_.unique_constraints.CreateConstraint(
+      label, properties, vertices_.access());
+  if (ret.HasError() ||
+      ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+    return ret;
+  }
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE,
+                          label, properties, timestamp_);
+  return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
 UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  // TODO(tsabolcec): Append action to the WAL.
-  return constraints_.unique_constraints.DropConstraint(label, properties);
+  auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
+  if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
+    return ret;
+  }
+  // For a description why using `timestamp_` is correct, see
+  // `CreateIndex(LabelId label)`.
+  durability_.AppendToWal(StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+                          properties, timestamp_);
+  return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {

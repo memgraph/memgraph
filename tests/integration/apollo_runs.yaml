@@ -65,6 +65,15 @@
     - ../../../build_debug/src/mg_import_csv # mg_import_csv binary
     - ../../../build_debug/tests/integration/mg_import_csv/tester # tester binary
 
+- name: integration__durability
+  cd: durability
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - tests # tests directory
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/tools/src/mg_dump # memgraph dump binary
+
 #- name: integration__ha_basic
 #  cd: ha/basic
 #  commands: TIMEOUT=480 ./runner.py

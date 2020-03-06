@@ -339,6 +339,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case storage::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
         case storage::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
         case storage::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
+        case storage::Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
+        case storage::Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
         case storage::Marker::VALUE_FALSE:
         case storage::Marker::VALUE_TRUE:
           valid_marker = false;

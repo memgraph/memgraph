@@ -28,6 +28,10 @@ storage::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
       return storage::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
       return storage::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
+    case storage::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+      return storage::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
+    case storage::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+      return storage::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
   }
 }
 
@@ -207,13 +211,14 @@ class DeltaGenerator final {
 
   void AppendOperation(storage::StorageGlobalOperation operation,
                        const std::string &label,
-                       std::optional<std::string> property = std::nullopt) {
+                       const std::set<std::string> properties = {}) {
     auto label_id = storage::LabelId::FromUint(mapper_.NameToId(label));
-    std::optional<storage::PropertyId> property_id;
-    if (property) {
-      property_id = storage::PropertyId::FromUint(mapper_.NameToId(*property));
+    std::set<storage::PropertyId> property_ids;
+    for (const auto &property : properties) {
+      property_ids.insert(
+          storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
-    wal_file_.AppendOperation(operation, label_id, property_id, timestamp_);
+    wal_file_.AppendOperation(operation, label_id, property_ids, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       storage::WalDeltaData data;
@@ -228,7 +233,11 @@ class DeltaGenerator final {
         case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
         case storage::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
-          data.operation_label_property.property = *property;
+          data.operation_label_property.property = *properties.begin();
+        case storage::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+        case storage::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+          data.operation_label_properties.label = label;
+          data.operation_label_properties.properties = properties;
       }
       data_.emplace_back(timestamp_, data);
     }
@@ -515,10 +524,12 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
 GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION(LABEL_INDEX_CREATE, "hello");
   OPERATION(LABEL_INDEX_DROP, "hello");
-  OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", "world");
-  OPERATION(LABEL_PROPERTY_INDEX_DROP, "hello", "world");
-  OPERATION(EXISTENCE_CONSTRAINT_CREATE, "hello", "world");
-  OPERATION(EXISTENCE_CONSTRAINT_DROP, "hello", "world");
+  OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
+  OPERATION(LABEL_PROPERTY_INDEX_DROP, "hello", {"world"});
+  OPERATION(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
+  OPERATION(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
+  OPERATION(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
+  OPERATION(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -578,7 +589,7 @@ TEST_P(WalFileTest, PartialData) {
       tx.AddLabel(vertex, "hello");
     });
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
-    OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", "world");
+    OPERATION(LABEL_PROPERTY_INDEX_CREATE, "hello", {"world"});
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
     TRANSACTION(true, {
       auto vertex1 = tx.CreateVertex();

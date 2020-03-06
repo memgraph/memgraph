@@ -73,6 +73,8 @@ enum class Marker : uint8_t {
   DELTA_LABEL_PROPERTY_INDEX_DROP = 0x5c,
   DELTA_EXISTENCE_CONSTRAINT_CREATE = 0x5d,
   DELTA_EXISTENCE_CONSTRAINT_DROP = 0x5e,
+  DELTA_UNIQUE_CONSTRAINT_CREATE = 0x5f,
+  DELTA_UNIQUE_CONSTRAINT_DROP = 0x60,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -112,6 +114,8 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_LABEL_PROPERTY_INDEX_DROP,
     Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE,
     Marker::DELTA_EXISTENCE_CONSTRAINT_DROP,
+    Marker::DELTA_UNIQUE_CONSTRAINT_CREATE,
+    Marker::DELTA_UNIQUE_CONSTRAINT_DROP,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };
@@ -233,6 +237,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
+    UNIQUE_CONSTRAINT_CREATE,
+    UNIQUE_CONSTRAINT_DROP,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -267,6 +273,11 @@ struct WalDeltaData {
     std::string label;
     std::string property;
   } operation_label_property;
+
+  struct {
+    std::string label;
+    std::set<std::string> properties;
+  } operation_label_properties;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -277,15 +288,15 @@ bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
 /// @throw RecoveryFailure
 uint64_t ReadWalDeltaHeader(Decoder *wal);
 
-/// Function used to either read the current WAL delta data. The function
-/// returns the read delta data. The WAL delta header must be read before
-/// calling this function.
+/// Function used to read the current WAL delta data. The function returns the
+/// read delta data. The WAL delta header must be read before calling this
+/// function.
 /// @throw RecoveryFailure
 WalDeltaData ReadWalDeltaData(Decoder *wal);
 
-/// Function used to either skip the current WAL delta data. The function
-/// returns the skipped delta type. The WAL delta header must be read before
-/// calling this function.
+/// Function used to skip the current WAL delta data. The function returns the
+/// skipped delta type. The WAL delta header must be read before calling this
+/// function.
 /// @throw RecoveryFailure
 WalDeltaData::Type SkipWalDeltaData(Decoder *wal);
 
@@ -297,6 +308,8 @@ enum class StorageGlobalOperation {
   LABEL_PROPERTY_INDEX_DROP,
   EXISTENCE_CONSTRAINT_CREATE,
   EXISTENCE_CONSTRAINT_DROP,
+  UNIQUE_CONSTRAINT_CREATE,
+  UNIQUE_CONSTRAINT_DROP,
 };
 
 /// Structure used to track indices and constraints during recovery.
@@ -308,6 +321,7 @@ struct RecoveredIndicesAndConstraints {
 
   struct {
     std::vector<std::pair<LabelId, PropertyId>> existence;
+    std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
   } constraints;
 };
 
@@ -331,7 +345,8 @@ class WalFile {
   void AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageGlobalOperation operation, LabelId label,
-                       std::optional<PropertyId> property, uint64_t timestamp);
+                       const std::set<PropertyId> &properties,
+                       uint64_t timestamp);
 
   void Sync();
 
@@ -380,7 +395,7 @@ class Durability final {
                    uint64_t final_commit_timestamp);
 
   void AppendToWal(StorageGlobalOperation operation, LabelId label,
-                   std::optional<PropertyId> property,
+                   const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
 
  private:

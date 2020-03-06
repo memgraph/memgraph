@@ -65,6 +65,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto label_indexed = store->NameToLabel("base_indexed");
     auto label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_extra = store->NameToProperty("extra");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
@@ -76,6 +77,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create existence constraint.
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id)
+                     .HasError());
+
+    // Create unique constraint.
+    ASSERT_FALSE(store
+                     ->CreateUniqueConstraint(label_unindexed,
+                                              {property_id, property_extra})
                      .HasError());
 
     // Create vertices.
@@ -147,6 +154,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count)
                      .HasError());
 
+    // Create unique constraint.
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count})
+                     .HasError());
+
     // Storage accessor.
     std::optional<storage::Storage::Accessor> acc;
     if (single_transaction) acc.emplace(store->Access());
@@ -199,6 +210,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto base_label_indexed = store->NameToLabel("base_indexed");
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_extra = store->NameToProperty("extra");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
@@ -247,11 +259,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(
                                           base_label_unindexed, property_id)));
+          ASSERT_THAT(info.unique, UnorderedElementsAre(std::make_pair(
+                                       base_label_unindexed,
+                                       std::set{property_id, property_extra})));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.existence,
                       UnorderedElementsAre(std::make_pair(extended_label_unused,
                                                           property_count)));
+          ASSERT_THAT(info.unique,
+                      UnorderedElementsAre(std::make_pair(
+                          extended_label_unused, std::set{property_count})));
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
@@ -261,6 +279,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               UnorderedElementsAre(
                   std::make_pair(base_label_unindexed, property_id),
                   std::make_pair(extended_label_unused, property_count)));
+          ASSERT_THAT(info.unique,
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_unindexed,
+                                         std::set{property_id, property_extra}),
+                          std::make_pair(extended_label_unused,
+                                         std::set{property_count})));
           break;
       }
     }
@@ -1406,6 +1430,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     ASSERT_EQ(indices.label_property.size(), 0);
     auto constraints = store.ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
+    ASSERT_EQ(constraints.unique.size(), 0);
     auto acc = store.Access();
     {
       auto v1 = acc.FindVertex(gid_v1, storage::View::OLD);
@@ -1509,16 +1534,20 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateBaseDataset(&store, GetParam());
     CreateExtendedDataset(&store);
     auto indices = store.ListAllIndices();
-    for (auto index : indices.label) {
+    for (const auto &index : indices.label) {
       ASSERT_TRUE(store.DropIndex(index));
     }
-    for (auto index : indices.label_property) {
+    for (const auto &index : indices.label_property) {
       ASSERT_TRUE(store.DropIndex(index.first, index.second));
     }
     auto constraints = store.ListAllConstraints();
-    for (auto constraint : constraints.existence) {
+    for (const auto &constraint : constraints.existence) {
       ASSERT_TRUE(
           store.DropExistenceConstraint(constraint.first, constraint.second));
+    }
+    for (const auto &constraint : constraints.unique) {
+      ASSERT_EQ(store.DropUniqueConstraint(constraint.first, constraint.second),
+                storage::UniqueConstraints::DeletionStatus::SUCCESS);
     }
     auto acc = store.Access();
     for (auto vertex : acc.Vertices(storage::View::OLD)) {
@@ -1542,6 +1571,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     ASSERT_EQ(indices.label_property.size(), 0);
     auto constraints = store.ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
+    ASSERT_EQ(constraints.unique.size(), 0);
     auto acc = store.Access();
     uint64_t count = 0;
     auto iterable = acc.Vertices(storage::View::OLD);

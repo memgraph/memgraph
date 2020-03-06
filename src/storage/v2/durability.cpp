@@ -323,6 +323,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
+    case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
+    case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -416,6 +418,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
+    case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
+    case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
@@ -438,7 +442,10 @@ namespace {
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
-const uint64_t kVersion{12};
+const uint64_t kVersion{13};
+
+const uint64_t kOldestSupportedVersion{12};
+const uint64_t kUniqueConstraintVersion{13};
 
 // Snapshot format:
 //
@@ -484,6 +491,9 @@ const uint64_t kVersion{12};
 //     * existence constraints
 //         * label
 //         * property
+//     * unique constraints (from version 13)
+//         * label
+//         * properties
 //
 // 8) Name to ID mapper data
 //     * id to name mappings
@@ -542,6 +552,9 @@ const uint64_t kVersion{12};
 //           existence constraint create, existence constraint drop
 //              * label name
 //              * property name
+//         * unique constraint create, unique constraint drop
+//              * label name
+//              * property names
 
 // This is the prefix used for Snapshot and WAL filenames. It is a timestamp
 // format that equals to: YYYYmmddHHMMSSffffff
@@ -583,6 +596,10 @@ Marker OperationToMarker(StorageGlobalOperation operation) {
       return Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE;
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
       return Marker::DELTA_EXISTENCE_CONSTRAINT_DROP;
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+      return Marker::DELTA_UNIQUE_CONSTRAINT_CREATE;
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+      return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
   }
 }
 
@@ -647,6 +664,10 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
       return WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
+    case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
+      return WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
+    case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+      return WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
 
     case Marker::TYPE_NULL:
     case Marker::TYPE_BOOL:
@@ -697,6 +718,8 @@ bool IsWalDeltaDataTypeTransactionEnd(WalDeltaData::Type type) {
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return true;
   }
 }
@@ -805,6 +828,29 @@ WalDeltaData ReadSkipWalDeltaData(Decoder *wal) {
       }
       break;
     }
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
+      if constexpr (read_data) {
+        auto label = wal->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_properties.label = std::move(*label);
+        auto properties_count = wal->ReadUint();
+        if (!properties_count) throw RecoveryFailure("Invalid WAL data!");
+        for (uint64_t i = 0; i < *properties_count; ++i) {
+          auto property = wal->ReadString();
+          if (!property) throw RecoveryFailure("Invalid WAL data!");
+          delta.operation_label_properties.properties.emplace(
+              std::move(*property));
+        }
+      } else {
+        if (!wal->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        auto properties_count = wal->ReadUint();
+        if (!properties_count) throw RecoveryFailure("Invalid WAL data!");
+        for (uint64_t i = 0; i < *properties_count; ++i) {
+          if (!wal->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        }
+      }
+    }
   }
 
   return delta;
@@ -835,6 +881,10 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj,
     throw RecoveryFailure(error_message);
   }
 }
+
+bool IsVersionSupported(uint64_t version) {
+  return version >= kOldestSupportedVersion && version <= kVersion;
+}
 }  // namespace
 
 // Function used to read information about the snapshot file.
@@ -844,7 +894,8 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version)
     throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (*version != kVersion) throw RecoveryFailure("Invalid snapshot version!");
+  if (!IsVersionSupported(*version))
+    throw RecoveryFailure("Invalid snapshot version!");
 
   // Prepare return value.
   SnapshotInfo info;
@@ -912,7 +963,8 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   auto version = wal.Initialize(path, kWalMagic);
   if (!version)
     throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (*version != kVersion) throw RecoveryFailure("Invalid WAL version!");
+  if (!IsVersionSupported(*version))
+    throw RecoveryFailure("Invalid WAL version!");
 
   // Prepare return value.
   WalInfo info;
@@ -1045,6 +1097,12 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
                  b.operation_label_property.label &&
              a.operation_label_property.property ==
                  b.operation_label_property.property;
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+      return a.operation_label_properties.label ==
+                 b.operation_label_properties.label &&
+             a.operation_label_properties.properties ==
+                 b.operation_label_properties.properties;
   }
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) {
@@ -1063,14 +1121,14 @@ uint64_t ReadWalDeltaHeader(Decoder *wal) {
   return *timestamp;
 }
 
-// Function used to either read the current WAL delta data. The WAL delta header
-// must be read before calling this function.
+// Function used to read the current WAL delta data. The WAL delta header must
+// be read before calling this function.
 WalDeltaData ReadWalDeltaData(Decoder *wal) {
   return ReadSkipWalDeltaData<true>(wal);
 }
 
-// Function used to either skip the current WAL delta data. The WAL delta header
-// must be read before calling this function.
+// Function used to skip the current WAL delta data. The WAL delta header must
+// be read before calling this function.
 WalDeltaData::Type SkipWalDeltaData(Decoder *wal) {
   auto delta = ReadSkipWalDeltaData<false>(wal);
   return delta.type;
@@ -1245,13 +1303,14 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
 }
 
 void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
-                              std::optional<PropertyId> property,
+                              const std::set<PropertyId> &properties,
                               uint64_t timestamp) {
   wal_.WriteMarker(Marker::SECTION_DELTA);
   wal_.WriteUint(timestamp);
   switch (operation) {
     case StorageGlobalOperation::LABEL_INDEX_CREATE:
     case StorageGlobalOperation::LABEL_INDEX_DROP: {
+      CHECK(properties.empty()) << "Invalid function call!";
       wal_.WriteMarker(OperationToMarker(operation));
       wal_.WriteString(name_id_mapper_->IdToName(label.AsUint()));
       break;
@@ -1260,10 +1319,22 @@ void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
     case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP: {
-      CHECK(property) << "Invalid function call!";
+      CHECK(properties.size() == 1) << "Invalid function call!";
       wal_.WriteMarker(OperationToMarker(operation));
       wal_.WriteString(name_id_mapper_->IdToName(label.AsUint()));
-      wal_.WriteString(name_id_mapper_->IdToName(property->AsUint()));
+      wal_.WriteString(
+          name_id_mapper_->IdToName((*properties.begin()).AsUint()));
+      break;
+    }
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP: {
+      CHECK(!properties.empty()) << "Invalid function call!";
+      wal_.WriteMarker(OperationToMarker(operation));
+      wal_.WriteString(name_id_mapper_->IdToName(label.AsUint()));
+      wal_.WriteUint(properties.size());
+      for (const auto &property : properties) {
+        wal_.WriteString(name_id_mapper_->IdToName(property.AsUint()));
+      }
       break;
     }
   }
@@ -1530,10 +1601,10 @@ void Durability::AppendToWal(const Transaction &transaction,
 }
 
 void Durability::AppendToWal(StorageGlobalOperation operation, LabelId label,
-                             std::optional<PropertyId> property,
+                             const std::set<PropertyId> &properties,
                              uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) return;
-  wal_file_->AppendOperation(operation, label, property,
+  wal_file_->AppendOperation(operation, label, properties,
                              final_commit_timestamp);
   FinalizeWalFile();
 }
@@ -1742,6 +1813,19 @@ void Durability::CreateSnapshot(Transaction *transaction) {
         write_mapping(item.second);
       }
     }
+
+    // Write unique constraints.
+    {
+      auto unique = constraints_->unique_constraints.ListConstraints();
+      snapshot.WriteUint(unique.size());
+      for (const auto &item : unique) {
+        write_mapping(item.first);
+        snapshot.WriteUint(item.second.size());
+        for (const auto &property : item.second) {
+          write_mapping(property);
+        }
+      }
+    }
   }
 
   // Write mapper data.
@@ -1873,7 +1957,9 @@ void Durability::CreateSnapshot(Transaction *transaction) {
 }
 
 std::optional<Durability::RecoveryInfo> Durability::RecoverData() {
-  if (!utils::DirExists(snapshot_directory_)) return std::nullopt;
+  if (!utils::DirExists(snapshot_directory_) &&
+      !utils::DirExists(wal_directory_))
+    return std::nullopt;
 
   // Helper lambda used to recover all discovered indices and constraints. The
   // indices and constraints must be recovered after the data recovery is done
@@ -1901,23 +1987,34 @@ std::optional<Durability::RecoveryInfo> Durability::RecoverData() {
       if (ret.HasError() || !ret.GetValue())
         throw RecoveryFailure("The existence constraint must be created here!");
     }
+
+    // Recover unique constraints.
+    for (const auto &item : indices_constraints.constraints.unique) {
+      auto ret = constraints_->unique_constraints.CreateConstraint(
+          item.first, item.second, vertices_->access());
+      if (ret.HasError() ||
+          ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+        throw RecoveryFailure("The unique constraint must be created here!");
+    }
   };
 
   // Array of all discovered snapshots, ordered by name.
   std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
   std::error_code error_code;
-  for (const auto &item :
-       std::filesystem::directory_iterator(snapshot_directory_, error_code)) {
-    if (!item.is_regular_file()) continue;
-    try {
-      auto info = ReadSnapshotInfo(item.path());
-      snapshot_files.emplace_back(item.path(), info.uuid);
-    } catch (const RecoveryFailure &) {
-      continue;
+  if (utils::DirExists(snapshot_directory_)) {
+    for (const auto &item :
+         std::filesystem::directory_iterator(snapshot_directory_, error_code)) {
+      if (!item.is_regular_file()) continue;
+      try {
+        auto info = ReadSnapshotInfo(item.path());
+        snapshot_files.emplace_back(item.path(), info.uuid);
+      } catch (const RecoveryFailure &) {
+        continue;
+      }
     }
+    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                       << error_code.message() << "!";
   }
-  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                     << error_code.message() << "!";
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -2066,7 +2163,8 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
   auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version)
     throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (*version != kVersion) throw RecoveryFailure("Invalid snapshot version!");
+  if (!IsVersionSupported(*version))
+    throw RecoveryFailure("Invalid snapshot version!");
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -2448,6 +2546,29 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
             "The existence constraint already exists!");
       }
     }
+
+    // Recover unique constraints.
+    // Snapshot version should be checked since unique constraints were
+    // implemented in later versions of snapshot.
+    if (*version >= kUniqueConstraintVersion) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        auto properties_count = snapshot.ReadUint();
+        if (!properties_count) throw RecoveryFailure("Invalid snapshot data!");
+        std::set<PropertyId> properties;
+        for (uint64_t j = 0; j < *properties_count; ++j) {
+          auto property = snapshot.ReadUint();
+          if (!property) throw RecoveryFailure("Invalid snapshot data!");
+          properties.insert(get_property_from_id(*property));
+        }
+        AddRecoveredIndexConstraint(&indices_constraints.constraints.unique,
+                                    {get_label_from_id(*label), properties},
+                                    "The unique constraint already exists!");
+      }
+    }
   }
 
   // Recover timestamp.
@@ -2469,7 +2590,8 @@ Durability::RecoveryInfo Durability::LoadWal(
   auto version = wal.Initialize(path, kWalMagic);
   if (!version)
     throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (*version != kVersion) throw RecoveryFailure("Invalid WAL version!");
+  if (!IsVersionSupported(*version))
+    throw RecoveryFailure("Invalid WAL version!");
 
   // Read wal info.
   auto info = ReadWalInfo(path);
@@ -2742,6 +2864,32 @@ Durability::RecoveryInfo Durability::LoadWal(
               &indices_constraints->constraints.existence,
               {label_id, property_id},
               "The existence constraint doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
+          auto label_id = LabelId::FromUint(name_id_mapper_->NameToId(
+              delta.operation_label_properties.label));
+          std::set<PropertyId> property_ids;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            property_ids.insert(
+                PropertyId::FromUint(name_id_mapper_->NameToId(prop)));
+          }
+          AddRecoveredIndexConstraint(&indices_constraints->constraints.unique,
+                                      {label_id, property_ids},
+                                      "The unique constraint already exists!");
+          break;
+        }
+        case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
+          auto label_id = LabelId::FromUint(name_id_mapper_->NameToId(
+              delta.operation_label_properties.label));
+          std::set<PropertyId> property_ids;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            property_ids.insert(
+                PropertyId::FromUint(name_id_mapper_->NameToId(prop)));
+          }
+          RemoveRecoveredIndexConstraint(
+              &indices_constraints->constraints.unique,
+              {label_id, property_ids}, "The unique constraint doesn't exist!");
           break;
         }
       }
