@@ -456,11 +456,22 @@ class ProcCtx:
     Access to a ProcCtx is only valid during a single execution of a procedure
     in a query. You should not globally store a ProcCtx instance.
     '''
+    __slots__ = ('_graph',)
+
+    def __init__(self, graph):
+        if not isinstance(graph, _mgp.Graph):
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+        self._graph = Graph(graph)
+
+    def is_valid(self) -> bool:
+        return self._graph.is_valid()
 
     @property
     def graph(self) -> Graph:
         '''Raise InvalidContextError if context is invalid.'''
-        pass
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph
 
 
 # Additional typing support
@@ -634,13 +645,15 @@ def read_proc(func: typing.Callable[..., Record]):
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
+        @functools.wraps(func)
+        def wrapper(graph, args):
+            return func(ProcCtx(graph), *args)
         params = params[1:]
-        mgp_proc = _mgp._MODULE.add_read_procedure(func)
+        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
     else:
         @functools.wraps(func)
-        def wrapper(*args):
-            args_without_context = args[1:]
-            return func(*args_without_context)
+        def wrapper(graph, args):
+            return func(*args)
         mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
     for param in params:
         name = param.name

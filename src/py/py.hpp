@@ -44,7 +44,14 @@ class [[nodiscard]] Object final {
  public:
   Object() = default;
   Object(std::nullptr_t) {}
+  /// Construct by taking the ownership of `PyObject *`.
   explicit Object(PyObject *ptr) noexcept : ptr_(ptr) {}
+
+  /// Construct from a borrowed `PyObject *`, i.e. non-owned pointer.
+  static Object FromBorrow(PyObject *ptr) noexcept {
+    Py_XINCREF(ptr);
+    return Object(ptr);
+  }
 
   ~Object() noexcept { Py_XDECREF(ptr_); }
 

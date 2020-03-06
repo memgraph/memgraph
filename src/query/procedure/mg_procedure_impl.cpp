@@ -1386,14 +1386,6 @@ const mgp_type *mgp_type_nullable(const mgp_type *type) {
   }
 }
 
-namespace {
-bool IsValidIdentifierName(const char *name) {
-  if (!name) return false;
-  std::regex regex("[_[:alpha:]][_[:alnum:]]*");
-  return std::regex_match(name, regex);
-}
-}  // namespace
-
 mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name,
                                         mgp_proc_cb cb) {
   if (!module || !cb) return nullptr;
@@ -1546,6 +1538,12 @@ void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
         stream << name_result.first << " :: " << type->GetPresentableName();
       });
   (*stream) << ")";
+}
+
+bool IsValidIdentifierName(const char *name) {
+  if (!name) return false;
+  std::regex regex("[_[:alpha:]][_[:alnum:]]*");
+  return std::regex_match(name, regex);
 }
 
 }  // namespace query::procedure

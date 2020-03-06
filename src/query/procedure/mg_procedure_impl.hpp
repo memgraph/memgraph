@@ -573,4 +573,6 @@ namespace query::procedure {
 /// @throw anything std::ostream::operator<< may throw.
 void PrintProcSignature(const mgp_proc &, std::ostream *);
 
+bool IsValidIdentifierName(const char *name);
+
 }  // namespace query::procedure
