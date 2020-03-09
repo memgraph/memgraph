@@ -13,6 +13,10 @@
 
 namespace utils {
 
+std::filesystem::path GetExecutablePath() {
+  return std::filesystem::read_symlink("/proc/self/exe");
+}
+
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   std::vector<std::string> lines;
 

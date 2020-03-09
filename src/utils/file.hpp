@@ -14,6 +14,12 @@
 
 namespace utils {
 
+/// Get the path of the current executable.
+///
+/// @throw std::filesystem::filesystem_error
+/// @throw std::bad_alloc
+std::filesystem::path GetExecutablePath();
+
 /// Reads all lines from the file specified by path. If the file doesn't exist
 /// or there is an access error the function returns an empty list.
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept;
