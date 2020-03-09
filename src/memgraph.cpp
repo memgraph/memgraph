@@ -840,6 +840,26 @@ int main(int argc, char **argv) {
   PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
+  // Add our Python modules to sys.path
+  try {
+    auto exe_path = utils::GetExecutablePath();
+    auto py_support_dir = exe_path.parent_path() / "python_support";
+    if (std::filesystem::is_directory(py_support_dir)) {
+      auto gil = py::EnsureGIL();
+      auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
+      if (maybe_exc) {
+        LOG(ERROR) << "Unable to load support for embedded Python: "
+                   << *maybe_exc;
+      }
+    } else {
+      LOG(ERROR)
+          << "Unable to load support for embedded Python: missing directory "
+          << py_support_dir;
+    }
+  } catch (const std::filesystem::filesystem_error &e) {
+    LOG(ERROR) << "Unable to load support for embedded Python: " << e.what();
+  }
+
   // Initialize the communication library.
   communication::Init();
 

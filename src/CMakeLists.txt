@@ -62,6 +62,11 @@ add_custom_command(TARGET memgraph POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph> ${CMAKE_BINARY_DIR}/memgraph
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph
                    COMMENT "Creating symlink to memgraph executable")
+# Emulate the installed python_support, by creating a symlink
+add_custom_command(TARGET memgraph POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/python_support
+                   BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
+                   COMMENT "Creating symlink for python_support")
 
 # Strip the executable in release build.
 if (lower_build_type STREQUAL "release")
@@ -92,6 +97,9 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # we cannot use the recommended `install(TARGETS ...)`.
 install(PROGRAMS $<TARGET_FILE:memgraph>
         DESTINATION lib/memgraph RENAME memgraph)
+# Install Python source for supporting our embedded Python.
+install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
+        DESTINATION lib/memgraph/python_support)
 # Install the include file for writing custom procedures.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
         DESTINATION include/memgraph)

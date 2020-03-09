@@ -27,6 +27,9 @@ install(PROGRAMS $<TARGET_FILE:example>
 # Also install the source of the example, so user can read it.
 install(FILES example.c DESTINATION lib/memgraph/query_modules)
 
+# Install the Python example
+install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
+
 if (MG_ENTERPRISE)
   add_subdirectory(louvain)
   add_subdirectory(connectivity)
