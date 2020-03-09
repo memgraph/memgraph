@@ -38,25 +38,34 @@ bool LastCommittedVersionHasLabelProperty(
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
   memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
 
-  // Note that a guard lock isn't necessary to access vertex's data.
-  // Any transaction that tries to write to that vertex will result in
-  // serialization error.
-  bool deleted = vertex.deleted;
-  bool has_label = utils::Contains(vertex.labels, label);
+  // Since the commit lock is active, any transaction that tries to write to
+  // a vertex which is part of the given `transaction` will result in a
+  // serialization error. But, note that the given `vertex`'s data does not have
+  // to be modified in the current `transaction`, meaning that a guard lock to
+  // access vertex's data is still necessary because another active transaction
+  // could modify it in the meantime.
+  Delta *delta;
+  bool deleted;
+  bool has_label;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    delta = vertex.delta;
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
 
-  size_t i = 0;
-  for (const auto &property : properties) {
-    auto it = vertex.properties.find(property);
-    current_value_equal_to_value[i] = value_array.values[i]->IsNull();
-    if (it != vertex.properties.end()) {
-      current_value_equal_to_value[i] = it->second == *value_array.values[i];
+    size_t i = 0;
+    for (const auto &property : properties) {
+      auto it = vertex.properties.find(property);
+      current_value_equal_to_value[i] = value_array.values[i]->IsNull();
+      if (it != vertex.properties.end()) {
+        current_value_equal_to_value[i] = it->second == *value_array.values[i];
+      }
+      property_array.values[i] = property;
+      i++;
     }
-    property_array.values[i] = property;
-    i++;
   }
 
-  for (Delta *delta = vertex.delta; delta != nullptr;
-       delta = delta->next.load(std::memory_order_acquire)) {
+  while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     if (ts < commit_timestamp || ts == transaction.transaction_id) {
       break;
@@ -101,6 +110,8 @@ bool LastCommittedVersionHasLabelProperty(
       case Delta::Action::REMOVE_OUT_EDGE:
         break;
     }
+
+    delta = delta->next.load(std::memory_order_acquire);
   }
 
   for (size_t i = 0; i < properties.size(); ++i) {

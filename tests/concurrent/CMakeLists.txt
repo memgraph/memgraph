@@ -46,3 +46,6 @@ target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils)
 
 add_concurrent_test(spin_lock.cpp)
 target_link_libraries(${test_prefix}spin_lock mg-utils)
+
+add_concurrent_test(storage_unique_constraints.cpp)
+target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg-storage-v2)
