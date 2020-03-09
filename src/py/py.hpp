@@ -190,7 +190,7 @@ inline std::ostream &operator<<(std::ostream &os, const Object &py_object) {
 
 /// Stores information on a raised Python exception.
 /// @sa FetchError
-struct ExceptionInfo final {
+struct [[nodiscard]] ExceptionInfo final {
   /// Type of the exception, if nullptr there is no exception.
   Object type;
   /// Optional value of the exception.
@@ -222,12 +222,30 @@ inline std::ostream &operator<<(std::ostream &os,
 /// Get the current exception info and clear the current exception indicator.
 ///
 /// This is normally used to catch and handle exceptions via C API.
-inline std::optional<ExceptionInfo> FetchError() {
+[[nodiscard]] inline std::optional<ExceptionInfo> FetchError() {
   PyObject *exc_type, *exc_value, *traceback;
   PyErr_Fetch(&exc_type, &exc_value, &traceback);
   if (!exc_type) return std::nullopt;
   PyErr_NormalizeException(&exc_type, &exc_value, &traceback);
   return ExceptionInfo{Object(exc_type), Object(exc_value), Object(traceback)};
+}
+
+/// Append `dir` to Python's `sys.path`.
+///
+/// The function does not check whether the directory exists, or is readable.
+/// ExceptionInfo is returned if an error occurred.
+[[nodiscard]] inline std::optional<ExceptionInfo> AppendToSysPath(
+    const char *dir) {
+  CHECK(dir);
+  auto *py_path = PySys_GetObject("path");
+  CHECK(py_path);
+  py::Object import_dir(PyUnicode_FromString(dir));
+  if (!import_dir) return py::FetchError();
+  int import_dir_in_path = PySequence_Contains(py_path, import_dir);
+  if (import_dir_in_path == -1) return py::FetchError();
+  if (import_dir_in_path == 1) return std::nullopt;
+  if (PyList_Append(py_path, import_dir) == -1) return py::FetchError();
+  return std::nullopt;
 }
 
 }  // namespace py

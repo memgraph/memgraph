@@ -345,20 +345,10 @@ bool PythonModule::Load(std::filesystem::path file_path) {
   CHECK(!py_module_) << "Attempting to load an already loaded module...";
   LOG(INFO) << "Loading module " << file_path << " ...";
   auto gil = py::EnsureGIL();
-  auto *py_path = PySys_GetObject("path");
-  CHECK(py_path);
-  py::Object import_dir(PyUnicode_FromString(file_path.parent_path().c_str()));
-  int import_dir_in_path = PySequence_Contains(py_path, import_dir);
-  if (import_dir_in_path == -1) {
-    LOG(ERROR) << "Unexpected error when loading module " << file_path;
+  auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
+  if (maybe_exc) {
+    LOG(ERROR) << "Unable to load module " << file_path << "; " << *maybe_exc;
     return false;
-  }
-  if (import_dir_in_path == 0) {
-    if (PyList_Append(py_path, import_dir) != 0) {
-      auto exc_info = py::FetchError().value();
-      LOG(ERROR) << "Unable to load module " << file_path << "; " << exc_info;
-      return false;
-    }
   }
   py_module_ =
       WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
