@@ -200,8 +200,6 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
       PyObject_New(PyVerticesIterator, &PyVerticesIteratorType);
   if (!py_vertices_it) {
     mgp_vertices_iterator_destroy(vertices_it);
-    PyErr_SetString(PyExc_MemoryError,
-                    "Unable to allocate _mgp.VerticesIterator.");
     return nullptr;
   }
   py_vertices_it->it = vertices_it;
@@ -718,6 +716,72 @@ static PyModuleDef PyMgpModule = {
     .m_methods = PyMgpModuleMethods,
 };
 
+struct PyPropertiesIterator {
+  PyObject_HEAD
+  mgp_properties_iterator *it;
+  PyGraph *py_graph;
+};
+
+void PyPropertiesIteratorDealloc(PyPropertiesIterator *self) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  // Avoid invoking `mgp_properties_iterator_destroy` if we are not in valid
+  // execution context. The query execution should free all memory used during
+  // execution, so we may cause a double free issue.
+  if (self->py_graph->graph) mgp_properties_iterator_destroy(self->it);
+  Py_DECREF(self->py_graph);
+  Py_TYPE(self)->tp_free(self);
+}
+
+PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self,
+                                  PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *property = mgp_properties_iterator_get(self->it);
+  if (!property) Py_RETURN_NONE;
+  py::Object py_name(PyUnicode_FromString(property->name));
+  if (!py_name) return nullptr;
+  auto py_value = MgpValueToPyObject(*property->value, self->py_graph);
+  if (!py_value) return nullptr;
+  return PyTuple_Pack(2, static_cast<PyObject *>(py_name),
+                      static_cast<PyObject *>(py_value));
+}
+
+PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self,
+                                   PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->it);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const auto *property = mgp_properties_iterator_next(self->it);
+  if (!property) Py_RETURN_NONE;
+  py::Object py_name(PyUnicode_FromString(property->name));
+  if (!py_name) return nullptr;
+  auto py_value = MgpValueToPyObject(*property->value, self->py_graph);
+  if (!py_value) return nullptr;
+  return PyTuple_Pack(2, static_cast<PyObject *>(py_name),
+                      static_cast<PyObject *>(py_value));
+}
+
+static PyMethodDef PyPropertiesIteratorMethods[] = {
+    {"get", reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet), METH_NOARGS,
+     "Get the current proprety pointed to by the iterator or return None."},
+    {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext),
+     METH_NOARGS, "Advance the iterator to the next property and return it."},
+    {nullptr},
+};
+
+static PyTypeObject PyPropertiesIteratorType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.PropertiesIterator",
+    .tp_doc = "Wraps struct mgp_properties_iterator.",
+    .tp_basicsize = sizeof(PyPropertiesIterator),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_methods = PyPropertiesIteratorMethods,
+    .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
+};
+
 struct PyEdge {
   PyObject_HEAD
   mgp_edge *edge;
@@ -767,9 +831,53 @@ PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(self->py_graph && self->py_graph->graph);
 }
 
+PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  auto *properties_it =
+      mgp_edge_iter_properties(self->edge, self->py_graph->memory);
+  if (!properties_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_properties_iterator.");
+    return nullptr;
+  }
+  auto *py_properties_it =
+      PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
+  if (!py_properties_it) {
+    mgp_properties_iterator_destroy(properties_it);
+    return nullptr;
+  }
+  py_properties_it->it = properties_it;
+  Py_INCREF(self->py_graph);
+  py_properties_it->py_graph = self->py_graph;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_properties_it),
+                       &PyPropertiesIteratorType);
+}
+
+PyObject *PyEdgeGetProperty(PyEdge *self, PyObject *args) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const char *prop_name = nullptr;
+  if (!PyArg_ParseTuple(args, "s", &prop_name)) return nullptr;
+  auto *prop_value =
+      mgp_edge_get_property(self->edge, prop_name, self->py_graph->memory);
+  if (!prop_value) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_value for edge property value.");
+    return nullptr;
+  }
+  auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
+  mgp_value_destroy(prop_value);
+  return py_prop_value;
+}
+
 static PyMethodDef PyEdgeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
-     METH_NOARGS, "__reduce__ is not supported"},
+     METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
      "Return True if Edge is in valid context and may be used."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName),
@@ -778,6 +886,10 @@ static PyMethodDef PyEdgeMethods[] = {
      METH_NOARGS, "Return the edge's source vertex."},
     {"to_vertex", reinterpret_cast<PyCFunction>(PyEdgeToVertex), METH_NOARGS,
      "Return the edge's destination vertex."},
+    {"iter_properties", reinterpret_cast<PyCFunction>(PyEdgeIterProperties),
+     METH_NOARGS, "Return _mgp.PropertiesIterator for this edge."},
+    {"get_property", reinterpret_cast<PyCFunction>(PyEdgeGetProperty),
+     METH_VARARGS, "Return edge property with given name."},
     {nullptr},
 };
 
@@ -905,8 +1017,6 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
-    PyErr_SetString(PyExc_MemoryError,
-                    "Unable to allocate _mgp.EdgesIterator for in edges.");
     return nullptr;
   }
   py_edges_it->it = edges_it;
@@ -931,8 +1041,6 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
-    PyErr_SetString(PyExc_MemoryError,
-                    "Unable to allocate _mgp.EdgesIterator for out edges.");
     return nullptr;
   }
   py_edges_it->it = edges_it;
@@ -942,9 +1050,53 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
                        &PyEdgesIteratorType);
 }
 
+PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  auto *properties_it =
+      mgp_vertex_iter_properties(self->vertex, self->py_graph->memory);
+  if (!properties_it) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_properties_iterator.");
+    return nullptr;
+  }
+  auto *py_properties_it =
+      PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
+  if (!py_properties_it) {
+    mgp_properties_iterator_destroy(properties_it);
+    return nullptr;
+  }
+  py_properties_it->it = properties_it;
+  Py_INCREF(self->py_graph);
+  py_properties_it->py_graph = self->py_graph;
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_properties_it),
+                       &PyPropertiesIteratorType);
+}
+
+PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
+  CHECK(self);
+  CHECK(self->vertex);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  const char *prop_name = nullptr;
+  if (!PyArg_ParseTuple(args, "s", &prop_name)) return nullptr;
+  auto *prop_value =
+      mgp_vertex_get_property(self->vertex, prop_name, self->py_graph->memory);
+  if (!prop_value) {
+    PyErr_SetString(PyExc_MemoryError,
+                    "Unable to allocate mgp_value for vertex property value.");
+    return nullptr;
+  }
+  auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
+  mgp_value_destroy(prop_value);
+  return py_prop_value;
+}
+
 static PyMethodDef PyVertexMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
-     METH_NOARGS, "__reduce__ is not supported"},
+     METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
      "Return True if Vertex is in valid context and may be used."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS,
@@ -954,9 +1106,13 @@ static PyMethodDef PyVertexMethods[] = {
     {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
      "Return label of a vertex on a given index."},
     {"iter_in_edges", reinterpret_cast<PyCFunction>(PyVertexIterInEdges),
-     METH_NOARGS, "Return _mgp.EdgesIterator for in edges"},
+     METH_NOARGS, "Return _mgp.EdgesIterator for in edges."},
     {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges),
-     METH_NOARGS, "Return _mgp.EdgesIterator for out edges"},
+     METH_NOARGS, "Return _mgp.EdgesIterator for out edges."},
+    {"iter_properties", reinterpret_cast<PyCFunction>(PyVertexIterProperties),
+     METH_NOARGS, "Return _mgp.PropertiesIterator for this vertex."},
+    {"get_property", reinterpret_cast<PyCFunction>(PyVertexGetProperty),
+     METH_VARARGS, "Return vertex property with given name."},
     {nullptr},
 };
 
@@ -1189,6 +1345,8 @@ PyObject *PyInitMgpModule() {
     }
     return true;
   };
+  if (!register_type(&PyPropertiesIteratorType, "PropertiesIterator"))
+    return nullptr;
   if (!register_type(&PyVerticesIteratorType, "VerticesIterator"))
     return nullptr;
   if (!register_type(&PyEdgesIteratorType, "EdgesIterator")) return nullptr;

@@ -55,54 +55,96 @@ Property = namedtuple('Property', ('name', 'value'))
 
 class Properties:
     '''A collection of properties either on a Vertex or an Edge.'''
+    __slots__ = ('_vertex_or_edge', '_len',)
 
-    def __init__(self, obj):
-        raise NotImplementedError()
+    def __init__(self, vertex_or_edge):
+        if not isinstance(vertex_or_edge, (_mgp.Vertex, _mgp.Edge)):
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Edge', \
+                            got {}".format(type(vertex_or_edge)))
+        self._len = None
+        self._vertex_or_edge = vertex_or_edge
 
     def get(self, property_name: str, default=None) -> object:
         '''Get the value of a property with the given name or return default.
 
         Raise InvalidContextError.
         '''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        try:
+            return self[property_name]
+        except KeyError:
+            return default
 
     def items(self) -> typing.Iterable[Property]:
         '''Raise InvalidContextError.'''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        properties_it = self._vertex_or_edge.iter_properties()
+        prop = properties_it.get()
+        while prop is not None:
+            yield Property(*prop)
+            if not self._vertex_or_edge.is_valid():
+                raise InvalidContextError()
+            prop = properties_it.next()
 
     def keys(self) -> typing.Iterable[str]:
         '''Iterate over property names.
 
         Raise InvalidContextError.
         '''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        for item in self.items():
+            yield item.name
 
     def values(self) -> typing.Iterable[object]:
         '''Iterate over property values.
 
         Raise InvalidContextError.
         '''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        for item in self.items():
+            yield item.value
 
     def __len__(self) -> int:
         '''Raise InvalidContextError.'''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        if self._len is None:
+            self._len = sum(1 for item in self.items())
+        return self._len
 
     def __iter__(self) -> typing.Iterable[str]:
         '''Iterate over property names.
 
         Raise InvalidContextError.
         '''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        for item in self.items():
+            yield item.name
 
     def __getitem__(self, property_name: str) -> object:
         '''Get the value of a property with the given name or raise KeyError.
 
         Raise InvalidContextError.'''
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        prop = self._vertex_or_edge.get_property(property_name)
+        if prop is None:
+            raise KeyError()
+        return prop
 
     def __contains__(self, property_name: str) -> bool:
-        pass
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+        try:
+            _ = self[property_name]
+            return True
+        except KeyError:
+            return False
 
 
 class EdgeType:
