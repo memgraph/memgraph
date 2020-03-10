@@ -1,13 +1,11 @@
 - name: good_configuration
   nodes:
-    - nodes_comment.csv
-    - nodes_forum.csv
-  node_label:
-    - First
-    - Second
+    - "First:Second=nodes_comment.csv"
+    - "First:Second=nodes_forum.csv"
   relationships:
     - relationships_0.csv
     - relationships_1.csv
+  ignore_empty_strings: True
   delimiter: "|"
   quote: "Ö"
   array_delimiter: ";"
@@ -15,14 +13,12 @@
 
 - name: wrong_delimiter
   nodes:
-    - nodes_comment.csv
-    - nodes_forum.csv
-  node_label:
-    - First
-    - Second
+    - "First:Second=nodes_comment.csv"
+    - "First:Second=nodes_forum.csv"
   relationships:
     - relationships_0.csv
     - relationships_1.csv
+  ignore_empty_strings: True
   delimiter: ","
   quote: "Ö"
   array_delimiter: ";"
@@ -30,14 +26,12 @@
 
 - name: wrong_quote
   nodes:
-    - nodes_comment.csv
-    - nodes_forum.csv
-  node_label:
-    - First
-    - Second
+    - "First:Second=nodes_comment.csv"
+    - "First:Second=nodes_forum.csv"
   relationships:
     - relationships_0.csv
     - relationships_1.csv
+  ignore_empty_strings: True
   delimiter: "|"
   quote: "\""
   array_delimiter: ";"

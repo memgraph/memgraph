@@ -1,9 +1,8 @@
 - name: good_configuration
   nodes:
     - nodes_comment.csv
-  relationships:
-    - relationships.csv
-  relationship_type: "TYPE "
+  relationships: "TYPE=relationships.csv"
+  ignore_empty_strings: True
   delimiter: "|"
   quote: "\""
   array_delimiter: ";"
@@ -12,9 +11,8 @@
 - name: wrong_delimiter
   nodes:
     - nodes_comment.csv
-  relationships:
-    - relationships.csv
-  relationship_type: "TYPE "
+  relationships: "TYPE=relationships.csv"
+  ignore_empty_strings: True
   delimiter: ","
   quote: "\""
   array_delimiter: ";"

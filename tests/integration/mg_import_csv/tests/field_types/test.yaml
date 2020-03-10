@@ -1,0 +1,3 @@
+- name: good_configuration
+  nodes: "nodes.csv"
+  expected: expected.cypher

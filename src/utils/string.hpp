@@ -314,6 +314,33 @@ inline std::vector<std::string> RSplit(const std::string_view &src,
 }
 
 /**
+ * Parse a signed integer value from a string using classic locale.
+ * Note, the current implementation copies the given string which may perform a
+ * heap allocation if the string is big enough.
+ *
+ * @throw BasicException if unable to parse the whole string.
+ */
+inline int64_t ParseInt(const std::string_view &s) {
+  // stol would be nicer but it uses current locale so we shouldn't use it.
+  int64_t t = 0;
+  // NOTE: Constructing std::istringstream will make a copy of the string, which
+  // may make a heap allocation if string is large enough. There is no
+  // std::istringstream constructor accepting a custom allocator. We could pass
+  // a std::basic_string with a custom allocator, but std::istringstream will
+  // probably invoke
+  // std::allocator_traits<>::select_on_container_copy_construction which
+  // doesn't really help as most allocators default to global new/delete
+  // allocator.
+  std::istringstream iss(std::string(s.data(), s.size()));
+  iss.imbue(std::locale::classic());
+  iss >> t;
+  if (iss.fail() || !iss.eof()) {
+    throw BasicException("Couldn't parse string");
+  }
+  return t;
+}
+
+/**
  * Parse a double floating point value from a string using classic locale.
  * Note, the current implementation copies the given string which may perform a
  * heap allocation if the string is big enough.
