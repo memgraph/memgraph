@@ -1437,8 +1437,14 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       }
       return py_dict;
     }
-    case MGP_VALUE_TYPE_VERTEX:
-      throw utils::NotYetImplemented("MgpValueToPyObject");
+    case MGP_VALUE_TYPE_VERTEX: {
+      py::Object py_mgp(PyImport_ImportModule("mgp"));
+      if (!py_mgp) return nullptr;
+      const auto *v = mgp_value_get_vertex(&value);
+      py::Object py_vertex(
+          reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
+      return py_mgp.CallMethod("Vertex", py_vertex);
+    }
     case MGP_VALUE_TYPE_EDGE: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
@@ -1597,6 +1603,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::bad_alloc();
     }
   } else if (Py_TYPE(o) == &PyPathType) {
+    // Copy the path and pass the ownership to the created mgp_value.
     auto *p = mgp_path_copy(reinterpret_cast<PyPath *>(o)->path, memory);
     if (!p) {
       throw std::bad_alloc();
@@ -1607,7 +1614,16 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::bad_alloc();
     }
   } else if (Py_TYPE(o) == &PyVertexType) {
-    throw utils::NotYetImplemented("PyObjectToMgpValue");
+    // Copy the vertex and pass the ownership to the created mgp_value.
+    auto *v = mgp_vertex_copy(reinterpret_cast<PyVertex *>(o)->vertex, memory);
+    if (!v) {
+      throw std::bad_alloc();
+    }
+    mgp_v = mgp_value_make_vertex(v);
+    if (!mgp_v) {
+      mgp_vertex_destroy(v);
+      throw std::bad_alloc();
+    }
   } else if (is_mgp_instance(o, "Edge")) {
     py::Object edge(PyObject_GetAttrString(o, "_edge"));
     if (!edge) {
