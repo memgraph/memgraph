@@ -586,6 +586,11 @@ def _typing_to_cypher_type(type_):
             return tuple(map(str.strip,
                              type_as_str[type_as_str.index('[') + 1: -1].split(',')))
 
+        def fully_qualified_name(cls):
+            if cls.__module__ is None or cls.__module__ == 'builtins':
+                return cls.__name__
+            return cls.__module__ + '.' + cls.__name__
+
         def get_simple_type(type_as_str):
             for simple_type, cypher_type in simple_types.items():
                 if type_as_str == str(simple_type):
@@ -594,7 +599,7 @@ def _typing_to_cypher_type(type_):
                 # the cases like when we have 'object' which is
                 # `object.__name__`, but `str(object)` is "<class 'object'>"
                 try:
-                    if type_as_str == simple_type.__name__:
+                    if type_as_str == fully_qualified_name(simple_type):
                         return cypher_type
                 except AttributeError:
                     pass
