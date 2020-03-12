@@ -42,6 +42,47 @@ def list_to_string(data):
     return ret
 
 
+def verify_lifetime(memgraph_binary, mg_import_csv_binary):
+    print("\033[1;36m~~ Verifying that mg_import_csv can't be started while "
+          "memgraph is running ~~\033[0m")
+    storage_directory = tempfile.TemporaryDirectory()
+
+    # Generate common args
+    common_args = ["--data-directory", storage_directory.name,
+                   "--storage-properties-on-edges=false"]
+
+    # Start the memgraph binary
+    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + \
+        common_args
+    memgraph = subprocess.Popen(list(map(str, memgraph_args)))
+    time.sleep(0.1)
+    assert memgraph.poll() is None, "Memgraph process died prematurely!"
+    wait_for_server(7687)
+
+    # Register cleanup function
+    @atexit.register
+    def cleanup():
+        if memgraph.poll() is None:
+            memgraph.terminate()
+        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+
+    # Execute mg_import_csv.
+    mg_import_csv_args = [mg_import_csv_binary, "--nodes", "/dev/null"] + \
+        common_args
+    ret = subprocess.run(mg_import_csv_args)
+
+    # Check the return code
+    if ret.returncode == 0:
+        raise Exception(
+            "The importer was able to run while memgraph was running!")
+
+    # Shutdown the memgraph binary
+    memgraph.terminate()
+    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+
+    print("\033[1;32m~~ Test successful ~~\033[0m\n")
+
+
 def execute_test(name, test_path, test_config, memgraph_binary,
                  mg_import_csv_binary, tester_binary):
     print("\033[1;36m~~ Executing test", name, "~~\033[0m")
@@ -144,8 +185,15 @@ if __name__ == "__main__":
     parser.add_argument("--tester", default=tester_binary)
     args = parser.parse_args()
 
+    # First test whether the CSV importer can be started while the main
+    # Memgraph binary is running.
+    verify_lifetime(memgraph_binary, mg_import_csv_binary)
+
+    # Run all import scenarios.
     test_dir = os.path.join(SCRIPT_DIR, "tests")
-    for name in sorted(os.listdir(test_dir)):
+    tests_list = sorted(os.listdir(test_dir))
+    assert len(tests_list) > 0, "No tests were found!"
+    for name in tests_list:
         print("\033[1;34m~~ Processing tests from", name, "~~\033[0m\n")
         test_path = os.path.join(test_dir, name)
         with open(os.path.join(test_path, "test.yaml")) as f:

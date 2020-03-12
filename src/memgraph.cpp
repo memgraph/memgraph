@@ -825,10 +825,6 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
 
-  // Verify that the user that started the Memgraph process is the same user
-  // that is the owner of the data directory.
-  VerifyDataDirectoryOwnerAndProcessUser(FLAGS_data_directory);
-
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
   CHECK(program_name);

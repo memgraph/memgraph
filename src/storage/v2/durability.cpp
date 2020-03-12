@@ -1,9 +1,21 @@
 #include "storage/v2/durability.hpp"
 
+#include <fcntl.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <cstring>
+
 #include <algorithm>
+#include <filesystem>
+#include <string>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -885,6 +897,40 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj,
 bool IsVersionSupported(uint64_t version) {
   return version >= kOldestSupportedVersion && version <= kVersion;
 }
+
+/// Verifies that the owner of the storage directory is the same user that
+/// started the current process.
+void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
+    const std::filesystem::path &storage_directory) {
+  // Get the process user ID.
+  auto process_euid = geteuid();
+
+  // Get the data directory owner ID.
+  struct stat statbuf;
+  auto ret = stat(storage_directory.c_str(), &statbuf);
+  if (ret != 0 && errno == ENOENT) {
+    // The directory doesn't currently exist.
+    return;
+  }
+  CHECK(ret == 0) << "Couldn't get stat for '" << storage_directory
+                  << "' because of: " << strerror(errno) << " (" << errno
+                  << ")";
+  auto directory_owner = statbuf.st_uid;
+
+  auto get_username = [](auto uid) {
+    auto info = getpwuid(uid);
+    if (!info) return std::to_string(uid);
+    return std::string(info->pw_name);
+  };
+
+  auto user_process = get_username(process_euid);
+  auto user_directory = get_username(directory_owner);
+  CHECK(process_euid == directory_owner)
+      << "The process is running as user " << user_process
+      << ", but the data directory is owned by user " << user_directory
+      << ". Please start the process as user " << user_directory << "!";
+}
+
 }  // namespace
 
 // Function used to read information about the snapshot file.
@@ -1365,14 +1411,43 @@ Durability::Durability(Config::Durability config,
       indices_(indices),
       constraints_(constraints),
       items_(items),
+      storage_directory_(config_.storage_directory),
       snapshot_directory_(config_.storage_directory / kSnapshotDirectory),
       wal_directory_(config_.storage_directory / kWalDirectory),
+      lock_file_path_(config_.storage_directory / ".lock"),
       uuid_(utils::GenerateUUID()) {}
 
 std::optional<Durability::RecoveryInfo> Durability::Initialize(
     std::function<void(std::function<void(Transaction *)>)>
         execute_with_transaction) {
   execute_with_transaction_ = execute_with_transaction;
+  if (config_.snapshot_wal_mode !=
+          Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.snapshot_on_exit || config_.recover_on_startup) {
+    // Create the directory initially to crash the database in case of
+    // permission errors. This is done early to crash the database on startup
+    // instead of crashing the database for the first time during runtime (which
+    // could be an unpleasant surprise).
+    utils::EnsureDirOrDie(snapshot_directory_);
+    // Same reasoning as above.
+    utils::EnsureDirOrDie(wal_directory_);
+
+    // Verify that the user that started the process is the same user that is
+    // the owner of the storage directory.
+    VerifyStorageDirectoryOwnerAndProcessUserOrDie(storage_directory_);
+
+    // Create the lock file and open a handle to it. This will crash the
+    // database if it can't open the file for writing or if any other process is
+    // holding the file opened.
+    lock_file_handle_.Open(lock_file_path_,
+                           utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    CHECK(lock_file_handle_.AcquireLock())
+        << "Couldn't acquire lock on the storage directory "
+        << storage_directory_
+        << "!\nAnother Memgraph process is currently running with the same "
+           "storage directory, please stop it first before starting this "
+           "process!";
+  }
   std::optional<Durability::RecoveryInfo> ret;
   if (config_.recover_on_startup) {
     ret = RecoverData();
@@ -1407,20 +1482,6 @@ std::optional<Durability::RecoveryInfo> Durability::Initialize(
            "durability is enabled, your current durability files will likely "
            "be overridden. To prevent important data loss, Memgraph has stored "
            "those files into a .backup directory inside the storage directory.";
-  }
-  if (config_.snapshot_wal_mode !=
-          Config::Durability::SnapshotWalMode::DISABLED ||
-      config_.snapshot_on_exit) {
-    // Create the directory initially to crash the database in case of
-    // permission errors. This is done early to crash the database on startup
-    // instead of crashing the database for the first time during runtime (which
-    // could be an unpleasant surprise).
-    utils::EnsureDirOrDie(snapshot_directory_);
-  }
-  if (config_.snapshot_wal_mode ==
-      Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
-    // Same reasoning as above.
-    utils::EnsureDirOrDie(wal_directory_);
   }
   if (config_.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {

@@ -735,10 +735,6 @@ int main(int argc, char *argv[]) {
     FLAGS_id_type = upper;
   }
 
-  // Verify that the user that started the Memgraph process is the same user
-  // that is the owner of the data directory.
-  VerifyDataDirectoryOwnerAndProcessUser(FLAGS_data_directory);
-
   std::unordered_map<NodeId, storage::Gid> node_id_map;
   storage::Storage store{
       {.durability =

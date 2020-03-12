@@ -246,6 +246,7 @@ void InputFile::Close() noexcept {
   }
 
   fd_ = -1;
+  path_ = "";
 }
 
 bool InputFile::LoadBuffer() {
@@ -397,6 +398,28 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
   }
 }
 
+bool OutputFile::AcquireLock() {
+  CHECK(IsOpen()) << "Trying to acquire a write lock on an unopened file!";
+  int ret = -1;
+  while (true) {
+    struct flock lock;
+    memset(&lock, 0, sizeof(lock));
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start = 0;
+    lock.l_len = 0;
+    ret = fcntl(fd_, F_SETLK, &lock);
+    if (ret == -1 && errno == EINTR) {
+      // The call was interrupted, try again...
+      continue;
+    } else {
+      // All other possible errors are handled in the return below.
+      break;
+    }
+  }
+  return ret != -1;
+}
+
 void OutputFile::Sync() {
   FlushBuffer(true);
 
@@ -468,6 +491,7 @@ void OutputFile::Close() noexcept {
 
   fd_ = -1;
   written_since_last_sync_ = 0;
+  path_ = "";
 }
 
 void OutputFile::FlushBuffer(bool force_flush) {

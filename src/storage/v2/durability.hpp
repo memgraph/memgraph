@@ -426,8 +426,11 @@ class Durability final {
   std::function<void(std::function<void(Transaction *)>)>
       execute_with_transaction_;
 
+  std::filesystem::path storage_directory_;
   std::filesystem::path snapshot_directory_;
   std::filesystem::path wal_directory_;
+  std::filesystem::path lock_file_path_;
+  utils::OutputFile lock_file_handle_;
 
   utils::Scheduler snapshot_runner_;
 

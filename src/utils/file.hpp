@@ -205,6 +205,13 @@ class OutputFile {
   /// program.
   size_t SetPosition(Position position, ssize_t offset);
 
+  /// This function tries to acquire a POSIX write lock on the file. The
+  /// acquired lock is valid during the whole lifetime of the process and can't
+  /// be acquired again. The function returns `true` if the lock was required
+  /// successfully, `false` is returned otherwise. On misuse it crashes the
+  /// program.
+  bool AcquireLock();
+
   /// Syncs currently pending data to the currently opened file. On failure
   /// and misuse it crashes the program.
   void Sync();
