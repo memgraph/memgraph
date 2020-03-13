@@ -76,10 +76,12 @@ for i in /usr/share/memgraph/examples/*; do
     if [ ! -d $i/telemetry ]; then
         mkdir $i/telemetry || exit 1
     fi
-    chown -R memgraph:memgraph $i/telemetry || exit 1
     # Make snapshots directory immutable (optional)
     chattr +i -R $i/snapshots || true
 done
+
+# Change ownership of all examples
+chown -R memgraph:memgraph /usr/share/memgraph/examples || exit 1
 
 # Generate SSL certificates
 if [ ! -d /etc/memgraph/ssl ]; then
