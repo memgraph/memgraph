@@ -1530,6 +1530,31 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, CallProcedureBeforeScanAll) {
+  // Test CALL proc() YIELD field MATCH (n) WHERE n.prop = field RETURN n
+  AstStorage storage;
+  auto *ast_call = storage.Create<query::CallProcedure>();
+  ast_call->procedure_name_ = "proc";
+  ast_call->result_fields_ = {"field"};
+  ast_call->result_identifiers_ = {IDENT("field")};
+  FakeDbAccessor dba;
+  auto property = dba.Property("prop");
+  auto *query = QUERY(SINGLE_QUERY(
+      ast_call, MATCH(PATTERN(NODE("n"))),
+      WHERE(EQ(PROPERTY_LOOKUP("n", property), IDENT("field"))), RETURN("n")));
+  auto symbol_table = query::MakeSymbolTable(query);
+  std::vector<Symbol> result_syms;
+  result_syms.reserve(ast_call->result_identifiers_.size());
+  for (const auto *ident : ast_call->result_identifiers_) {
+    result_syms.push_back(symbol_table.at(*ident));
+  }
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
+                                ast_call->result_fields_, result_syms),
+            ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ScanAllById) {
   // Test MATCH (n) WHERE id(n) = 42 RETURN n
   AstStorage storage;

@@ -274,7 +274,9 @@ struct Matching {
 /// Each part ends with either:
 ///
 ///  * `RETURN` clause;
-///  * `WITH` clause or
+///  * `WITH` clause;
+///  * `UNWIND` clause;
+///  * `CALL` clause or
 ///  * any of the write clauses.
 ///
 /// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
