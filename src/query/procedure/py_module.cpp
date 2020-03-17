@@ -171,6 +171,8 @@ PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(!!self->graph);
 }
 
+PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph);
+
 PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   CHECK(self->graph);
   CHECK(self->memory);
@@ -184,7 +186,9 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
                     "Unable to find the vertex with given ID.");
     return nullptr;
   }
-  return MakePyVertex(*vertex, self);
+  auto *py_vertex = MakePyVertex(vertex, self);
+  if (!py_vertex) mgp_vertex_destroy(vertex);
+  return py_vertex;
 }
 
 PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
@@ -1129,6 +1133,19 @@ static PyTypeObject PyVertexType = {
     .tp_richcompare = PyVertexRichCompare,
 };
 
+PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
+  CHECK(vertex);
+  CHECK(py_graph);
+  CHECK(py_graph->graph && py_graph->memory);
+  CHECK(vertex->GetMemoryResource() == py_graph->memory->impl);
+  auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
+  if (!py_vertex) return nullptr;
+  py_vertex->vertex = vertex;
+  py_vertex->py_graph = py_graph;
+  Py_INCREF(py_graph);
+  return PyObject_Init(reinterpret_cast<PyObject *>(py_vertex), &PyVertexType);
+}
+
 PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph) {
   CHECK(py_graph);
   CHECK(py_graph->graph && py_graph->memory);
@@ -1137,15 +1154,9 @@ PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertex.");
     return nullptr;
   }
-  auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
-  if (!py_vertex) {
-    mgp_vertex_destroy(vertex_copy);
-    return nullptr;
-  }
-  py_vertex->vertex = vertex_copy;
-  py_vertex->py_graph = py_graph;
-  Py_INCREF(py_graph);
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_vertex), &PyVertexType);
+  auto *py_vertex = MakePyVertex(vertex_copy, py_graph);
+  if (!py_vertex) mgp_vertex_destroy(vertex_copy);
+  return py_vertex;
 }
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
