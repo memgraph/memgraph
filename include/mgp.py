@@ -158,6 +158,16 @@ class EdgeType:
     def name(self) -> str:
         return self._name
 
+    def __eq__(self, other) -> bool:
+        if isinstance(other, EdgeType):
+            return self.name == other.name
+        if isinstance(other, str):
+            return self.name == other
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 class Edge:
     '''Edge in the graph database.
@@ -217,6 +227,9 @@ class Edge:
         if not self.is_valid():
             raise InvalidContextError()
         return self._edge == other._edge
+
+    def __hash__(self) -> int:
+        return hash((self.from_vertex, self.to_vertex, self.type))
 
 
 if sys.version_info >= (3, 5, 2):
@@ -303,6 +316,9 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex == other._vertex
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 class Path:
