@@ -210,6 +210,16 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
+  WithPrintLn([&op](auto &out) {
+    out << "* CallProcedure<" << op.procedure_name_ << "> {";
+    utils::PrintIterable(out, op.result_symbols_, ", ",
+                         [](auto &out, const auto &sym) { out << sym.name(); });
+    out << "}";
+  });
+  return true;
+}
+
 bool PlanPrinter::Visit(query::plan::Once &op) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
@@ -785,6 +795,21 @@ bool PlanToJsonVisitor::PreVisit(Unwind &op) {
   self["name"] = "Unwind";
   self["output_symbol"] = ToJson(op.output_symbol_);
   self["input_expression"] = ToJson(op.input_expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
+  json self;
+  self["name"] = "CallProcedure";
+  self["procedure_name"] = op.procedure_name_;
+  self["arguments"] = ToJson(op.arguments_);
+  self["result_fields"] = op.result_fields_;
+  self["result_symbols"] = ToJson(op.result_symbols_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

@@ -951,3 +951,22 @@ TEST_F(PrintToJsonTest, Cartesian) {
             }
           })sep");
 }
+
+TEST_F(PrintToJsonTest, CallProcedure) {
+  query::plan::CallProcedure call_op;
+  call_op.input_ = std::make_shared<Once>();
+  call_op.procedure_name_ = "mg.reload";
+  call_op.arguments_ = {LITERAL("example")};
+  call_op.result_fields_ = {"name", "signature"};
+  call_op.result_symbols_ = {GetSymbol("name_alias"),
+                             GetSymbol("signature_alias")};
+  Check(&call_op, R"sep(
+          {
+            "arguments" : ["\"example\""],
+            "input" : { "name" : "Once" },
+            "name" : "CallProcedure",
+            "procedure_name" : "mg.reload",
+            "result_fields" : ["name", "signature"],
+            "result_symbols" : ["name_alias", "signature_alias"]
+          })sep");
+}
