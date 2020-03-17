@@ -25,7 +25,7 @@ install(PROGRAMS $<TARGET_FILE:example>
         DESTINATION lib/memgraph/query_modules
         RENAME example.so)
 # Also install the source of the example, so user can read it.
-install(FILES example.c DESTINATION lib/memgraph/query_modules)
+install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 
 # Install the Python example
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)

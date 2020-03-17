@@ -403,6 +403,10 @@ ModuleRegistry::ModuleRegistry() {
 bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
   std::unique_lock<utils::RWLock> guard(lock_);
   std::string module_name(path.stem());
+  if (path.extension() != ".so" && path.extension() != ".py") {
+    LOG(WARNING) << "Unknown query module file " << path;
+    return false;
+  }
   if (modules_.find(module_name) != modules_.end()) {
     LOG(ERROR) << "Unable to overwrite an already loaded module " << path;
     return false;
@@ -418,7 +422,8 @@ bool ModuleRegistry::LoadModuleLibrary(std::filesystem::path path) {
     if (!loaded) return false;
     modules_[module_name] = std::move(module);
   } else {
-    LOG(ERROR) << "Unknown query module file " << path;
+    LOG(FATAL) << "Unknown query module extension '" << path.extension()
+               << "' from file " << path;
     return false;
   }
   return true;
