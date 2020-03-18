@@ -539,6 +539,16 @@ const struct mgp_edge *mgp_edges_iterator_get(
 /// NULL is returned if the end of the iteration has been reached.
 const struct mgp_edge *mgp_edges_iterator_next(struct mgp_edges_iterator *it);
 
+/// ID of an edge; valid during a single query execution.
+struct mgp_edge_id {
+  int64_t as_int;
+};
+
+/// Get the ID of given edge.
+/// The ID is only valid for a single query execution, you should never store it
+/// globally in a query module.
+struct mgp_edge_id mgp_edge_get_id(const struct mgp_edge *e);
+
 /// Copy a mgp_edge.
 /// Returned pointer must be freed with mgp_edge_destroy.
 /// NULL is returned if unable to allocate a mgp_edge.

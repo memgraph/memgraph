@@ -835,6 +835,14 @@ PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(self->py_graph && self->py_graph->graph);
 }
 
+PyObject *PyEdgeGetId(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self);
+  CHECK(self->edge);
+  CHECK(self->py_graph);
+  CHECK(self->py_graph->graph);
+  return PyLong_FromLongLong(mgp_edge_get_id(self->edge).as_int);
+}
+
 PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self);
   CHECK(self->edge);
@@ -884,6 +892,8 @@ static PyMethodDef PyEdgeMethods[] = {
      METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
      "Return True if Edge is in valid context and may be used."},
+    {"get_id", reinterpret_cast<PyCFunction>(PyEdgeGetId), METH_NOARGS,
+     "Return edge id."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName),
      METH_NOARGS, "Return the edge's type name."},
     {"from_vertex", reinterpret_cast<PyCFunction>(PyEdgeFromVertex),

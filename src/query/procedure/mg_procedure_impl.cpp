@@ -1141,6 +1141,10 @@ const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
   }
 }
 
+mgp_edge_id mgp_edge_get_id(const mgp_edge *e) {
+  return mgp_edge_id{.as_int = e->impl.Gid().AsInt()};
+}
+
 mgp_edge *mgp_edge_copy(const mgp_edge *v, mgp_memory *memory) {
   return new_mgp_object<mgp_edge>(memory, v->impl, v->from.graph);
 }

@@ -165,8 +165,11 @@ class EdgeType:
             return self.name == other
         return NotImplemented
 
-    def __hash__(self) -> int:
-        return hash(self.name)
+
+if sys.version_info >= (3, 5, 2):
+    EdgeId = typing.NewType('EdgeId', int)
+else:
+    EdgeId = int
 
 
 class Edge:
@@ -193,6 +196,13 @@ class Edge:
     def is_valid(self) -> bool:
         '''Return True if `self` is in valid context and may be used.'''
         return self._edge.is_valid()
+
+    @property
+    def id(self) -> EdgeId:
+        '''Raise InvalidContextError.'''
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._edge.get_id()
 
     @property
     def type(self) -> EdgeType:
@@ -229,7 +239,7 @@ class Edge:
         return self._edge == other._edge
 
     def __hash__(self) -> int:
-        return hash((self.from_vertex, self.to_vertex, self.type))
+        return hash(self.id)
 
 
 if sys.version_info >= (3, 5, 2):
