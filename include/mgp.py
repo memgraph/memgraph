@@ -439,12 +439,13 @@ class Record:
 
 class Vertices:
     '''Iterable over vertices in a graph.'''
-    __slots__ = ('_graph',)
+    __slots__ = ('_graph', '_len')
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
             raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
+        self._len = None
 
     def __deepcopy__(self, memo):
         # This is the same as the shallow copy, because we want to share the
@@ -467,6 +468,18 @@ class Vertices:
             if not self.is_valid():
                 raise InvalidContextError()
             vertex = vertices_it.next()
+
+    def __contains__(self, vertex):
+        try:
+            _ = self.graph.get_vertex_by_id(vertex.id)
+            return True
+        except IndexError:
+            return False
+
+    def __len__(self):
+        if not self._len:
+            self._len = sum(1 for _ in self)
+        return self._len
 
 
 class Graph:
