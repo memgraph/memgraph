@@ -1405,7 +1405,11 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   CHECK(py_query_module);
   CHECK(py_mgp.SetAttr("_MODULE", py_query_module));
   auto ret = fun();
+  auto maybe_exc = py::FetchError();
   CHECK(py_mgp.SetAttr("_MODULE", Py_None));
+  if (maybe_exc) {
+    py::RestoreError(*maybe_exc);
+  }
   return ret;
 }
 

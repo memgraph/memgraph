@@ -230,6 +230,11 @@ inline std::ostream &operator<<(std::ostream &os,
   return ExceptionInfo{Object(exc_type), Object(exc_value), Object(traceback)};
 }
 
+inline void RestoreError(ExceptionInfo exc_info) {
+  PyErr_Restore(exc_info.type.Steal(), exc_info.value.Steal(),
+                exc_info.traceback.Steal());
+}
+
 /// Append `dir` to Python's `sys.path`.
 ///
 /// The function does not check whether the directory exists, or is readable.
