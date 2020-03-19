@@ -90,3 +90,12 @@ TEST(Module, ProcedureSignature) {
                  "opt2 = \"string=\\\"value\\\"\" :: STRING) :: "
                  "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
 }
+
+TEST(Module, ProcedureSignatureOnlyOptArg) {
+  mgp_memory memory{utils::NewDeleteResource()};
+  mgp_module module(utils::NewDeleteResource());
+  auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyCallback);
+  mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()),
+                       mgp_value_make_null(&memory));
+  CheckSignature(proc, "proc(opt1 = Null :: ANY?) :: ()");
+}

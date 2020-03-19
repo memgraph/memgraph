@@ -1521,13 +1521,14 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
 }
 
 }  // namespace
+
 void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
   (*stream) << proc.name << "(";
   utils::PrintIterable(
       *stream, proc.args, ", ", [](auto &stream, const auto &arg) {
         stream << arg.first << " :: " << arg.second->GetPresentableName();
       });
-  if (!proc.opt_args.empty()) (*stream) << ", ";
+  if (!proc.args.empty() && !proc.opt_args.empty()) (*stream) << ", ";
   utils::PrintIterable(
       *stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
         stream << std::get<0>(arg) << " = ";
