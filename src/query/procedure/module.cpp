@@ -331,6 +331,7 @@ class PythonModule final : public Module {
       const override;
 
  private:
+  std::filesystem::path file_path_;
   py::Object py_module_;
   std::map<std::string, mgp_proc, std::less<>> procedures_;
 };
@@ -344,6 +345,7 @@ PythonModule::~PythonModule() {
 bool PythonModule::Load(std::filesystem::path file_path) {
   CHECK(!py_module_) << "Attempting to load an already loaded module...";
   LOG(INFO) << "Loading module " << file_path << " ...";
+  file_path_ = file_path;
   auto gil = py::EnsureGIL();
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
@@ -354,7 +356,10 @@ bool PythonModule::Load(std::filesystem::path file_path) {
       WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
         return ImportPyModule(file_path.stem().c_str(), module_def);
       });
-  if (py_module_) return true;
+  if (py_module_) {
+    LOG(INFO) << "Loaded module " << file_path;
+    return true;
+  }
   auto exc_info = py::FetchError().value();
   LOG(ERROR) << "Unable to load module " << file_path << "; " << exc_info;
   return false;
@@ -363,11 +368,13 @@ bool PythonModule::Load(std::filesystem::path file_path) {
 bool PythonModule::Close() {
   CHECK(py_module_)
       << "Attempting to close a module that has not been loaded...";
+  LOG(INFO) << "Closing module " << file_path_ << " ...";
   // Deleting procedures will probably release PyObject closures, so we need to
   // take the GIL.
   auto gil = py::EnsureGIL();
   procedures_.clear();
   py_module_ = py::Object(nullptr);
+  LOG(INFO) << "Closed module " << file_path_;
   return true;
 }
 
@@ -450,6 +457,7 @@ bool ModuleRegistry::ReloadModuleNamed(const std::string_view &name) {
     modules_.erase(found_it);
     return false;
   }
+  LOG(INFO) << "Reloaded module '" << name << "'";
   return true;
 }
 
@@ -461,6 +469,7 @@ bool ModuleRegistry::ReloadAllModules() {
       modules_.erase(name);
       return false;
     }
+    LOG(INFO) << "Reloaded module '" << name << "'";
   }
   return true;
 }

@@ -3836,8 +3836,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    LOG(INFO) << "Running '" << fully_qualified_procedure_name
-              << "' with memory limit of " << *memory_limit << " bytes";
+    DLOG(INFO) << "Running '" << fully_qualified_procedure_name
+               << "' with memory limit of " << *memory_limit << " bytes";
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     CHECK(result->signature == &proc.results);
