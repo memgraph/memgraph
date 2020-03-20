@@ -1147,6 +1147,11 @@ Transaction Storage::CreateTransaction() {
 }
 
 void Storage::CollectGarbage() {
+  // Because the garbage collector iterates through the indices and constraints
+  // to clean them up, it must take the main lock for reading to make sure that
+  // the indices and constraints aren't concurrently being modified.
+  std::shared_lock<utils::RWLock> main_guard(main_lock_);
+
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
   // the version chains. They cannot be deleted immediately, because there
