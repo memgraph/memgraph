@@ -30,17 +30,16 @@ TEST(PyModule, MgpValueToPyObject) {
   auto gil = py::EnsureGIL();
   py::Object py_graph(query::procedure::MakePyGraph(nullptr, &memory));
   auto py_dict = query::procedure::MgpValueToPyObject(
-      *map_val, reinterpret_cast<query::procedure::PyGraph *>(
-                    static_cast<PyObject *>(py_graph)));
+      *map_val, reinterpret_cast<query::procedure::PyGraph *>(py_graph.Ptr()));
   mgp_value_destroy(map_val);
   // We should now have in Python:
   // {"list": (None, False, True, 42, 0.1, "some text")}
   ASSERT_TRUE(PyDict_Check(py_dict));
-  EXPECT_EQ(PyDict_Size(py_dict), 1);
+  EXPECT_EQ(PyDict_Size(py_dict.Ptr()), 1);
   PyObject *key = nullptr;
   PyObject *value = nullptr;
   Py_ssize_t pos = 0;
-  while (PyDict_Next(py_dict, &pos, &key, &value)) {
+  while (PyDict_Next(py_dict.Ptr(), &pos, &key, &value)) {
     ASSERT_TRUE(PyUnicode_Check(key));
     EXPECT_EQ(std::string(PyUnicode_AsUTF8(key)), "list");
     ASSERT_TRUE(PyTuple_Check(value));
@@ -117,12 +116,12 @@ TEST(PyModule, PyVertex) {
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Vertex.
   py::Object py_vertex_value(
-      query::procedure::MgpValueToPyObject(*vertex_value, py_graph));
+      query::procedure::MgpValueToPyObject(*vertex_value, py_graph.Ptr()));
   ASSERT_TRUE(py_vertex_value);
-  AssertPickleAndCopyAreNotSupported(py_vertex_value.GetAttr("_vertex"));
+  AssertPickleAndCopyAreNotSupported(py_vertex_value.GetAttr("_vertex").Ptr());
   // Convert from mgp.Vertex to mgp_value.
   auto *new_vertex_value =
-      query::procedure::PyObjectToMgpValue(py_vertex_value, &memory);
+      query::procedure::PyObjectToMgpValue(py_vertex_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
@@ -175,12 +174,12 @@ TEST(PyModule, PyEdge) {
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Edge.
   py::Object py_edge_value(
-      query::procedure::MgpValueToPyObject(*edge_value, py_graph));
+      query::procedure::MgpValueToPyObject(*edge_value, py_graph.Ptr()));
   ASSERT_TRUE(py_edge_value);
-  AssertPickleAndCopyAreNotSupported(py_edge_value.GetAttr("_edge"));
+  AssertPickleAndCopyAreNotSupported(py_edge_value.GetAttr("_edge").Ptr());
   // Convert from mgp.Edge to mgp_value.
   auto *new_edge_value =
-      query::procedure::PyObjectToMgpValue(py_edge_value, &memory);
+      query::procedure::PyObjectToMgpValue(py_edge_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
@@ -227,12 +226,12 @@ TEST(PyModule, PyPath) {
   ASSERT_TRUE(py_graph);
   // We have setup the C structs, so create convert to PyObject.
   py::Object py_path_value(
-      query::procedure::MgpValueToPyObject(*path_value, py_graph));
+      query::procedure::MgpValueToPyObject(*path_value, py_graph.Ptr()));
   ASSERT_TRUE(py_path_value);
-  AssertPickleAndCopyAreNotSupported(py_path_value.GetAttr("_path"));
+  AssertPickleAndCopyAreNotSupported(py_path_value.GetAttr("_path").Ptr());
   // Convert back to C struct and check equality.
   auto *new_path_value =
-      query::procedure::PyObjectToMgpValue(py_path_value, &memory);
+      query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
   ASSERT_TRUE(mgp_value_is_path(new_path_value));
@@ -248,7 +247,8 @@ TEST(PyModule, PyObjectToMgpValue) {
   auto gil = py::EnsureGIL();
   py::Object py_value{Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one",
                                     2, 2.0, "two", "three", 3, "four", 4.0)};
-  mgp_value *value = query::procedure::PyObjectToMgpValue(py_value, &memory);
+  mgp_value *value =
+      query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
 
   ASSERT_TRUE(mgp_value_is_list(value));
   const mgp_list *list1 = mgp_value_get_list(value);
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
     CHECK(py_path);
     py::Object import_dir(
         PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
-    if (PyList_Append(py_path, import_dir) != 0) {
+    if (PyList_Append(py_path, import_dir.Ptr()) != 0) {
       auto exc_info = py::FetchError().value();
       LOG(FATAL) << exc_info;
     }

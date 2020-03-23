@@ -385,7 +385,7 @@ bool PythonModule::Reload() {
   procedures_.clear();
   py_module_ =
       WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
-        return ReloadPyModule(py_module_, module_def);
+        return ReloadPyModule(py_module_.Ptr(), module_def);
       });
   if (py_module_) return true;
   auto exc_info = py::FetchError().value();

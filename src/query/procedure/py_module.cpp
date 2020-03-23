@@ -409,7 +409,7 @@ py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
     if (!elem) return nullptr;
     // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
     // Then the macro will cast it to `PyTuple *`.
-    PyTuple_SET_ITEM(static_cast<PyObject *>(py_tuple), i, elem.Steal());
+    PyTuple_SET_ITEM(py_tuple.Ptr(), i, elem.Steal());
   }
   return py_tuple;
 }
@@ -437,7 +437,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result,
   if (!py_mgp) return py::FetchError();
   auto record_cls = py_mgp.GetAttr("Record");
   if (!record_cls) return py::FetchError();
-  if (!PyObject_IsInstance(py_record, record_cls)) {
+  if (!PyObject_IsInstance(py_record.Ptr(), record_cls.Ptr())) {
     std::stringstream ss;
     ss << "Value '" << py_record << "' is not an instance of 'mgp.Record'";
     const auto &msg = ss.str();
@@ -451,16 +451,16 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result,
                     "Expected 'mgp.Record.fields' to be a 'dict'");
     return py::FetchError();
   }
-  py::Object items(PyDict_Items(fields));
+  py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   auto *record = mgp_result_new_record(result);
   if (!record) {
     PyErr_NoMemory();
     return py::FetchError();
   }
-  Py_ssize_t len = PyList_GET_SIZE(static_cast<PyObject *>(items));
+  Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *item = PyList_GET_ITEM(static_cast<PyObject *>(items), i);
+    auto *item = PyList_GET_ITEM(items.Ptr(), i);
     if (!item) return py::FetchError();
     CHECK(PyTuple_Check(item));
     auto *key = PyTuple_GetItem(item, 0);
@@ -504,10 +504,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result,
 
 std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(
     mgp_result *result, py::Object py_seq) {
-  Py_ssize_t len = PySequence_Size(py_seq);
+  Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
   for (Py_ssize_t i = 0; i < len; ++i) {
-    py::Object py_record(PySequence_GetItem(py_seq, i));
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
     if (!py_record) return py::FetchError();
     auto maybe_exc = AddRecordFromPython(result, py_record);
     if (maybe_exc) return maybe_exc;
@@ -554,7 +554,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   }
   auto py_cb = py::Object::FromBorrow(cb);
   py::Object py_name(py_cb.GetAttr("__name__"));
-  const auto *name = PyUnicode_AsUTF8(py_name);
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
   if (!name) return nullptr;
   if (!IsValidIdentifierName(name)) {
     PyErr_SetString(PyExc_ValueError,
@@ -567,19 +567,19 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
       [py_cb](const mgp_list *args, const mgp_graph *graph, mgp_result *result,
               mgp_memory *memory) {
         auto gil = py::EnsureGIL();
-        auto maybe_exc =
-            WithPyGraph(graph, memory,
-                        [&](auto py_graph) -> std::optional<py::ExceptionInfo> {
-                          py::Object py_args(MgpListToPyTuple(args, py_graph));
-                          if (!py_args) return py::FetchError();
-                          auto py_res = py_cb.Call(py_graph, py_args);
-                          if (!py_res) return py::FetchError();
-                          if (PySequence_Check(py_res)) {
-                            return AddMultipleRecordsFromPython(result, py_res);
-                          } else {
-                            return AddRecordFromPython(result, py_res);
-                          }
-                        });
+        auto maybe_exc = WithPyGraph(
+            graph, memory,
+            [&](auto py_graph) -> std::optional<py::ExceptionInfo> {
+              py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+              if (!py_args) return py::FetchError();
+              auto py_res = py_cb.Call(py_graph, py_args);
+              if (!py_res) return py::FetchError();
+              if (PySequence_Check(py_res.Ptr())) {
+                return AddMultipleRecordsFromPython(result, py_res);
+              } else {
+                return AddRecordFromPython(result, py_res);
+              }
+            });
         if (maybe_exc) return SetErrorFromPython(result, *maybe_exc);
       },
       memory);
@@ -748,8 +748,7 @@ PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self,
   if (!py_name) return nullptr;
   auto py_value = MgpValueToPyObject(*property->value, self->py_graph);
   if (!py_value) return nullptr;
-  return PyTuple_Pack(2, static_cast<PyObject *>(py_name),
-                      static_cast<PyObject *>(py_value));
+  return PyTuple_Pack(2, py_name.Ptr(), py_value.Ptr());
 }
 
 PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self,
@@ -763,8 +762,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self,
   if (!py_name) return nullptr;
   auto py_value = MgpValueToPyObject(*property->value, self->py_graph);
   if (!py_value) return nullptr;
-  return PyTuple_Pack(2, static_cast<PyObject *>(py_name),
-                      static_cast<PyObject *>(py_value));
+  return PyTuple_Pack(2, py_name.Ptr(), py_value.Ptr());
 }
 
 static PyMethodDef PyPropertiesIteratorMethods[] = {
@@ -884,7 +882,7 @@ PyObject *PyEdgeGetProperty(PyEdge *self, PyObject *args) {
   }
   auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
   mgp_value_destroy(prop_value);
-  return py_prop_value;
+  return py_prop_value.Steal();
 }
 
 static PyMethodDef PyEdgeMethods[] = {
@@ -1105,7 +1103,7 @@ PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
   }
   auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
   mgp_value_destroy(prop_value);
-  return py_prop_value;
+  return py_prop_value.Steal();
 }
 
 static PyMethodDef PyVertexMethods[] = {
@@ -1397,7 +1395,7 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   CHECK(py_mgp_module) << "Expected '_mgp' to have attribute '_MODULE'";
   // NOTE: This check is not thread safe, but this should only go through
   // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
-  CHECK(py_mgp_module == Py_None)
+  CHECK(py_mgp_module.Ptr() == Py_None)
       << "Expected '_mgp._MODULE' to be None as we are just starting to "
          "import a new module. Is some other thread also importing Python "
          "modules?";
@@ -1457,7 +1455,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
         auto py_val = MgpValueToPyObject(val, py_graph);
         if (!py_val) return nullptr;
         // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
-        if (PyDict_SetItemString(py_dict, key.c_str(), py_val) != 0)
+        if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0)
           return nullptr;
       }
       return py_dict;
@@ -1534,7 +1532,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       ss << "'mgp' module is missing '" << mgp_type_name << "' type";
       throw std::invalid_argument(ss.str());
     }
-    int res = PyObject_IsInstance(obj, mgp_type);
+    int res = PyObject_IsInstance(obj, mgp_type.Ptr());
     if (res == -1) {
       PyErr_Clear();
       std::stringstream ss;
@@ -1655,7 +1653,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Edge' is missing '_edge' attribute");
     }
-    return PyObjectToMgpValue(edge, memory);
+    return PyObjectToMgpValue(edge.Ptr(), memory);
   } else if (is_mgp_instance(o, "Vertex")) {
     py::Object vertex(PyObject_GetAttrString(o, "_vertex"));
     if (!vertex) {
@@ -1663,14 +1661,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::invalid_argument(
           "'mgp.Vertex' is missing '_vertex' attribute");
     }
-    return PyObjectToMgpValue(vertex, memory);
+    return PyObjectToMgpValue(vertex.Ptr(), memory);
   } else if (is_mgp_instance(o, "Path")) {
     py::Object path(PyObject_GetAttrString(o, "_path"));
     if (!path) {
       PyErr_Clear();
       throw std::invalid_argument("'mgp.Path' is missing '_path' attribute");
     }
-    return PyObjectToMgpValue(path, memory);
+    return PyObjectToMgpValue(path.Ptr(), memory);
   } else {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }

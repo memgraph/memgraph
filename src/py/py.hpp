@@ -75,11 +75,18 @@ class [[nodiscard]] Object final {
     return *this;
   }
 
-  operator PyObject *() const { return ptr_; }
-
   operator bool() const { return ptr_; }
 
+  /// Borrow the original `PyObject *`, the ownership is not transferred.
+  /// @sa Steal
+  explicit operator PyObject *() const { return ptr_; }
+
+  /// Borrow the original `PyObject *`, the ownership is not transferred.
+  /// @sa Steal
+  PyObject *Ptr() const { return ptr_; }
+
   /// Release the ownership on this PyObject, i.e. we steal the reference.
+  /// @sa Ptr
   PyObject *Steal() {
     auto *p = ptr_;
     ptr_ = nullptr;
@@ -165,7 +172,7 @@ class [[nodiscard]] Object final {
   Object CallMethod(std::string_view meth_name) const {
     Object name(
         PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
-    return Object(PyObject_CallMethodObjArgs(ptr_, name, nullptr));
+    return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), nullptr));
   }
 
   /// Equivalent to `obj.meth_name(*args)` in Python.
@@ -177,14 +184,14 @@ class [[nodiscard]] Object final {
     Object name(
         PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
     return Object(PyObject_CallMethodObjArgs(
-        ptr_, name, static_cast<PyObject *>(args)..., nullptr));
+        ptr_, name.Ptr(), static_cast<PyObject *>(args)..., nullptr));
   }
 };
 
 /// Write Object to stream as if `str(o)` was called in Python.
 inline std::ostream &operator<<(std::ostream &os, const Object &py_object) {
   auto py_str = py_object.Str();
-  os << PyUnicode_AsUTF8(py_str);
+  os << PyUnicode_AsUTF8(py_str.Ptr());
   return os;
 }
 
@@ -208,12 +215,12 @@ inline std::ostream &operator<<(std::ostream &os,
   Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
   CHECK(format_exception_fn);
   auto list = format_exception_fn.Call(
-      exc_info.type, exc_info.value ? exc_info.value : Py_None,
-      exc_info.traceback ? exc_info.traceback : Py_None);
+      exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
+      exc_info.traceback ? exc_info.traceback.Ptr() : Py_None);
   CHECK(list);
-  auto len = PyList_GET_SIZE(static_cast<PyObject *>(list));
+  auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *py_str = PyList_GET_ITEM(static_cast<PyObject *>(list), i);
+    auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
     os << PyUnicode_AsUTF8(py_str);
   }
   return os;
@@ -246,10 +253,10 @@ inline void RestoreError(ExceptionInfo exc_info) {
   CHECK(py_path);
   py::Object import_dir(PyUnicode_FromString(dir));
   if (!import_dir) return py::FetchError();
-  int import_dir_in_path = PySequence_Contains(py_path, import_dir);
+  int import_dir_in_path = PySequence_Contains(py_path, import_dir.Ptr());
   if (import_dir_in_path == -1) return py::FetchError();
   if (import_dir_in_path == 1) return std::nullopt;
-  if (PyList_Append(py_path, import_dir) == -1) return py::FetchError();
+  if (PyList_Append(py_path, import_dir.Ptr()) == -1) return py::FetchError();
   return std::nullopt;
 }
 
