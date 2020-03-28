@@ -1131,7 +1131,8 @@ static PyMethodDef PyVertexMethods[] = {
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
 static PyTypeObject PyVertexType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Vertex",
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Vertex",
     .tp_doc = "Wraps struct mgp_vertex.",
     .tp_basicsize = sizeof(PyVertex),
     .tp_flags = Py_TPFLAGS_DEFAULT,
@@ -1291,7 +1292,8 @@ static PyMethodDef PyPathMethods[] = {
 };
 
 static PyTypeObject PyPathType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Path",
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Path",
     .tp_doc = "Wraps struct mgp_path.",
     .tp_basicsize = sizeof(PyPath),
     .tp_flags = Py_TPFLAGS_DEFAULT,
