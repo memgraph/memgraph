@@ -96,7 +96,6 @@ static PyTypeObject PyVerticesIteratorType = {
     .tp_doc = "Wraps struct mgp_vertices_iterator.",
     .tp_basicsize = sizeof(PyVerticesIterator),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyVerticesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
 };
@@ -156,7 +155,6 @@ static PyTypeObject PyEdgesIteratorType = {
     .tp_doc = "Wraps struct mgp_edges_iterator.",
     .tp_basicsize = sizeof(PyEdgesIterator),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyEdgesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
 };
@@ -209,8 +207,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   py_vertices_it->it = vertices_it;
   Py_INCREF(self);
   py_vertices_it->py_graph = self;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_vertices_it),
-                       &PyVerticesIteratorType);
+  return reinterpret_cast<PyObject *>(py_vertices_it);
 }
 
 static PyMethodDef PyGraphMethods[] = {
@@ -234,7 +231,6 @@ static PyTypeObject PyGraphType = {
     .tp_doc = "Wraps struct mgp_graph.",
     .tp_basicsize = sizeof(PyGraph),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyGraphMethods,
 };
 
@@ -244,7 +240,7 @@ PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   if (!py_graph) return nullptr;
   py_graph->graph = graph;
   py_graph->memory = memory;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_graph), &PyGraphType);
+  return reinterpret_cast<PyObject *>(py_graph);
 }
 
 struct PyCypherType {
@@ -258,7 +254,6 @@ static PyTypeObject PyCypherTypeType = {
     .tp_doc = "Wraps struct mgp_type.",
     .tp_basicsize = sizeof(PyCypherType),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
 };
 
 PyObject *MakePyCypherType(const mgp_type *type) {
@@ -266,8 +261,7 @@ PyObject *MakePyCypherType(const mgp_type *type) {
   auto *py_type = PyObject_New(PyCypherType, &PyCypherTypeType);
   if (!py_type) return nullptr;
   py_type->type = type;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_type),
-                       &PyCypherTypeType);
+  return reinterpret_cast<PyObject *>(py_type);
 }
 
 struct PyQueryProc {
@@ -389,7 +383,6 @@ static PyTypeObject PyQueryProcType = {
     .tp_doc = "Wraps struct mgp_proc.",
     .tp_basicsize = sizeof(PyQueryProc),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyQueryProcMethods,
 };
 
@@ -593,7 +586,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);
   if (!py_proc) return nullptr;
   py_proc->proc = &proc_it->second;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_proc), &PyQueryProcType);
+  return reinterpret_cast<PyObject *>(py_proc);
 }
 
 static PyMethodDef PyQueryModuleMethods[] = {
@@ -611,7 +604,6 @@ static PyTypeObject PyQueryModuleType = {
     .tp_doc = "Wraps struct mgp_module.",
     .tp_basicsize = sizeof(PyQueryModule),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyQueryModuleMethods,
 };
 
@@ -620,8 +612,7 @@ PyObject *MakePyQueryModule(mgp_module *module) {
   auto *py_query_module = PyObject_New(PyQueryModule, &PyQueryModuleType);
   if (!py_query_module) return nullptr;
   py_query_module->module = module;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_query_module),
-                       &PyQueryModuleType);
+  return reinterpret_cast<PyObject *>(py_query_module);
 }
 
 PyObject *PyMgpModuleTypeNullable(PyObject *mod, PyObject *obj) {
@@ -779,7 +770,6 @@ static PyTypeObject PyPropertiesIteratorType = {
     .tp_doc = "Wraps struct mgp_properties_iterator.",
     .tp_basicsize = sizeof(PyPropertiesIterator),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyPropertiesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
 };
@@ -862,8 +852,7 @@ PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   py_properties_it->it = properties_it;
   Py_INCREF(self->py_graph);
   py_properties_it->py_graph = self->py_graph;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_properties_it),
-                       &PyPropertiesIteratorType);
+  return reinterpret_cast<PyObject *>(py_properties_it);
 }
 
 PyObject *PyEdgeGetProperty(PyEdge *self, PyObject *args) {
@@ -913,7 +902,6 @@ static PyTypeObject PyEdgeType = {
     .tp_doc = "Wraps struct mgp_edge.",
     .tp_basicsize = sizeof(PyEdge),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyEdgeMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
     .tp_richcompare = PyEdgeRichCompare,
@@ -939,7 +927,7 @@ PyObject *MakePyEdge(const mgp_edge &edge, PyGraph *py_graph) {
   py_edge->edge = edge_copy;
   py_edge->py_graph = py_graph;
   Py_INCREF(py_graph);
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_edge), &PyEdgeType);
+  return reinterpret_cast<PyObject *>(py_edge);
 }
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
@@ -1034,8 +1022,7 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   py_edges_it->it = edges_it;
   Py_INCREF(self->py_graph);
   py_edges_it->py_graph = self->py_graph;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_edges_it),
-                       &PyEdgesIteratorType);
+  return reinterpret_cast<PyObject *>(py_edges_it);
 }
 
 PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -1058,8 +1045,7 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   py_edges_it->it = edges_it;
   Py_INCREF(self->py_graph);
   py_edges_it->py_graph = self->py_graph;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_edges_it),
-                       &PyEdgesIteratorType);
+  return reinterpret_cast<PyObject *>(py_edges_it);
 }
 
 PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -1083,8 +1069,7 @@ PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   py_properties_it->it = properties_it;
   Py_INCREF(self->py_graph);
   py_properties_it->py_graph = self->py_graph;
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_properties_it),
-                       &PyPropertiesIteratorType);
+  return reinterpret_cast<PyObject *>(py_properties_it);
 }
 
 PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
@@ -1136,7 +1121,6 @@ static PyTypeObject PyVertexType = {
     .tp_doc = "Wraps struct mgp_vertex.",
     .tp_basicsize = sizeof(PyVertex),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyVertexMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
     .tp_richcompare = PyVertexRichCompare,
@@ -1152,7 +1136,7 @@ PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
   py_vertex->vertex = vertex;
   py_vertex->py_graph = py_graph;
   Py_INCREF(py_graph);
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_vertex), &PyVertexType);
+  return reinterpret_cast<PyObject *>(py_vertex);
 }
 
 PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph) {
@@ -1297,7 +1281,6 @@ static PyTypeObject PyPathType = {
     .tp_doc = "Wraps struct mgp_path.",
     .tp_basicsize = sizeof(PyPath),
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
     .tp_methods = PyPathMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
 };
@@ -1311,7 +1294,7 @@ PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   py_path->path = path;
   py_path->py_graph = py_graph;
   Py_INCREF(py_graph);
-  return PyObject_Init(reinterpret_cast<PyObject *>(py_path), &PyPathType);
+  return reinterpret_cast<PyObject *>(py_path);
 }
 
 PyObject *MakePyPath(const mgp_path &path, PyGraph *py_graph) {
