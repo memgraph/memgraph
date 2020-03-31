@@ -531,6 +531,11 @@ class Graph:
         return Vertices(self._graph)
 
 
+class AbortError(Exception):
+    '''Signals that the procedure was asked to abort its execution.'''
+    pass
+
+
 class ProcCtx:
     '''Context of a procedure being executed.
 
@@ -553,6 +558,15 @@ class ProcCtx:
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph
+
+    def must_abort(self) -> bool:
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph._graph.must_abort()
+
+    def check_must_abort(self):
+        if self.must_abort():
+            raise AbortError
 
 
 # Additional typing support

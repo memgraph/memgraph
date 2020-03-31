@@ -210,6 +210,11 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return reinterpret_cast<PyObject *>(py_vertices_it);
 }
 
+PyObject *PyGraphMustAbort(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+  CHECK(self->graph);
+  return PyBool_FromLong(mgp_must_abort(self->graph));
+}
+
 static PyMethodDef PyGraphMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy),
      METH_NOARGS, "__reduce__ is not supported"},
@@ -222,6 +227,8 @@ static PyMethodDef PyGraphMethods[] = {
      METH_VARARGS, "Get the vertex or raise IndexError."},
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices),
      METH_NOARGS, "Return _mgp.VerticesIterator."},
+    {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
+     "Check whether the running procedure should abort"},
     {nullptr},
 };
 

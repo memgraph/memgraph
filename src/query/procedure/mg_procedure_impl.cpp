@@ -1478,6 +1478,11 @@ int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name,
   return AddResultToProc(proc, name, type, true);
 }
 
+int mgp_must_abort(const mgp_graph *graph) {
+  CHECK(graph->ctx);
+  return query::MustAbort(*graph->ctx);
+}
+
 namespace query::procedure {
 
 namespace {

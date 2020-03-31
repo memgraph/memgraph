@@ -798,6 +798,25 @@ int mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name,
                                    const struct mgp_type *type);
 ///@}
 
+/// @name Execution
+///
+/// The following functions are used to control the execution of the procedure.
+///
+/// @{
+
+/// Return non-zero if the currently executing procedure should abort as soon as
+/// possible.
+///
+/// Procedures which perform heavyweight processing run the risk of running too
+/// long and going over the query execution time limit. To prevent this, such
+/// procedures should periodically call this function at critical points in
+/// their code in order to determine whether they should abort or not. Note that
+/// this mechanism is purely cooperative and depends on the procedure doing the
+/// checking and aborting on its own.
+int mgp_must_abort(const struct mgp_graph *graph);
+
+/// @}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

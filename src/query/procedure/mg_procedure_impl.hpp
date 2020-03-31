@@ -8,6 +8,7 @@
 #include <optional>
 #include <ostream>
 
+#include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/typed_value.hpp"
@@ -353,6 +354,9 @@ struct mgp_result {
 struct mgp_graph {
   query::DbAccessor *impl;
   storage::View view;
+  // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
+  // `ctx` field is out of place here.
+  query::ExecutionContext *ctx;
 };
 
 struct mgp_properties_iterator {

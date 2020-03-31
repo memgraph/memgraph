@@ -59,4 +59,12 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
 };
 
+inline bool MustAbort(const ExecutionContext &context) {
+  return (context.is_shutting_down &&
+          context.is_shutting_down->load(std::memory_order_acquire)) ||
+         (context.max_execution_time_sec > 0 &&
+          context.execution_tsc_timer.Elapsed() >=
+              context.max_execution_time_sec);
+}
+
 }  // namespace query

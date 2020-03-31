@@ -89,14 +89,6 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
-bool MustAbort(const ExecutionContext &context) {
-  return (context.is_shutting_down &&
-          context.is_shutting_down->load(std::memory_order_acquire)) ||
-         (context.max_execution_time_sec > 0 &&
-          context.execution_tsc_timer.Elapsed() >=
-              context.max_execution_time_sec);
-}
-
 }  // namespace
 
 #define SCOPED_PROFILE_OP(name) \
@@ -3922,7 +3914,7 @@ class CallProcedureCursor : public Cursor {
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvalMemoryLimit(&evaluator, self_->memory_limit_,
                                           self_->memory_scale_);
-      mgp_graph graph{context.db_accessor, graph_view};
+      mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_,
                           graph, &evaluator, memory, memory_limit, &result_);
       // Reset result_.signature to nullptr, because outside of this scope we
