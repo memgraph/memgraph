@@ -226,7 +226,21 @@ inline std::ostream &operator<<(std::ostream &os,
   return os;
 }
 
+/// Format ExceptionInfo as a string just like the Python interpreter would.
+[[nodiscard]] inline std::string FormatException(
+    const ExceptionInfo &exc_info) {
+  std::stringstream ss;
+  ss << exc_info;
+  return ss.str();
+}
+
 /// Get the current exception info and clear the current exception indicator.
+///
+/// NOTE: This function must be used with caution because it returns the
+/// exception information as real Python objects. The returned objects will have
+/// references to the current objects on the Python frame in them. That could
+/// cause unintentional lifetime extension of objects that you potentially want
+/// to destroy or, even worse, that you have already destroyed.
 ///
 /// This is normally used to catch and handle exceptions via C API.
 [[nodiscard]] inline std::optional<ExceptionInfo> FetchError() {
