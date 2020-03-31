@@ -206,32 +206,39 @@ struct [[nodiscard]] ExceptionInfo final {
   Object traceback;
 };
 
-/// Write ExceptionInfo to stream just like the Python interpreter would.
-inline std::ostream &operator<<(std::ostream &os,
-                                const ExceptionInfo &exc_info) {
-  if (!exc_info.type) return os;
+/// Format ExceptionInfo as a string just like the Python interpreter would. The
+/// argument `skip_first_line` allows the user to skip the first line of the
+/// traceback. It is useful if the first line in the traceback always prints
+/// some internal wrapper function.
+[[nodiscard]] inline std::string FormatException(const ExceptionInfo &exc_info,
+                                                 bool skip_first_line = false) {
+  if (!exc_info.type) return "";
   Object traceback_mod(PyImport_ImportModule("traceback"));
   CHECK(traceback_mod);
   Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
   CHECK(format_exception_fn);
+  Object traceback_root(exc_info.traceback);
+  if (skip_first_line && traceback_root) {
+    traceback_root = traceback_root.GetAttr("tb_next");
+  }
   auto list = format_exception_fn.Call(
       exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
-      exc_info.traceback ? exc_info.traceback.Ptr() : Py_None);
+      traceback_root ? traceback_root.Ptr() : Py_None);
   CHECK(list);
+  std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
-    os << PyUnicode_AsUTF8(py_str);
+    ss << PyUnicode_AsUTF8(py_str);
   }
-  return os;
+  return ss.str();
 }
 
-/// Format ExceptionInfo as a string just like the Python interpreter would.
-[[nodiscard]] inline std::string FormatException(
-    const ExceptionInfo &exc_info) {
-  std::stringstream ss;
-  ss << exc_info;
-  return ss.str();
+/// Write ExceptionInfo to stream just like the Python interpreter would.
+inline std::ostream &operator<<(std::ostream &os,
+                                const ExceptionInfo &exc_info) {
+  os << FormatException(exc_info);
+  return os;
 }
 
 /// Get the current exception info and clear the current exception indicator.

@@ -509,7 +509,11 @@ void CallPythonProcedure(py::Object py_cb, const mgp_list *args,
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info)
       -> std::optional<std::string> {
     if (!exc_info) return std::nullopt;
-    return py::FormatException(*exc_info);
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
