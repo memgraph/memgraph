@@ -46,9 +46,7 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
-raftInfo : RAFT INFO ;
-
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo | raftInfo ) ;
+infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 

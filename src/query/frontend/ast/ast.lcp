@@ -2151,7 +2151,7 @@ cpp<#
   ((info-type "InfoType" :scope :public))
   (:public
     (lcp:define-enum info-type
-        (storage index constraint raft)
+        (storage index constraint)
       (:serialize))
 
     #>cpp

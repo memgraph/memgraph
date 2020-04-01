@@ -192,10 +192,8 @@ class BoltSession final
         db_(data->db),
         interpreter_(data->interpreter_context),
 #ifdef MG_ENTERPRISE
-#ifndef MG_SINGLE_NODE_HA
         auth_(data->auth),
         audit_log_(data->audit_log),
-#endif
 #endif
         endpoint_(endpoint) {
   }
@@ -211,15 +209,12 @@ class BoltSession final
     for (const auto &kv : params)
       params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifdef MG_ENTERPRISE
-#ifndef MG_SINGLE_NODE_HA
     audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "",
                        query, storage::PropertyValue(params_pv));
-#endif
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv);
 #ifdef MG_ENTERPRISE
-#ifndef MG_SINGLE_NODE_HA
       if (user_) {
         const auto &permissions = user_->GetPermissions();
         for (const auto &privilege : result.second) {
@@ -232,7 +227,6 @@ class BoltSession final
           }
         }
       }
-#endif
 #endif
       return result.first;
 
@@ -278,13 +272,9 @@ class BoltSession final
   bool Authenticate(const std::string &username,
                     const std::string &password) override {
 #ifdef MG_ENTERPRISE
-#ifdef MG_SINGLE_NODE_HA
-    return true;
-#else
     if (!auth_->HasUsers()) return true;
     user_ = auth_->Authenticate(username, password);
     return !!user_;
-#endif
 #else
     return true;
 #endif
@@ -338,11 +328,9 @@ class BoltSession final
   const storage::Storage *db_;
   query::Interpreter interpreter_;
 #ifdef MG_ENTERPRISE
-#ifndef MG_SINGLE_NODE_HA
   auth::Auth *auth_;
   std::optional<auth::User> user_;
   audit::Log *audit_log_;
-#endif
 #endif
   io::network::Endpoint endpoint_;
 };

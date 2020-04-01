@@ -234,8 +234,6 @@ class Interpreter final {
    * the state of the `Interpreter` in such a way so that the next call to
    * `PullAll` executes the query.
    *
-   * @throw raft::CantExecuteQueries if the Memgraph instance is not a Raft
-   * leader and a query other than an Info Raft query was given
    * @throw query::QueryException
    */
   std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
@@ -316,11 +314,6 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
     // Just let the exception propagate for error reporting purposes, but don't
     // abort the current command.
     throw;
-#ifdef MG_SINGLE_NODE_HA
-  } catch (const query::HintedAbortError &) {
-    AbortCommand();
-    throw utils::BasicException("Transaction was asked to abort.");
-#endif
   } catch (const utils::BasicException &) {
     AbortCommand();
     throw;

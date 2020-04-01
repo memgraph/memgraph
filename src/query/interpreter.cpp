@@ -5,9 +5,7 @@
 #include <glog/logging.h>
 
 #include "glue/communication.hpp"
-#ifndef MG_SINGLE_NODE_HA
 #include "query/dump.hpp"
-#endif
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -17,9 +15,6 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
-#ifdef MG_SINGLE_NODE_HA
-#include "raft/exceptions.hpp"
-#endif
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
@@ -658,7 +653,6 @@ PreparedQuery PrepareDumpQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context,
     utils::MonotonicBufferResource *execution_memory) {
-#ifndef MG_SINGLE_NODE_HA
   return PreparedQuery{
       {"QUERY"},
       std::move(parsed_query.required_privileges),
@@ -668,9 +662,6 @@ PreparedQuery PrepareDumpQuery(
         DumpDatabaseToCypherQueries(&query_dba, stream);
         return QueryHandlerResult::NOTHING;
       }};
-#else
-  throw utils::NotYetImplemented("Dump database");
-#endif
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -746,11 +737,6 @@ PreparedQuery PrepareAuthQuery(
     std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context, DbAccessor *dba,
     utils::MonotonicBufferResource *execution_memory) {
-#ifdef MG_SINGLE_NODE_HA
-  throw utils::NotYetImplemented(
-      "Managing user privileges is not yet supported in Memgraph HA "
-      "instance.");
-#else
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -784,7 +770,6 @@ PreparedQuery PrepareAuthQuery(
         return callback.should_abort_query ? QueryHandlerResult::ABORT
                                            : QueryHandlerResult::COMMIT;
       }};
-#endif
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -800,7 +785,6 @@ PreparedQuery PrepareInfoQuery(
 
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
-#ifndef MG_SINGLE_NODE_HA
       header = {"storage info", "value"};
       handler = [db] {
         auto info = db->GetInfo();
@@ -816,22 +800,6 @@ PreparedQuery PrepareInfoQuery(
              TypedValue(static_cast<int64_t>(info.disk_usage))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
-#else
-      header = {"server id", "storage info", "value"};
-      handler = [dba] {
-        auto info = dba->StorageInfo();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.size());
-        for (const auto &peer_info : info) {
-          for (const auto &pair : peer_info.second) {
-            results.push_back({TypedValue(peer_info.first),
-                               TypedValue(pair.first),
-                               TypedValue(pair.second)});
-          }
-        }
-        return std::pair{results, QueryHandlerResult::COMMIT};
-      };
-#endif
       break;
     case InfoQuery::InfoType::INDEX:
       header = {"index type", "label", "property"};
@@ -876,22 +844,6 @@ PreparedQuery PrepareInfoQuery(
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
-      break;
-    case InfoQuery::InfoType::RAFT:
-#if defined(MG_SINGLE_NODE_HA)
-      header = {"info", "value"};
-      handler = [dba] {
-        std::vector<std::vector<TypedValue>> results(
-            {{TypedValue("is_leader"), TypedValue(dba->raft()->IsLeader())},
-             {TypedValue("term_id"),
-              TypedValue(static_cast<int64_t>(dba->raft()->TermId()))}});
-        // It is critical to abort this query because it can be executed on
-        // machines that aren't the leader.
-        return std::pair{results, QueryHandlerResult::ABORT};
-      };
-#else
-      throw utils::NotYetImplemented("raft info");
-#endif
       break;
   }
 
@@ -1120,17 +1072,6 @@ Interpreter::Prepare(
       db_accessor_.emplace(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(&*db_accessor_);
     }
-
-#ifdef MG_SINGLE_NODE_HA
-    {
-      InfoQuery *info_query = nullptr;
-      if (!execution_db_accessor_->raft()->IsLeader() &&
-          (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
-           info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
-        throw raft::CantExecuteQueries();
-      }
-    }
-#endif
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
