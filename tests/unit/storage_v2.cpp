@@ -48,6 +48,10 @@ TEST(StorageV2, Commit) {
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
 
+    acc.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
@@ -286,6 +290,10 @@ TEST(StorageV2, VertexDeleteCommit) {
     EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
 
+    acc4.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+
     ASSERT_FALSE(acc4.Commit().HasError());
   }
 
@@ -357,6 +365,10 @@ TEST(StorageV2, VertexDeleteAbort) {
     EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
 
+    acc4.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+
     acc4.Abort();
   }
 
@@ -391,6 +403,10 @@ TEST(StorageV2, VertexDeleteAbort) {
     auto res = acc6.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
     EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 0U);
+
+    acc6.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 0U);
 
     ASSERT_FALSE(acc6.Commit().HasError());
@@ -468,6 +484,10 @@ TEST(StorageV2, VertexDeleteSerializationError) {
       EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 1U);
       EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
     }
+
+    acc1.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
   }
 
   // Delete vertex in accessor 2
@@ -479,6 +499,9 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     auto res = acc2.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasError());
     ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
+    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    acc2.AdvanceCommand();
     EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
   }
@@ -521,6 +544,9 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     ASSERT_TRUE(res.GetValue());
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    acc.AdvanceCommand();
+    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 
@@ -536,6 +562,9 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
+    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    acc.AdvanceCommand();
     EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
     EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
     ASSERT_FALSE(acc.Commit().HasError());
@@ -2332,4 +2361,305 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_EQ(*vertex.OutDegree(storage::View::NEW), 1);
 
   ASSERT_FALSE(acc.Commit().HasError());
+}
+
+TEST(StorageV2, VertexVisibilitySingleTransaction) {
+  storage::Storage store;
+
+  auto acc1 = store.Access();
+  auto acc2 = store.Access();
+
+  auto vertex = acc1.CreateVertex();
+  auto gid = vertex.Gid();
+
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+
+  ASSERT_TRUE(vertex.AddLabel(acc1.NameToLabel("label")).HasValue());
+
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+
+  ASSERT_TRUE(vertex
+                  .SetProperty(acc1.NameToProperty("meaning"),
+                               storage::PropertyValue(42))
+                  .HasValue());
+
+  auto acc3 = store.Access();
+
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::NEW));
+
+  ASSERT_TRUE(acc1.DeleteVertex(&vertex).HasValue());
+
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::NEW));
+
+  acc1.AdvanceCommand();
+  acc3.AdvanceCommand();
+
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(gid, storage::View::NEW));
+
+  acc1.Abort();
+  acc2.Abort();
+  acc3.Abort();
+}
+
+TEST(StorageV2, VertexVisibilityMultipleTransactions) {
+  storage::Storage store;
+  storage::Gid gid;
+
+  {
+    auto acc1 = store.Access();
+    auto acc2 = store.Access();
+
+    auto vertex = acc1.CreateVertex();
+    gid = vertex.Gid();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+
+    acc2.AdvanceCommand();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+
+    acc1.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
+
+    ASSERT_FALSE(acc1.Commit().HasError());
+    ASSERT_FALSE(acc2.Commit().HasError());
+  }
+
+  {
+    auto acc1 = store.Access();
+    auto acc2 = store.Access();
+
+    auto vertex = acc1.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+
+    ASSERT_TRUE(vertex->AddLabel(acc1.NameToLabel("label")).HasValue());
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+
+    acc1.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+
+    acc2.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+
+    ASSERT_TRUE(vertex
+                    ->SetProperty(acc1.NameToProperty("meaning"),
+                                  storage::PropertyValue(42))
+                    .HasValue());
+
+    auto acc3 = store.Access();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc1.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc2.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc3.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    ASSERT_FALSE(acc1.Commit().HasError());
+    ASSERT_FALSE(acc2.Commit().HasError());
+    ASSERT_FALSE(acc3.Commit().HasError());
+  }
+
+  {
+    auto acc1 = store.Access();
+    auto acc2 = store.Access();
+
+    auto vertex = acc1.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    ASSERT_TRUE(acc1.DeleteVertex(&*vertex).HasValue());
+
+    auto acc3 = store.Access();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc2.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc1.AdvanceCommand();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc3.AdvanceCommand();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc1.Abort();
+    acc2.Abort();
+    acc3.Abort();
+  }
+
+  {
+    auto acc = store.Access();
+
+    EXPECT_TRUE(acc.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc.FindVertex(gid, storage::View::NEW));
+
+    acc.AdvanceCommand();
+
+    EXPECT_TRUE(acc.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc.FindVertex(gid, storage::View::NEW));
+
+    acc.Abort();
+  }
+
+  {
+    auto acc1 = store.Access();
+    auto acc2 = store.Access();
+
+    auto vertex = acc1.FindVertex(gid, storage::View::OLD);
+    ASSERT_TRUE(vertex);
+
+    ASSERT_TRUE(acc1.DeleteVertex(&*vertex).HasValue());
+
+    auto acc3 = store.Access();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc2.AdvanceCommand();
+
+    EXPECT_TRUE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc1.AdvanceCommand();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    acc3.AdvanceCommand();
+
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(gid, storage::View::NEW));
+
+    ASSERT_FALSE(acc1.Commit().HasError());
+    ASSERT_FALSE(acc2.Commit().HasError());
+    ASSERT_FALSE(acc3.Commit().HasError());
+  }
+
+  {
+    auto acc = store.Access();
+
+    EXPECT_FALSE(acc.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc.FindVertex(gid, storage::View::NEW));
+
+    acc.AdvanceCommand();
+
+    EXPECT_FALSE(acc.FindVertex(gid, storage::View::OLD));
+    EXPECT_FALSE(acc.FindVertex(gid, storage::View::NEW));
+
+    acc.Abort();
+  }
 }
