@@ -78,7 +78,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
 void DumpProperties(
     std::ostream *os, query::DbAccessor *dba,
     const std::map<storage::PropertyId, storage::PropertyValue> &store,
-    std::optional<uint64_t> property_id = std::nullopt) {
+    std::optional<int64_t> property_id = std::nullopt) {
   *os << "{";
   if (property_id) {
     *os << kInternalPropertyId << ": " << *property_id;
@@ -131,8 +131,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
             "Unexpected error when getting properties.");
     }
   }
-  DumpProperties(os, dba, *maybe_props,
-                 std::optional<uint64_t>(vertex.CypherId()));
+  DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
