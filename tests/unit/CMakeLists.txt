@@ -18,9 +18,6 @@ function(add_unit_test test_cpp)
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)
 
-#add_unit_test(replication_log.cpp)
-#target_link_libraries(${test_prefix}replication_log mg-single-node-ha mg-kvstore glog)
-
 
 # Test mg-query
 
