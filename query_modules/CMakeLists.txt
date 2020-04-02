@@ -30,6 +30,11 @@ install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 # Install the Python example
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
 
+# Install the Python modules
+install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
+install(FILES pagerank.py DESTINATION lib/memgraph/query_modules)
+install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
+
 if (MG_ENTERPRISE)
   add_subdirectory(louvain)
   add_subdirectory(connectivity)
