@@ -71,4 +71,19 @@ do
     # abort
     exit $code
   fi
+
+  pushd "$script_dir/$snapshots_dir/" >/dev/null
+
+  # remove all unnecessary directories
+  for name in *; do
+    if [ "$name" == "snapshots" ]; then
+      continue
+    fi
+    rm -r "$name"
+  done
+
+  # rename the generated snapshot file
+  mv snapshots/* snapshots/$example
+
+  popd >/dev/null
 done
