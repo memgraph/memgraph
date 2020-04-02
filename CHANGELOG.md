@@ -1,5 +1,51 @@
 # Change Log
 
+## v1.0.0
+
+### Major Features and Improvements
+
+* [Enterprise Ed.] Exposed authentication username/rolename regex as a flag
+  (`--auth-user-or-role-name-regex`).
+* [Enterprise Ed.] Improved auth module error handling and added support for
+  relative paths.
+* Added support for Python query modules. This release of Memgraph supports
+  query modules written using the already existing C API and the new Python
+  API.
+* Added support for unique constraints. The unique constraint is created with a
+  label and one or more properties.
+* Implemented support for importing CSV files (`mg_import_csv`). The importer
+  is compatible with the Neo4j batch CSV importer.
+* Snapshot and write-ahead log format changed (backward compatible with v0.50).
+* Vertices looked up by their openCypher ID (`MATCH (n) WHERE ID(n) = ...`)
+  will now find the node in O(logn) instead of O(n).
+* Improved planning of BFS expansion, a faster, specific approach is now
+  favored instead of a ScanAll+Filter operation.
+* Added syntax for limiting memory of `CALL`.
+* Exposed server name that should be used for Bolt handshake as flag
+  (`--bolt-server-name-for-init`).
+* Added several more functions to the query module C API.
+* Implemented a storage locking mechanism that prevents the user from
+  concurrently starting two Memgraph instances with the same data directory.
+
+### Bug Fixes and Other Changes
+
+* [Enterprise Ed.] Fixed a bug that crashed the database when granting
+  privileges to a user.
+* [Enterprise Ed.] Improved Louvain algorithm for community detection.
+* Type of variable expansion is now printed in `EXPLAIN` (e.g. ExpandVariable,
+  STShortestPath, BFSExpand, WeightedShortestPath).
+* Correctly display `CALL` in `EXPLAIN` output.
+* Correctly delimit arguments when printing the signature of a query module.
+* Fixed a planning issue when `CALL` preceded filtering.
+* Fixed spelling mistakes in the storage durability module.
+* Fixed storage GC indices/constraints subtle race condition.
+* Reduced memory allocations in storage API and indices.
+* Memgraph version is now outputted to `stdout` when Memgraph is started.
+* Improved RPM packaging.
+* Reduced number of errors reported in production log when loading query
+  modules.
+* Removed `early access` wording from the Community Offering license.
+
 ## v0.50.0
 
 ### Breaking Changes
