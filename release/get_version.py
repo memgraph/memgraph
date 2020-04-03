@@ -220,7 +220,9 @@ distance = int(get_output("git", "rev-list", "--count", "--first-parent",
                           master_branch_merge + ".." + current_hash))
 version_str = ".".join(map(str, version)) + ".0"
 if distance == 0:
-    print(format_version(version_str, suffix=args.suffix), end="")
+    print(format_version(args.variant, version_str, offering,
+                         suffix=args.suffix),
+          end="")
 else:
     print(format_version(args.variant, version_str, offering,
                          distance=distance, shorthash=current_hash_short,
