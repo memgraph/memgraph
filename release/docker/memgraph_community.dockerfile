@@ -3,8 +3,11 @@ FROM debian:stretch
 ARG deb_release
 
 RUN apt-get update && apt-get install -y \
-    openssl libcurl3 libssl1.1 python3 libpython3.5 \
+    openssl libcurl3 libssl1.1 python3 libpython3.5 python3-pip \
+    --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN pip3 install networkx
 
 COPY ${deb_release} /
 
