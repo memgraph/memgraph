@@ -101,7 +101,7 @@
     cd ..
     mkdir build_community
     cd build_community
-    cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+    cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF -DMG_ENTERPRISE=OFF ..
     TIMEOUT=1200 make -j$THREADS
 
     # Create Debian package.
