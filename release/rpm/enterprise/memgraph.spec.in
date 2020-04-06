@@ -27,6 +27,19 @@ BuildRequires: systemd
 
 @TMP_RPM_DEBUGINFO@
 
+# This is needed to prevent Python compilation errors when building the RPM
+# package
+# https://github.com/scylladb/scylla/issues/2235
+%global __os_install_post    \
+    /usr/lib/rpm/redhat/brp-compress \
+    %{!?__debug_package:\
+    /usr/lib/rpm/redhat/brp-strip %{__strip} \
+    /usr/lib/rpm/redhat/brp-strip-comment-note %{__strip} %{__objdump} \
+    } \
+    /usr/lib/rpm/redhat/brp-strip-static-archive %{__strip} \
+    %{!?__jar_repack:/usr/lib/rpm/redhat/brp-java-repack-jars} \
+%{nil}
+
 %define _rpmdir %_topdir/RPMS
 %define _srcrpmdir %_topdir/SRPMS
 @FILE_NAME_DEFINE@

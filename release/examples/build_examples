@@ -75,7 +75,7 @@ do
   pushd "$script_dir/$snapshots_dir/" >/dev/null
 
   # remove all unnecessary directories
-  for name in *; do
+  for name in * .[a-zA-Z0-9]*; do
     if [ "$name" == "snapshots" ]; then
       continue
     fi
