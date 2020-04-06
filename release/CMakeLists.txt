@@ -70,7 +70,7 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /var /var/lib /var/log /etc/logrotate.d
   /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
 set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
-if (ME_ENTERPRISE)
+if (MG_ENTERPRISE)
   set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/enterprise/memgraph.spec.in")
   set(CPACK_RPM_PACKAGE_LICENSE "Memgraph Enterprise Trial License")
 else()

@@ -137,6 +137,7 @@ chattr -i -R /usr/share/memgraph/examples || true
 # Override CPACK_RPM_ABSOLUTE_INSTALL_FILES with our %config(noreplace), cpack
 # uses plain %config.
 %config(noreplace) "/etc/memgraph/memgraph.conf"
+%config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
 %config(noreplace) "/etc/logrotate.d/memgraph_audit"
 
