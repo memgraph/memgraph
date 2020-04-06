@@ -135,3 +135,4 @@ sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/'
 mgclient_tag="fe94b3631385ef5dbe40a3d8458860dbcc33e6ea" # May 27, 2019
 # git clone https://github.com/memgraph/mgclient.git
 clone git://deps.memgraph.io/mgclient.git mgclient $mgclient_tag
+sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt

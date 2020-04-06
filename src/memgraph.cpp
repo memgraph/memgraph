@@ -15,12 +15,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/bolt/v1/exceptions.hpp"
-#include "communication/bolt/v1/session.hpp"
-#include "communication/init.hpp"
-#include "communication/server.hpp"
-#include "communication/session.hpp"
-#include "glue/communication.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
@@ -38,6 +32,24 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+// Communication libraries must be included after query libraries are included.
+// This is to enable compilation of the binary when linking with old OpenSSL
+// libraries (as on CentOS 7).
+//
+// The OpenSSL library available on CentOS 7 is v1.0.0, that version includes
+// `libkrb5` in its public API headers (that we include in our communication
+// stack). The `libkrb5` library has `#define`s for `TRUE` and `FALSE`. Those
+// defines clash with Antlr's usage of `TRUE` and `FALSE` as enumeration keys.
+// Because of that the definitions of `TRUE` and `FALSE` that are inherited
+// from `libkrb5` must be included after the Antlr includes. Hence,
+// communication headers must be included after query headers.
+#include "communication/bolt/v1/exceptions.hpp"
+#include "communication/bolt/v1/session.hpp"
+#include "communication/init.hpp"
+#include "communication/server.hpp"
+#include "communication/session.hpp"
+#include "glue/communication.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "audit/log.hpp"
