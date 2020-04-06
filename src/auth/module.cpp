@@ -16,6 +16,7 @@
 #include <sched.h>
 #include <seccomp.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -133,7 +134,9 @@ const std::vector<int> kSeccompSyscallsBlacklist = {
     SCMP_SYS(kexec_load),
     SCMP_SYS(mknodat),
     SCMP_SYS(unshare),
+#ifdef SYS_seccomp
     SCMP_SYS(seccomp),
+#endif
 };
 
 bool SetupSeccomp() {

@@ -215,6 +215,8 @@ import_external_library(libbcrypt STATIC
 import_external_library(mgclient STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
   ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
-  CMAKE_ARGS -DBUILD_TESTING=OFF)
+  CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+             -DBUILD_TESTING=OFF)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
