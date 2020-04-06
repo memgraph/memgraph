@@ -75,18 +75,18 @@ import sys
 #
 # The RPM package version is determined using the following two templates:
 #   Release version:
-#     <VERSION>-1.<OFFERING>[.<SUFFIX>]
+#     <VERSION>_1.<OFFERING>[.<SUFFIX>]
 #   Development version:
-#     <VERSION>-0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
+#     <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1-1.community
-#     0.50.1-1.enterprise
-#     0.50.1-1.enterprise.veryimportantcustomer
+#     0.50.1_1.community
+#     0.50.1_1.enterprise
+#     0.50.1_1.enterprise.veryimportantcustomer
 #   Development version:
-#     0.50.0-0.12.7e1eef94.community
-#     0.50.0-0.12.7e1eef94.enterprise
-#     0.50.0-0.12.7e1eef94.enterprise.veryimportantcustomer
+#     0.50.0_0.12.7e1eef94.community
+#     0.50.0_0.12.7e1eef94.enterprise
+#     0.50.0_0.12.7e1eef94.enterprise.veryimportantcustomer
 # For more documentation about the RPM package naming conventions see:
 #   https://docs.fedoraproject.org/en-US/packaging-guidelines/Versioning/
 #   https://fedoraproject.org/wiki/Package_Versioning_Examples
@@ -112,8 +112,8 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
             ret += "-1"
             return ret
         elif variant == "rpm":
-            # <VERSION>-1.<OFFERING>[.<SUFFIX>]
-            ret = "{}-1.{}".format(version, offering)
+            # <VERSION>_1.<OFFERING>[.<SUFFIX>]
+            ret = "{}_1.{}".format(version, offering)
             if suffix:
                 ret += "." + suffix
             return ret
@@ -133,8 +133,8 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
             ret += "-1"
             return ret
         elif variant == "rpm":
-            # <VERSION>-0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
-            ret = "{}-0.{}.{}.{}".format(
+            # <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
+            ret = "{}_0.{}.{}.{}".format(
                 version, distance, shorthash, offering)
             if suffix:
                 ret += "." + suffix
