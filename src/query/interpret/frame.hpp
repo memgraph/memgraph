@@ -14,13 +14,11 @@ namespace query {
 class Frame {
  public:
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
-  explicit Frame(int64_t size)
-      : size_(size), elems_(size_, utils::NewDeleteResource()) {
+  explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) {
     CHECK(size >= 0);
   }
 
-  Frame(int64_t size, utils::MemoryResource *memory)
-      : size_(size), elems_(size_, memory) {
+  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) {
     CHECK(size >= 0);
   }
 
@@ -43,7 +41,6 @@ class Frame {
   }
 
  private:
-  int64_t size_;
   utils::pmr::vector<TypedValue> elems_;
 };
 
