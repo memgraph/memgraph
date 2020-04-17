@@ -13,7 +13,8 @@
 #include <iostream>
 #include <thread>
 
-#include "storage/v2/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/timer.hpp"
@@ -621,21 +622,24 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   }
 
   std::vector<std::filesystem::path> GetSnapshotsList() {
-    return GetFilesList(storage_directory / storage::kSnapshotDirectory);
+    return GetFilesList(storage_directory /
+                        storage::durability::kSnapshotDirectory);
   }
 
   std::vector<std::filesystem::path> GetBackupSnapshotsList() {
-    return GetFilesList(storage_directory / storage::kBackupDirectory /
-                        storage::kSnapshotDirectory);
+    return GetFilesList(storage_directory /
+                        storage::durability::kBackupDirectory /
+                        storage::durability::kSnapshotDirectory);
   }
 
   std::vector<std::filesystem::path> GetWalsList() {
-    return GetFilesList(storage_directory / storage::kWalDirectory);
+    return GetFilesList(storage_directory / storage::durability::kWalDirectory);
   }
 
   std::vector<std::filesystem::path> GetBackupWalsList() {
-    return GetFilesList(storage_directory / storage::kBackupDirectory /
-                        storage::kWalDirectory);
+    return GetFilesList(storage_directory /
+                        storage::durability::kBackupDirectory /
+                        storage::durability::kWalDirectory);
   }
 
   void RestoreBackups() {
@@ -643,15 +647,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto backup_snapshots = GetBackupSnapshotsList();
       for (const auto &item : backup_snapshots) {
         std::filesystem::rename(
-            item,
-            storage_directory / storage::kSnapshotDirectory / item.filename());
+            item, storage_directory / storage::durability::kSnapshotDirectory /
+                      item.filename());
       }
     }
     {
       auto backup_wals = GetBackupWalsList();
       for (const auto &item : backup_wals) {
-        std::filesystem::rename(
-            item, storage_directory / storage::kWalDirectory / item.filename());
+        std::filesystem::rename(item, storage_directory /
+                                          storage::durability::kWalDirectory /
+                                          item.filename());
       }
     }
   }
@@ -685,31 +690,31 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 };
 
 void DestroySnapshot(const std::filesystem::path &path) {
-  auto info = storage::ReadSnapshotInfo(path);
+  auto info = storage::durability::ReadSnapshotInfo(path);
   LOG(INFO) << "Destroying snapshot " << path;
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(utils::OutputFile::Position::SET, info.offset_vertices);
-  auto value = static_cast<uint8_t>(storage::Marker::TYPE_MAP);
+  auto value = static_cast<uint8_t>(storage::durability::Marker::TYPE_MAP);
   file.Write(&value, sizeof(value));
   file.Sync();
   file.Close();
 }
 
 void DestroyWalFirstDelta(const std::filesystem::path &path) {
-  auto info = storage::ReadWalInfo(path);
+  auto info = storage::durability::ReadWalInfo(path);
   LOG(INFO) << "Destroying WAL " << path;
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(utils::OutputFile::Position::SET, info.offset_deltas);
-  auto value = static_cast<uint8_t>(storage::Marker::TYPE_MAP);
+  auto value = static_cast<uint8_t>(storage::durability::Marker::TYPE_MAP);
   file.Write(&value, sizeof(value));
   file.Sync();
   file.Close();
 }
 
 void DestroyWalSuffix(const std::filesystem::path &path) {
-  auto info = storage::ReadWalInfo(path);
+  auto info = storage::durability::ReadWalInfo(path);
   LOG(INFO) << "Destroying WAL " << path;
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
@@ -868,7 +873,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   {
     auto snapshots = GetSnapshotsList();
     ASSERT_EQ(snapshots.size(), 1);
-    auto info = storage::ReadSnapshotInfo(*snapshots.begin());
+    auto info = storage::durability::ReadSnapshotInfo(*snapshots.begin());
     unrelated_uuid = info.uuid;
   }
 
@@ -904,7 +909,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     auto snapshots = GetSnapshotsList();
     ASSERT_GE(snapshots.size(), 2);
     for (const auto &snapshot : snapshots) {
-      auto info = storage::ReadSnapshotInfo(snapshot);
+      auto info = storage::durability::ReadSnapshotInfo(snapshot);
       if (info.uuid == unrelated_uuid) {
         LOG(INFO) << "Skipping snapshot " << snapshot;
         continue;
@@ -973,7 +978,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     for (size_t i = 0; i < snapshots.size(); ++i) {
       const auto &path = snapshots[i];
       // This shouldn't throw.
-      auto info = storage::ReadSnapshotInfo(path);
+      auto info = storage::durability::ReadSnapshotInfo(path);
       if (i == 0) uuid = info.uuid;
       if (i < snapshots.size() - 1) {
         ASSERT_EQ(info.uuid, uuid);
@@ -1655,15 +1660,15 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   // Verify WAL data.
   {
     auto path = GetWalsList().front();
-    auto info = storage::ReadWalInfo(path);
-    storage::Decoder wal;
-    wal.Initialize(path, storage::kWalMagic);
+    auto info = storage::durability::ReadWalInfo(path);
+    storage::durability::Decoder wal;
+    wal.Initialize(path, storage::durability::kWalMagic);
     wal.SetPosition(info.offset_deltas);
     ASSERT_EQ(info.num_deltas, 9);
-    std::vector<std::pair<uint64_t, storage::WalDeltaData>> data;
+    std::vector<std::pair<uint64_t, storage::durability::WalDeltaData>> data;
     for (uint64_t i = 0; i < info.num_deltas; ++i) {
-      auto timestamp = storage::ReadWalDeltaHeader(&wal);
-      data.emplace_back(timestamp, storage::ReadWalDeltaData(&wal));
+      auto timestamp = storage::durability::ReadWalDeltaHeader(&wal);
+      data.emplace_back(timestamp, storage::durability::ReadWalDeltaData(&wal));
     }
     // Verify timestamps.
     ASSERT_EQ(data[1].first, data[0].first);
@@ -1675,38 +1680,41 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     ASSERT_EQ(data[7].first, data[6].first);
     ASSERT_EQ(data[8].first, data[7].first);
     // Verify transaction 3.
-    ASSERT_EQ(data[0].second.type, storage::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[0].second.type,
+              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[0].second.vertex_create_delete.gid, gid3);
     ASSERT_EQ(data[1].second.type,
-              storage::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[1].second.vertex_edge_set_property.gid, gid3);
     ASSERT_EQ(data[1].second.vertex_edge_set_property.property, "id");
     ASSERT_EQ(data[1].second.vertex_edge_set_property.value,
               storage::PropertyValue(3));
     ASSERT_EQ(data[2].second.type,
-              storage::WalDeltaData::Type::TRANSACTION_END);
+              storage::durability::WalDeltaData::Type::TRANSACTION_END);
     // Verify transaction 1.
-    ASSERT_EQ(data[3].second.type, storage::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[3].second.type,
+              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[3].second.vertex_create_delete.gid, gid1);
     ASSERT_EQ(data[4].second.type,
-              storage::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[4].second.vertex_edge_set_property.gid, gid1);
     ASSERT_EQ(data[4].second.vertex_edge_set_property.property, "id");
     ASSERT_EQ(data[4].second.vertex_edge_set_property.value,
               storage::PropertyValue(1));
     ASSERT_EQ(data[5].second.type,
-              storage::WalDeltaData::Type::TRANSACTION_END);
+              storage::durability::WalDeltaData::Type::TRANSACTION_END);
     // Verify transaction 2.
-    ASSERT_EQ(data[6].second.type, storage::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[6].second.type,
+              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[6].second.vertex_create_delete.gid, gid2);
     ASSERT_EQ(data[7].second.type,
-              storage::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[7].second.vertex_edge_set_property.gid, gid2);
     ASSERT_EQ(data[7].second.vertex_edge_set_property.property, "id");
     ASSERT_EQ(data[7].second.vertex_edge_set_property.value,
               storage::PropertyValue(2));
     ASSERT_EQ(data[8].second.type,
-              storage::WalDeltaData::Type::TRANSACTION_END);
+              storage::durability::WalDeltaData::Type::TRANSACTION_END);
   }
 
   // Recover WALs.

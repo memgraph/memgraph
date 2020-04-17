@@ -1,6 +1,9 @@
 set(storage_v2_src_files
     constraints.cpp
-    durability.cpp
+    durability/durability.cpp
+    durability/serialization.cpp
+    durability/snapshot.cpp
+    durability/wal.cpp
     edge_accessor.cpp
     indices.cpp
     property_store.cpp
