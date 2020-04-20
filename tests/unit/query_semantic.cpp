@@ -1197,3 +1197,18 @@ TEST_F(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
   auto query = QUERY(SINGLE_QUERY(call, ret));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
+
+TEST(TestSymbolTable, CreateAnonymousSymbols) {
+  SymbolTable symbol_table;
+  auto anon1 = symbol_table.CreateAnonymousSymbol();
+  ASSERT_EQ(anon1.name_, "anon1");
+  auto anon2 = symbol_table.CreateAnonymousSymbol();
+  ASSERT_EQ(anon2.name_, "anon2");
+}
+
+TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
+  SymbolTable symbol_table;
+  symbol_table.CreateSymbol("anon1", false);
+  auto anon2 = symbol_table.CreateAnonymousSymbol();
+  ASSERT_EQ(anon2.name_, "anon2");
+}

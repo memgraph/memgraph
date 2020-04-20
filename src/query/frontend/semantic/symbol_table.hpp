@@ -23,6 +23,22 @@ class SymbolTable final {
     return got.first->second;
   }
 
+  // TODO(buda): This is the same logic as in the cypher_main_visitor. During
+  // parsing phase symbol table doesn't exist. Figure out a better solution.
+  const Symbol &CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY) {
+    int id = 1;
+    while (true) {
+      static const std::string &kAnonPrefix = "anon";
+      std::string name_candidate = kAnonPrefix + std::to_string(id++);
+      if (std::find_if(std::begin(table_), std::end(table_),
+                       [&name_candidate](const auto &item) -> bool {
+                         return item.second.name_ == name_candidate;
+                       }) == std::end(table_)) {
+        return CreateSymbol(name_candidate, false, type);
+      }
+    }
+  }
+
   const Symbol &at(const Identifier &ident) const {
     return table_.at(ident.symbol_pos_);
   }

@@ -391,6 +391,9 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
 }
 
+// TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
+// vertices that have the label and some value for the given property.
+
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
     storage::LabelId label, storage::PropertyId property,

@@ -429,6 +429,22 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     all_filters_.emplace_back(filter);
     return true;
   };
+  // Checks if maybe_lookup is a property lookup, stores it as a
+  // PropertyFilter and returns true. If it isn't, returns false.
+  auto add_prop_in_list = [&](auto *maybe_lookup, auto *val_expr) -> bool {
+    if (!utils::Downcast<ListLiteral>(val_expr)) return false;
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
+          val_expr, PropertyFilter::Type::IN);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
+  };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DCHECK(!utils::IsSubtype(*expr, AndOperator::kType))
@@ -489,6 +505,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     // Like greater equal, but in reverse.
     if (!add_prop_greater(le->expression2_, le->expression1_,
                           Bound::Type::INCLUSIVE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
+    // IN isn't equivalent to Equal because IN isn't a symmetric operator. The
+    // IN filter is captured here only if the property lookup occurs on the
+    // left side of the operator. In that case, it's valid to do the IN list
+    // optimization during the index lookup rewrite phase.
+    if (!add_prop_in_list(in->expression1_, in->expression2_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else {

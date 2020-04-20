@@ -31,7 +31,7 @@ Expression *RemoveAndExpressions(
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(const SymbolTable *symbol_table, AstStorage *ast_storage,
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage,
                       TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
@@ -423,7 +423,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
-  const SymbolTable *symbol_table_;
+  SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
   // Collected filters, pending for examination if they can be used for advanced
@@ -614,6 +614,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
             std::make_optional(lower_bound), std::nullopt, view);
+      } else if (prop_filter.type_ == PropertyFilter::Type::IN) {
+        // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+        // here once the operator and the right cardinality estimation exist.
+        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
+        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+        expression->MapTo(symbol);
+        auto unwind_operator =
+            std::make_unique<Unwind>(input, prop_filter.value_, symbol);
+        return std::make_unique<ScanAllByLabelPropertyValue>(
+            std::move(unwind_operator), node_symbol,
+            GetLabel(found_index->label), GetProperty(prop_filter.property_),
+            prop_filter.property_.name, expression, view);
       } else {
         CHECK(prop_filter.value_) << "Property filter should either have "
                                      "bounds or a value expression.";
@@ -645,9 +657,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(
-    std::unique_ptr<LogicalOperator> root_op, const SymbolTable &symbol_table,
+    std::unique_ptr<LogicalOperator> root_op, SymbolTable *symbol_table,
     AstStorage *ast_storage, TDbAccessor *db) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(&symbol_table, ast_storage,
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage,
                                                   db);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {

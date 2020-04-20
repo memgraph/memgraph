@@ -1589,4 +1589,89 @@ TYPED_TEST(TestPlanner, BfsToExisting) {
                        ExpectExpandBfs(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
+  // Test MATCH (n:label) WHERE n.property IN ['a'] RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR("property");
+  auto *lit_list_a = LIST(LITERAL('a'));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_list_a)), RETURN("n")));
+  {
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
+              ExpectProduce());
+  }
+  {
+    dba.SetIndexCount(label, 1);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
+              ExpectFilter(), ExpectProduce());
+  }
+  {
+    dba.SetIndexCount(label, property.second, 1);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectUnwind(),
+              ExpectScanAllByLabelPropertyValue(label, property, lit_list_a),
+              ExpectProduce());
+  }
+}
+
+TYPED_TEST(TestPlanner,
+           LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
+  // Test MATCH (n:label) WHERE n.property IN 'a' RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR("property");
+  auto *lit_a = LITERAL('a');
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_a)), RETURN("n")));
+  {
+    dba.SetIndexCount(label, property.second, 1);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
+              ExpectProduce());
+  }
+}
+
+TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnRight) {
+  // Test MATCH (n:label) WHERE ['a'] IN n.property RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR("property");
+  auto *lit_list_a = LIST(LITERAL('a'));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(IN_LIST(lit_list_a, PROPERTY_LOOKUP("n", property))), RETURN("n")));
+  {
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
+              ExpectProduce());
+  }
+  {
+    dba.SetIndexCount(label, 1);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
+              ExpectFilter(), ExpectProduce());
+  }
+  {
+    dba.SetIndexCount(label, property.second, 1);
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
+              ExpectFilter(), ExpectProduce());
+  }
+}
+
 }  // namespace

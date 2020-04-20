@@ -81,8 +81,8 @@ class PropertyFilter {
   using Bound = ScanAllByLabelPropertyRange::Bound;
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
-  /// matched value or a range with lower and (or) upper bounds.
-  enum class Type { EQUAL, REGEX_MATCH, RANGE };
+  /// matched value or a range with lower and (or) upper bounds, IN list filter.
+  enum class Type { EQUAL, REGEX_MATCH, RANGE, IN };
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *,
