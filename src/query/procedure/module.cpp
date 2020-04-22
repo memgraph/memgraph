@@ -369,10 +369,20 @@ bool PythonModule::Close() {
   CHECK(py_module_)
       << "Attempting to close a module that has not been loaded...";
   LOG(INFO) << "Closing module " << file_path_ << " ...";
-  // Deleting procedures will probably release PyObject closures, so we need to
-  // take the GIL.
+  // The procedures are closures which hold references to the Python callbacks.
+  // Releasing these references might result in deallocations so we need to take
+  // the GIL.
   auto gil = py::EnsureGIL();
   procedures_.clear();
+  // Delete the module from the `sys.modules` directory so that the module will
+  // be properly imported if imported again.
+  py::Object sys(PyImport_ImportModule("sys"));
+  if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(),
+                           file_path_.stem().c_str()) != 0) {
+    LOG(WARNING) << "Failed to remove the module from sys.modules";
+    py_module_ = py::Object(nullptr);
+    return false;
+  }
   py_module_ = py::Object(nullptr);
   LOG(INFO) << "Closed module " << file_path_;
   return true;
@@ -381,16 +391,8 @@ bool PythonModule::Close() {
 bool PythonModule::Reload() {
   CHECK(py_module_)
       << "Attempting to reload a module that has not been loaded...";
-  auto gil = py::EnsureGIL();
-  procedures_.clear();
-  py_module_ =
-      WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
-        return ReloadPyModule(py_module_.Ptr(), module_def);
-      });
-  if (py_module_) return true;
-  auto exc_info = py::FetchError().value();
-  LOG(ERROR) << "Unable to reload module; " << exc_info;
-  return false;
+  if (!Close()) return false;
+  return Load(file_path_);
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures()
