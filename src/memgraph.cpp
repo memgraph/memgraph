@@ -950,6 +950,7 @@ int main(int argc, char **argv) {
   }
   storage::Storage db(db_config);
   query::InterpreterContext interpreter_context{&db};
+
   query::SetExecutionTimeout(&interpreter_context,
                              FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
@@ -958,15 +959,9 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context};
 #endif
 
-  // Register modules
-  if (!FLAGS_query_modules_directory.empty()) {
-    for (const auto &entry :
-         std::filesystem::directory_iterator(FLAGS_query_modules_directory)) {
-      if (entry.is_regular_file())
-        query::procedure::gModuleRegistry.LoadModuleLibrary(entry.path());
-    }
-  }
-  // Register modules END
+  query::procedure::gModuleRegistry.SetModulesDirectory(
+      FLAGS_query_modules_directory);
+  query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectory();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth,

@@ -2963,14 +2963,14 @@ TEST_P(CypherMainVisitorTest, CallYieldAsteriskReturnAsterisk) {
 TEST_P(CypherMainVisitorTest, CallWithoutYield) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL mg.reload_all()"));
+      ast_generator.ParseQuery("CALL mg.load_all()"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
@@ -2980,14 +2980,14 @@ TEST_P(CypherMainVisitorTest, CallWithoutYield) {
 TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL mg.reload_all() MEMORY LIMIT 32 KB"));
+      ast_generator.ParseQuery("CALL mg.load_all() MEMORY LIMIT 32 KB"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
@@ -2998,14 +2998,14 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
 TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL mg.reload_all() MEMORY UNLIMITED"));
+      ast_generator.ParseQuery("CALL mg.load_all() MEMORY UNLIMITED"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.reload_all");
+  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());

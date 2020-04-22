@@ -28,9 +28,6 @@ class Module {
   /// Invokes the (optional) shutdown function and closes the module.
   virtual bool Close() = 0;
 
-  /// Reloads the module.
-  virtual bool Reload() = 0;
-
   /// Returns registered procedures of this module
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures()
       const = 0;
@@ -58,37 +55,46 @@ class ModuleRegistry final {
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
 
+  bool RegisterModule(const std::string_view &name,
+                      std::unique_ptr<Module> module);
+
+  void DoUnloadAllModules();
+
  public:
   ModuleRegistry();
 
-  /// Load a module from the given path and return true if successful.
+  /// Set the modules directory that will be used when (re)loading modules.
+  void SetModulesDirectory(const std::filesystem::path &modules_dir);
+
+  /// Atomically load or reload a module with a particular name from the given
+  /// directory.
   ///
-  /// A write lock is taken during the execution of this method. Loading a
-  /// module is done through `dlopen` facility and path is resolved accordingly.
-  /// The module is registered using the filename part of the path, with the
-  /// extension removed. If a module with the same name already exists, the
-  /// function does nothing.
-  bool LoadModuleLibrary(std::filesystem::path path);
+  /// Takes a write lock. If the module exists it is reloaded. Otherwise, the
+  /// module is loaded from the file whose filename, without the extension,
+  /// matches the module's name. If multiple such files exist, only one is
+  /// chosen, in an unspecified manner. If loading of the chosen file fails, no
+  /// other files are tried.
+  ///
+  /// Return true if the module was loaded or reloaded successfully, false
+  /// otherwise.
+  bool LoadOrReloadModuleFromName(const std::string_view &name);
+
+  /// Atomically unload all modules and then load all possible modules from the
+  /// given directory.
+  ///
+  /// Takes a write lock.
+  void UnloadAndLoadModulesFromDirectory();
 
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
   ModulePtr GetModuleNamed(const std::string_view &name) const;
 
-  /// Reload a module with given name and return true if successful.
-  /// Takes a write lock. Builtin modules cannot be reloaded, though true will
-  /// be returned if you try to do so. If false was returned, then the module is
-  /// no longer registered.
-  bool ReloadModuleNamed(const std::string_view &name);
-
-  /// Reload all loaded (non-builtin) modules and return true if successful.
-  /// Takes a write lock. If false was returned, the module which failed to
-  /// reload is no longer registered. Remaining modules may or may not be
-  /// reloaded, but are valid and registered.
-  bool ReloadAllModules();
-
   /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.
   void UnloadAllModules();
+
+ private:
+  std::filesystem::path modules_dir_;
 };
 
 /// Single, global module registry.

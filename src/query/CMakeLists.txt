@@ -32,7 +32,7 @@ set(mg_query_sources
 
 add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
-target_include_directories(mg-query PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query dl cppitertools)
 target_link_libraries(mg-query mg-storage-v2)
 find_package(Python3 3.5 REQUIRED COMPONENTS Development)
