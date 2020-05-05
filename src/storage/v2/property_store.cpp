@@ -24,7 +24,7 @@ namespace {
 // bytes). Also, the `PropertyValue` must have a `type` member that (even though
 // it is small) causes a padding hole to be inserted in the `PropertyValue` that
 // wastes even more memory. Memory is wasted even more when the `PropertyValue`
-// stores a list or a map of `PropertyValues` because each of the internal
+// stores a list or a map of `PropertyValue`s because each of the internal
 // values also wastes memory.
 //
 // Even though there is a lot of memory being wasted in `PropertyValue`, all of
@@ -433,102 +433,118 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
 }
 
 // Function used to decode a PropertyValue from a byte stream. It can either
-// decode or skip the encoded PropertyValue, depending on the supplied template
-// parameter.
-template <bool read_data>
-std::optional<PropertyValue> DecodePropertyValue(Reader *reader, Type type,
-                                                 Size payload_size) {
+// decode or skip the encoded PropertyValue, depending on the supplied value
+// pointer.
+[[nodiscard]] bool DecodePropertyValue(Reader *reader, Type type,
+                                       Size payload_size,
+                                       PropertyValue *value) {
   switch (type) {
-    case Type::EMPTY:
-      return std::nullopt;
-    case Type::NONE:
-      return PropertyValue();
-    case Type::BOOL: {
-      if (payload_size == Size::INT64) {
-        return PropertyValue(true);
-      } else {
-        return PropertyValue(false);
+    case Type::EMPTY: {
+      return false;
+    }
+    case Type::NONE: {
+      if (value) {
+        *value = PropertyValue();
       }
+      return true;
+    }
+    case Type::BOOL: {
+      if (value) {
+        if (payload_size == Size::INT64) {
+          *value = PropertyValue(true);
+        } else {
+          *value = PropertyValue(false);
+        }
+      }
+      return true;
     }
     case Type::INT: {
-      auto value = reader->ReadInt(payload_size);
-      if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      auto int_v = reader->ReadInt(payload_size);
+      if (!int_v) return false;
+      if (value) {
+        *value = PropertyValue(*int_v);
+      }
+      return true;
     }
     case Type::DOUBLE: {
-      auto value = reader->ReadDouble(payload_size);
-      if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      auto double_v = reader->ReadDouble(payload_size);
+      if (!double_v) return false;
+      if (value) {
+        *value = PropertyValue(*double_v);
+      }
+      return true;
     }
     case Type::STRING: {
       auto size = reader->ReadUint(payload_size);
-      if (!size) return std::nullopt;
-      if constexpr (read_data) {
-        std::string value(*size, '\0');
-        if (!reader->ReadBytes(value.data(), *size)) return std::nullopt;
-        return PropertyValue(std::move(value));
+      if (!size) return false;
+      if (value) {
+        std::string str_v(*size, '\0');
+        if (!reader->ReadBytes(str_v.data(), *size)) return false;
+        *value = PropertyValue(std::move(str_v));
       } else {
-        if (!reader->SkipBytes(*size)) return std::nullopt;
-        return PropertyValue();
+        if (!reader->SkipBytes(*size)) return false;
       }
+      return true;
     }
     case Type::LIST: {
       auto size = reader->ReadUint(payload_size);
-      if (!size) return std::nullopt;
-      if constexpr (read_data) {
+      if (!size) return false;
+      if (value) {
         std::vector<PropertyValue> list;
         list.reserve(*size);
         for (uint64_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
-          if (!metadata) return std::nullopt;
-          auto ret = DecodePropertyValue<read_data>(reader, metadata->type,
-                                                    metadata->payload_size);
-          if (!ret) return std::nullopt;
-          list.emplace_back(std::move(*ret));
+          if (!metadata) return false;
+          PropertyValue item;
+          if (!DecodePropertyValue(reader, metadata->type,
+                                   metadata->payload_size, &item))
+            return false;
+          list.emplace_back(std::move(item));
         }
-        return PropertyValue(std::move(list));
+        *value = PropertyValue(std::move(list));
       } else {
         for (uint64_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
-          if (!metadata) return std::nullopt;
-          auto ret = DecodePropertyValue<read_data>(reader, metadata->type,
-                                                    metadata->payload_size);
-          if (!ret) return std::nullopt;
+          if (!metadata) return false;
+          if (!DecodePropertyValue(reader, metadata->type,
+                                   metadata->payload_size, nullptr))
+            return false;
         }
-        return PropertyValue();
       }
+      return true;
     }
     case Type::MAP: {
       auto size = reader->ReadUint(payload_size);
-      if (!size) return std::nullopt;
-      if constexpr (read_data) {
+      if (!size) return false;
+      if (value) {
         std::map<std::string, PropertyValue> map;
         for (uint64_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
-          if (!metadata) return std::nullopt;
+          if (!metadata) return false;
           auto key_size = reader->ReadUint(metadata->id_size);
-          if (!key_size) return std::nullopt;
+          if (!key_size) return false;
           std::string key(*key_size, '\0');
-          if (!reader->ReadBytes(key.data(), *key_size)) return std::nullopt;
-          auto ret = DecodePropertyValue<read_data>(reader, metadata->type,
-                                                    metadata->payload_size);
-          if (!ret) return std::nullopt;
-          map.emplace(std::move(key), std::move(*ret));
+          if (!reader->ReadBytes(key.data(), *key_size)) return false;
+          PropertyValue item;
+          if (!DecodePropertyValue(reader, metadata->type,
+                                   metadata->payload_size, &item))
+            return false;
+          map.emplace(std::move(key), std::move(item));
         }
-        return PropertyValue(std::move(map));
+        *value = PropertyValue(std::move(map));
       } else {
         for (uint64_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
-          if (!metadata) return std::nullopt;
+          if (!metadata) return false;
           auto key_size = reader->ReadUint(metadata->id_size);
-          if (!key_size) return std::nullopt;
-          if (!reader->SkipBytes(*key_size)) return std::nullopt;
-          auto ret = DecodePropertyValue<read_data>(reader, metadata->type,
-                                                    metadata->payload_size);
-          if (!ret) return std::nullopt;
+          if (!key_size) return false;
+          if (!reader->SkipBytes(*key_size)) return false;
+          if (!DecodePropertyValue(reader, metadata->type,
+                                   metadata->payload_size, nullptr))
+            return false;
         }
-        return PropertyValue();
       }
+      return true;
     }
   }
 }
@@ -551,40 +567,100 @@ bool EncodeProperty(Writer *writer, PropertyId property,
   return true;
 }
 
+// Enum used to return status from the `DecodeExpectedProperty` function.
+enum class DecodeExpectedPropertyStatus {
+  MISSING_DATA,
+  SMALLER,
+  EQUAL,
+  GREATER,
+};
+
 // Function used to decode a property (PropertyId, PropertyValue) from a byte
 // stream. It can either decode or skip the encoded PropertyValue, depending on
-// the supplied template parameter.
-template <bool read_data>
-std::optional<std::pair<PropertyId, PropertyValue>> DecodeSkipProperty(
-    Reader *reader) {
+// the provided PropertyValue. The `expected_property` provides another hint
+// whether the property should be decoded or skipped.
+//
+// @return MISSING_DATA when there is not enough data in the buffer to decode
+//                      the property
+// @return SMALLER when the property that was currently read has a smaller
+//                 property ID than the expected property; the value isn't
+//                 loaded in this case
+// @return EQUAL when the property that was currently read has an ID equal to
+//               the expected property ID; the value is loaded in this case
+// @return GREATER when the property that was currenly read has a greater
+//                 property ID than the expected property; the value isn't
+//                 loaded in this case
+//
+// @sa DecodeAnyProperty
+[[nodiscard]] DecodeExpectedPropertyStatus DecodeExpectedProperty(
+    Reader *reader, PropertyId expected_property, PropertyValue *value) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return DecodeExpectedPropertyStatus::MISSING_DATA;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return DecodeExpectedPropertyStatus::MISSING_DATA;
+
+  // Don't load the value if this isn't the expected property.
+  if (property_id != expected_property.AsUint()) {
+    value = nullptr;
+  }
+
+  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size,
+                           value))
+    return DecodeExpectedPropertyStatus::MISSING_DATA;
+
+  if (property_id < expected_property.AsUint()) {
+    return DecodeExpectedPropertyStatus::SMALLER;
+  } else if (property_id == expected_property.AsUint()) {
+    return DecodeExpectedPropertyStatus::EQUAL;
+  } else {
+    return DecodeExpectedPropertyStatus::GREATER;
+  }
+}
+
+// Function used to decode a property (PropertyId, PropertyValue) from a byte
+// stream. It can either decode or skip the encoded PropertyValue, depending on
+// the provided PropertyValue.
+//
+// @sa DecodeExpectedProperty
+[[nodiscard]] std::optional<PropertyId> DecodeAnyProperty(
+    Reader *reader, PropertyValue *value) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return std::nullopt;
 
-  auto property = reader->ReadUint(metadata->id_size);
-  if (!property) return std::nullopt;
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return std::nullopt;
 
-  auto value = DecodePropertyValue<read_data>(reader, metadata->type,
-                                              metadata->payload_size);
-  if (!value) return std::nullopt;
+  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size,
+                           value))
+    return std::nullopt;
 
-  return {{PropertyId::FromUint(*property), std::move(*value)}};
+  return PropertyId::FromUint(*property_id);
 }
 
-// Helper function used to decode a property.
-std::optional<std::pair<PropertyId, PropertyValue>> DecodeProperty(
-    Reader *reader) {
-  return DecodeSkipProperty<true>(reader);
+// Function used to find and (selectively) get the property value of the
+// property whose ID is `property`. It relies on the fact that the properties
+// are sorted (by ID) in the buffer. If the function doesn't find the property,
+// the `value` won't be updated.
+//
+// @sa FindSpecificPropertyAndBufferInfo
+[[nodiscard]] DecodeExpectedPropertyStatus FindSpecificProperty(
+    Reader *reader, PropertyId property, PropertyValue *value) {
+  while (true) {
+    auto ret = DecodeExpectedProperty(reader, property, value);
+    // Because the properties are sorted in the buffer, we only need to
+    // continue searching for the property while this function returns a
+    // `SMALLER` value indicating that the ID of the found property is smaller
+    // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
+    // `GREATER`) terminate the search.
+    if (ret != DecodeExpectedPropertyStatus::SMALLER) {
+      return ret;
+    }
+  }
 }
 
-// Helper function used to skip a property.
-std::optional<PropertyId> SkipProperty(Reader *reader) {
-  auto ret = DecodeSkipProperty<false>(reader);
-  if (!ret) return std::nullopt;
-  return ret->first;
-}
-
-// Struct used to return info about the property buffer.
-struct PropertyBufferInfo {
+// Struct used to return info about the property position and buffer size.
+struct SpecificPropertyAndBufferInfo {
   uint64_t property_begin;
   uint64_t property_end;
   uint64_t property_size;
@@ -602,18 +678,22 @@ struct PropertyBufferInfo {
 // and `property_begin` will be equal to `property_end`. Positions and size of
 // all properties is always calculated (even if the specific property isn't
 // found).
-PropertyBufferInfo FindProperty(Reader *reader, PropertyId property) {
+//
+// @sa FindSpecificProperty
+SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(
+    Reader *reader, PropertyId property) {
   uint64_t property_begin = reader->GetPosition();
   uint64_t property_end = reader->GetPosition();
   uint64_t all_begin = reader->GetPosition();
   uint64_t all_end = reader->GetPosition();
   while (true) {
-    auto ret = SkipProperty(reader);
-    if (!ret) break;
-    if (*ret < property) {
+    auto ret = DecodeExpectedProperty(reader, property, nullptr);
+    if (ret == DecodeExpectedPropertyStatus::MISSING_DATA) {
+      break;
+    } else if (ret == DecodeExpectedPropertyStatus::SMALLER) {
       property_begin = reader->GetPosition();
       property_end = reader->GetPosition();
-    } else if (*ret == property) {
+    } else if (ret == DecodeExpectedPropertyStatus::EQUAL) {
       property_end = reader->GetPosition();
     }
     all_end = reader->GetPosition();
@@ -722,13 +802,11 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
     data = &buffer_[1];
   }
   Reader reader(data, size);
-  auto info = FindProperty(&reader, property);
-  if (info.property_size == 0) return PropertyValue();
-  Reader prop_reader(data + info.property_begin, info.property_size);
-  auto prop = DecodeProperty(&prop_reader);
-  CHECK(prop) << "Invalid database state!";
-  CHECK(prop->first == property) << "Invalid database state!";
-  return std::move(prop->second);
+  PropertyValue value;
+  if (FindSpecificProperty(&reader, property, &value) !=
+      DecodeExpectedPropertyStatus::EQUAL)
+    return PropertyValue();
+  return value;
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
@@ -741,8 +819,8 @@ bool PropertyStore::HasProperty(PropertyId property) const {
     data = &buffer_[1];
   }
   Reader reader(data, size);
-  auto info = FindProperty(&reader, property);
-  return info.property_size != 0;
+  return FindSpecificProperty(&reader, property, nullptr) ==
+         DecodeExpectedPropertyStatus::EQUAL;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
@@ -757,9 +835,10 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   Reader reader(data, size);
   std::map<PropertyId, PropertyValue> props;
   while (true) {
-    auto ret = DecodeProperty(&reader);
-    if (!ret) break;
-    props.emplace(ret->first, std::move(ret->second));
+    PropertyValue value;
+    auto prop = DecodeAnyProperty(&reader, &value);
+    if (!prop) break;
+    props.emplace(*prop, std::move(value));
   }
   return props;
 }
@@ -823,7 +902,7 @@ bool PropertyStore::SetProperty(PropertyId property,
     }
   } else {
     Reader reader(data, size);
-    auto info = FindProperty(&reader, property);
+    auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
     existed = info.property_size != 0;
     auto new_size = info.all_size - info.property_size + property_size;
     auto new_size_to_power_of_8 = ToPowerOf8(new_size);
