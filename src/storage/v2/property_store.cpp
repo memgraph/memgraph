@@ -390,6 +390,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
     }
     case PropertyValue::Type::Double: {
       auto size = writer->WriteDouble(value.ValueDouble());
+      if (!size) return std::nullopt;
       return {{Type::DOUBLE, *size}};
     }
     case PropertyValue::Type::String: {
