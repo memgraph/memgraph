@@ -243,7 +243,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
   }
 }
 
-// comparison
+// NOTE: The logic in this function *MUST* be equal to the logic in
+// `PropertyStore::ComparePropertyValue`. If you change this operator make sure
+// to change the function so that they have identical functionality.
 inline bool operator==(const PropertyValue &first,
                        const PropertyValue &second) noexcept {
   if (!PropertyValue::AreComparableTypes(first.type(), second.type()))

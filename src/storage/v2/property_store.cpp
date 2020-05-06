@@ -347,6 +347,17 @@ class Reader {
     return ReadBytes(reinterpret_cast<uint8_t *>(data), size);
   }
 
+  bool VerifyBytes(const uint8_t *data, uint64_t size) {
+    if (pos_ + size > size_) return false;
+    if (memcmp(data, data_ + pos_, size) != 0) return false;
+    pos_ += size;
+    return true;
+  }
+
+  bool VerifyBytes(const char *data, uint64_t size) {
+    return VerifyBytes(reinterpret_cast<const uint8_t *>(data), size);
+  }
+
   bool SkipBytes(uint64_t size) {
     if (pos_ + size > size_) return false;
     pos_ += size;
@@ -436,6 +447,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
 // Function used to decode a PropertyValue from a byte stream. It can either
 // decode or skip the encoded PropertyValue, depending on the supplied value
 // pointer.
+//
+// @sa ComparePropertyValue
 [[nodiscard]] bool DecodePropertyValue(Reader *reader, Type type,
                                        Size payload_size,
                                        PropertyValue *value) {
@@ -550,6 +563,102 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
   }
 }
 
+// Function used to compare a PropertyValue to the one stored in the byte
+// stream.
+//
+// NOTE: The logic in this function *MUST* be equal to the logic in
+// `PropertyValue::operator==`. If you change this function make sure to change
+// the operator so that they have identical functionality.
+//
+// @sa DecodePropertyValue
+[[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type,
+                                        Size payload_size,
+                                        const PropertyValue &value) {
+  switch (type) {
+    case Type::EMPTY: {
+      return false;
+    }
+    case Type::NONE: {
+      return value.IsNull();
+    }
+    case Type::BOOL: {
+      if (!value.IsBool()) return false;
+      bool bool_v = payload_size == Size::INT64;
+      return value.ValueBool() == bool_v;
+    }
+    case Type::INT: {
+      // Integer and double values are treated as the same in
+      // `PropertyValue::operator==`. That is why we accept both integer and
+      // double values here and use the `operator==` between them to verify that
+      // they are the same.
+      if (!value.IsInt() && !value.IsDouble()) return false;
+      auto int_v = reader->ReadInt(payload_size);
+      if (!int_v) return false;
+      if (value.IsInt()) {
+        return value.ValueInt() == int_v;
+      } else {
+        return value.ValueDouble() == int_v;
+      }
+    }
+    case Type::DOUBLE: {
+      // Integer and double values are treated as the same in
+      // `PropertyValue::operator==`. That is why we accept both integer and
+      // double values here and use the `operator==` between them to verify that
+      // they are the same.
+      if (!value.IsInt() && !value.IsDouble()) return false;
+      auto double_v = reader->ReadDouble(payload_size);
+      if (!double_v) return false;
+      if (value.IsDouble()) {
+        return value.ValueDouble() == double_v;
+      } else {
+        return value.ValueInt() == double_v;
+      }
+    }
+    case Type::STRING: {
+      if (!value.IsString()) return false;
+      const auto &str = value.ValueString();
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      if (*size != str.size()) return false;
+      return reader->VerifyBytes(str.data(), *size);
+    }
+    case Type::LIST: {
+      if (!value.IsList()) return false;
+      const auto &list = value.ValueList();
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      if (*size != list.size()) return false;
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (!ComparePropertyValue(reader, metadata->type,
+                                  metadata->payload_size, list[i]))
+          return false;
+      }
+      return true;
+    }
+    case Type::MAP: {
+      if (!value.IsMap()) return false;
+      const auto &map = value.ValueMap();
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      if (*size != map.size()) return false;
+      for (const auto &item : map) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        auto key_size = reader->ReadUint(metadata->id_size);
+        if (!key_size) return false;
+        if (*key_size != item.first.size()) return false;
+        if (!reader->VerifyBytes(item.first.data(), *key_size)) return false;
+        if (!ComparePropertyValue(reader, metadata->type,
+                                  metadata->payload_size, item.second))
+          return false;
+      }
+      return true;
+    }
+  }
+}
+
 // Function used to encode a property (PropertyId, PropertyValue) into a byte
 // stream.
 bool EncodeProperty(Writer *writer, PropertyId property,
@@ -593,6 +702,7 @@ enum class DecodeExpectedPropertyStatus {
 //                 loaded in this case
 //
 // @sa DecodeAnyProperty
+// @sa CompareExpectedProperty
 [[nodiscard]] DecodeExpectedPropertyStatus DecodeExpectedProperty(
     Reader *reader, PropertyId expected_property, PropertyValue *value) {
   auto metadata = reader->ReadMetadata();
@@ -602,7 +712,7 @@ enum class DecodeExpectedPropertyStatus {
   if (!property_id) return DecodeExpectedPropertyStatus::MISSING_DATA;
 
   // Don't load the value if this isn't the expected property.
-  if (property_id != expected_property.AsUint()) {
+  if (*property_id != expected_property.AsUint()) {
     value = nullptr;
   }
 
@@ -610,9 +720,9 @@ enum class DecodeExpectedPropertyStatus {
                            value))
     return DecodeExpectedPropertyStatus::MISSING_DATA;
 
-  if (property_id < expected_property.AsUint()) {
+  if (*property_id < expected_property.AsUint()) {
     return DecodeExpectedPropertyStatus::SMALLER;
-  } else if (property_id == expected_property.AsUint()) {
+  } else if (*property_id == expected_property.AsUint()) {
     return DecodeExpectedPropertyStatus::EQUAL;
   } else {
     return DecodeExpectedPropertyStatus::GREATER;
@@ -624,6 +734,7 @@ enum class DecodeExpectedPropertyStatus {
 // the provided PropertyValue.
 //
 // @sa DecodeExpectedProperty
+// @sa CompareExpectedProperty
 [[nodiscard]] std::optional<PropertyId> DecodeAnyProperty(
     Reader *reader, PropertyValue *value) {
   auto metadata = reader->ReadMetadata();
@@ -637,6 +748,25 @@ enum class DecodeExpectedPropertyStatus {
     return std::nullopt;
 
   return PropertyId::FromUint(*property_id);
+}
+
+// Function used to compare a property (PropertyId, PropertyValue) to current
+// property in the byte stream.
+//
+// @sa DecodeExpectedProperty
+// @sa DecodeAnyProperty
+[[nodiscard]] bool CompareExpectedProperty(Reader *reader,
+                                           PropertyId expected_property,
+                                           const PropertyValue &value) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return false;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return false;
+  if (*property_id != expected_property.AsUint()) return false;
+
+  return ComparePropertyValue(reader, metadata->type, metadata->payload_size,
+                              value);
 }
 
 // Function used to find and (selectively) get the property value of the
@@ -822,6 +952,24 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   Reader reader(data, size);
   return FindSpecificProperty(&reader, property, nullptr) ==
          DecodeExpectedPropertyStatus::EQUAL;
+}
+
+bool PropertyStore::IsPropertyEqual(PropertyId property,
+                                    const PropertyValue &value) const {
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
+  auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
+  if (info.property_size == 0) return value.IsNull();
+  Reader prop_reader(data + info.property_begin, info.property_size);
+  if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
+  return prop_reader.GetPosition() == info.property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {

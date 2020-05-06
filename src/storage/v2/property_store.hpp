@@ -28,6 +28,12 @@ class PropertyStore {
   /// complexity of this function is O(n).
   bool HasProperty(PropertyId property) const;
 
+  /// Checks whether the property `property` is equal to the specified value
+  /// `value`. This function doesn't perform any memory allocations while
+  /// performing the equality check. The time complexity of this function is
+  /// O(n).
+  bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
+
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
   /// @throw std::bad_alloc
