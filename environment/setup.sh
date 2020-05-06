@@ -21,71 +21,135 @@ SWIG_VERSION=3.0.12 # used only for LLVM compilation
 
 # check for installed dependencies
 DISTRO="$( egrep '^(VERSION_)?ID=' /etc/os-release | sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-' )"
-if [ "$DISTRO" == "debian-9" ] || [ "$DISTRO" == "ubuntu-18.04" ]; then
-    DEPS_MANAGER=apt-get
-    DEPS_COMPILE=(
-        coreutils gcc g++ build-essential make # generic build tools
-        wget # used for archive download
-        gnupg # used for archive signature verification
-        tar gzip bzip2 xz-utils # used for archive unpacking
-        zlib1g-dev # zlib library used for all builds
-        libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
-        libreadline-dev # for cmake and llvm
-        libffi-dev libxml2-dev # for llvm
-        libedit-dev libpcre3-dev automake bison # for swig
-    )
-    DEPS_RUN=(
-        make # generic build tools
-        tar gzip bzip2 xz-utils # used for archive unpacking
-        zlib1g # zlib library used for all builds
-        libexpat1 libipt1 libbabeltrace1 liblzma5 python3 # for gdb
-        libreadline7 # for cmake and llvm
-        libffi6 libxml2 # for llvm
-    )
-elif [ "$DISTRO" == "centos-7" ]; then
-    DEPS_MANAGER=yum
-    DEPS_COMPILE=(
-        coreutils gcc gcc-c++ make # generic build tools
-        wget # used for archive download
-        gnupg2 # used for archive signature verification
-        tar gzip bzip2 xz # used for archive unpacking
-        zlib-devel # zlib library used for all builds
-        expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
-        readline-devel # for cmake and llvm
-        libffi-devel libxml2-devel # for llvm
-        libedit-devel pcre-devel automake bison # for swig
-    )
-    DEPS_RUN=(
-        make # generic build tools
-        tar gzip bzip2 xz # used for archive unpacking
-        zlib # zlib library used for all builds
-        expat libipt libbabeltrace xz-libs python36 # for gdb
-        readline # for cmake and llvm
-        libffi libxml2 # for llvm
-    )
-else
-    echo "Unknown distribution: $DISTRO!"
-    exit 1
-fi
-missing=""
-for dep in ${DEPS_COMPILE[@]}; do
-    if [ "$DEPS_MANAGER" == "apt-get" ]; then
-        if ! dpkg -s $dep >/dev/null 2>/dev/null; then
-            missing="$dep $missing"
+case "$DISTRO" in
+    debian-9)
+        DEPS_MANAGER=apt-get
+        DEPS_COMPILE=(
+            coreutils gcc g++ build-essential make # generic build tools
+            wget # used for archive download
+            gnupg # used for archive signature verification
+            tar gzip bzip2 xz-utils unzip # used for archive unpacking
+            zlib1g-dev # zlib library used for all builds
+            libexpat1-dev libipt-dev libbabeltrace-dev libbabeltrace-ctf-dev liblzma-dev python3-dev texinfo # for gdb
+            libcurl4-openssl-dev # for cmake
+            libreadline-dev # for cmake and llvm
+            libffi-dev libxml2-dev # for llvm
+            libedit-dev libpcre3-dev automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz-utils # used for archive unpacking
+            zlib1g # zlib library used for all builds
+            libexpat1 libipt1 libbabeltrace1 libbabeltrace-ctf1 liblzma5 python3 # for gdb
+            libcurl3 # for cmake
+            libreadline7 # for cmake and llvm
+            libffi6 libxml2 # for llvm
+        )
+        ;;
+
+    debian-10)
+        DEPS_MANAGER=apt-get
+        DEPS_COMPILE=(
+            coreutils gcc g++ build-essential make # generic build tools
+            wget # used for archive download
+            gnupg # used for archive signature verification
+            tar gzip bzip2 xz-utils unzip # used for archive unpacking
+            zlib1g-dev # zlib library used for all builds
+            libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+            libcurl4-openssl-dev # for cmake
+            libreadline-dev # for cmake and llvm
+            libffi-dev libxml2-dev # for llvm
+            libedit-dev libpcre3-dev automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz-utils # used for archive unpacking
+            zlib1g # zlib library used for all builds
+            libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
+            libcurl4 # for cmake
+            libreadline7 # for cmake and llvm
+            libffi6 libxml2 # for llvm
+        )
+        ;;
+
+    ubuntu-18.04)
+        DEPS_MANAGER=apt-get
+        DEPS_COMPILE=(
+            coreutils gcc g++ build-essential make # generic build tools
+            wget # used for archive download
+            gnupg # used for archive signature verification
+            tar gzip bzip2 xz-utils unzip # used for archive unpacking
+            zlib1g-dev # zlib library used for all builds
+            libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+            libcurl4-openssl-dev # for cmake
+            libreadline-dev # for cmake and llvm
+            libffi-dev libxml2-dev # for llvm
+            libedit-dev libpcre3-dev automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz-utils # used for archive unpacking
+            zlib1g # zlib library used for all builds
+            libexpat1 libipt1 libbabeltrace1 liblzma5 python3 # for gdb
+            libcurl4 # for cmake
+            libreadline7 # for cmake and llvm
+            libffi6 libxml2 # for llvm
+        )
+        ;;
+
+    centos-7)
+        DEPS_MANAGER=yum
+        DEPS_COMPILE=(
+            coreutils gcc gcc-c++ make # generic build tools
+            wget # used for archive download
+            gnupg2 # used for archive signature verification
+            tar gzip bzip2 xz unzip # used for archive unpacking
+            zlib-devel # zlib library used for all builds
+            expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
+            readline-devel # for cmake and llvm
+            libffi-devel libxml2-devel # for llvm
+            libedit-devel pcre-devel automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz # used for archive unpacking
+            zlib # zlib library used for all builds
+            expat libipt libbabeltrace xz-libs python36 # for gdb
+            readline # for cmake and llvm
+            libffi libxml2 # for llvm
+        )
+        ;;
+
+    *)
+        echo "Unknown distribution: $DISTRO!"
+        exit 1
+        ;;
+esac
+find_missing_dependencies () {
+    local message="$1"; shift
+    local missing=""
+    while [ "$1" != "" ]; do
+        if [ "$DEPS_MANAGER" == "apt-get" ]; then
+            if ! dpkg -s $1 >/dev/null 2>/dev/null; then
+                missing="$1 $missing"
+            fi
+        elif [ "$DEPS_MANAGER" == "yum" ]; then
+            if ! yum list installed $1 >/dev/null 2>/dev/null; then
+                missing="$1 $missing"
+            fi
+        else
+            echo "Invalid package manager: $DEPS_MANAGER!"
+            exit 1
         fi
-    elif [ "$DEPS_MANAGER" == "yum" ]; then
-        if ! yum list installed $dep >/dev/null 2>/dev/null; then
-            missing="$dep $missing"
-        fi
-    else
-        echo "Invalid package manager: $DEPS_MANAGER!"
+        shift
+    done
+    if [ "$missing" != "" ]; then
+        echo "$message: $missing"
         exit 1
     fi
-done
-if [ "$missing" != "" ]; then
-    echo "Missing dependencies: $missing"
-    exit 1
-fi
+}
+find_missing_dependencies "Missing dependencies" ${DEPS_COMPILE[@]}
+find_missing_dependencies "All dependencies are installed, but the following runtime libraries were not found (they are probably invalid)" ${DEPS_RUN[@]}
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
@@ -136,10 +200,13 @@ if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
 fi
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
-    wget http://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz
-    wget http://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz
-    wget http://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz
-    wget http://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
+    wget https://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz
+    wget https://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz
+    wget https://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz
+    wget https://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
+fi
+if [ ! -f pahole-gdb-master.zip ]; then
+    wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
 fi
 
 # verify all archives
@@ -174,16 +241,19 @@ $GPG --verify gdb-$GDB_VERSION.tar.gz.sig gdb-$GDB_VERSION.tar.gz
 if [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt ] || [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt.asc ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt.asc
+    # Because CentOS 7 doesn't have the `--ignore-missing` flag for `sha256sum`
+    # we filter out the missing files from the sums here manually.
+    cat cmake-$CMAKE_VERSION-SHA-256.txt | grep "cmake-$CMAKE_VERSION.tar.gz" > cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x7BFB4EDA
-sha256sum --ignore-missing -c cmake-$CMAKE_VERSION-SHA-256.txt
+sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 $GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
 # verify llvm, cfe, lld, clang-tools-extra
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
-    wget http://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
-    wget http://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz.sig
-    wget http://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
-    wget http://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
+    wget https://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
+    wget https://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz.sig
+    wget https://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
+    wget https://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
 fi
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
 $GPG --keyserver $KEYSERVER --recv-keys 0x345AD05D
@@ -309,6 +379,7 @@ if [ ! -f $PREFIX/bin/gdb ]; then
             --disable-gdbtk \
             --disable-shared \
             --without-guile \
+            --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
             --with-system-readline \
             --with-expat \
             --with-system-zlib \
@@ -320,6 +391,38 @@ if [ ! -f $PREFIX/bin/gdb ]; then
     make -j$CPUS
     make install
     popd && popd
+fi
+
+# install pahole
+if [ ! -d $PREFIX/share/pahole-gdb ]; then
+    unzip ../archives/pahole-gdb-master.zip
+    mv pahole-gdb-master $PREFIX/share/pahole-gdb
+fi
+
+# setup system gdbinit
+if [ ! -f $PREFIX/etc/gdb/gdbinit ]; then
+    mkdir -p $PREFIX/etc/gdb
+    cat >$PREFIX/etc/gdb/gdbinit <<EOF
+# improve formatting
+set print pretty on
+set print object on
+set print static-members on
+set print vtbl on
+set print demangle on
+set demangle-style gnu-v3
+set print sevenbit-strings off
+
+# load libstdc++ pretty printers
+add-auto-load-scripts-directory $PREFIX/lib64
+add-auto-load-safe-path $PREFIX
+
+# load pahole
+python
+sys.path.insert(0, "$PREFIX/share/pahole-gdb")
+import offsets
+import pahole
+end
+EOF
 fi
 
 # compile cmake
@@ -340,7 +443,8 @@ if [ ! -f $PREFIX/bin/cmake ]; then
     ../bootstrap \
         --prefix=$PREFIX \
         --init=../build-flags.cmake \
-        --parallel=$CPUS
+        --parallel=$CPUS \
+        --system-curl
     make -j$CPUS
     # make test # run test suite
     make install
