@@ -1,12 +1,12 @@
 #pragma once
 
 #include <limits>
-#include <map>
 
 #include "utils/spin_lock.hpp"
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 
 namespace storage {
 
@@ -20,7 +20,7 @@ struct Edge {
 
   Gid gid;
 
-  std::map<PropertyId, storage::PropertyValue> properties;
+  PropertyStore properties;
 
   mutable utils::SpinLock lock;
   bool deleted;

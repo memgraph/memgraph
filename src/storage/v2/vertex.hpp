@@ -1,7 +1,6 @@
 #pragma once
 
 #include <limits>
-#include <map>
 #include <tuple>
 #include <vector>
 
@@ -10,6 +9,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 
 namespace storage {
 
@@ -22,7 +22,7 @@ struct Vertex {
   Gid gid;
 
   std::vector<LabelId> labels;
-  std::map<PropertyId, storage::PropertyValue> properties;
+  PropertyStore properties;
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;

@@ -26,31 +26,17 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property,
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  auto it = edge_.ptr->properties.find(property);
-  bool existed = it != edge_.ptr->properties.end();
+  auto current_value = edge_.ptr->properties.GetProperty(property);
+  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  if (it != edge_.ptr->properties.end()) {
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
-                       property, it->second);
-    if (value.IsNull()) {
-      // remove the property
-      edge_.ptr->properties.erase(it);
-    } else {
-      // set the value
-      it->second = value;
-    }
-  } else {
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
-                       property, PropertyValue());
-    if (!value.IsNull()) {
-      edge_.ptr->properties.emplace(property, value);
-    }
-  }
+  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property,
+                     std::move(current_value));
+  edge_.ptr->properties.SetProperty(property, value);
 
   return !existed;
 }
@@ -65,13 +51,14 @@ Result<bool> EdgeAccessor::ClearProperties() {
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  bool removed = !edge_.ptr->properties.empty();
-  for (const auto &property : edge_.ptr->properties) {
+  auto properties = edge_.ptr->properties.Properties();
+  bool removed = !properties.empty();
+  for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(),
                        property.first, property.second);
   }
 
-  edge_.ptr->properties.clear();
+  edge_.ptr->properties.ClearProperties();
 
   return removed;
 }
@@ -86,10 +73,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property,
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
     deleted = edge_.ptr->deleted;
-    auto it = edge_.ptr->properties.find(property);
-    if (it != edge_.ptr->properties.end()) {
-      value = it->second;
-    }
+    value = edge_.ptr->properties.GetProperty(property);
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
@@ -134,7 +118,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
     deleted = edge_.ptr->deleted;
-    properties = edge_.ptr->properties;
+    properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,

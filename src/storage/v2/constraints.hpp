@@ -28,7 +28,6 @@ struct FixedCapacityArray {
   }
 };
 
-using PropertyValueArray = FixedCapacityArray<const PropertyValue *>;
 using PropertyIdArray = FixedCapacityArray<PropertyId>;
 
 struct ConstraintViolation {
@@ -60,9 +59,6 @@ class UniqueConstraints {
 
     bool operator<(const std::vector<PropertyValue> &rhs);
     bool operator==(const std::vector<PropertyValue> &rhs);
-
-    bool operator<(const PropertyValueArray &rhs);
-    bool operator==(const PropertyValueArray &rhs);
   };
 
  public:
@@ -118,6 +114,7 @@ class UniqueConstraints {
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
+  /// @throw std::bad_alloc
   std::optional<ConstraintViolation> Validate(const Vertex &vertex,
                                               const Transaction &tx,
                                               uint64_t commit_timestamp) const;
@@ -155,7 +152,7 @@ inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
   }
   for (const auto &vertex : vertices) {
     if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
-        vertex.properties.find(property) == vertex.properties.end()) {
+        !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
                                  std::set<PropertyId>{property}};
     }
@@ -186,7 +183,7 @@ ValidateExistenceConstraints(const Vertex &vertex,
                              const Constraints &constraints) {
   for (const auto &[label, property] : constraints.existence_constraints) {
     if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
-        vertex.properties.find(property) == vertex.properties.end()) {
+        !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
                                  std::set<PropertyId>{property}};
     }

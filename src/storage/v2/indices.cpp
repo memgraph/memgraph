@@ -93,10 +93,8 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
-    auto it = vertex.properties.find(key);
-    if (it != vertex.properties.end()) {
-      current_value_equal_to_value = it->second == value;
-    }
+    current_value_equal_to_value =
+        vertex.properties.IsPropertyEqual(key, value);
     deleted = vertex.deleted;
     delta = vertex.delta;
   }
@@ -213,10 +211,8 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label,
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
-    auto it = vertex.properties.find(key);
-    if (it != vertex.properties.end()) {
-      current_value_equal_to_value = it->second == value;
-    }
+    current_value_equal_to_value =
+        vertex.properties.IsPropertyEqual(key, value);
     delta = vertex.delta;
   }
   ApplyDeltasForRead(transaction, delta, view,
@@ -397,10 +393,10 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex,
     if (label_prop.first != label) {
       continue;
     }
-    auto it = vertex->properties.find(label_prop.second);
-    if (it != vertex->properties.end() && !it->second.IsNull()) {
+    auto prop_value = vertex->properties.GetProperty(label_prop.second);
+    if (!prop_value.IsNull()) {
       auto acc = storage.access();
-      acc.insert(Entry{it->second, vertex, tx.start_timestamp});
+      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
     }
   }
 }
@@ -438,11 +434,11 @@ bool LabelPropertyIndex::CreateIndex(
     if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
       continue;
     }
-    auto it = vertex.properties.find(property);
-    if (it == vertex.properties.end()) {
+    auto value = vertex.properties.GetProperty(property);
+    if (value.IsNull()) {
       continue;
     }
-    acc.insert(Entry{it->second, &vertex, 0});
+    acc.insert(Entry{std::move(value), &vertex, 0});
   }
   return true;
 }

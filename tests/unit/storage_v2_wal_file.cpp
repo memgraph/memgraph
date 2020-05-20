@@ -105,24 +105,11 @@ class DeltaGenerator final {
       auto property_id =
           storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
       auto &props = vertex->properties;
-      auto it = props.find(property_id);
-      if (it == props.end()) {
-        storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                    storage::Delta::SetPropertyTag(),
-                                    property_id, storage::PropertyValue());
-        if (!value.IsNull()) {
-          props.emplace(property_id, value);
-        }
-      } else {
-        storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                    storage::Delta::SetPropertyTag(),
-                                    property_id, it->second);
-        if (!value.IsNull()) {
-          it->second = value;
-        } else {
-          props.erase(it);
-        }
-      }
+      auto old_value = props.GetProperty(property_id);
+      storage::CreateAndLinkDelta(&transaction_, &*vertex,
+                                  storage::Delta::SetPropertyTag(), property_id,
+                                  old_value);
+      props.SetProperty(property_id, value);
       {
         storage::WalDeltaData data;
         data.type = storage::WalDeltaData::Type::VERTEX_SET_PROPERTY;
@@ -166,13 +153,8 @@ class DeltaGenerator final {
               auto property_id =
                   storage::PropertyId::FromUint(gen_->mapper_.NameToId(
                       data.vertex_edge_set_property.property));
-              auto &props = vertex->properties;
-              auto it = props.find(property_id);
-              if (it == props.end()) {
-                data.vertex_edge_set_property.value = storage::PropertyValue();
-              } else {
-                data.vertex_edge_set_property.value = it->second;
-              }
+              data.vertex_edge_set_property.value =
+                  vertex->properties.GetProperty(property_id);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }

@@ -30,9 +30,9 @@ std::optional<size_t> FindPropertyPosition(
 /// active.
 bool LastCommittedVersionHasLabelProperty(
     const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
-    const PropertyValueArray &value_array, const Transaction &transaction,
-    uint64_t commit_timestamp) {
-  CHECK(properties.size() == value_array.size) << "Invalid database state!";
+    const std::vector<PropertyValue> &value_array,
+    const Transaction &transaction, uint64_t commit_timestamp) {
+  CHECK(properties.size() == value_array.size()) << "Invalid database state!";
 
   PropertyIdArray property_array(properties.size());
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
@@ -55,11 +55,8 @@ bool LastCommittedVersionHasLabelProperty(
 
     size_t i = 0;
     for (const auto &property : properties) {
-      auto it = vertex.properties.find(property);
-      current_value_equal_to_value[i] = value_array.values[i]->IsNull();
-      if (it != vertex.properties.end()) {
-        current_value_equal_to_value[i] = it->second == *value_array.values[i];
-      }
+      current_value_equal_to_value[i] =
+          vertex.properties.IsPropertyEqual(property, value_array[i]);
       property_array.values[i] = property;
       i++;
     }
@@ -76,7 +73,7 @@ bool LastCommittedVersionHasLabelProperty(
         auto pos = FindPropertyPosition(property_array, delta->property.key);
         if (pos) {
           current_value_equal_to_value[*pos] =
-              delta->property.value == *value_array.values[*pos];
+              delta->property.value == value_array[*pos];
         }
         break;
       }
@@ -147,11 +144,8 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
 
     size_t i = 0;
     for (const auto &property : properties) {
-      auto it = vertex.properties.find(property);
-      current_value_equal_to_value[i] = values[i].IsNull();
-      if (it != vertex.properties.end()) {
-        current_value_equal_to_value[i] = it->second == values[i];
-      }
+      current_value_equal_to_value[i] =
+          vertex.properties.IsPropertyEqual(property, values[i]);
       property_array.values[i] = property;
       i++;
     }
@@ -228,79 +222,21 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
   return false;
 }
 
-bool operator<(const PropertyValueArray &lhs,
-               const std::vector<PropertyValue> &rhs) {
-  size_t n = std::min(lhs.size, rhs.size());
-  for (size_t i = 0; i < n; ++i) {
-    if (*lhs.values[i] < rhs[i]) {
-      return true;
-    }
-    if (rhs[i] < *lhs.values[i]) {
-      return false;
-    }
-  }
-  return lhs.size < rhs.size();
-}
-
-bool operator<(const std::vector<PropertyValue> &lhs,
-               const PropertyValueArray &rhs) {
-  size_t n = std::min(lhs.size(), rhs.size);
-  for (size_t i = 0; i < n; ++i) {
-    if (lhs[i] < *rhs.values[i]) {
-      return true;
-    }
-    if (*rhs.values[i] < lhs[i]) {
-      return false;
-    }
-  }
-  return lhs.size() < rhs.size;
-}
-
-bool operator==(const std::vector<PropertyValue> &lhs,
-                const PropertyValueArray &rhs) {
-  if (lhs.size() != rhs.size) {
-    return false;
-  }
-  for (size_t i = 0; i < rhs.size; ++i) {
-    if (lhs[i] == *rhs.values[i]) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
-
 /// Helper function that, given the set of `properties`, extracts corresponding
-/// property values from the `vertex`. `PropertyValueArray` is returned instead
-/// of `std::vector` to avoid `std::bad_alloc` exception.
-std::optional<PropertyValueArray> ExtractPropertyValues(
+/// property values from the `vertex`.
+/// @throw std::bad_alloc
+std::optional<std::vector<PropertyValue>> ExtractPropertyValues(
     const Vertex &vertex, const std::set<PropertyId> &properties) {
-  PropertyValueArray value_array(properties.size());
-  size_t i = 0;
+  std::vector<PropertyValue> value_array;
+  value_array.reserve(properties.size());
   for (const auto &prop : properties) {
-    auto it = vertex.properties.find(prop);
-    if (it == vertex.properties.end() || it->second.IsNull()) {
+    auto value = vertex.properties.GetProperty(prop);
+    if (value.IsNull()) {
       return std::nullopt;
     }
-    value_array.values[i++] = &it->second;
+    value_array.emplace_back(std::move(value));
   }
-  return value_array;
-}
-
-/// Helper function that converts optional property value array to optional
-/// `std::vector` of property values.
-/// @throw std::bad_alloc
-std::optional<std::vector<PropertyValue>> OptionalPropertyValueArrayToVector(
-    const std::optional<PropertyValueArray> &value_array) {
-  if (!value_array) {
-    return std::nullopt;
-  }
-  std::vector<PropertyValue> values;
-  values.reserve(value_array->size);
-  for (size_t i = 0; i < value_array->size; ++i) {
-    values.push_back(*value_array->values[i]);
-  }
-  return std::move(values);
+  return std::move(value_array);
 }
 
 }  // namespace
@@ -337,22 +273,13 @@ bool UniqueConstraints::Entry::operator==(
   return values == rhs;
 }
 
-bool UniqueConstraints::Entry::operator<(const PropertyValueArray &rhs) {
-  return values < rhs;
-}
-
-bool UniqueConstraints::Entry::operator==(const PropertyValueArray &rhs) {
-  return values == rhs;
-}
-
 void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex,
                                            const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {
     if (!utils::Contains(vertex->labels, label_props.first)) {
       continue;
     }
-    auto values = OptionalPropertyValueArrayToVector(
-        ExtractPropertyValues(*vertex, label_props.second));
+    auto values = ExtractPropertyValues(*vertex, label_props.second);
     if (values) {
       auto acc = storage.access();
       acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
@@ -389,8 +316,7 @@ UniqueConstraints::CreateConstraint(
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      auto values = OptionalPropertyValueArrayToVector(
-          ExtractPropertyValues(vertex, properties));
+      auto values = ExtractPropertyValues(vertex, properties);
       if (!values) {
         continue;
       }

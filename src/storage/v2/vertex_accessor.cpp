@@ -197,31 +197,17 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property,
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  auto it = vertex_->properties.find(property);
-  bool existed = it != vertex_->properties.end();
+  auto current_value = vertex_->properties.GetProperty(property);
+  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  if (it != vertex_->properties.end()) {
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
-                       it->second);
-    if (value.IsNull()) {
-      // remove the property
-      vertex_->properties.erase(it);
-    } else {
-      // set the value
-      it->second = value;
-    }
-  } else {
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
-                       PropertyValue());
-    if (!value.IsNull()) {
-      vertex_->properties.emplace(property, value);
-    }
-  }
+  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
+                     std::move(current_value));
+  vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
@@ -236,15 +222,16 @@ Result<bool> VertexAccessor::ClearProperties() {
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  bool removed = !vertex_->properties.empty();
-  for (const auto &property : vertex_->properties) {
+  auto properties = vertex_->properties.Properties();
+  bool removed = !properties.empty();
+  for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(),
                        property.first, property.second);
     UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_,
                         *transaction_);
   }
 
-  vertex_->properties.clear();
+  vertex_->properties.ClearProperties();
 
   return removed;
 }
@@ -258,10 +245,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property,
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    auto it = vertex_->properties.find(property);
-    if (it != vertex_->properties.end()) {
-      value = it->second;
-    }
+    value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,
@@ -304,7 +288,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    properties = vertex_->properties;
+    properties = vertex_->properties.Properties();
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view,

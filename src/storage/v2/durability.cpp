@@ -1261,12 +1261,11 @@ void WalFile::AppendDelta(const Delta &delta, const Vertex &vertex,
       wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // vertex.
-      auto it = vertex.properties.find(delta.property.key);
-      if (it != vertex.properties.end()) {
-        wal_.WritePropertyValue(it->second);
-      } else {
-        wal_.WritePropertyValue(PropertyValue());
-      }
+      // TODO (mferencevic): Mitigate the memory allocation introduced here
+      // (with the `GetProperty` call). It is the only memory allocation in the
+      // entire WAL file writing logic.
+      wal_.WritePropertyValue(
+          vertex.properties.GetProperty(delta.property.key));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -1314,12 +1313,10 @@ void WalFile::AppendDelta(const Delta &delta, const Edge &edge,
       wal_.WriteString(name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
-      auto it = edge.properties.find(delta.property.key);
-      if (it != edge.properties.end()) {
-        wal_.WritePropertyValue(it->second);
-      } else {
-        wal_.WritePropertyValue(PropertyValue());
-      }
+      // TODO (mferencevic): Mitigate the memory allocation introduced here
+      // (with the `GetProperty` call). It is the only memory allocation in the
+      // entire WAL file writing logic.
+      wal_.WritePropertyValue(edge.properties.GetProperty(delta.property.key));
       break;
     }
     case Delta::Action::DELETE_OBJECT:
@@ -2322,7 +2319,7 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
               if (!key) throw RecoveryFailure("Invalid snapshot data!");
               auto value = snapshot.ReadPropertyValue();
               if (!value) throw RecoveryFailure("Invalid snapshot data!");
-              props.emplace(get_property_from_id(*key), std::move(*value));
+              props.SetProperty(get_property_from_id(*key), *value);
             }
           }
         } else {
@@ -2392,7 +2389,7 @@ Durability::RecoveredSnapshot Durability::LoadSnapshot(
           if (!key) throw RecoveryFailure("Invalid snapshot data!");
           auto value = snapshot.ReadPropertyValue();
           if (!value) throw RecoveryFailure("Invalid snapshot data!");
-          props.emplace(get_property_from_id(*key), std::move(*value));
+          props.SetProperty(get_property_from_id(*key), *value);
         }
       }
 
@@ -2731,18 +2728,7 @@ Durability::RecoveryInfo Durability::LoadWal(
               delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          auto it = vertex->properties.find(property_id);
-          if (it != vertex->properties.end()) {
-            if (property_value.IsNull()) {
-              // remove the property
-              vertex->properties.erase(it);
-            } else {
-              // set the value
-              it->second = std::move(property_value);
-            }
-          } else if (!property_value.IsNull()) {
-            vertex->properties.emplace(property_id, std::move(property_value));
-          }
+          vertex->properties.SetProperty(property_id, property_value);
 
           break;
         }
@@ -2851,18 +2837,7 @@ Durability::RecoveryInfo Durability::LoadWal(
           auto property_id = PropertyId::FromUint(name_id_mapper_->NameToId(
               delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
-          auto it = edge->properties.find(property_id);
-          if (it != edge->properties.end()) {
-            if (property_value.IsNull()) {
-              // remove the property
-              edge->properties.erase(it);
-            } else {
-              // set the value
-              it->second = std::move(property_value);
-            }
-          } else if (!property_value.IsNull()) {
-            edge->properties.emplace(property_id, std::move(property_value));
-          }
+          edge->properties.SetProperty(property_id, property_value);
           break;
         }
         case WalDeltaData::Type::TRANSACTION_END:

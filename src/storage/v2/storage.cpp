@@ -787,19 +787,8 @@ void Storage::Accessor::Abort() {
               break;
             }
             case Delta::Action::SET_PROPERTY: {
-              auto it = vertex->properties.find(current->property.key);
-              if (it != vertex->properties.end()) {
-                if (current->property.value.IsNull()) {
-                  // remove the property
-                  vertex->properties.erase(it);
-                } else {
-                  // set the value
-                  it->second = current->property.value;
-                }
-              } else if (!current->property.value.IsNull()) {
-                vertex->properties.emplace(current->property.key,
-                                           current->property.value);
-              }
+              vertex->properties.SetProperty(current->property.key,
+                                             current->property.value);
               break;
             }
             case Delta::Action::ADD_IN_EDGE: {
@@ -882,19 +871,8 @@ void Storage::Accessor::Abort() {
                    transaction_.transaction_id) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
-              auto it = edge->properties.find(current->property.key);
-              if (it != edge->properties.end()) {
-                if (current->property.value.IsNull()) {
-                  // remove the property
-                  edge->properties.erase(it);
-                } else {
-                  // set the value
-                  it->second = current->property.value;
-                }
-              } else if (!current->property.value.IsNull()) {
-                edge->properties.emplace(current->property.key,
-                                         current->property.value);
-              }
+              edge->properties.SetProperty(current->property.key,
+                                           current->property.value);
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
