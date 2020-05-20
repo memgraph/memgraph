@@ -2673,7 +2673,10 @@ class AggregateCursor : public Cursor {
 
     // how many input rows have been aggregated in respective values_ element so
     // far
-    utils::pmr::vector<int> counts_;
+    // TODO: The counting value type should be changed to an unsigned type once
+    // TypedValue can support signed integer values larger than 64bits so that
+    // precision isn't lost.
+    utils::pmr::vector<int64_t> counts_;
     // aggregated values. Initially Null (until at least one input row with a
     // valid value gets processed)
     utils::pmr::vector<TypedValue> values_;
@@ -2718,17 +2721,17 @@ class AggregateCursor : public Cursor {
     }
 
     // calculate AVG aggregations (so far they have only been summed)
-    for (int pos = 0; pos < static_cast<int>(self_.aggregations_.size());
-         ++pos) {
+    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
       if (self_.aggregations_[pos].op != Aggregation::Op::AVG) continue;
       for (auto &kv : aggregation_) {
         AggregationValue &agg_value = kv.second;
-        int count = agg_value.counts_[pos];
+        auto count = agg_value.counts_[pos];
         auto *pull_memory = context->evaluation_context.memory;
-        if (count > 0)
+        if (count > 0) {
           agg_value.values_[pos] =
               agg_value.values_[pos] /
               TypedValue(static_cast<double>(count), pull_memory);
+        }
       }
     }
   }
