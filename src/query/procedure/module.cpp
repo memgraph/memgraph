@@ -437,6 +437,7 @@ void ModuleRegistry::SetModulesDirectory(
 }
 
 bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
+  if (modules_dir_.empty()) return false;
   if (name.empty()) return false;
   std::unique_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
@@ -462,6 +463,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
 }
 
 void ModuleRegistry::UnloadAndLoadModulesFromDirectory() {
+  if (modules_dir_.empty()) return;
   if (!utils::DirExists(modules_dir_)) {
     LOG(ERROR) << "Module directory " << modules_dir_ << " doesn't exist";
     return;
