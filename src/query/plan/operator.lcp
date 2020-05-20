@@ -1626,8 +1626,8 @@ operator's implementation does not expect this.")
      const UniqueCursorPtr input_cursor_;
      // init to_skip_ to -1, indicating
      // that it's still unknown (input has not been Pulled yet)
-     int to_skip_{-1};
-     int skipped_{0};
+     int64_t to_skip_{-1};
+     int64_t skipped_{0};
    };
    cpp<#)
   (:serialize (:slk))
@@ -1685,8 +1685,8 @@ input should be performed).")
      UniqueCursorPtr input_cursor_;
      // init limit_ to -1, indicating
      // that it's still unknown (Cursor has not been Pulled yet)
-     int limit_{-1};
-     int pulled_{0};
+     int64_t limit_{-1};
+     int64_t pulled_{0};
    };
    cpp<#)
   (:serialize (:slk))
