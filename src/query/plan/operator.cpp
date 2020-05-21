@@ -1480,7 +1480,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table,
                                   context.evaluation_context,
                                   context.db_accessor, storage::View::OLD);
-    auto create_state = [this](VertexAccessor vertex, int depth) {
+    auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
 
@@ -1488,8 +1488,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-                           EdgeAccessor edge, VertexAccessor vertex,
-                           double weight, int depth) {
+                           const EdgeAccessor &edge,
+                           const VertexAccessor &vertex, double weight,
+                           int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1526,7 +1527,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex,
-                                                   double weight, int depth) {
+                                                   double weight,
+                                                   int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(
             vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
@@ -1584,11 +1586,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
-        auto current = pq_.top();
-        double current_weight = std::get<0>(current);
-        int current_depth = std::get<1>(current);
-        VertexAccessor current_vertex = std::get<2>(current);
-        std::optional<EdgeAccessor> current_edge = std::get<3>(current);
+        auto [current_weight, current_depth, current_vertex, current_edge] =
+            pq_.top();
         pq_.pop();
 
         auto current_state = create_state(current_vertex, current_depth);
@@ -1670,18 +1669,19 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   bool upper_bound_set_{false};
 
   struct WspStateHash {
-    size_t operator()(const std::pair<VertexAccessor, int> &key) const {
-      return utils::HashCombine<VertexAccessor, int>{}(key.first, key.second);
+    size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
+      return utils::HashCombine<VertexAccessor, int64_t>{}(key.first,
+                                                           key.second);
     }
   };
 
   // Maps vertices to weights they got in expansion.
-  utils::pmr::unordered_map<std::pair<VertexAccessor, int>, TypedValue,
+  utils::pmr::unordered_map<std::pair<VertexAccessor, int64_t>, TypedValue,
                             WspStateHash>
       total_cost_;
 
   // Maps vertices to edges used to reach them.
-  utils::pmr::unordered_map<std::pair<VertexAccessor, int>,
+  utils::pmr::unordered_map<std::pair<VertexAccessor, int64_t>,
                             std::optional<EdgeAccessor>, WspStateHash>
       previous_;
 
@@ -1691,18 +1691,18 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<double, int, VertexAccessor,
+    bool operator()(const std::tuple<double, int64_t, VertexAccessor,
                                      std::optional<EdgeAccessor>> &lhs,
-                    const std::tuple<double, int, VertexAccessor,
+                    const std::tuple<double, int64_t, VertexAccessor,
                                      std::optional<EdgeAccessor>> &rhs) {
       return std::get<0>(lhs) > std::get<0>(rhs);
     }
   };
 
   std::priority_queue<
-      std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>,
-      utils::pmr::vector<
-          std::tuple<double, int, VertexAccessor, std::optional<EdgeAccessor>>>,
+      std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
+      utils::pmr::vector<std::tuple<double, int64_t, VertexAccessor,
+                                    std::optional<EdgeAccessor>>>,
       PriorityQueueComparator>
       pq_;
 
