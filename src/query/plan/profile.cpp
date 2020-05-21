@@ -80,7 +80,7 @@ class ProfilingStatsToTableHelper {
 
   std::string Format(const char *str) {
     std::ostringstream ss;
-    for (int i = 0; i < depth_; ++i) {
+    for (int64_t i = 0; i < depth_; ++i) {
       ss << "| ";
     }
     ss << str;

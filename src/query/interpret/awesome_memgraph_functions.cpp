@@ -698,7 +698,7 @@ TypedValue UniformSample(const TypedValue *args, int64_t nargs,
   std::uniform_int_distribution<uint64_t> rand_dist{0, population_size - 1};
   TypedValue::TVector sampled(ctx.memory);
   sampled.reserve(desired_length);
-  for (int i = 0; i < desired_length; ++i) {
+  for (int64_t i = 0; i < desired_length; ++i) {
     sampled.emplace_back(population[rand_dist(pseudo_rand_gen_)]);
   }
   return TypedValue(std::move(sampled));

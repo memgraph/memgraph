@@ -186,7 +186,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         << "Expected >= " << has_aggregation_.size()
         << "has_aggregation_ flags for COALESCE arguments";
     bool has_aggr = false;
-    for (int i = 0; i < coalesce.expressions_.size(); ++i) {
+    for (size_t i = 0; i < coalesce.expressions_.size(); ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
       has_aggregation_.pop_back();
     }

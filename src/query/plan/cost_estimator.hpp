@@ -171,7 +171,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // try to determine how many values will be yielded by Unwind
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
-    int unwind_value;
+    double unwind_value;
     if (auto *literal =
             utils::Downcast<query::ListLiteral>(unwind.input_expression_))
       unwind_value = literal->elements_.size();

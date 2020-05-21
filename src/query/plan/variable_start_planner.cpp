@@ -22,8 +22,8 @@ void AddNextExpansions(
     const Symbol &node_symbol, const Matching &matching,
     const SymbolTable &symbol_table,
     std::unordered_set<Symbol> &expanded_symbols,
-    std::unordered_map<Symbol, std::set<int>> &node_symbol_to_expansions,
-    std::unordered_set<int> &seen_expansions,
+    std::unordered_map<Symbol, std::set<size_t>> &node_symbol_to_expansions,
+    std::unordered_set<size_t> &seen_expansions,
     std::queue<Expansion> &next_expansions) {
   auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
   if (node_to_expansions_it == node_symbol_to_expansions.end()) {
@@ -101,7 +101,7 @@ std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node,
   // Make a copy of node_symbol_to_expansions, because we will modify it as
   // expansions are chained.
   auto node_symbol_to_expansions = matching.node_symbol_to_expansions;
-  std::unordered_set<int> seen_expansions;
+  std::unordered_set<size_t> seen_expansions;
   std::queue<Expansion> next_expansions;
   std::unordered_set<Symbol> expanded_symbols(
       {symbol_table.at(*start_node->identifier_)});
@@ -129,7 +129,7 @@ std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node,
     // complexity, simply append the remaining expansions. They should have the
     // correct order, since the original expansions were verified during
     // semantic analysis.
-    for (int i = 0; i < matching.expansions.size(); ++i) {
+    for (size_t i = 0; i < matching.expansions.size(); ++i) {
       if (seen_expansions.find(i) != seen_expansions.end()) {
         continue;
       }

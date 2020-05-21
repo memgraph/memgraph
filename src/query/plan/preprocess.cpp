@@ -88,7 +88,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
     // Matching may already have some expansions, so offset our index.
-    const int expansion_ix = matching.expansions.size();
+    const size_t expansion_ix = matching.expansions.size();
     // Map node1 symbol to expansion
     const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
     matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);

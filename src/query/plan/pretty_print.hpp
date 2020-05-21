@@ -91,7 +91,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   template <class TFun>
   void WithPrintLn(TFun fun) {
     *out_ << " ";
-    for (int i = 0; i < depth_; ++i) {
+    for (int64_t i = 0; i < depth_; ++i) {
       *out_ << "| ";
     }
     fun(*out_);

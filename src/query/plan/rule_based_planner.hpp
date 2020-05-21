@@ -177,7 +177,7 @@ class RuleBasedPlanner {
               std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
         }
       }
-      int merge_id = 0;
+      uint64_t merge_id = 0;
       for (auto *clause : query_part.remaining_clauses) {
         CHECK(!utils::IsSubtype(*clause, Match::kType))
             << "Unexpected Match in remaining clauses";
