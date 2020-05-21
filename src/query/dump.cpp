@@ -27,6 +27,22 @@ const char *kInternalPropertyId = "__mg_id__";
 // index on internal property id.
 const char *kInternalVertexLabel = "__mg_vertex__";
 
+/// A helper function that escapes label, edge type and property names.
+std::string EscapeName(const std::string_view &value) {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.append(1, '`');
+  for (auto c : value) {
+    if (c == '`') {
+      out.append("``");
+    } else {
+      out.append(1, c);
+    }
+  }
+  out.append(1, '`');
+  return out;
+}
+
 void DumpPreciseDouble(std::ostream *os, double value) {
   // A temporary stream is used to keep precision of the original output
   // stream unchanged.
@@ -66,7 +82,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
-        os << kv.first << ": ";
+        os << EscapeName(kv.first) << ": ";
         DumpPropertyValue(&os, kv.second);
       });
       *os << "}";
@@ -85,7 +101,7 @@ void DumpProperties(
     if (store.size() > 0) *os << ", ";
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
-    os << dba->PropertyToName(kv.first) << ": ";
+    os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
     DumpPropertyValue(&os, kv.second);
   });
   *os << "}";
@@ -112,7 +128,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
     }
   }
   for (const auto &label : *maybe_labels) {
-    *os << ":" << dba->LabelToName(label);
+    *os << ":" << EscapeName(dba->LabelToName(label));
   }
   *os << " ";
   auto maybe_props = vertex.Properties(storage::View::OLD);
@@ -145,7 +161,7 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
   *os << " AND ";
   *os << "v." << kInternalPropertyId << " = " << edge.To().CypherId() << " ";
   *os << "CREATE (u)-[";
-  *os << ":" << dba->EdgeTypeToName(edge.EdgeType());
+  *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
   auto maybe_props = edge.Properties(storage::View::OLD);
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
@@ -171,31 +187,33 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
 
 void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba,
                     const storage::LabelId label) {
-  *os << "CREATE INDEX ON :" << dba->LabelToName(label) << ";";
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
 void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba,
                             storage::LabelId label,
                             storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << dba->LabelToName(label) << "("
-      << dba->PropertyToName(property) << ");";
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "("
+      << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba,
                              storage::LabelId label,
                              storage::PropertyId property) {
-  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(label)
-      << ") ASSERT EXISTS (u." << dba->PropertyToName(property) << ");";
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label))
+      << ") ASSERT EXISTS (u." << EscapeName(dba->PropertyToName(property))
+      << ");";
 }
 
 void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba,
                           storage::LabelId label,
                           const std::set<storage::PropertyId> &properties) {
-  *os << "CREATE CONSTRAINT ON (u:" << dba->LabelToName(label) << ") ASSERT ";
-  utils::PrintIterable(*os, properties, ", ",
-                       [&dba](auto &stream, const auto &property) {
-                         stream << "u." << dba->PropertyToName(property);
-                       });
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label))
+      << ") ASSERT ";
+  utils::PrintIterable(
+      *os, properties, ", ", [&dba](auto &stream, const auto &property) {
+        stream << "u." << EscapeName(dba->PropertyToName(property));
+      });
   *os << " IS UNIQUE;";
 }
 

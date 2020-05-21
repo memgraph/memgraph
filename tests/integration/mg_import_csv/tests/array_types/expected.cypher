@@ -1,10 +1,10 @@
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
-CREATE (:__mg_vertex__:Message:Comment:Entry0:hello {__mg_id__: 0, country: "Croatia", content: "yes", browser: "Chrome"});
-CREATE (:__mg_vertex__:Message:Comment:Entry1 {__mg_id__: 1, country: "United Kingdom", content: "thanks", browser: "Chrome"});
-CREATE (:__mg_vertex__:Message:Comment:Entry2:world {__mg_id__: 2, country: "Germany", content: "LOL"});
-CREATE (:__mg_vertex__:Message:Comment:Entry3 {__mg_id__: 3, country: "France", content: "I see", browser: "Firefox"});
-CREATE (:__mg_vertex__:Message:Comment:Entry4:this:is:a: lot :of: labels {__mg_id__: 4, country: "Italy", content: "fine", browser: "Internet Explorer"});
-MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE (u)-[:KNOWS {value: ["5", " asd", " helloworld"]}]->(v);
-MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 4 AND v.__mg_id__ = 0 CREATE (u)-[:KNOWS {value: ["6", "hmmm"]}]->(v);
+CREATE (:__mg_vertex__:`Message`:`Comment`:`Entry0`:`hello` {__mg_id__: 0, `country`: "Croatia", `content`: "yes", `browser`: "Chrome"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`Entry1` {__mg_id__: 1, `country`: "United Kingdom", `content`: "thanks", `browser`: "Chrome"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`Entry2`:`world` {__mg_id__: 2, `country`: "Germany", `content`: "LOL"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`Entry3` {__mg_id__: 3, `country`: "France", `content`: "I see", `browser`: "Firefox"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`Entry4`:`this`:`is`:`a`:` lot `:`of`:` labels` {__mg_id__: 4, `country`: "Italy", `content`: "fine", `browser`: "Internet Explorer"});
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 2 CREATE (u)-[:`KNOWS` {`value`: ["5", " asd", " helloworld"]}]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 4 AND v.__mg_id__ = 0 CREATE (u)-[:`KNOWS` {`value`: ["6", "hmmm"]}]->(v);
 DROP INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;

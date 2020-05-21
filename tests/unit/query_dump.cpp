@@ -334,7 +334,7 @@ TEST(DumpTest, VertexWithSingleLabel) {
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:Label1 {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -344,7 +344,7 @@ TEST(DumpTest, VertexWithMultipleLabels) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label1", "Label2"}, {}, false);
+    CreateVertex(&dba, {"Label1", "Label 2"}, {}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -357,7 +357,7 @@ TEST(DumpTest, VertexWithMultipleLabels) {
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -380,7 +380,7 @@ TEST(DumpTest, VertexWithSingleProperty) {
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__ {__mg_id__: 0, prop: 42});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -412,6 +412,39 @@ TEST(DumpTest, MultipleVertices) {
   }
 }
 
+TEST(DumpTest, PropertyValue) {
+  storage::Storage db;
+  {
+    auto dba = db.Access();
+    auto null_value = storage::PropertyValue();
+    auto int_value = storage::PropertyValue(13);
+    auto bool_value = storage::PropertyValue(true);
+    auto double_value = storage::PropertyValue(-1.2);
+    auto str_value = storage::PropertyValue("hello 'world'");
+    auto map_value = storage::PropertyValue(
+        {{"prop 1", int_value}, {"prop`2`", bool_value}});
+    auto list_value =
+        storage::PropertyValue({map_value, null_value, double_value});
+    CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(&db);
+    query::AnyStream query_stream(&stream, utils::NewDeleteResource());
+    {
+      auto acc = db.Access();
+      query::DbAccessor dba(&acc);
+      query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+    }
+    VerifyQueries(
+        stream.GetResults(), kCreateInternalIndex,
+        "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
+        "`prop``2```: true}, Null, -1.2], `p2`: \"hello \\'world\\'\"});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleEdge) {
   storage::Storage db;
@@ -436,7 +469,7 @@ TEST(DumpTest, SingleEdge) {
         "CREATE (:__mg_vertex__ {__mg_id__: 0});",
         "CREATE (:__mg_vertex__ {__mg_id__: 1});",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:EdgeType]->(v);",
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -450,8 +483,8 @@ TEST(DumpTest, MultipleEdges) {
     auto v = CreateVertex(&dba, {}, {}, false);
     auto w = CreateVertex(&dba, {}, {}, false);
     CreateEdge(&dba, &u, &v, "EdgeType", {}, false);
-    CreateEdge(&dba, &v, &u, "EdgeType", {}, false);
-    CreateEdge(&dba, &v, &w, "EdgeType", {}, false);
+    CreateEdge(&dba, &v, &u, "EdgeType 2", {}, false);
+    CreateEdge(&dba, &v, &w, "EdgeType `!\"", {}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -469,11 +502,11 @@ TEST(DumpTest, MultipleEdges) {
         "CREATE (:__mg_vertex__ {__mg_id__: 1});",
         "CREATE (:__mg_vertex__ {__mg_id__: 2});",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:EdgeType]->(v);",
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-        "v.__mg_id__ = 0 CREATE (u)-[:EdgeType]->(v);",
+        "v.__mg_id__ = 0 CREATE (u)-[:`EdgeType 2`]->(v);",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-        "v.__mg_id__ = 2 CREATE (u)-[:EdgeType]->(v);",
+        "v.__mg_id__ = 2 CREATE (u)-[:`EdgeType ``!\"`]->(v);",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -503,7 +536,7 @@ TEST(DumpTest, EdgeWithProperties) {
         "CREATE (:__mg_vertex__ {__mg_id__: 0});",
         "CREATE (:__mg_vertex__ {__mg_id__: 1});",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:EdgeType {prop: 13}]->(v);",
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`prop`: 13}]->(v);",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -513,14 +546,14 @@ TEST(DumpTest, IndicesKeys) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label1", "Label2"}, {{"p", storage::PropertyValue(1)}},
-                 false);
+    CreateVertex(&dba, {"Label1", "Label 2"},
+                 {{"p", storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   ASSERT_TRUE(
       db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")));
   ASSERT_TRUE(
-      db.CreateIndex(db.NameToLabel("Label2"), db.NameToProperty("prop")));
+      db.CreateIndex(db.NameToLabel("Label 2"), db.NameToProperty("prop `")));
 
   {
     ResultStreamFaker stream(&db);
@@ -530,10 +563,11 @@ TEST(DumpTest, IndicesKeys) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :Label1(prop);",
-                  "CREATE INDEX ON :Label2(prop);", kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:Label1:Label2 {__mg_id__: 0, p: 1});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(
+        stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);",
+        "CREATE INDEX ON :`Label 2`(`prop ```);", kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -542,11 +576,12 @@ TEST(DumpTest, ExistenceConstraints) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label"}, {{"prop", storage::PropertyValue(1)}}, false);
+    CreateVertex(&dba, {"L`abel 1"}, {{"prop", storage::PropertyValue(1)}},
+                 false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto res = db.CreateExistenceConstraint(db.NameToLabel("Label"),
+    auto res = db.CreateExistenceConstraint(db.NameToLabel("L`abel 1"),
                                             db.NameToProperty("prop"));
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
@@ -560,11 +595,12 @@ TEST(DumpTest, ExistenceConstraints) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(),
-                  "CREATE CONSTRAINT ON (u:Label) ASSERT EXISTS (u.prop);",
-                  kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(
+        stream.GetResults(),
+        "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -599,13 +635,15 @@ TEST(DumpTest, UniqueConstraints) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(),
-        "CREATE CONSTRAINT ON (u:Label) ASSERT u.prop, u.prop2 IS UNIQUE;",
-        kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:Label {__mg_id__: 0, prop: 1, prop2: 2});",
-        "CREATE (:__mg_vertex__:Label {__mg_id__: 1, prop: 2, prop2: 2});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  "CREATE CONSTRAINT ON (u:`Label`) ASSERT u.`prop`, u.`prop2` "
+                  "IS UNIQUE;",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label` {__mg_id__: 0, `prop`: 1, "
+                  "`prop2`: 2});",
+                  "CREATE (:__mg_vertex__:`Label` {__mg_id__: 1, `prop`: 2, "
+                  "`prop2`: 2});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
