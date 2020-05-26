@@ -44,6 +44,18 @@ TEST(SlkCore, String) {
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size());
 }
 
+TEST(SlkCore, ConstStringLiteral) {
+  const char *original = "hello world";
+  slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  slk::Save(original, builder);
+  std::string decoded;
+  auto reader = loopback.GetReader();
+  slk::Load(&decoded, reader);
+  ASSERT_EQ(original, decoded);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + strlen(original));
+}
+
 TEST(SlkCore, VectorPrimitive) {
   std::vector<int> original{1, 2, 3, 4, 5};
   slk::Loopback loopback;

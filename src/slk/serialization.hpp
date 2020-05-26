@@ -10,12 +10,15 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "slk/streams.hpp"
+#include "utils/cast.hpp"
+#include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
@@ -90,10 +93,11 @@ void Load(
 
 // Implementation of serialization for primitive types.
 
-#define MAKE_PRIMITIVE_SAVE(primitive_type)                \
-  inline void Save(primitive_type obj, Builder *builder) { \
-    builder->Save(reinterpret_cast<const uint8_t *>(&obj), \
-                  sizeof(primitive_type));                 \
+#define MAKE_PRIMITIVE_SAVE(primitive_type)                        \
+  inline void Save(primitive_type obj, Builder *builder) {         \
+    primitive_type obj_encoded = utils::HostToLittleEndian(obj);   \
+    builder->Save(reinterpret_cast<const uint8_t *>(&obj_encoded), \
+                  sizeof(primitive_type));                         \
   }
 
 MAKE_PRIMITIVE_SAVE(bool)
@@ -106,14 +110,15 @@ MAKE_PRIMITIVE_SAVE(int32_t)
 MAKE_PRIMITIVE_SAVE(uint32_t)
 MAKE_PRIMITIVE_SAVE(int64_t)
 MAKE_PRIMITIVE_SAVE(uint64_t)
-MAKE_PRIMITIVE_SAVE(float)
-MAKE_PRIMITIVE_SAVE(double)
 
 #undef MAKE_PRIMITIVE_SAVE
 
-#define MAKE_PRIMITIVE_LOAD(primitive_type)                                 \
-  inline void Load(primitive_type *obj, Reader *reader) {                   \
-    reader->Load(reinterpret_cast<uint8_t *>(obj), sizeof(primitive_type)); \
+#define MAKE_PRIMITIVE_LOAD(primitive_type)                 \
+  inline void Load(primitive_type *obj, Reader *reader) {   \
+    primitive_type obj_encoded;                             \
+    reader->Load(reinterpret_cast<uint8_t *>(&obj_encoded), \
+                 sizeof(primitive_type));                   \
+    *obj = utils::LittleEndianToHost(obj_encoded);          \
   }
 
 MAKE_PRIMITIVE_LOAD(bool)
@@ -126,14 +131,44 @@ MAKE_PRIMITIVE_LOAD(int32_t)
 MAKE_PRIMITIVE_LOAD(uint32_t)
 MAKE_PRIMITIVE_LOAD(int64_t)
 MAKE_PRIMITIVE_LOAD(uint64_t)
-MAKE_PRIMITIVE_LOAD(float)
-MAKE_PRIMITIVE_LOAD(double)
 
 #undef MAKE_PRIMITIVE_LOAD
+
+inline void Save(float obj, Builder *builder) {
+  slk::Save(utils::MemcpyCast<uint32_t>(obj), builder);
+}
+
+inline void Save(double obj, Builder *builder) {
+  slk::Save(utils::MemcpyCast<uint64_t>(obj), builder);
+}
+
+inline void Load(float *obj, Reader *reader) {
+  uint32_t obj_encoded;
+  slk::Load(&obj_encoded, reader);
+  *obj = utils::MemcpyCast<float>(obj_encoded);
+}
+
+inline void Load(double *obj, Reader *reader) {
+  uint64_t obj_encoded;
+  slk::Load(&obj_encoded, reader);
+  *obj = utils::MemcpyCast<double>(obj_encoded);
+}
 
 // Implementation of serialization of complex types.
 
 inline void Save(const std::string &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  builder->Save(reinterpret_cast<const uint8_t *>(obj.data()), size);
+}
+
+inline void Save(const char *obj, Builder *builder) {
+  uint64_t size = strlen(obj);
+  Save(size, builder);
+  builder->Save(reinterpret_cast<const uint8_t *>(obj), size);
+}
+
+inline void Save(const std::string_view &obj, Builder *builder) {
   uint64_t size = obj.size();
   Save(size, builder);
   builder->Save(reinterpret_cast<const uint8_t *>(obj.data()), size);
