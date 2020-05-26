@@ -208,3 +208,86 @@ TEST(Rpc, JumboMessage) {
   server.Shutdown();
   server.AwaitShutdown();
 }
+
+TEST(Rpc, Stream) {
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
+  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+    EchoMessage req;
+    slk::Load(&req, req_reader);
+    std::string payload;
+    slk::Load(&payload, req_reader);
+    EchoMessage res(req.data + payload);
+    slk::Save(res, res_builder);
+  });
+  ASSERT_TRUE(server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
+  auto stream = client.Stream<Echo>("hello");
+  slk::Save("world", stream.GetBuilder());
+  auto echo = stream.AwaitResponse();
+  EXPECT_EQ(echo.data, "helloworld");
+
+  server.Shutdown();
+  server.AwaitShutdown();
+}
+
+TEST(Rpc, StreamLarge) {
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
+  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+    EchoMessage req;
+    slk::Load(&req, req_reader);
+    std::string payload;
+    slk::Load(&payload, req_reader);
+    EchoMessage res(req.data + payload);
+    slk::Save(res, res_builder);
+  });
+  ASSERT_TRUE(server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  std::string testdata1(50000, 'a');
+  std::string testdata2(50000, 'b');
+
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
+  auto stream = client.Stream<Echo>(testdata1);
+  slk::Save(testdata2, stream.GetBuilder());
+  auto echo = stream.AwaitResponse();
+  EXPECT_EQ(echo.data, testdata1 + testdata2);
+
+  server.Shutdown();
+  server.AwaitShutdown();
+}
+
+TEST(Rpc, StreamJumbo) {
+  communication::ServerContext server_context;
+  Server server({"127.0.0.1", 0}, &server_context);
+  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+    EchoMessage req;
+    slk::Load(&req, req_reader);
+    std::string payload;
+    slk::Load(&payload, req_reader);
+    EchoMessage res(req.data + payload);
+    slk::Save(res, res_builder);
+  });
+  ASSERT_TRUE(server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  // NOLINTNEXTLINE (bugprone-string-constructor)
+  std::string testdata1(5000000, 'a');
+  // NOLINTNEXTLINE (bugprone-string-constructor)
+  std::string testdata2(5000000, 'b');
+
+  communication::ClientContext client_context;
+  Client client(server.endpoint(), &client_context);
+  auto stream = client.Stream<Echo>(testdata1);
+  slk::Save(testdata2, stream.GetBuilder());
+  auto echo = stream.AwaitResponse();
+  EXPECT_EQ(echo.data, testdata1 + testdata2);
+
+  server.Shutdown();
+  server.AwaitShutdown();
+}

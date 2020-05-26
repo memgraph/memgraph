@@ -85,7 +85,6 @@ void Reader::GetSegment(bool should_be_final) {
     throw SlkReaderException("Size data missing in SLK stream!");
   }
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
-  pos_ += sizeof(SegmentSize);
 
   if (should_be_final && len != 0) {
     throw SlkReaderException(
@@ -95,6 +94,10 @@ void Reader::GetSegment(bool should_be_final) {
     throw SlkReaderException(
         "Got an empty SLK segment when expecting a non-empty segment!");
   }
+
+  // The position is incremented after the checks above so that the new
+  // segment can be reread if some of the above checks fail.
+  pos_ += sizeof(SegmentSize);
 
   if (pos_ + len > size_) {
     throw SlkReaderException("There isn't enough data in the SLK stream!");
