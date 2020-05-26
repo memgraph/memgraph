@@ -12,8 +12,23 @@
 
 namespace storage::durability {
 
+/// Encoder interface class. Used to implement streams to different targets
+/// (e.g. file and network).
+class BaseEncoder {
+ protected:
+  ~BaseEncoder() {}
+
+ public:
+  virtual void WriteMarker(Marker marker) = 0;
+  virtual void WriteBool(bool value) = 0;
+  virtual void WriteUint(uint64_t value) = 0;
+  virtual void WriteDouble(double value) = 0;
+  virtual void WriteString(const std::string_view &value) = 0;
+  virtual void WritePropertyValue(const PropertyValue &value) = 0;
+};
+
 /// Encoder that is used to generate a snapshot/WAL.
-class Encoder final {
+class Encoder final : public BaseEncoder {
  public:
   void Initialize(const std::filesystem::path &path,
                   const std::string_view &magic, uint64_t version);
@@ -22,12 +37,12 @@ class Encoder final {
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 
-  void WriteMarker(Marker marker);
-  void WriteBool(bool value);
-  void WriteUint(uint64_t value);
-  void WriteDouble(double value);
-  void WriteString(const std::string_view &value);
-  void WritePropertyValue(const PropertyValue &value);
+  void WriteMarker(Marker marker) override;
+  void WriteBool(bool value) override;
+  void WriteUint(uint64_t value) override;
+  void WriteDouble(double value) override;
+  void WriteString(const std::string_view &value) override;
+  void WritePropertyValue(const PropertyValue &value) override;
 
   uint64_t GetPosition();
   void SetPosition(uint64_t position);

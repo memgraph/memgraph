@@ -127,6 +127,24 @@ WalDeltaData ReadWalDeltaData(Decoder *wal);
 /// @throw RecoveryFailure
 WalDeltaData::Type SkipWalDeltaData(Decoder *wal);
 
+/// Function used to encode a `Delta` that originated from a `Vertex`.
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
+                 Config::Items items, const Delta &delta, const Vertex &vertex,
+                 uint64_t timestamp);
+
+/// Function used to encode a `Delta` that originated from an `Edge`.
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
+                 const Delta &delta, const Edge &edge, uint64_t timestamp);
+
+/// Function used to encode the transaction end.
+void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+
+/// Function used to encode non-transactional operation.
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
+                     StorageGlobalOperation operation, LabelId label,
+                     const std::set<PropertyId> &properties,
+                     uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path,
