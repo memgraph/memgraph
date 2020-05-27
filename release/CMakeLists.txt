@@ -1,6 +1,6 @@
 # Install the license file.
 if (MG_ENTERPRISE)
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_ENTERPRISE_TRIAL.md
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_ENTERPRISE.md
           DESTINATION share/doc/memgraph RENAME copyright)
 else()
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_COMMUNITY.md
