@@ -833,14 +833,14 @@ PreparedQuery PrepareInfoQuery(
                              TypedValue(db->PropertyToName(item.second))});
         }
         for (const auto &item : info.unique) {
-          std::stringstream properties;
-          utils::PrintIterable(properties, item.second, ", ",
-                               [&db](auto &stream, const auto &entry) {
-                                 stream << db->PropertyToName(entry);
-                               });
+          std::vector<TypedValue> properties;
+          properties.reserve(item.second.size());
+          for (const auto &property : item.second) {
+            properties.emplace_back(db->PropertyToName(property));
+          }
           results.push_back({TypedValue("unique"),
                              TypedValue(db->LabelToName(item.first)),
-                             TypedValue(properties.str())});
+                             TypedValue(std::move(properties))});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };

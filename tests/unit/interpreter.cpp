@@ -402,7 +402,10 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
     ASSERT_EQ(result.size(), 3U);
     ASSERT_EQ(result[0].ValueString(), "unique");
     ASSERT_EQ(result[1].ValueString(), "A");
-    ASSERT_EQ(result[2].ValueString(), "a, b");
+    const auto &properties = result[2].ValueList();
+    ASSERT_EQ(properties.size(), 2U);
+    ASSERT_EQ(properties[0].ValueString(), "a");
+    ASSERT_EQ(properties[1].ValueString(), "b");
   }
 
   // Drop constraint.
