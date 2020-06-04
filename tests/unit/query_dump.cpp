@@ -783,3 +783,92 @@ TEST(DumpTest, ExecuteDumpDatabase) {
               "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
 }
+
+class StatefulInterpreter {
+ public:
+  explicit StatefulInterpreter(storage::Storage *db)
+      : db_(db), context_(db_), interpreter_(&context_) {}
+
+  auto Execute(const std::string &query) {
+    ResultStreamFaker stream(db_);
+
+    auto [header, _] = interpreter_.Prepare(query, {});
+    stream.Header(header);
+    auto summary = interpreter_.PullAll(&stream);
+    stream.Summary(summary);
+
+    return stream;
+  }
+
+ private:
+  storage::Storage *db_;
+  query::InterpreterContext context_;
+  query::Interpreter interpreter_;
+};
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
+  storage::Storage db;
+  StatefulInterpreter interpreter(&db);
+
+  // Begin the transaction before the vertex is created.
+  interpreter.Execute("BEGIN");
+
+  // Verify that nothing is dumped.
+  {
+    auto stream = interpreter.Execute("DUMP DATABASE");
+    const auto &header = stream.GetHeader();
+    const auto &results = stream.GetResults();
+    ASSERT_EQ(header.size(), 1U);
+    ASSERT_EQ(header[0], "QUERY");
+    ASSERT_EQ(results.size(), 0U);
+  }
+
+  // Create the vertex.
+  {
+    auto dba = db.Access();
+    CreateVertex(&dba, {}, {}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  // Verify that nothing is dumped.
+  {
+    auto stream = interpreter.Execute("DUMP DATABASE");
+    const auto &header = stream.GetHeader();
+    const auto &results = stream.GetResults();
+    ASSERT_EQ(header.size(), 1U);
+    ASSERT_EQ(header[0], "QUERY");
+    ASSERT_EQ(results.size(), 0U);
+  }
+
+  // Rollback the transaction.
+  interpreter.Execute("ROLLBACK");
+
+  // Start a new transaction, this transaction should see the vertex.
+  interpreter.Execute("BEGIN");
+
+  // Verify that the vertex is dumped.
+  {
+    auto stream = interpreter.Execute("DUMP DATABASE");
+    const auto &header = stream.GetHeader();
+    const auto &results = stream.GetResults();
+    ASSERT_EQ(header.size(), 1U);
+    EXPECT_EQ(header[0], "QUERY");
+    EXPECT_EQ(results.size(), 4U);
+    for (const auto &item : results) {
+      EXPECT_EQ(item.size(), 1);
+      EXPECT_TRUE(item[0].IsString());
+    }
+    EXPECT_EQ(results[0][0].ValueString(),
+              "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[1][0].ValueString(),
+              "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[2][0].ValueString(),
+              "DROP INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[3][0].ValueString(),
+              "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
+  }
+
+  // Rollback the transaction.
+  interpreter.Execute("ROLLBACK");
+}

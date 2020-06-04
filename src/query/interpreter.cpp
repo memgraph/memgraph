@@ -651,17 +651,13 @@ PreparedQuery PrepareProfileQuery(
 
 PreparedQuery PrepareDumpQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context,
-    utils::MonotonicBufferResource *execution_memory) {
-  return PreparedQuery{
-      {"QUERY"},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream) {
-        auto dba = interpreter_context->db->Access();
-        query::DbAccessor query_dba{&dba};
-        DumpDatabaseToCypherQueries(&query_dba, stream);
-        return QueryHandlerResult::NOTHING;
-      }};
+    DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
+  return PreparedQuery{{"QUERY"},
+                       std::move(parsed_query.required_privileges),
+                       [dba](AnyStream *stream) {
+                         DumpDatabaseToCypherQueries(dba, stream);
+                         return QueryHandlerResult::COMMIT;
+                       }};
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -1066,7 +1062,6 @@ Interpreter::Prepare(
     // Some queries require an active transaction in order to be prepared.
     if (!in_explicit_transaction_ &&
         !utils::Downcast<IndexQuery>(parsed_query.query) &&
-        !utils::Downcast<DumpQuery>(parsed_query.query) &&
         !utils::Downcast<ConstraintQuery>(parsed_query.query) &&
         !utils::Downcast<InfoQuery>(parsed_query.query)) {
       db_accessor_.emplace(interpreter_context_->db->Access());
@@ -1091,7 +1086,7 @@ Interpreter::Prepare(
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query =
           PrepareDumpQuery(std::move(parsed_query), &summary_,
-                           interpreter_context_, &execution_memory_);
+                           &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(
           std::move(parsed_query), in_explicit_transaction_, &summary_,
