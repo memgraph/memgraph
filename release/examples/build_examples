@@ -24,6 +24,7 @@ fi
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 build_dir="build"
 query="populate.cyp"
+query_gz="populate.cyp.gz"
 
 cd $script_dir
 
@@ -54,7 +55,14 @@ do
 
   # create data using mg_client
   set +e
-  ${mg_client_exe} --use-ssl=false < "$script_dir/$dir/$query"
+  if [ -f "$script_dir/$dir/$query" ]; then
+    ${mg_client_exe} --use-ssl=false < "$script_dir/$dir/$query"
+  elif [ -f "$script_dir/$dir/$query_gz" ]; then
+    zcat "$script_dir/$dir/$query_gz" | ${mg_client_exe} --use-ssl=false
+  else
+    echo "Missing \"$dir/$query\" or \"$dir/$query_gz\"!"
+    exit 1
+  fi
   code=$?
   set -e
 
