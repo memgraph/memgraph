@@ -1377,6 +1377,20 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
         storage_->Create<Single>(ident, list_expr, where));
+  } else if (ctx->ANY()) {
+    auto *ident = storage_->Create<Identifier>(ctx->filterExpression()
+                                                   ->idInColl()
+                                                   ->variable()
+                                                   ->accept(this)
+                                                   .as<std::string>());
+    Expression *list_expr =
+        ctx->filterExpression()->idInColl()->expression()->accept(this);
+    if (!ctx->filterExpression()->where()) {
+      throw SyntaxException("ANY(...) requires a WHERE predicate.");
+    }
+    Where *where = ctx->filterExpression()->where()->accept(this);
+    return static_cast<Expression *>(
+        storage_->Create<Any>(ident, list_expr, where));
   } else if (ctx->REDUCE()) {
     auto *accumulator = storage_->Create<Identifier>(
         ctx->reduceExpression()->accumulator->accept(this).as<std::string>());

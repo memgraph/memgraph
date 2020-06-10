@@ -354,6 +354,12 @@ bool SymbolGenerator::PreVisit(Single &single) {
   return false;
 }
 
+bool SymbolGenerator::PreVisit(Any &any) {
+  any.list_expression_->Accept(*this);
+  VisitWithIdentifiers(any.where_->expression_, {any.identifier_});
+  return false;
+}
+
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);

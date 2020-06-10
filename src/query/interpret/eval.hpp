@@ -523,6 +523,32 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(predicate_satisfied, ctx_->memory);
   }
 
+  TypedValue Visit(Any &any) override {
+    auto list_value = any.list_expression_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue(ctx_->memory);
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("ANY expected a list, got {}.",
+                                  list_value.type());
+    }
+    const auto &list = list_value.ValueList();
+    const auto &symbol = symbol_table_->at(*any.identifier_);
+    for (const auto &element : list) {
+      frame_->at(symbol) = element;
+      auto result = any.where_->expression_->Accept(*this);
+      if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
+        throw QueryRuntimeException(
+            "Predicate of ANY must evaluate to boolean, got {}.",
+            result.type());
+      }
+      if (result.IsNull() || result.ValueBool()) {
+        return result;
+      }
+    }
+    return TypedValue(false, ctx_->memory);
+  }
+
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(
         ctx_->parameters.AtTokenPosition(param_lookup.token_position_),

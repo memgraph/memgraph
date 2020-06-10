@@ -639,6 +639,9 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define SINGLE(variable, list, where)                                        \
   storage.Create<query::Single>(storage.Create<query::Identifier>(variable), \
                                 list, where)
+#define ANY(variable, list, where)                                        \
+  storage.Create<query::Any>(storage.Create<query::Identifier>(variable), \
+                             list, where)
 #define REDUCE(accumulator, initializer, variable, list, expr)     \
   storage.Create<query::Reduce>(                                   \
       storage.Create<query::Identifier>(accumulator), initializer, \

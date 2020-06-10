@@ -769,6 +769,49 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
   EXPECT_TRUE(value.IsNull());
 }
 
+TEST_F(ExpressionEvaluatorTest, FunctionAny) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any =
+      ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAny2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any =
+      ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullList) {
+  AstStorage storage;
+  auto *any = ANY("x", LITERAL(storage::PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
+  AstStorage storage;
+  auto *any = ANY("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  EXPECT_THROW(Eval(any), QueryRuntimeException);
+}
+
 TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
   AstStorage storage;
   auto *ident_sum = IDENT("sum");
