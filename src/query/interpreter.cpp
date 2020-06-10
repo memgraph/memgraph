@@ -598,6 +598,18 @@ PreparedQuery PrepareProfileQuery(
                         kProfileQueryStart))
       << "Expected stripped query to start with '" << kProfileQueryStart << "'";
 
+  // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
+  // because PROFILE executes each PROFILE'd query and collects additional
+  // perfomance metadata that it displays to the user instead of the results
+  // yielded by the query. Because PROFILE has side-effects, each transaction
+  // that is used to execute a PROFILE query *MUST* be aborted. That isn't
+  // possible when using multicommand (explicit) transactions (because the user
+  // controls the lifetime of the transaction) and that is why PROFILE is
+  // explicitly disabled here in multicommand (explicit) transactions.
+  // NOTE: Unlike PROFILE, EXPLAIN doesn't have any unwanted side-effects (in
+  // transaction terms) because it doesn't execute the query, it just prints its
+  // query plan. That is why EXPLAIN can be used in multicommand (explicit)
+  // transactions.
   if (in_explicit_transaction) {
     throw ProfileInMulticommandTxException();
   }
@@ -769,10 +781,14 @@ PreparedQuery PrepareAuthQuery(
 }
 
 PreparedQuery PrepareInfoQuery(
-    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context,
-    storage::Storage *db,
+    ParsedQuery parsed_query, bool in_explicit_transaction,
+    std::map<std::string, TypedValue> *summary,
+    InterpreterContext *interpreter_context, storage::Storage *db,
     utils::MonotonicBufferResource *execution_memory) {
+  if (in_explicit_transaction) {
+    throw InfoInMulticommandTxException();
+  }
+
   auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query);
   std::vector<std::string> header;
   std::function<
@@ -857,9 +873,14 @@ PreparedQuery PrepareInfoQuery(
 }
 
 PreparedQuery PrepareConstraintQuery(
-    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
+    ParsedQuery parsed_query, bool in_explicit_transaction,
+    std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context,
     utils::MonotonicBufferResource *execution_memory) {
+  if (in_explicit_transaction) {
+    throw ConstraintInMulticommandTxException();
+  }
+
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void()> handler;
 
@@ -1061,9 +1082,10 @@ Interpreter::Prepare(
 
     // Some queries require an active transaction in order to be prepared.
     if (!in_explicit_transaction_ &&
-        !utils::Downcast<IndexQuery>(parsed_query.query) &&
-        !utils::Downcast<ConstraintQuery>(parsed_query.query) &&
-        !utils::Downcast<InfoQuery>(parsed_query.query)) {
+        (utils::Downcast<CypherQuery>(parsed_query.query) ||
+         utils::Downcast<ExplainQuery>(parsed_query.query) ||
+         utils::Downcast<ProfileQuery>(parsed_query.query) ||
+         utils::Downcast<DumpQuery>(parsed_query.query))) {
       db_accessor_.emplace(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(&*db_accessor_);
     }
@@ -1097,12 +1119,12 @@ Interpreter::Prepare(
           interpreter_context_, &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(
-          std::move(parsed_query), &summary_, interpreter_context_,
-          interpreter_context_->db, &execution_memory_);
+          std::move(parsed_query), in_explicit_transaction_, &summary_,
+          interpreter_context_, interpreter_context_->db, &execution_memory_);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareConstraintQuery(std::move(parsed_query), &summary_,
-                                 interpreter_context_, &execution_memory_);
+      prepared_query = PrepareConstraintQuery(
+          std::move(parsed_query), in_explicit_transaction_, &summary_,
+          interpreter_context_, &execution_memory_);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }

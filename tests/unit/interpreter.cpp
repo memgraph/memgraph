@@ -281,13 +281,6 @@ TEST_F(InterpreterTest, Bfs) {
   }
 }
 
-TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
-  Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"),
-               query::IndexInMulticommandTxException);
-  Interpret("ROLLBACK");
-}
-
 // Test shortest path end to end.
 TEST_F(InterpreterTest, ShortestPath) {
   Interpret(
@@ -325,6 +318,56 @@ TEST_F(InterpreterTest, ShortestPath) {
 
     EXPECT_TRUE(any_match);
   }
+}
+
+TEST_F(InterpreterTest, CreateLabelIndexInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X"),
+               query::IndexInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, CreateLabelPropertyIndexInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"),
+               query::IndexInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, CreateExistenceConstraintInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a)"),
+               query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, CreateUniqueConstraintInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(
+      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE"),
+      query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, ShowIndexInfoInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("SHOW INDEX INFO"),
+               query::InfoInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, ShowConstraintInfoInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("SHOW CONSTRAINT INFO"),
+               query::InfoInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("SHOW STORAGE INFO"),
+               query::InfoInMulticommandTxException);
+  Interpret("ROLLBACK");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -438,6 +481,32 @@ TEST_F(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
 
+TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  Interpret("BEGIN");
+  auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
+  Interpret("COMMIT");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
+                                         " * Once"};
+  ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+  auto expected_it = expected_rows.begin();
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 1U);
+    EXPECT_EQ(row.front().ValueString(), *expected_it);
+    ++expected_it;
+  }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for EXPLAIN ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
 TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
@@ -486,6 +555,13 @@ TEST_F(InterpreterTest, ProfileQuery) {
   Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"),
+               query::ProfileInMulticommandTxException);
+  Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithParams) {

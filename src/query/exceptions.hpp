@@ -84,6 +84,23 @@ class IndexInMulticommandTxException : public QueryException {
             "Index manipulation not allowed in multicommand transactions.") {}
 };
 
+class ConstraintInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  ConstraintInMulticommandTxException()
+      : QueryException(
+            "Constraint manipulation not allowed in multicommand "
+            "transactions.") {}
+};
+
+class InfoInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  InfoInMulticommandTxException()
+      : QueryException(
+            "Info reporting not allowed in multicommand transactions.") {}
+};
+
 /**
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.
