@@ -38,7 +38,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(Any &any) override {
-    // Remove the symbol which is bound by all, because we are only interested
+    // Remove the symbol which is bound by any, because we are only interested
     // in free (unbound) symbols.
     symbols_.erase(symbol_table_.at(*any.identifier_));
     return true;

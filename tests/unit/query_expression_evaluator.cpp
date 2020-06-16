@@ -804,6 +804,30 @@ TEST_F(ExpressionEvaluatorTest, FunctionAnyNullList) {
   EXPECT_TRUE(value.IsNull());
 }
 
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(0), LITERAL(storage::PropertyValue())),
+                  WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(storage::PropertyValue())),
+                  WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TEST_F(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
   AstStorage storage;
   auto *any = ANY("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));

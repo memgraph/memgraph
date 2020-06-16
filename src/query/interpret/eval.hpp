@@ -534,6 +534,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*any.identifier_);
+    bool has_value = false;
     for (const auto &element : list) {
       frame_->at(symbol) = element;
       auto result = any.where_->expression_->Accept(*this);
@@ -542,11 +543,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             "Predicate of ANY must evaluate to boolean, got {}.",
             result.type());
       }
-      if (result.IsNull() || result.ValueBool()) {
-        return result;
+      if (!result.IsNull()) {
+        has_value = true;
+        if (result.ValueBool()) {
+          return TypedValue(true, ctx_->memory);
+        }
       }
     }
-    return TypedValue(false, ctx_->memory);
+    // Return Null if all elements are Null
+    if (!has_value) {
+      return TypedValue(ctx_->memory);
+    } else {
+      return TypedValue(false, ctx_->memory);
+    }
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
