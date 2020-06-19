@@ -360,6 +360,12 @@ bool SymbolGenerator::PreVisit(Any &any) {
   return false;
 }
 
+bool SymbolGenerator::PreVisit(None &none) {
+  none.list_expression_->Accept(*this);
+  VisitWithIdentifiers(none.where_->expression_, {none.identifier_});
+  return false;
+}
+
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);

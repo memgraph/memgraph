@@ -836,6 +836,74 @@ TEST_F(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
   EXPECT_THROW(Eval(any), QueryRuntimeException);
 }
 
+TEST_F(ExpressionEvaluatorTest, FunctionNone1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none =
+      NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNone2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none =
+      NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullList) {
+  AstStorage storage;
+  auto *none =
+      NONE("x", LITERAL(storage::PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  auto value = Eval(none);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = NONE("x", LIST(LITERAL(1), LITERAL(storage::PropertyValue())),
+                   WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(LITERAL(0), LITERAL(storage::PropertyValue())),
+                    WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
+  AstStorage storage;
+  auto *none = NONE("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  EXPECT_THROW(Eval(none), QueryRuntimeException);
+}
+
 TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
   AstStorage storage;
   auto *ident_sum = IDENT("sum");

@@ -20,6 +20,7 @@ class Extract;
 class All;
 class Single;
 class Any;
+class None;
 class ParameterLookup;
 class CallProcedure;
 class Create;
@@ -80,7 +81,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any,
+    Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
     Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
     RemoveLabels, Merge, Unwind, RegexMatch>;
@@ -108,7 +109,7 @@ class ExpressionVisitor
           SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
           UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
           PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
-          Extract, All, Single, Any, ParameterLookup, Identifier,
+          Extract, All, Single, Any, None, ParameterLookup, Identifier,
           PrimitiveLiteral, RegexMatch> {};
 
 template <class TResult>

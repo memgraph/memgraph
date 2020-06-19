@@ -785,7 +785,79 @@ Feature: Functions
             | a    |
             | null |
 
-       
+   Scenario: None test 01:
+        When executing query:
+            """
+            RETURN none(x IN [1, 2, 3] WHERE x < 1) AS a
+            """
+        Then the result should be:
+            | a    |
+            | true |
+
+    Scenario: None test 02:
+        When executing query:
+            """
+            RETURN none(x IN [1, 2, 3] WHERE x = 1) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: None test 03:
+        When executing query:
+            """
+            RETURN none(x IN ["a", "b", "c"] WHERE x = 1) AS a
+            """
+        Then the result should be:
+            | a    |
+            | true |
+
+    Scenario: None test 04:
+        When executing query:
+            """
+            RETURN none(x IN [Null, Null, Null] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+    Scenario: None test 05:
+        When executing query:
+            """
+            RETURN none(x IN [Null, Null, 0] WHERE x > 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | true |
+
+    Scenario: None test 06:
+        When executing query:
+            """
+            RETURN none(x IN [Null, Null, 0] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: None test 07:
+        When executing query:
+            """
+            RETURN none(x IN [Null, Null, Null] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+   Scenario: None test 08:
+        When executing query:
+            """
+            RETURN none(x IN ["a", "b", "c"] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+
     Scenario: Reduce test 01:
         When executing query:
             """

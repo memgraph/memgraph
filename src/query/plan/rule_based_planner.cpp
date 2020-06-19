@@ -180,6 +180,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(None &none) override {
+    // Remove the symbol which is bound by none, because we are only interested
+    // in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*none.identifier_));
+    CHECK(has_aggregation_.size() >= 3U)
+        << "Expected 3 has_aggregation_ flags for NONE arguments";
+    bool has_aggr = false;
+    for (int i = 0; i < 3; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
   bool PostVisit(Reduce &reduce) override {
     // Remove the symbols bound by reduce, because we are only interested
     // in free (unbound) symbols.

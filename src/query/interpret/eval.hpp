@@ -558,6 +558,41 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
+  TypedValue Visit(None &none) override {
+    auto list_value = none.list_expression_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue(ctx_->memory);
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("NONE expected a list, got {}.",
+                                  list_value.type());
+    }
+    const auto &list = list_value.ValueList();
+    const auto &symbol = symbol_table_->at(*none.identifier_);
+    bool has_value = false;
+    for (const auto &element : list) {
+      frame_->at(symbol) = element;
+      auto result = none.where_->expression_->Accept(*this);
+      if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
+        throw QueryRuntimeException(
+            "Predicate of NONE must evaluate to boolean, got {}.",
+            result.type());
+      }
+      if (!result.IsNull()) {
+        has_value = true;
+        if (result.ValueBool()) {
+          return TypedValue(false, ctx_->memory);
+        }
+      }
+    }
+    // Return Null if all elements are Null
+    if (!has_value) {
+      return TypedValue(ctx_->memory);
+    } else {
+      return TypedValue(true, ctx_->memory);
+    }
+  }
+
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(
         ctx_->parameters.AtTokenPosition(param_lookup.token_position_),

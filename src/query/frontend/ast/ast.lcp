@@ -988,8 +988,8 @@ cpp<#
   (:clone))
 
 ;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
-;; All, Any and Single into something like a higher-order function call which
-;; takes a list argument and a function which is applied on list elements.
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
 (lcp:define-class single (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -1029,8 +1029,8 @@ cpp<#
   (:clone))
 
 ;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
-;; All, Any and Single into something like a higher-order function call which
-;; takes a list argument and a function which is applied on list elements.
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
 (lcp:define-class any (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -1058,6 +1058,47 @@ cpp<#
   (:protected
     #>cpp
     Any(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
+          list_expression_(list_expression),
+          where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
+(lcp:define-class none (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (list-expression "Expression *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    None() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+            where_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    None(Identifier *identifier, Expression *list_expression, Where *where)
         : identifier_(identifier),
           list_expression_(list_expression),
           where_(where) {}
