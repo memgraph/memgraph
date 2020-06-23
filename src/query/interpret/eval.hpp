@@ -475,6 +475,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*all.identifier_);
+    bool has_null_elements = false;
+    bool has_value = false;
     for (const auto &element : list) {
       frame_->at(symbol) = element;
       auto result = all.where_->expression_->Accept(*this);
@@ -483,11 +485,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             "Predicate of ALL must evaluate to boolean, got {}.",
             result.type());
       }
-      if (result.IsNull() || !result.ValueBool()) {
-        return result;
+      if (!result.IsNull()) {
+        has_value = true;
+        if (!result.ValueBool()) {
+          return TypedValue(false, ctx_->memory);
+        }
+      } else {
+        has_null_elements = true;
       }
     }
-    return TypedValue(true, ctx_->memory);
+    if (!has_value) {
+      return TypedValue(ctx_->memory);
+    }
+    if (has_null_elements) {
+      return TypedValue(false, ctx_->memory);
+    } else {
+      return TypedValue(true, ctx_->memory);
+    }
   }
 
   TypedValue Visit(Single &single) override {
@@ -501,6 +515,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*single.identifier_);
+    bool has_value = false;
     bool predicate_satisfied = false;
     for (const auto &element : list) {
       frame_->at(symbol) = element;
@@ -509,6 +524,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Predicate of SINGLE must evaluate to boolean, got {}.",
             result.type());
+      }
+      if (result.type() == TypedValue::Type::Bool) {
+        has_value = true;
       }
       if (result.IsNull() || !result.ValueBool()) {
         continue;
@@ -520,7 +538,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         predicate_satisfied = true;
       }
     }
-    return TypedValue(predicate_satisfied, ctx_->memory);
+    if (!has_value) {
+      return TypedValue(ctx_->memory);
+    } else {
+      return TypedValue(predicate_satisfied, ctx_->memory);
+    }
   }
 
   TypedValue Visit(Any &any) override {

@@ -703,7 +703,20 @@ TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
   EXPECT_EQ(value.ValueInt(), 42);
 }
 
-TEST_F(ExpressionEvaluatorTest, All) {
+TEST_F(ExpressionEvaluatorTest, FunctionAll1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all =
+      ALL("x", LIST(LITERAL(1), LITERAL(1)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAll2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *all =
@@ -725,6 +738,32 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
   EXPECT_TRUE(value.IsNull());
 }
 
+TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(storage::PropertyValue())),
+                  WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(2), LITERAL(storage::PropertyValue())),
+                  WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
   AstStorage storage;
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
@@ -733,7 +772,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
   EXPECT_THROW(Eval(all), QueryRuntimeException);
 }
 
-TEST_F(ExpressionEvaluatorTest, FunctionSingle) {
+TEST_F(ExpressionEvaluatorTest, FunctionSingle1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single =
@@ -769,7 +808,35 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
   EXPECT_TRUE(value.IsNull());
 }
 
-TEST_F(ExpressionEvaluatorTest, FunctionAny) {
+TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single =
+      SINGLE("x", LIST(LITERAL(1), LITERAL(storage::PropertyValue())),
+             WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single =
+      SINGLE("x", LIST(LITERAL(2), LITERAL(storage::PropertyValue())),
+             WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAny1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *any =

@@ -687,6 +687,51 @@ Feature: Functions
             """
         Then an error should be raised
 
+    Scenario: All test 04:
+        When executing query:
+            """
+            RETURN all(x IN [Null, Null, Null] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+    Scenario: All test 05:
+        When executing query:
+            """
+            RETURN all(x IN [Null, Null, 0] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: All test 06:
+        When executing query:
+            """
+            RETURN all(x IN [Null, Null, 0] WHERE x > 0) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: All test 07:
+        When executing query:
+            """
+            RETURN all(x IN [Null, Null, Null] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+    Scenario: All test 08:
+        When executing query:
+            """
+            RETURN all(x IN ["a", "b", "c"] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
     Scenario: Single test 01:
         When executing query:
             """
@@ -711,6 +756,69 @@ Feature: Functions
             RETURN single(x IN [1, 2, '3'] WHERE x > 2) AS a
             """
         Then an error should be raised
+
+    Scenario: Single test 04:
+        When executing query:
+            """
+            RETURN single(x IN [Null, Null, Null] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+    Scenario: Single test 05:
+        When executing query:
+            """
+            RETURN single(x IN [Null, Null, 0] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | true |
+
+    Scenario: Single test 06:
+        When executing query:
+            """
+            RETURN single(x IN [Null, 0, Null, 0] WHERE x = 0) AS a
+            """
+        Then the result should be:
+            | a    |
+            | false |
+
+    Scenario: Single test 07:
+        When executing query:
+            """
+            RETURN single(x IN [Null, Null, 0] WHERE x > 0) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: Single test 08:
+        When executing query:
+            """
+            RETURN single(x IN [Null, 1, Null, 0] WHERE x > 0) AS a
+            """
+        Then the result should be:
+            | a     |
+            | true  |
+
+    Scenario: Single test 09:
+        When executing query:
+            """
+            RETURN single(x IN [Null, Null, Null] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
+
+    Scenario: Single test 10:
+        When executing query:
+            """
+            RETURN single(x IN ["a", "b", "c"] WHERE x = Null) AS a
+            """
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: Any test 01:
         When executing query:
@@ -758,7 +866,7 @@ Feature: Functions
             | a    |
             | true |
 
-    Scenario: Any test 06:
+   Scenario: Any test 06:
         When executing query:
             """
             RETURN any(x IN [Null, Null, 0] WHERE x > 0) AS a
@@ -767,7 +875,7 @@ Feature: Functions
             | a     |
             | false |
 
-    Scenario: Any test 07:
+   Scenario: Any test 07:
         When executing query:
             """
             RETURN any(x IN [Null, Null, Null] WHERE x = Null) AS a
