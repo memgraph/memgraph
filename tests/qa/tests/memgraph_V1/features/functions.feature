@@ -956,7 +956,7 @@ Feature: Functions
             | a    |
             | null |
 
-   Scenario: None test 08:
+    Scenario: None test 08:
         When executing query:
             """
             RETURN none(x IN ["a", "b", "c"] WHERE x = Null) AS a
@@ -965,6 +965,57 @@ Feature: Functions
             | a    |
             | null |
 
+    Scenario: PredicateFunctions test 01:
+        When executing query:
+            """
+            WITH [1, 2, 3] as lst
+            RETURN ALL(x IN lst WHERE x > 0) as all,
+            SINGLE(x IN lst WHERE x > 0) AS single,
+            ANY(x IN lst WHERE x > 0) AS any,
+            NONE(x IN lst WHERE x > 0) AS none
+            """
+        Then the result should be:
+            | all  | single | any  | none  |
+            | true | false  | true | false |
+
+    Scenario: PredicateFunctions test 02:
+        When executing query:
+            """
+            WITH [1, 2, 3] as lst
+            RETURN ALL(x IN lst WHERE x > 1) as all,
+            SINGLE(x IN lst WHERE x > 1) AS single,
+            ANY(x IN lst WHERE x > 1) AS any,
+            NONE(x IN lst WHERE x > 1) AS none
+            """
+        Then the result should be:
+            | all   | single | any  | none  |
+            | false | false  | true | false |
+
+    Scenario: PredicateFunctions test 03:
+        When executing query:
+            """
+            WITH [1, 2, 3] as lst
+            RETURN ALL(x IN lst WHERE x > 2) as all,
+            SINGLE(x IN lst WHERE x > 2) AS single,
+            ANY(x IN lst WHERE x > 2) AS any,
+            NONE(x IN lst WHERE x > 2) AS none
+            """
+        Then the result should be:
+            | all   | single | any  | none  |
+            | false | true   | true | false |
+
+    Scenario: PredicateFunctions test 04:
+        When executing query:
+            """
+            WITH [1, 2, 3] as lst
+            RETURN ALL(x IN lst WHERE x > 3) as all,
+            SINGLE(x IN lst WHERE x > 3) AS single,
+            ANY(x IN lst WHERE x > 3) AS any,
+            NONE(x IN lst WHERE x > 3) AS none
+            """
+        Then the result should be:
+            | all   | single | any   | none  |
+            | false | false  | false | true  |
 
     Scenario: Reduce test 01:
         When executing query:
