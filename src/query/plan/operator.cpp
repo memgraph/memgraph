@@ -533,7 +533,7 @@ bool CheckExistingNode(const VertexAccessor &new_node,
   const TypedValue &existing_node = frame[existing_node_sym];
   if (existing_node.IsNull()) return false;
   ExpectType(existing_node_sym, existing_node, TypedValue::Type::Vertex);
-  return existing_node.ValueVertex() != new_node;
+  return existing_node.ValueVertex() == new_node;
 }
 
 template <class TEdges>
@@ -834,10 +834,11 @@ class ExpandVariableCursor : public Cursor {
         // if lower bound is zero we also yield empty paths
         if (lower_bound_ == 0) {
           auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
-          if (!self_.common_.existing_node ||
-              CheckExistingNode(start_vertex, self_.common_.node_symbol,
-                                frame)) {
+          if (!self_.common_.existing_node) {
             frame[self_.common_.node_symbol] = start_vertex;
+            return true;
+          } else if (CheckExistingNode(start_vertex, self_.common_.node_symbol,
+                                       frame)) {
             return true;
           }
         }
@@ -1016,11 +1017,9 @@ class ExpandVariableCursor : public Cursor {
               ? current_edge.first.From()
               : current_edge.first.To();
 
-      if (self_.common_.existing_node &&
-          !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
-        continue;
-
-      frame[self_.common_.node_symbol] = current_vertex;
+      if (!self_.common_.existing_node) {
+        frame[self_.common_.node_symbol] = current_vertex;
+      }
 
       // Skip expanding out of filtered expansion.
       frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
@@ -1038,6 +1037,10 @@ class ExpandVariableCursor : public Cursor {
                                              self_.common_.edge_types, memory));
         edges_it_.emplace_back(edges_.back().begin());
       }
+
+      if (self_.common_.existing_node &&
+          !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
+        continue;
 
       // We only yield true if we satisfy the lower bound.
       if (static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_)

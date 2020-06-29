@@ -803,6 +803,247 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
                                   expected_paths.begin()));
 }
 
+TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
+                         std::optional<size_t> lower,
+                         std::optional<size_t> upper, bool reverse) {
+    auto e = Edge("r", direction);
+
+    auto node = NODE("n");
+    auto symbol = symbol_table.CreateSymbol("n", true);
+    node->identifier_->MapTo(symbol);
+    auto logical_op =
+        std::make_shared<ScanAll>(nullptr, symbol, storage::View::OLD);
+    auto n_from = ScanAllTuple{node, logical_op, symbol};
+
+    auto filter_op = std::make_shared<Filter>(
+        n_from.op_,
+        storage.Create<query::LabelsTest>(
+            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(
+                                           dba.LabelToName(labels[layer]))}));
+
+    // convert optional ints to optional expressions
+    auto convert = [this](std::optional<size_t> bound) {
+      return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
+    };
+
+    return GetEdgeListSizes(
+        std::make_shared<ExpandVariable>(
+            filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST,
+            direction, std::vector<storage::EdgeTypeId>{}, reverse,
+            convert(lower), convert(upper), /* existing = */ true,
+            ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
+                            symbol_table.CreateSymbol("inner_node", false),
+                            nullptr},
+            std::nullopt, std::nullopt),
+        e);
+  };
+
+  // The graph is a double chain:
+  // chain 0:   (v:0)-(v:1)-(v:2)
+  //                 X     X
+  // chain 1:   (v:0)-(v:1)-(v:2)
+
+  // Expand from chain 0 v:0 to itself.
+  //
+  // It has a total of 3 cycles:
+  // 1. C0 v:0 -> C0 v:1 -> C1 v:2 -> C1 v:1 -> C0 v:0
+  // 2. C0 v:0 -> C0 v:1 -> C0 v:2 -> C1 v:1 -> C0 v:0
+  // 3. C0 v:0 -> C0 v:1 -> C1 v:0 -> C1 v:1 -> C0 v:0
+  //
+  // Each cycle can be in two directions, also, we have two starting nodes: one
+  // in chain 0 and the other in chain 1.
+  for (auto reverse : {false, true}) {
+    // Tests with both bounds set.
+    for (int lower_bound = 0; lower_bound < 10; ++lower_bound) {
+      for (int upper_bound = lower_bound; upper_bound < 10; ++upper_bound) {
+        map_int expected_directed;
+        map_int expected_undirected;
+        if (lower_bound == 0) {
+          expected_directed.emplace(0, 2);
+          expected_undirected.emplace(0, 2);
+        }
+        if (lower_bound <= 4 && upper_bound >= 4) {
+          expected_undirected.emplace(4, 12);
+        }
+        if (lower_bound <= 8 && upper_bound >= 8) {
+          expected_undirected.emplace(8, 24);
+        }
+
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound,
+                              upper_bound, reverse),
+                  expected_directed);
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound,
+                              upper_bound, reverse),
+                  expected_directed);
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound,
+                              upper_bound, reverse),
+                  expected_undirected);
+      }
+    }
+
+    // Test only upper bound.
+    for (int upper_bound = 0; upper_bound < 10; ++upper_bound) {
+      map_int expected_directed;
+      map_int expected_undirected;
+      if (upper_bound >= 4) {
+        expected_undirected.emplace(4, 12);
+      }
+      if (upper_bound >= 8) {
+        expected_undirected.emplace(8, 24);
+      }
+
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt,
+                            upper_bound, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt,
+                            upper_bound, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt,
+                            upper_bound, reverse),
+                expected_undirected);
+    }
+
+    // Test only lower bound.
+    for (int lower_bound = 0; lower_bound < 10; ++lower_bound) {
+      map_int expected_directed;
+      map_int expected_undirected;
+      if (lower_bound == 0) {
+        expected_directed.emplace(0, 2);
+        expected_undirected.emplace(0, 2);
+      }
+      if (lower_bound <= 4) {
+        expected_undirected.emplace(4, 12);
+      }
+      if (lower_bound <= 8) {
+        expected_undirected.emplace(8, 24);
+      }
+
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound,
+                            std::nullopt, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound,
+                            std::nullopt, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound,
+                            std::nullopt, reverse),
+                expected_undirected);
+    }
+
+    // Test no bounds.
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{{4, 12}, {8, 24}}));
+  }
+
+  // Expand from chain 0 v:1 to itself.
+  //
+  // It has a total of 6 cycles:
+  // 1. C0 v:1 -> C1 v:0 -> C1 v:1 -> C1 v:2 -> C0 v:1
+  // 2. C0 v:1 -> C1 v:0 -> C1 v:1 -> C0 v:2 -> C0 v:1
+  // 3. C0 v:1 -> C0 v:0 -> C1 v:1 -> C1 v:2 -> C0 v:1
+  // 4. C0 v:1 -> C0 v:0 -> C1 v:1 -> C0 v:2 -> C0 v:1
+  // 5. C0 v:1 -> C1 v:0 -> C1 v:1 -> C0 v:0 -> C0 v:1
+  // 6. C0 v:1 -> C1 v:2 -> C1 v:1 -> C0 v:2 -> C0 v:1
+  //
+  // Each cycle can be in two directions, also, we have two starting nodes: one
+  // in chain 0 and the other in chain 1.
+  for (auto reverse : {false, true}) {
+    // Tests with both bounds set.
+    for (int lower_bound = 0; lower_bound < 10; ++lower_bound) {
+      for (int upper_bound = lower_bound; upper_bound < 10; ++upper_bound) {
+        map_int expected_directed;
+        map_int expected_undirected;
+        if (lower_bound == 0) {
+          expected_directed.emplace(0, 2);
+          expected_undirected.emplace(0, 2);
+        }
+        if (lower_bound <= 4 && upper_bound >= 4) {
+          expected_undirected.emplace(4, 24);
+        }
+        if (lower_bound <= 8 && upper_bound >= 8) {
+          expected_undirected.emplace(8, 48);
+        }
+
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound,
+                              upper_bound, reverse),
+                  expected_directed);
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound,
+                              upper_bound, reverse),
+                  expected_directed);
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound,
+                              upper_bound, reverse),
+                  expected_undirected);
+      }
+    }
+
+    // Test only upper bound.
+    for (int upper_bound = 0; upper_bound < 10; ++upper_bound) {
+      map_int expected_directed;
+      map_int expected_undirected;
+      if (upper_bound >= 4) {
+        expected_undirected.emplace(4, 24);
+      }
+      if (upper_bound >= 8) {
+        expected_undirected.emplace(8, 48);
+      }
+
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt,
+                            upper_bound, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt,
+                            upper_bound, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt,
+                            upper_bound, reverse),
+                expected_undirected);
+    }
+
+    // Test only lower bound.
+    for (int lower_bound = 0; lower_bound < 10; ++lower_bound) {
+      map_int expected_directed;
+      map_int expected_undirected;
+      if (lower_bound == 0) {
+        expected_directed.emplace(0, 2);
+        expected_undirected.emplace(0, 2);
+      }
+      if (lower_bound <= 4) {
+        expected_undirected.emplace(4, 24);
+      }
+      if (lower_bound <= 8) {
+        expected_undirected.emplace(8, 48);
+      }
+
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound,
+                            std::nullopt, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound,
+                            std::nullopt, reverse),
+                expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound,
+                            std::nullopt, reverse),
+                expected_undirected);
+    }
+
+    // Test no bounds.
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt,
+                          std::nullopt, reverse),
+              (map_int{{4, 24}, {8, 48}}));
+  }
+}
+
 namespace std {
 template <>
 struct hash<std::pair<int, int>> {

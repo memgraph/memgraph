@@ -513,3 +513,111 @@ Feature: Match
             | size(path) |
             | 0          |
             | 1          |
+
+    Scenario: Variable expand to existing symbol 1
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 3})-[:KNOWS*2]->(pers) RETURN path;
+            """
+        Then the result should be empty
+
+    Scenario: Variable expand to existing symbol 2
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 3})-[:KNOWS*]->(pers) RETURN path
+            """
+        Then the result should be:
+            | path                                                                                                                      |
+            | <(:Person{id:3})-[:KNOWS]->(:Person{id:4})-[:KNOWS]->(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})> |
+
+    Scenario: Variable expand to existing symbol 3
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 3})-[:KNOWS*0..]->(pers) RETURN path
+            """
+        Then the result should be:
+            | path                                                                                                                      |
+            | <(:Person{id:3})>                                                                                                         |
+            | <(:Person{id:3})-[:KNOWS]->(:Person{id:4})-[:KNOWS]->(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})> |
+
+    Scenario: Variable expand to existing symbol 4
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 3})-[:KNOWS*2..6]->(pers) RETURN path
+            """
+        Then the result should be:
+            | path                                                                                                                      |
+            | <(:Person{id:3})-[:KNOWS]->(:Person{id:4})-[:KNOWS]->(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})> |
+
+    Scenario: Variable expand to existing symbol 5
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 3})-[:KNOWS*5..]->(pers) RETURN path
+            """
+        Then the result should be empty
+
+    Scenario: Variable expand to existing symbol 6
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 1})-[:KNOWS*]->(pers) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:1})> |
+
+    Scenario: Variable expand to existing symbol 7
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 1})-[:KNOWS*0..]->(pers) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})>                           |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:1})> |
+
+    Scenario: Variable expand to existing symbol 8
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (p1:Person {id: 1})-[:KNOWS]->(p1);
+            """
+        When executing query:
+            """
+            MATCH path = (pers:Person {id: 1})-[:KNOWS*2..]->(pers) RETURN path
+            """
+        Then the result should be empty
