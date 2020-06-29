@@ -792,16 +792,14 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
       wrapper(direction, *vertex.InEdges(view, edge_types)))>
       chain_elements(memory);
 
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(view));
-  if (direction != EdgeAtom::Direction::OUT && in_degree > 0) {
+  if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
           wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(view));
-  if (direction != EdgeAtom::Direction::IN && out_degree > 0) {
+  if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
