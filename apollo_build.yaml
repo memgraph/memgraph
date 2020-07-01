@@ -94,7 +94,7 @@
     # Create Debian package.
     mkdir output
     cd output
-    cpack -G DEB --config ../CPackConfig.cmake
+    TIMEOUT=600 cpack -G DEB --config ../CPackConfig.cmake
     cd ..
 
     # Build community binaries.
@@ -107,4 +107,4 @@
     # Create Debian package.
     mkdir output
     cd output
-    cpack -G DEB --config ../CPackConfig.cmake
+    TIMEOUT=600 cpack -G DEB --config ../CPackConfig.cmake
