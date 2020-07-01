@@ -1,5 +1,46 @@
 # Change Log
 
+## v1.1.0
+
+### Major Features and Improvements
+
+* Properties in nodes and edges are now stored encoded and compressed. This
+  change significantly reduces memory usage. Depending on the specific dataset,
+  total memory usage can be reduced up to 50%.
+* Added support for rescanning query modules. Previously, the query modules
+  directory was scanned only upon startup. Now it is scanned each time the user
+  requests to load a query module. The functions used to load the query modules
+  were renamed to `mg.load()` and `mg.load_all()` (from `mg.reload()` and
+  `mg.reload_all()`).
+* Improved execution performance of queries that have an IN list filter by
+  using label+property indices.
+  Example: `MATCH (n:Label) WHERE n.property IN [] ...`
+* Added support for `ANY` and `NONE` openCypher functions. Previously, only
+  `ALL` and `SINGLE` functions were implemented.
+
+### Bug Fixes and Other Changes
+
+* Fixed invalid paths returned by variable expansion when the starting node and
+  destination node used the same symbol.
+  Example: `MATCH path = (n:Person {name: "John"})-[:KNOWS*]->(n) RETURN path`
+* Improved semantics of `ALL` and `SINGLE` functions to be consistent with
+  openCypher when handling lists with `Null`s.
+* `SHOW CONSTRAINT INFO` now returns property names as a list for unique
+  constraints.
+* Escaped label/property/edgetype names in `DUMP DATABASE` to support names
+  with spaces in them.
+* Fixed handling of `DUMP DATABASE` queries in multi-command transactions
+  (`BEGIN`, ..., `COMMIT`).
+* Fixed handling of various query types in explicit transactions. For example,
+  constraints were allowed to be created in multi-command transactions
+  (`BEGIN`, ..., `COMMIT`) but that isn't a transactional operation and as such
+  can't be allowed in multi-command transactions.
+* Fixed integer overflow bugs in `COUNT`, `LIMIT` and `SKIP`.
+* Fixed integer overflow bugs in weighted shortest path expansions.
+* Fixed various other integer overflow bugs in query execution.
+* Added Marvel Comic Universe tutorial.
+* Added FootballTransfers tutorial.
+
 ## v1.0.0
 
 ### Major Features and Improvements
