@@ -6,8 +6,12 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/stat.hpp"
+#include "utils/uuid.hpp"
 
 namespace storage {
 
@@ -293,25 +297,105 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       config_(config),
-      durability_(config.durability, &vertices_, &edges_, &name_id_mapper_,
-                  &edge_count_, &indices_, &constraints_, config.items) {
-  auto info = durability_.Initialize([this](auto callback) {
-    // Take master RW lock (for reading).
-    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      snapshot_directory_(config_.durability.storage_directory /
+                          durability::kSnapshotDirectory),
+      wal_directory_(config_.durability.storage_directory /
+                     durability::kWalDirectory),
+      lock_file_path_(config_.durability.storage_directory /
+                      durability::kLockFile),
+      uuid_(utils::GenerateUUID()) {
+  if (config_.durability.snapshot_wal_mode !=
+          Config::Durability::SnapshotWalMode::DISABLED ||
+      config_.durability.snapshot_on_exit ||
+      config_.durability.recover_on_startup) {
+    // Create the directory initially to crash the database in case of
+    // permission errors. This is done early to crash the database on startup
+    // instead of crashing the database for the first time during runtime (which
+    // could be an unpleasant surprise).
+    utils::EnsureDirOrDie(snapshot_directory_);
+    // Same reasoning as above.
+    utils::EnsureDirOrDie(wal_directory_);
 
-    // Create the transaction used to create the snapshot.
-    auto transaction = CreateTransaction();
+    // Verify that the user that started the process is the same user that is
+    // the owner of the storage directory.
+    durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(
+        config_.durability.storage_directory);
 
-    // Create snapshot.
-    callback(&transaction);
+    // Create the lock file and open a handle to it. This will crash the
+    // database if it can't open the file for writing or if any other process is
+    // holding the file opened.
+    lock_file_handle_.Open(lock_file_path_,
+                           utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    CHECK(lock_file_handle_.AcquireLock())
+        << "Couldn't acquire lock on the storage directory "
+        << config_.durability.storage_directory
+        << "!\nAnother Memgraph process is currently running with the same "
+           "storage directory, please stop it first before starting this "
+           "process!";
+  }
+  if (config_.durability.recover_on_startup) {
+    auto info = durability::RecoverData(
+        snapshot_directory_, wal_directory_, &uuid_, &vertices_, &edges_,
+        &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
+        &wal_seq_num_);
+    if (info) {
+      vertex_id_ = info->next_vertex_id;
+      edge_id_ = info->next_edge_id;
+      timestamp_ = std::max(timestamp_, info->next_timestamp);
+    }
+  } else if (config_.durability.snapshot_wal_mode !=
+                 Config::Durability::SnapshotWalMode::DISABLED ||
+             config_.durability.snapshot_on_exit) {
+    bool files_moved = false;
+    auto backup_root =
+        config_.durability.storage_directory / durability::kBackupDirectory;
+    for (const auto &[path, dirname, what] :
+         {std::make_tuple(snapshot_directory_, durability::kSnapshotDirectory,
+                          "snapshot"),
+          std::make_tuple(wal_directory_, durability::kWalDirectory, "WAL")}) {
+      if (!utils::DirExists(path)) continue;
+      auto backup_curr = backup_root / dirname;
+      std::error_code error_code;
+      for (const auto &item :
+           std::filesystem::directory_iterator(path, error_code)) {
+        utils::EnsureDirOrDie(backup_root);
+        utils::EnsureDirOrDie(backup_curr);
+        std::error_code item_error_code;
+        std::filesystem::rename(
+            item.path(), backup_curr / item.path().filename(), item_error_code);
+        CHECK(!item_error_code)
+            << "Couldn't move " << what << " file " << item.path()
+            << " because of: " << item_error_code.message();
+        files_moved = true;
+      }
+      CHECK(!error_code) << "Couldn't backup " << what
+                         << " files because of: " << error_code.message();
+    }
+    LOG_IF(WARNING, files_moved)
+        << "Since Memgraph was not supposed to recover on startup and "
+           "durability is enabled, your current durability files will likely "
+           "be overridden. To prevent important data loss, Memgraph has stored "
+           "those files into a .backup directory inside the storage directory.";
+  }
+  if (config_.durability.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Run(
+        "Snapshot", config_.durability.snapshot_interval, [this] {
+          // Take master RW lock (for reading).
+          std::shared_lock<utils::RWLock> storage_guard(main_lock_);
 
-    // Finalize snapshot transaction.
-    commit_log_.MarkFinished(transaction.start_timestamp);
-  });
-  if (info) {
-    vertex_id_ = info->next_vertex_id;
-    edge_id_ = info->next_edge_id;
-    timestamp_ = std::max(timestamp_, info->next_timestamp);
+          // Create the transaction used to create the snapshot.
+          auto transaction = CreateTransaction();
+
+          // Create snapshot.
+          durability::CreateSnapshot(
+              &transaction, snapshot_directory_, wal_directory_,
+              config_.durability.snapshot_retention_count, &vertices_, &edges_,
+              &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
+
+          // Finalize snapshot transaction.
+          commit_log_.MarkFinished(transaction.start_timestamp);
+        });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval,
@@ -323,7 +407,27 @@ Storage::~Storage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
-  durability_.Finalize();
+  wal_file_ = std::nullopt;
+  if (config_.durability.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Stop();
+  }
+  if (config_.durability.snapshot_on_exit) {
+    // Take master RW lock (for reading).
+    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+
+    // Create the transaction used to create the snapshot.
+    auto transaction = CreateTransaction();
+
+    // Create snapshot.
+    durability::CreateSnapshot(
+        &transaction, snapshot_directory_, wal_directory_,
+        config_.durability.snapshot_retention_count, &vertices_, &edges_,
+        &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
+
+    // Finalize snapshot transaction.
+    commit_log_.MarkFinished(transaction.start_timestamp);
+  }
 }
 
 Storage::Accessor::Accessor(Storage *storage)
@@ -716,7 +820,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
         // written before actually committing the transaction (before setting
         // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
-        storage_->durability_.AppendToWal(transaction_, commit_timestamp);
+        storage_->AppendToWal(transaction_, commit_timestamp);
 
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
@@ -968,9 +1072,8 @@ bool Storage::CreateIndex(LabelId label) {
   // next regular transaction after this operation. This prevents collisions of
   // commit timestamps between non-transactional operations and transactional
   // operations.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
-      timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
+              timestamp_);
   return true;
 }
 
@@ -981,9 +1084,8 @@ bool Storage::CreateIndex(LabelId label, PropertyId property) {
     return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
-      {property}, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
+              label, {property}, timestamp_);
   return true;
 }
 
@@ -992,8 +1094,8 @@ bool Storage::DropIndex(LabelId label) {
   if (!indices_.label_index.DropIndex(label)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP,
-                          label, {}, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
+              timestamp_);
   return true;
 }
 
@@ -1002,9 +1104,8 @@ bool Storage::DropIndex(LabelId label, PropertyId property) {
   if (!indices_.label_property_index.DropIndex(label, property)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
-      {property}, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
+              label, {property}, timestamp_);
   return true;
 }
 
@@ -1022,9 +1123,8 @@ Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
   if (ret.HasError() || !ret.GetValue()) return ret;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
-      {property}, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
+              label, {property}, timestamp_);
   return true;
 }
 
@@ -1034,9 +1134,8 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
     return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
-      {property}, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
+              label, {property}, timestamp_);
   return true;
 }
 
@@ -1052,9 +1151,8 @@ Storage::CreateUniqueConstraint(LabelId label,
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
-      properties, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE,
+              label, properties, timestamp_);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1067,9 +1165,8 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  durability_.AppendToWal(
-      durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
-      properties, timestamp_);
+  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+              properties, timestamp_);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1359,6 +1456,196 @@ void Storage::CollectGarbage() {
       CHECK(edge_acc.remove(edge)) << "Invalid database state!";
     }
   }
+}
+
+bool Storage::InitializeWalFile() {
+  if (config_.durability.snapshot_wal_mode !=
+      Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
+    return false;
+  if (!wal_file_) {
+    wal_file_.emplace(wal_directory_, uuid_, config_.items, &name_id_mapper_,
+                      wal_seq_num_++);
+  }
+  return true;
+}
+
+void Storage::FinalizeWalFile() {
+  ++wal_unsynced_transactions_;
+  if (wal_unsynced_transactions_ >=
+      config_.durability.wal_file_flush_every_n_tx) {
+    wal_file_->Sync();
+    wal_unsynced_transactions_ = 0;
+  }
+  if (wal_file_->GetSize() / 1024 >=
+      config_.durability.wal_file_size_kibibytes) {
+    wal_file_ = std::nullopt;
+    wal_unsynced_transactions_ = 0;
+  }
+}
+
+void Storage::AppendToWal(const Transaction &transaction,
+                          uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) return;
+  // Traverse deltas and append them to the WAL file.
+  // A single transaction will always be contained in a single WAL file.
+  auto current_commit_timestamp =
+      transaction.commit_timestamp->load(std::memory_order_acquire);
+  // Helper lambda that traverses the delta chain on order to find the first
+  // delta that should be processed and then appends all discovered deltas.
+  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent,
+                                   auto filter) {
+    while (true) {
+      auto older = delta->next.load(std::memory_order_acquire);
+      if (older == nullptr ||
+          older->timestamp->load(std::memory_order_acquire) !=
+              current_commit_timestamp)
+        break;
+      delta = older;
+    }
+    while (true) {
+      if (filter(delta->action)) {
+        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
+      }
+      auto prev = delta->prev.Get();
+      if (prev.type != PreviousPtr::Type::DELTA) break;
+      delta = prev.delta;
+    }
+  };
+
+  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
+  // don't traverse them in that order. That is because for each delta we need
+  // information about the vertex or edge they belong to and that information
+  // isn't stored in the deltas themselves. In order to find out information
+  // about the corresponding vertex or edge it is necessary to traverse the
+  // delta chain for each delta until a vertex or edge is encountered. This
+  // operation is very expensive as the chain grows.
+  // Instead, we traverse the edges until we find a vertex or edge and traverse
+  // their delta chains. This approach has a drawback because we lose the
+  // correct order of the operations. Because of that, we need to traverse the
+  // deltas several times and we have to manually ensure that the stored deltas
+  // will be ordered correctly.
+
+  // 1. Process all Vertex deltas and store all operations that create vertices
+  // and modify vertex data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+          return true;
+
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 2. Process all Vertex deltas and store all operations that create edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+          return false;
+      }
+    });
+  }
+  // 3. Process all Edge deltas and store all operations that modify edge data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::EDGE) continue;
+    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+      switch (action) {
+        case Delta::Action::SET_PROPERTY:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 4. Process all Vertex deltas and store all operations that delete edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::ADD_OUT_EDGE:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 5. Process all Vertex deltas and store all operations that delete vertices.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::RECREATE_OBJECT:
+          return true;
+
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+
+  // Add a delta that indicates that the transaction is fully written to the WAL
+  // file.
+  wal_file_->AppendTransactionEnd(final_commit_timestamp);
+
+  FinalizeWalFile();
+}
+
+void Storage::AppendToWal(durability::StorageGlobalOperation operation,
+                          LabelId label, const std::set<PropertyId> &properties,
+                          uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) return;
+  wal_file_->AppendOperation(operation, label, properties,
+                             final_commit_timestamp);
+  FinalizeWalFile();
 }
 
 }  // namespace storage

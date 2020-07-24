@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/file.hpp"

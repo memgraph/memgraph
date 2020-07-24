@@ -1,12 +1,13 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <shared_mutex>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
@@ -385,6 +386,15 @@ class Storage final {
   /// @throw std::bad_alloc
   void CollectGarbage();
 
+  bool InitializeWalFile();
+  void FinalizeWalFile();
+
+  void AppendToWal(const Transaction &transaction,
+                   uint64_t final_commit_timestamp);
+  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
+                   const std::set<PropertyId> &properties,
+                   uint64_t final_commit_timestamp);
+
   // Main storage lock.
   //
   // Accessors take a shared lock when starting, so it is possible to block
@@ -442,7 +452,21 @@ class Storage final {
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
 
-  durability::Durability durability_;
+  // Durability
+  std::filesystem::path snapshot_directory_;
+  std::filesystem::path wal_directory_;
+  std::filesystem::path lock_file_path_;
+  utils::OutputFile lock_file_handle_;
+
+  utils::Scheduler snapshot_runner_;
+
+  // UUID used to distinguish snapshots and to link snapshots to WALs
+  std::string uuid_;
+  // Sequence number used to keep track of the chain of WALs.
+  uint64_t wal_seq_num_{0};
+
+  std::optional<durability::WalFile> wal_file_;
+  uint64_t wal_unsynced_transactions_{0};
 };
 
 }  // namespace storage
