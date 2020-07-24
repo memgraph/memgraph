@@ -516,6 +516,312 @@ WalDeltaData::Type SkipWalDeltaData(Decoder *wal) {
   return delta.type;
 }
 
+RecoveryInfo LoadWal(const std::filesystem::path &path,
+                     RecoveredIndicesAndConstraints *indices_constraints,
+                     std::optional<uint64_t> snapshot_timestamp,
+                     utils::SkipList<Vertex> *vertices,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+                     std::atomic<uint64_t> *edge_count, Config::Items items) {
+  RecoveryInfo ret;
+
+  Decoder wal;
+  auto version = wal.Initialize(path, kWalMagic);
+  if (!version)
+    throw RecoveryFailure("Couldn't read WAL magic and/or version!");
+  if (!IsVersionSupported(*version))
+    throw RecoveryFailure("Invalid WAL version!");
+
+  // Read wal info.
+  auto info = ReadWalInfo(path);
+
+  // Check timestamp.
+  if (snapshot_timestamp && info.to_timestamp <= *snapshot_timestamp)
+    return ret;
+
+  // Recover deltas.
+  wal.SetPosition(info.offset_deltas);
+  uint64_t deltas_applied = 0;
+  auto edge_acc = edges->access();
+  auto vertex_acc = vertices->access();
+  for (uint64_t i = 0; i < info.num_deltas; ++i) {
+    // Read WAL delta header to find out the delta timestamp.
+    auto timestamp = ReadWalDeltaHeader(&wal);
+
+    if (!snapshot_timestamp || timestamp > *snapshot_timestamp) {
+      // This delta should be loaded.
+      auto delta = ReadWalDeltaData(&wal);
+      switch (delta.type) {
+        case WalDeltaData::Type::VERTEX_CREATE: {
+          auto [vertex, inserted] = vertex_acc.insert(
+              Vertex{delta.vertex_create_delete.gid, nullptr});
+          if (!inserted)
+            throw RecoveryFailure("The vertex must be inserted here!");
+
+          ret.next_vertex_id = std::max(
+              ret.next_vertex_id, delta.vertex_create_delete.gid.AsUint() + 1);
+
+          break;
+        }
+        case WalDeltaData::Type::VERTEX_DELETE: {
+          auto vertex = vertex_acc.find(delta.vertex_create_delete.gid);
+          if (vertex == vertex_acc.end())
+            throw RecoveryFailure("The vertex doesn't exist!");
+          if (!vertex->in_edges.empty() || !vertex->out_edges.empty())
+            throw RecoveryFailure(
+                "The vertex can't be deleted because it still has edges!");
+
+          if (!vertex_acc.remove(delta.vertex_create_delete.gid))
+            throw RecoveryFailure("The vertex must be removed here!");
+
+          break;
+        }
+        case WalDeltaData::Type::VERTEX_ADD_LABEL:
+        case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
+          auto vertex = vertex_acc.find(delta.vertex_add_remove_label.gid);
+          if (vertex == vertex_acc.end())
+            throw RecoveryFailure("The vertex doesn't exist!");
+
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.vertex_add_remove_label.label));
+          auto it =
+              std::find(vertex->labels.begin(), vertex->labels.end(), label_id);
+
+          if (delta.type == WalDeltaData::Type::VERTEX_ADD_LABEL) {
+            if (it != vertex->labels.end())
+              throw RecoveryFailure("The vertex already has the label!");
+            vertex->labels.push_back(label_id);
+          } else {
+            if (it == vertex->labels.end())
+              throw RecoveryFailure("The vertex doesn't have the label!");
+            std::swap(*it, vertex->labels.back());
+            vertex->labels.pop_back();
+          }
+
+          break;
+        }
+        case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
+          auto vertex = vertex_acc.find(delta.vertex_edge_set_property.gid);
+          if (vertex == vertex_acc.end())
+            throw RecoveryFailure("The vertex doesn't exist!");
+
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.vertex_edge_set_property.property));
+          auto &property_value = delta.vertex_edge_set_property.value;
+
+          vertex->properties.SetProperty(property_id, property_value);
+
+          break;
+        }
+        case WalDeltaData::Type::EDGE_CREATE: {
+          auto from_vertex =
+              vertex_acc.find(delta.edge_create_delete.from_vertex);
+          if (from_vertex == vertex_acc.end())
+            throw RecoveryFailure("The from vertex doesn't exist!");
+          auto to_vertex = vertex_acc.find(delta.edge_create_delete.to_vertex);
+          if (to_vertex == vertex_acc.end())
+            throw RecoveryFailure("The to vertex doesn't exist!");
+
+          auto edge_gid = delta.edge_create_delete.gid;
+          auto edge_type_id = EdgeTypeId::FromUint(
+              name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
+          EdgeRef edge_ref(edge_gid);
+          if (items.properties_on_edges) {
+            auto [edge, inserted] = edge_acc.insert(Edge{edge_gid, nullptr});
+            if (!inserted)
+              throw RecoveryFailure("The edge must be inserted here!");
+            edge_ref = EdgeRef(&*edge);
+          }
+          {
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
+                edge_type_id, &*to_vertex, edge_ref};
+            auto it = std::find(from_vertex->out_edges.begin(),
+                                from_vertex->out_edges.end(), link);
+            if (it != from_vertex->out_edges.end())
+              throw RecoveryFailure("The from vertex already has this edge!");
+            from_vertex->out_edges.push_back(link);
+          }
+          {
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
+                edge_type_id, &*from_vertex, edge_ref};
+            auto it = std::find(to_vertex->in_edges.begin(),
+                                to_vertex->in_edges.end(), link);
+            if (it != to_vertex->in_edges.end())
+              throw RecoveryFailure("The to vertex already has this edge!");
+            to_vertex->in_edges.push_back(link);
+          }
+
+          ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
+
+          // Increment edge count.
+          edge_count->fetch_add(1, std::memory_order_acq_rel);
+
+          break;
+        }
+        case WalDeltaData::Type::EDGE_DELETE: {
+          auto from_vertex =
+              vertex_acc.find(delta.edge_create_delete.from_vertex);
+          if (from_vertex == vertex_acc.end())
+            throw RecoveryFailure("The from vertex doesn't exist!");
+          auto to_vertex = vertex_acc.find(delta.edge_create_delete.to_vertex);
+          if (to_vertex == vertex_acc.end())
+            throw RecoveryFailure("The to vertex doesn't exist!");
+
+          auto edge_gid = delta.edge_create_delete.gid;
+          auto edge_type_id = EdgeTypeId::FromUint(
+              name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
+          EdgeRef edge_ref(edge_gid);
+          if (items.properties_on_edges) {
+            auto edge = edge_acc.find(edge_gid);
+            if (edge == edge_acc.end())
+              throw RecoveryFailure("The edge doesn't exist!");
+            edge_ref = EdgeRef(&*edge);
+          }
+          {
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
+                edge_type_id, &*to_vertex, edge_ref};
+            auto it = std::find(from_vertex->out_edges.begin(),
+                                from_vertex->out_edges.end(), link);
+            if (it == from_vertex->out_edges.end())
+              throw RecoveryFailure("The from vertex doesn't have this edge!");
+            std::swap(*it, from_vertex->out_edges.back());
+            from_vertex->out_edges.pop_back();
+          }
+          {
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
+                edge_type_id, &*from_vertex, edge_ref};
+            auto it = std::find(to_vertex->in_edges.begin(),
+                                to_vertex->in_edges.end(), link);
+            if (it == to_vertex->in_edges.end())
+              throw RecoveryFailure("The to vertex doesn't have this edge!");
+            std::swap(*it, to_vertex->in_edges.back());
+            to_vertex->in_edges.pop_back();
+          }
+          if (items.properties_on_edges) {
+            if (!edge_acc.remove(edge_gid))
+              throw RecoveryFailure("The edge must be removed here!");
+          }
+
+          // Decrement edge count.
+          edge_count->fetch_add(-1, std::memory_order_acq_rel);
+
+          break;
+        }
+        case WalDeltaData::Type::EDGE_SET_PROPERTY: {
+          if (!items.properties_on_edges)
+            throw RecoveryFailure(
+                "The WAL has properties on edges, but the storage is "
+                "configured without properties on edges!");
+          auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
+          if (edge == edge_acc.end())
+            throw RecoveryFailure("The edge doesn't exist!");
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.vertex_edge_set_property.property));
+          auto &property_value = delta.vertex_edge_set_property.value;
+          edge->properties.SetProperty(property_id, property_value);
+          break;
+        }
+        case WalDeltaData::Type::TRANSACTION_END:
+          break;
+        case WalDeltaData::Type::LABEL_INDEX_CREATE: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label.label));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.label,
+                                      label_id,
+                                      "The label index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::LABEL_INDEX_DROP: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label.label));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.label,
+                                         label_id,
+                                         "The label index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.operation_label_property.property));
+          AddRecoveredIndexConstraint(
+              &indices_constraints->indices.label_property,
+              {label_id, property_id},
+              "The label property index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.operation_label_property.property));
+          RemoveRecoveredIndexConstraint(
+              &indices_constraints->indices.label_property,
+              {label_id, property_id},
+              "The label property index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.operation_label_property.property));
+          AddRecoveredIndexConstraint(
+              &indices_constraints->constraints.existence,
+              {label_id, property_id},
+              "The existence constraint already exists!");
+          break;
+        }
+        case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(
+              delta.operation_label_property.property));
+          RemoveRecoveredIndexConstraint(
+              &indices_constraints->constraints.existence,
+              {label_id, property_id},
+              "The existence constraint doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_properties.label));
+          std::set<PropertyId> property_ids;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            property_ids.insert(
+                PropertyId::FromUint(name_id_mapper->NameToId(prop)));
+          }
+          AddRecoveredIndexConstraint(&indices_constraints->constraints.unique,
+                                      {label_id, property_ids},
+                                      "The unique constraint already exists!");
+          break;
+        }
+        case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
+          auto label_id = LabelId::FromUint(
+              name_id_mapper->NameToId(delta.operation_label_properties.label));
+          std::set<PropertyId> property_ids;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            property_ids.insert(
+                PropertyId::FromUint(name_id_mapper->NameToId(prop)));
+          }
+          RemoveRecoveredIndexConstraint(
+              &indices_constraints->constraints.unique,
+              {label_id, property_ids}, "The unique constraint doesn't exist!");
+          break;
+        }
+      }
+      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
+      ++deltas_applied;
+    } else {
+      // This delta should be skipped.
+      SkipWalDeltaData(&wal);
+    }
+  }
+
+  LOG(INFO) << "Applied " << deltas_applied << " deltas from WAL " << path;
+
+  return ret;
+}
+
 WalFile::WalFile(const std::filesystem::path &wal_directory,
                  const std::string &uuid, Config::Items items,
                  NameIdMapper *name_id_mapper, uint64_t seq_num)

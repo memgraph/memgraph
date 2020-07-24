@@ -10,6 +10,13 @@
 
 namespace storage::durability {
 
+/// Structure used to hold metadata about the recovered snapshot/WAL.
+struct RecoveryInfo {
+  uint64_t next_vertex_id{0};
+  uint64_t next_edge_id{0};
+  uint64_t next_timestamp{0};
+};
+
 /// Structure used to track indices and constraints during recovery.
 struct RecoveredIndicesAndConstraints {
   struct {

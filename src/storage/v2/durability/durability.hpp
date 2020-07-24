@@ -27,18 +27,6 @@ namespace storage::durability {
 /// the storage.
 class Durability final {
  public:
-  struct RecoveryInfo {
-    uint64_t next_vertex_id{0};
-    uint64_t next_edge_id{0};
-    uint64_t next_timestamp{0};
-  };
-
-  struct RecoveredSnapshot {
-    SnapshotInfo snapshot_info;
-    RecoveryInfo recovery_info;
-    RecoveredIndicesAndConstraints indices_constraints;
-  };
-
   Durability(Config::Durability config, utils::SkipList<Vertex> *vertices,
              utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
              std::atomic<uint64_t> *edge_count, Indices *indices,
@@ -58,15 +46,7 @@ class Durability final {
                    uint64_t final_commit_timestamp);
 
  private:
-  void CreateSnapshot(Transaction *transaction);
-
   std::optional<RecoveryInfo> RecoverData();
-
-  RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path);
-
-  RecoveryInfo LoadWal(const std::filesystem::path &path,
-                       RecoveredIndicesAndConstraints *indices_constraints,
-                       std::optional<uint64_t> snapshot_timestamp);
 
   bool InitializeWalFile();
 

@@ -5,10 +5,16 @@
 #include <set>
 #include <string>
 
+#include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
+#include "utils/skip_list.hpp"
 
 namespace storage::durability {
 
@@ -120,6 +126,15 @@ WalDeltaData ReadWalDeltaData(Decoder *wal);
 /// function.
 /// @throw RecoveryFailure
 WalDeltaData::Type SkipWalDeltaData(Decoder *wal);
+
+/// Function used to load the WAL data into the storage.
+/// @throw RecoveryFailure
+RecoveryInfo LoadWal(const std::filesystem::path &path,
+                     RecoveredIndicesAndConstraints *indices_constraints,
+                     std::optional<uint64_t> snapshot_timestamp,
+                     utils::SkipList<Vertex> *vertices,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+                     std::atomic<uint64_t> *edge_count, Config::Items items);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
