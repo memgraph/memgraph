@@ -113,19 +113,19 @@ WalInfo ReadWalInfo(const std::filesystem::path &path);
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
 /// @throw RecoveryFailure
-uint64_t ReadWalDeltaHeader(Decoder *wal);
+uint64_t ReadWalDeltaHeader(BaseDecoder *decoder);
 
 /// Function used to read the current WAL delta data. The function returns the
 /// read delta data. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData ReadWalDeltaData(Decoder *wal);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
 
 /// Function used to skip the current WAL delta data. The function returns the
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData::Type SkipWalDeltaData(Decoder *wal);
+WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,

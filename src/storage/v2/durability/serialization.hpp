@@ -55,8 +55,26 @@ class Encoder final : public BaseEncoder {
   utils::OutputFile file_;
 };
 
+/// Decoder interface class. Used to implement streams from different sources
+/// (e.g. file and network).
+class BaseDecoder {
+ protected:
+  ~BaseDecoder() {}
+
+ public:
+  virtual std::optional<Marker> ReadMarker() = 0;
+  virtual std::optional<bool> ReadBool() = 0;
+  virtual std::optional<uint64_t> ReadUint() = 0;
+  virtual std::optional<double> ReadDouble() = 0;
+  virtual std::optional<std::string> ReadString() = 0;
+  virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
+
+  virtual bool SkipString() = 0;
+  virtual bool SkipPropertyValue() = 0;
+};
+
 /// Decoder that is used to read a generated snapshot/WAL.
-class Decoder final {
+class Decoder final : public BaseDecoder {
  public:
   std::optional<uint64_t> Initialize(const std::filesystem::path &path,
                                      const std::string &magic);
@@ -68,15 +86,15 @@ class Decoder final {
 
   std::optional<Marker> PeekMarker();
 
-  std::optional<Marker> ReadMarker();
-  std::optional<bool> ReadBool();
-  std::optional<uint64_t> ReadUint();
-  std::optional<double> ReadDouble();
-  std::optional<std::string> ReadString();
-  std::optional<PropertyValue> ReadPropertyValue();
+  std::optional<Marker> ReadMarker() override;
+  std::optional<bool> ReadBool() override;
+  std::optional<uint64_t> ReadUint() override;
+  std::optional<double> ReadDouble() override;
+  std::optional<std::string> ReadString() override;
+  std::optional<PropertyValue> ReadPropertyValue() override;
 
-  bool SkipString();
-  bool SkipPropertyValue();
+  bool SkipString() override;
+  bool SkipPropertyValue() override;
 
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();
