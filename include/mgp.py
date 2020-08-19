@@ -243,7 +243,9 @@ class Edge:
         '''Raise InvalidContextError.'''
         if not self.is_valid():
             raise InvalidContextError()
-        return self._edge == other._edge
+        if isinstance(other, Edge):
+            return self._edge == other._edge
+        return NotImplemented
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -332,7 +334,9 @@ class Vertex:
         '''Raise InvalidContextError'''
         if not self.is_valid():
             raise InvalidContextError()
-        return self._vertex == other._vertex
+        if isinstance(other, Vertex):
+            return self._vertex == other._vertex
+        return NotImplemented
 
     def __hash__(self) -> int:
         return hash(self.id)
