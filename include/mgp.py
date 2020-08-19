@@ -64,6 +64,13 @@ class Properties:
         self._len = None
         self._vertex_or_edge = vertex_or_edge
 
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, as the underlying C API should
+        # not support deepcopy. Besides, it doesn't make much sense to actually
+        # copy _mgp.Edge and _mgp.Vertex types as they are actually references
+        # to graph elements and not proper values.
+        return Properties(self._vertex_or_edge)
+
     def get(self, property_name: str, default=None) -> object:
         '''Get the value of a property with the given name or return default.
 
@@ -372,8 +379,8 @@ class Path:
             pass
         # This is the same as the shallow copy, as the underlying C API should
         # not support deepcopy. Besides, it doesn't make much sense to actually
-        # copy Edge and Vertex types as they are actually references to graph
-        # elements and not proper values.
+        # copy _mgp.Edge and _mgp.Vertex types as they are actually references
+        # to graph elements and not proper values.
         path = self.__copy__()
         memo[id(self._path)] = path._path
         return path
