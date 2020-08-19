@@ -478,7 +478,7 @@ class Vertices:
 
     def __contains__(self, vertex):
         try:
-            _ = self.graph.get_vertex_by_id(vertex.id)
+            _ = self._graph.get_vertex_by_id(vertex.id)
             return True
         except IndexError:
             return False
