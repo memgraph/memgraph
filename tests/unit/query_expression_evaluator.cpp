@@ -1746,6 +1746,7 @@ TEST_F(FunctionTest, Id) {
   ASSERT_TRUE(ea.HasValue());
   auto vb = dba.InsertVertex();
   dba.AdvanceCommand();
+  EXPECT_TRUE(EvaluateFunction("ID", TypedValue()).IsNull());
   EXPECT_EQ(EvaluateFunction("ID", va).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", *ea).ValueInt(), 0);
   EXPECT_EQ(EvaluateFunction("ID", vb).ValueInt(), 1);

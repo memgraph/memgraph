@@ -886,12 +886,15 @@ TypedValue Counter(const TypedValue *args, int64_t nargs,
 
 TypedValue Id(const TypedValue *args, int64_t nargs,
               const FunctionContext &ctx) {
-  FType<Or<Vertex, Edge>>("id", args, nargs);
+  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
   const auto &arg = args[0];
-  if (arg.IsVertex())
+  if (arg.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
-  else
+  } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
+  }
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs,
