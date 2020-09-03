@@ -1,0 +1,18 @@
+CREATE (n:Constantine{quote:"In hoc signo vinces"})
+RETURN n;
+MATCH
+(n)
+// comment
+RETURN
+n;
+CREATE (n:Erdody{quote:
+"Regnum regno non praescribit leges"})
+RETURN
+n;
+// comment
+MATCH (n:Erdody) RETURN
+n;
+CREATE (n:Caesar{quote:"Alea iacta est"})
+RETURN n;
+MATCH (n:Caesar)
+RETURN n;

@@ -359,8 +359,8 @@ static std::optional<std::string> GetQuery() {
       is_done = true;
       char_count += 1;  // ';' sign
     } else {
-      // Query is multiline so append whitespace.
-      query << " ";
+      // Query is multiline so append newline.
+      query << "\n";
     }
     if (char_count < line->size()) {
       default_text = utils::Trim(line->substr(char_count));

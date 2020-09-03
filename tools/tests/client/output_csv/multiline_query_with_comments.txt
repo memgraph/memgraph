@@ -7,6 +7,6 @@
 "n"
 "(:Erdody {quote: ""Regnum regno non praescribit leges""})"
 "n"
-"(:Caesar {quote: ""Alea iacta\nest""})"
+"(:Caesar {quote: ""Alea iacta est""})"
 "n"
-"(:Caesar {quote: ""Alea iacta\nest""})"
+"(:Caesar {quote: ""Alea iacta est""})"
