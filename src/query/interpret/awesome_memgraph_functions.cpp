@@ -384,42 +384,36 @@ TypedValue Properties(const TypedValue *args, int64_t nargs,
     }
     return TypedValue(std::move(properties));
   };
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex:
-      return get_properties(args[0].ValueVertex());
-    case TypedValue::Type::Edge:
-      return get_properties(args[0].ValueEdge());
-    default:
-      throw QueryRuntimeException(
-          "'properties' argument must be a node or an edge.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsVertex()) {
+    return get_properties(value.ValueVertex());
+  } else {
+    return get_properties(value.ValueEdge());
   }
 }
 
 TypedValue Size(const TypedValue *args, int64_t nargs,
                 const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::List:
-      return TypedValue(static_cast<int64_t>(args[0].ValueList().size()),
-                        ctx.memory);
-    case TypedValue::Type::String:
-      return TypedValue(static_cast<int64_t>(args[0].ValueString().size()),
-                        ctx.memory);
-    case TypedValue::Type::Map:
-      // neo4j doesn't implement size for map, but I don't see a good reason not
-      // to do it.
-      return TypedValue(static_cast<int64_t>(args[0].ValueMap().size()),
-                        ctx.memory);
-    case TypedValue::Type::Path:
-      return TypedValue(
-          static_cast<int64_t>(args[0].ValuePath().edges().size()), ctx.memory);
-    default:
-      throw QueryRuntimeException(
-          "'size' argument must be a string, a collection or a path.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsList()) {
+    return TypedValue(static_cast<int64_t>(value.ValueList().size()),
+                      ctx.memory);
+  } else if (value.IsString()) {
+    return TypedValue(static_cast<int64_t>(value.ValueString().size()),
+                      ctx.memory);
+  } else if (value.IsMap()) {
+    // neo4j doesn't implement size for map, but I don't see a good reason not
+    // to do it.
+    return TypedValue(static_cast<int64_t>(value.ValueMap().size()),
+                      ctx.memory);
+  } else {
+    return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()),
+                      ctx.memory);
   }
 }
 
@@ -483,76 +477,65 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs,
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs,
                      const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Bool:
-      return TypedValue(args[0].ValueBool(), ctx.memory);
-    case TypedValue::Type::Int:
-      return TypedValue(args[0].ValueInt() != 0L, ctx.memory);
-    case TypedValue::Type::String: {
-      auto s = utils::ToUpperCase(utils::Trim(args[0].ValueString()));
-      if (s == "TRUE") return TypedValue(true, ctx.memory);
-      if (s == "FALSE") return TypedValue(false, ctx.memory);
-      // I think this is just stupid and that exception should be thrown, but
-      // neo4j does it this way...
-      return TypedValue(ctx.memory);
-    }
-    default:
-      throw QueryRuntimeException(
-          "'toBoolean' argument must be an integer, a string or a boolean.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsBool()) {
+    return TypedValue(value.ValueBool(), ctx.memory);
+  } else if (value.IsInt()) {
+    return TypedValue(value.ValueInt() != 0L, ctx.memory);
+  } else {
+    auto s = utils::ToUpperCase(utils::Trim(value.ValueString()));
+    if (s == "TRUE") return TypedValue(true, ctx.memory);
+    if (s == "FALSE") return TypedValue(false, ctx.memory);
+    // I think this is just stupid and that exception should be thrown, but
+    // neo4j does it this way...
+    return TypedValue(ctx.memory);
   }
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs,
                    const FunctionContext &ctx) {
   FType<Or<Null, Number, String>>("toFloat", args, nargs);
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsInt()) {
+    return TypedValue(static_cast<double>(value.ValueInt()), ctx.memory);
+  } else if (value.IsDouble()) {
+    return TypedValue(value, ctx.memory);
+  } else {
+    try {
+      return TypedValue(utils::ParseDouble(utils::Trim(value.ValueString())),
+                        ctx.memory);
+    } catch (const utils::BasicException &) {
       return TypedValue(ctx.memory);
-    case TypedValue::Type::Int:
-      return TypedValue(static_cast<double>(args[0].ValueInt()), ctx.memory);
-    case TypedValue::Type::Double:
-      return TypedValue(args[0], ctx.memory);
-    case TypedValue::Type::String:
-      try {
-        return TypedValue(
-            utils::ParseDouble(utils::Trim(args[0].ValueString())), ctx.memory);
-      } catch (const utils::BasicException &) {
-        return TypedValue(ctx.memory);
-      }
-    default:
-      throw QueryRuntimeException(
-          "'toFloat' argument must be a string or a number.");
+    }
   }
 }
 
 TypedValue ToInteger(const TypedValue *args, int64_t nargs,
                      const FunctionContext &ctx) {
   FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Bool:
-      return TypedValue(args[0].ValueBool() ? 1L : 0L, ctx.memory);
-    case TypedValue::Type::Int:
-      return TypedValue(args[0], ctx.memory);
-    case TypedValue::Type::Double:
-      return TypedValue(static_cast<int64_t>(args[0].ValueDouble()),
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsBool()) {
+    return TypedValue(value.ValueBool() ? 1L : 0L, ctx.memory);
+  } else if (value.IsInt()) {
+    return TypedValue(value, ctx.memory);
+  } else if (value.IsDouble()) {
+    return TypedValue(static_cast<int64_t>(value.ValueDouble()), ctx.memory);
+  } else {
+    try {
+      // Yup, this is correct. String is valid if it has floating point
+      // number, then it is parsed and converted to int.
+      return TypedValue(static_cast<int64_t>(utils::ParseDouble(
+                            utils::Trim(value.ValueString()))),
                         ctx.memory);
-    case TypedValue::Type::String:
-      try {
-        // Yup, this is correct. String is valid if it has floating point
-        // number, then it is parsed and converted to int.
-        return TypedValue(static_cast<int64_t>(utils::ParseDouble(
-                              utils::Trim(args[0].ValueString()))),
-                          ctx.memory);
-      } catch (const utils::BasicException &) {
-        return TypedValue(ctx.memory);
-      }
-    default:
-      throw QueryRuntimeException(
-          "'toInteger' argument must be a string, a boolean or a number.");
+    } catch (const utils::BasicException &) {
+      return TypedValue(ctx.memory);
+    }
   }
 }
 
@@ -592,15 +575,13 @@ TypedValue Keys(const TypedValue *args, int64_t nargs,
     }
     return TypedValue(std::move(keys));
   };
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Vertex:
-      return get_keys(args[0].ValueVertex());
-    case TypedValue::Type::Edge:
-      return get_keys(args[0].ValueEdge());
-    default:
-      throw QueryRuntimeException("'keys' argument must be a node or an edge.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsVertex()) {
+    return get_keys(value.ValueVertex());
+  } else {
+    return get_keys(value.ValueEdge());
   }
 }
 
@@ -707,33 +688,28 @@ TypedValue UniformSample(const TypedValue *args, int64_t nargs,
 TypedValue Abs(const TypedValue *args, int64_t nargs,
                const FunctionContext &ctx) {
   FType<Or<Null, Number>>("abs", args, nargs);
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Int:
-      return TypedValue(std::abs(args[0].ValueInt()), ctx.memory);
-    case TypedValue::Type::Double:
-      return TypedValue(std::abs(args[0].ValueDouble()), ctx.memory);
-    default:
-      throw QueryRuntimeException("'abs' argument should be a number.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsInt()) {
+    return TypedValue(std::abs(value.ValueInt()), ctx.memory);
+  } else {
+    return TypedValue(std::abs(value.ValueDouble()), ctx.memory);
   }
 }
 
-#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                       \
-  TypedValue name(const TypedValue *args, int64_t nargs,                       \
-                  const FunctionContext &ctx) {                                \
-    FType<Or<Null, Number>>(#lowercased_name, args, nargs);                    \
-    switch (args[0].type()) {                                                  \
-      case TypedValue::Type::Null:                                             \
-        return TypedValue(ctx.memory);                                         \
-      case TypedValue::Type::Int:                                              \
-        return TypedValue(lowercased_name(args[0].ValueInt()), ctx.memory);    \
-      case TypedValue::Type::Double:                                           \
-        return TypedValue(lowercased_name(args[0].ValueDouble()), ctx.memory); \
-      default:                                                                 \
-        throw QueryRuntimeException(#lowercased_name                           \
-                                    " argument must be a number.");            \
-    }                                                                          \
+#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                   \
+  TypedValue name(const TypedValue *args, int64_t nargs,                   \
+                  const FunctionContext &ctx) {                            \
+    FType<Or<Null, Number>>(#lowercased_name, args, nargs);                \
+    const auto &value = args[0];                                           \
+    if (value.IsNull()) {                                                  \
+      return TypedValue(ctx.memory);                                       \
+    } else if (value.IsInt()) {                                            \
+      return TypedValue(lowercased_name(value.ValueInt()), ctx.memory);    \
+    } else {                                                               \
+      return TypedValue(lowercased_name(value.ValueDouble()), ctx.memory); \
+    }                                                                      \
   }
 
 WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
@@ -757,16 +733,12 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 TypedValue Atan2(const TypedValue *args, int64_t nargs,
                  const FunctionContext &ctx) {
   FType<Or<Null, Number>, Or<Null, Number>>("atan2", args, nargs);
-  if (args[0].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
-  if (args[1].type() == TypedValue::Type::Null) return TypedValue(ctx.memory);
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   auto to_double = [](const TypedValue &t) -> double {
-    switch (t.type()) {
-      case TypedValue::Type::Int:
-        return t.ValueInt();
-      case TypedValue::Type::Double:
-        return t.ValueDouble();
-      default:
-        throw QueryRuntimeException("Arguments of 'atan2' must be numbers.");
+    if (t.IsInt()) {
+      return t.ValueInt();
+    } else {
+      return t.ValueDouble();
     }
   };
   double y = to_double(args[0]);
@@ -778,15 +750,13 @@ TypedValue Sign(const TypedValue *args, int64_t nargs,
                 const FunctionContext &ctx) {
   FType<Or<Null, Number>>("sign", args, nargs);
   auto sign = [&](auto x) { return TypedValue((0 < x) - (x < 0), ctx.memory); };
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::Int:
-      return sign(args[0].ValueInt());
-    case TypedValue::Type::Double:
-      return sign(args[0].ValueDouble());
-    default:
-      throw QueryRuntimeException("'sign' argument must be a number.");
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (value.IsInt()) {
+    return sign(value.ValueInt());
+  } else {
+    return sign(value.ValueDouble());
   }
 }
 
@@ -901,22 +871,18 @@ TypedValue ToString(const TypedValue *args, int64_t nargs,
                     const FunctionContext &ctx) {
   FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
-  switch (arg.type()) {
-    case TypedValue::Type::Null:
-      return TypedValue(ctx.memory);
-    case TypedValue::Type::String:
-      return TypedValue(arg, ctx.memory);
-    case TypedValue::Type::Int:
-      // TODO: This is making a pointless copy of std::string, we may want to
-      // use a different conversion to string
-      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-    case TypedValue::Type::Double:
-      return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
-    case TypedValue::Type::Bool:
-      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
-    default:
-      throw QueryRuntimeException(
-          "'toString' argument must be a number, a string or a boolean.");
+  if (arg.IsNull()) {
+    return TypedValue(ctx.memory);
+  } else if (arg.IsString()) {
+    return TypedValue(arg, ctx.memory);
+  } else if (arg.IsInt()) {
+    // TODO: This is making a pointless copy of std::string, we may want to
+    // use a different conversion to string
+    return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
+  } else if (arg.IsDouble()) {
+    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+  } else {
+    return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
   }
 }
 
