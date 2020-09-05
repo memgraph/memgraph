@@ -1418,6 +1418,38 @@ TEST_F(FunctionTest, Type) {
   ASSERT_THROW(EvaluateFunction("TYPE", 2), QueryRuntimeException);
 }
 
+TEST_F(FunctionTest, ValueType) {
+  ASSERT_THROW(EvaluateFunction("VALUETYPE"), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("VALUETYPE", TypedValue(), TypedValue()),
+               QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue()).ValueString(), "NULL");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(true)).ValueString(),
+            "BOOLEAN");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(1)).ValueString(),
+            "INTEGER");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(1.1)).ValueString(),
+            "FLOAT");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue("test")).ValueString(),
+            "STRING");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(std::vector<TypedValue>{
+                                              TypedValue(1), TypedValue(2)}))
+                .ValueString(),
+            "LIST");
+  ASSERT_EQ(EvaluateFunction("VALUETYPE",
+                             TypedValue(std::map<std::string, TypedValue>{
+                                 {"test", TypedValue(1)}}))
+                .ValueString(),
+            "MAP");
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", v1).ValueString(), "NODE");
+  auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
+  ASSERT_TRUE(e.HasValue());
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", *e).ValueString(), "RELATIONSHIP");
+  Path p(v1, *e, v2);
+  ASSERT_EQ(EvaluateFunction("VALUETYPE", p).ValueString(), "PATH");
+}
+
 TEST_F(FunctionTest, Labels) {
   ASSERT_THROW(EvaluateFunction("LABELS"), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("LABELS", TypedValue()).IsNull());

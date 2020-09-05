@@ -74,6 +74,7 @@ struct Integer {};
 struct PositiveInteger {};
 struct NonZeroInteger {};
 struct NonNegativeInteger {};
+struct Double {};
 struct Number {};
 struct List {};
 struct String {};
@@ -96,6 +97,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsInt() && arg.ValueInt() != 0;
   } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
     return arg.IsInt() && arg.ValueInt() >= 0;
+  } else if constexpr (std::is_same_v<ArgType, Double>) {
+    return arg.IsDouble();
   } else if constexpr (std::is_same_v<ArgType, Number>) {
     return arg.IsNumeric();
   } else if constexpr (std::is_same_v<ArgType, List>) {
@@ -120,6 +123,8 @@ bool ArgIsType(const TypedValue &arg) {
 
 template <class ArgType>
 constexpr const char *ArgTypeName() {
+  // The type names returned should be standardized openCypher type names.
+  // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   if constexpr (std::is_same_v<ArgType, Null>) {
     return "null";
   } else if constexpr (std::is_same_v<ArgType, Bool>) {
@@ -132,6 +137,8 @@ constexpr const char *ArgTypeName() {
     return "non-zero integer";
   } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
     return "non-negative integer";
+  } else if constexpr (std::is_same_v<ArgType, Double>) {
+    return "float";
   } else if constexpr (std::is_same_v<ArgType, Number>) {
     return "number";
   } else if constexpr (std::is_same_v<ArgType, List>) {
@@ -143,7 +150,7 @@ constexpr const char *ArgTypeName() {
   } else if constexpr (std::is_same_v<ArgType, Vertex>) {
     return "node";
   } else if constexpr (std::is_same_v<ArgType, Edge>) {
-    return "edge";
+    return "relationship";
   } else if constexpr (std::is_same_v<ArgType, Path>) {
     return "path";
   } else if constexpr (std::is_same_v<ArgType, void>) {
@@ -546,6 +553,36 @@ TypedValue Type(const TypedValue *args, int64_t nargs,
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()),
                     ctx.memory);
+}
+
+TypedValue ValueType(const TypedValue *args, int64_t nargs,
+                     const FunctionContext &ctx) {
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path>>(
+      "type", args, nargs);
+  // The type names returned should be standardized openCypher type names.
+  // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue("NULL", ctx.memory);
+    case TypedValue::Type::Bool:
+      return TypedValue("BOOLEAN", ctx.memory);
+    case TypedValue::Type::Int:
+      return TypedValue("INTEGER", ctx.memory);
+    case TypedValue::Type::Double:
+      return TypedValue("FLOAT", ctx.memory);
+    case TypedValue::Type::String:
+      return TypedValue("STRING", ctx.memory);
+    case TypedValue::Type::List:
+      return TypedValue("LIST", ctx.memory);
+    case TypedValue::Type::Map:
+      return TypedValue("MAP", ctx.memory);
+    case TypedValue::Type::Vertex:
+      return TypedValue("NODE", ctx.memory);
+    case TypedValue::Type::Edge:
+      return TypedValue("RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::Path:
+      return TypedValue("PATH", ctx.memory);
+  }
 }
 
 // TODO: How is Keys different from Properties function?
@@ -1088,6 +1125,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "TOFLOAT") return ToFloat;
   if (function_name == "TOINTEGER") return ToInteger;
   if (function_name == "TYPE") return Type;
+  if (function_name == "VALUETYPE") return ValueType;
 
   // List functions
   if (function_name == "KEYS") return Keys;
