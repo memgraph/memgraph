@@ -242,6 +242,10 @@ class LabelPropertyIndex {
     return it->second.size();
   }
 
+  /// Supplying a specific value into the count estimation function will return
+  /// an estimated count of nodes which have their property's value set to
+  /// `value`. If the `value` specified is `Null`, then an average number of
+  /// equal elements is returned.
   int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                  const PropertyValue &value) const;
 

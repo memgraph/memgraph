@@ -670,6 +670,8 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() {
   return Iterator(this, index_accessor_.end());
 }
 
+namespace {
+
 // A helper function for determining the skip list layer used for estimating the
 // number of elements in the label property index. The lower layer we use, the
 // better approximation we get (if we use the lowest layer, we get the exact
@@ -687,11 +689,21 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() {
 // For N small enough (arbitrarily chosen to be 500), we will just use the
 // lowest layer to get the exact numbers. Mostly because this makes writing
 // tests easier.
-namespace {
-uint64_t SkipListLayerForEstimation(uint64_t N) {
+uint64_t SkipListLayerForCountEstimation(uint64_t N) {
   if (N <= 500) return 1;
   return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
 }
+
+// This function is written with the same intent as the function above except
+// that it uses slightly higher layers for estimation because the
+// `average_number_of_equals` estimate has a larger time complexity than the
+// `*count` estimates.
+uint64_t SkipListLayerForAverageEqualsEstimation(uint64_t N) {
+  if (N <= 500) return 1;
+  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1),
+                  utils::kSkipListMaxHeight);
+}
+
 }  // namespace
 
 int64_t LabelPropertyIndex::ApproximateVertexCount(
@@ -701,7 +713,20 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(
       << "Index for label " << label.AsUint() << " and property "
       << property.AsUint() << " doesn't exist";
   auto acc = it->second.access();
-  return acc.estimate_count(value, SkipListLayerForEstimation(acc.size()));
+  if (!value.IsNull()) {
+    return acc.estimate_count(value,
+                              SkipListLayerForCountEstimation(acc.size()));
+  } else {
+    // The value `Null` won't ever appear in the index because it indicates that
+    // the property shouldn't exist. Instead, this value is used as an indicator
+    // to estimate the average number of equal elements in the list (for any
+    // given value).
+    return acc.estimate_average_number_of_equals(
+        [](const auto &first, const auto &second) {
+          return first.value == second.value;
+        },
+        SkipListLayerForAverageEqualsEstimation(acc.size()));
+  }
 }
 
 int64_t LabelPropertyIndex::ApproximateVertexCount(
@@ -714,7 +739,7 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(
       << property.AsUint() << " doesn't exist";
   auto acc = it->second.access();
   return acc.estimate_range_count(lower, upper,
-                                  SkipListLayerForEstimation(acc.size()));
+                                  SkipListLayerForCountEstimation(acc.size()));
 }
 
 void RemoveObsoleteEntries(Indices *indices,

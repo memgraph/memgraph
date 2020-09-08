@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -708,6 +709,24 @@ class SkipList final {
                                                       max_layer_for_estimation);
     }
 
+    /// Estimates the average number of objects in the list that have the same
+    /// value using the provided equality operator. The items in the list must
+    /// already be ordered by the field that is used in the equality operator.
+    /// The default layer is chosen to optimize duration vs. precision. The
+    /// lower the layer used for estimation the higher the duration of the count
+    /// operation. If you set the maximum layer for estimation to 1 you will get
+    /// an exact average number.
+    ///
+    /// @return uint64_t estimated average number of equal items in the list
+    template <typename TCallable>
+    uint64_t estimate_average_number_of_equals(
+        const TCallable &equal_cmp,
+        int max_layer_for_estimation =
+            kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_average_number_of_equals(
+          equal_cmp, max_layer_for_estimation);
+    }
+
     /// Removes the key from the list.
     ///
     /// @return bool indicating whether the removal was successful
@@ -793,6 +812,15 @@ class SkipList final {
             kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->template estimate_range_count(lower, upper,
                                                       max_layer_for_estimation);
+    }
+
+    template <typename TCallable>
+    uint64_t estimate_average_number_of_equals(
+        const TCallable &equal_cmp,
+        int max_layer_for_estimation =
+            kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_average_number_of_equals(
+          equal_cmp, max_layer_for_estimation);
     }
 
     uint64_t size() const { return skiplist_->size(); }
@@ -1107,6 +1135,83 @@ class SkipList final {
     }
 
     return count;
+  }
+
+  template <typename TCallable>
+  uint64_t estimate_average_number_of_equals(
+      const TCallable &equal_cmp, int max_layer_for_estimation) const {
+    CHECK(max_layer_for_estimation >= 1 &&
+          max_layer_for_estimation <= kSkipListMaxHeight)
+        << "Invalid layer for SkipList count estimation!";
+
+    // We need to traverse some nodes to make the calculation correct, so find
+    // the first layer that has some nodes, starting from the hinted layer.
+    TNode *curr = nullptr;
+    int layer = max_layer_for_estimation;
+    while (curr == nullptr && layer > 0) {
+      layer -= 1;
+      curr = head_->nexts[layer].load(std::memory_order_acquire);
+    }
+    if (curr == nullptr) {
+      // There are no elements in the list.
+      return 0;
+    }
+
+    // Traverse the chain of nodes and count how many of them are unique and how
+    // many have been visited in total. The traversal is initiated from the
+    // determined layer. Then, equality is checked using layer 1 and a return to
+    // the desired layer is performed. The traversal over layers looks as
+    // follows ("+" are counted nodes, "*" are visited nodes):
+    //
+    //  10: *              *--*     *-- ...
+    //   9: |              |  |     |
+    //   8: |           *--*  |     |
+    //   7: |           |     |     |
+    //   6: |           |     |  *--*
+    //   5: |     *--*--*     |  |
+    //   4: |     |           |  |
+    //   3: |     |           |  |
+    //   2: |     |           |  |
+    //   1: +--+--+           +--+
+    uint64_t unique_count = 0;
+    uint64_t nodes_traversed = 0;
+    uint64_t traversal_limit = size_.load(std::memory_order_acquire);
+    if (layer != 0) {
+      // If the layer isn't 0 we don't want to traverse all of the equal items
+      // because the whole list can be the same item. That is why we limit the
+      // traversal to at most `sqrt(list_size)` items which is a good balance
+      // between general correctness and time complexity.
+      traversal_limit = static_cast<uint64_t>(
+          std::sqrt(size_.load(std::memory_order_acquire)));
+    }
+    while (curr != nullptr) {
+      // First, traverse the bottom layer to count the items.
+      ++unique_count;
+      TNode *pred = nullptr;
+      uint64_t current_traversed = 0;
+      while (curr != nullptr && current_traversed < traversal_limit) {
+        if (pred) {
+          const auto &pred_obj = pred->obj;
+          const auto &curr_obj = curr->obj;
+          if (!equal_cmp(pred_obj, curr_obj)) {
+            break;
+          }
+        }
+        pred = curr;
+        curr = pred->nexts[0].load(std::memory_order_acquire);
+        ++current_traversed;
+      }
+      nodes_traversed += current_traversed;
+      // Second, find a node that has the necessary hight to return to the
+      // desired layer.
+      while (curr != nullptr && curr->height - 1 < layer) {
+        curr = curr->nexts[curr->height - 1].load(std::memory_order_acquire);
+      }
+    }
+
+    CHECK(unique_count > 0);
+
+    return nodes_traversed / unique_count;
   }
 
   bool ok_to_delete(TNode *candidate, int layer_found) {
