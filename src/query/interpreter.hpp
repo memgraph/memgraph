@@ -96,6 +96,45 @@ class AuthQueryHandler {
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+class ReplicationQueryHandler {
+ public:
+  ReplicationQueryHandler() = default;
+  virtual ~ReplicationQueryHandler() = default;
+
+  ReplicationQueryHandler(const ReplicationQueryHandler &) = delete;
+  ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
+  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = delete;
+  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = delete;
+
+  struct Replica {
+    std::string name;
+    std::string hostname;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+  };
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool SetReplicationMode(
+      ReplicationQuery::ReplicationMode replication_mode) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual ReplicationQuery::ReplicationMode ShowReplicationMode() const = 0;
+
+  /// Return false if the replica already exists.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool CreateReplica(const std::string &name,
+                             const std::string &hostname,
+                             ReplicationQuery::SyncMode sync_mode,
+                             std::optional<double> timeout) = 0;
+
+  /// Return false if the replica doesn't exist.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool DropReplica(const std::string &replica_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<Replica> ShowReplicas() const = 0;
+};
+
 /**
  * A container for data related to the preparation of a query.
  */
@@ -182,8 +221,7 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db)
-      : db(db) {
+  explicit InterpreterContext(storage::Storage *db) : db(db) {
     CHECK(db) << "Storage must not be NULL";
   }
 
@@ -202,6 +240,7 @@ struct InterpreterContext {
   double execution_timeout_sec{180.0};
 
   AuthQueryHandler *auth{nullptr};
+  ReplicationQueryHandler *repl{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;

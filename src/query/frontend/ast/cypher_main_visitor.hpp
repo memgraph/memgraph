@@ -187,6 +187,42 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
 
   /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitReplicationQuery(
+      MemgraphCypher::ReplicationQueryContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitSetReplicationMode(
+      MemgraphCypher::SetReplicationModeContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitShowReplicationMode(
+      MemgraphCypher::ShowReplicationModeContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitCreateReplica(
+      MemgraphCypher::CreateReplicaContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitDropReplica(
+      MemgraphCypher::DropReplicaContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitShowReplicas(
+      MemgraphCypher::ShowReplicasContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(

@@ -159,4 +159,11 @@ class StreamClauseInMulticommandTxException : public QueryException {
             "Stream clause not allowed in multicommand transactions.") {}
 };
 
+class ReplicationModificationInMulticommandTxException : public QueryException {
+ public:
+  ReplicationModificationInMulticommandTxException()
+      : QueryException(
+            "Replication clause not allowed in multicommand transactions.") {}
+};
+
 }  // namespace query

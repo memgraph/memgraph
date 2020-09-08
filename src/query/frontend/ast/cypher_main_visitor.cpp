@@ -186,6 +186,78 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(
   return dump_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitReplicationQuery(
+    MemgraphCypher::ReplicationQueryContext *ctx) {
+  CHECK(ctx->children.size() == 1)
+      << "ReplicationQuery should have exactly one child!";
+  auto *replication_query =
+      ctx->children[0]->accept(this).as<ReplicationQuery *>();
+  query_ = replication_query;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetReplicationMode(
+    MemgraphCypher::SetReplicationModeContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_MODE;
+  if (ctx->MAIN()) {
+    replication_query->mode_ = ReplicationQuery::ReplicationMode::MAIN;
+  } else if (ctx->REPLICA()) {
+    replication_query->mode_ = ReplicationQuery::ReplicationMode::REPLICA;
+  }
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowReplicationMode(
+    MemgraphCypher::ShowReplicationModeContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_MODE;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateReplica(
+    MemgraphCypher::CreateReplicaContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::CREATE_REPLICA;
+  replication_query->replica_name_ =
+      ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  if (ctx->SYNC()) {
+    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::SYNC;
+  } else if (ctx->ASYNC()) {
+    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
+  }
+  if (!ctx->hostName()->literal()->StringLiteral()) {
+    throw SyntaxException("Hostname should be a string literal!");
+  } else {
+    replication_query->hostname_ = ctx->hostName()->accept(this);
+  }
+  if (ctx->timeout) {
+    if (!ctx->timeout->numberLiteral()->doubleLiteral() &&
+        !ctx->timeout->numberLiteral()->integerLiteral()) {
+      throw SyntaxException("Timeout should be a double literal!");
+    } else {
+      replication_query->timeout_ = ctx->timeout->accept(this);
+    }
+  }
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropReplica(
+    MemgraphCypher::DropReplicaContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;
+  replication_query->replica_name_ =
+      ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowReplicas(
+    MemgraphCypher::ShowReplicasContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
+  return replication_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
