@@ -10,5 +10,28 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp)
 
+# TODO(mferencevic): Replace with the MG_ENTERPRISE flag
+option(MG_REPLICATION "Build Memgraph replication" OFF)
+
+if(MG_REPLICATION)
+    define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
+
+    add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
+
+    add_custom_target(generate_lcp_storage DEPENDS ${generated_lcp_storage_files})
+
+    set(storage_v2_src_files
+        ${storage_v2_src_files}
+        replication/slk.cpp
+        ${lcp_storage_cpp_files})
+endif()
+
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
 target_link_libraries(mg-storage-v2 Threads::Threads mg-utils glog gflags)
+
+if(MG_REPLICATION)
+    add_dependencies(mg-storage-v2 generate_lcp_storage)
+    target_link_libraries(mg-storage-v2 mg-rpc mg-slk)
+    # TODO(mferencevic): Remove when MG_REPLICATION is replaced with MG_ENTERPRISE
+    target_compile_definitions(mg-storage-v2 PUBLIC MG_REPLICATION)
+endif()

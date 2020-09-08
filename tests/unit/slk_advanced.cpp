@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "storage/common/types/slk.hpp"
+#include "storage/v2/replication/slk.hpp"
 
 #include "slk_common.hpp"
 

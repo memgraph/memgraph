@@ -245,11 +245,12 @@ endif()
 
 # Test mg-slk
 
-if (MG_ENTERPRISE)
-## TODO: REPLACE single-node-ha
-#add_unit_test(slk_advanced.cpp)
-#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
+if (MG_REPLICATION)
+add_unit_test(slk_advanced.cpp)
+target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+endif()
 
+if (MG_ENTERPRISE)
 add_unit_test(slk_core.cpp)
 target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
 

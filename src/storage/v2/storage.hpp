@@ -22,6 +22,13 @@
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
+#ifdef MG_REPLICATION
+#include "rpc/server.hpp"
+#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
+#endif
+
 namespace storage {
 
 // The storage is based on this paper:
@@ -305,6 +312,19 @@ class Storage final {
     void Abort();
 
    private:
+#ifdef MG_REPLICATION
+    /// @throw std::bad_alloc
+    VertexAccessor CreateVertex(storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                    EdgeTypeId edge_type, storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    utils::BasicResult<ConstraintViolation, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp);
+#endif
+
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
@@ -467,6 +487,14 @@ class Storage final {
 
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+  // Replication
+#ifdef MG_REPLICATION
+  std::optional<communication::ServerContext> replication_server_context_;
+  std::optional<rpc::Server> replication_server_;
+  // TODO(mferencevic): Add support for multiple clients.
+  std::optional<replication::ReplicationClient> replication_client_;
+#endif
 };
 
 }  // namespace storage
