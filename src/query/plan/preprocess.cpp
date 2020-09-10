@@ -180,6 +180,17 @@ PropertyFilter::PropertyFilter(
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
+PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property,
+                               Type type)
+    : symbol_(symbol), property_(property), type_(type) {
+  // As this constructor is used for property filters where
+  // we don't have to evaluate the filter expression, we set
+  // the is_symbol_in_value_ to false, although the filter
+  // expression may actually contain the symbol whose property
+  // we may be looking up.
+}
+
+
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol,
                    Expression *value)
     : symbol_(symbol), value_(value) {
@@ -445,6 +456,37 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     }
     return false;
   };
+
+  // Checks whether maybe_prop_not_null_check is the null check on a property,
+  // ("prop IS NOT NULL"), stores it as a PropertyFilter if it is, and returns
+  // true. If it isn't returns false.
+  auto add_prop_is_not_null_check = [&](auto *maybe_is_not_null_check) -> bool {
+    // Strip away the outer NOT operator, and figure out
+    // whether the inner expression is of the form "prop IS NULL"
+    if (!maybe_is_not_null_check) {
+      return false;
+    }
+
+    auto *maybe_is_null_check =
+        utils::Downcast<IsNullOperator>(maybe_is_not_null_check->expression_);
+    if (!maybe_is_null_check) {
+      return false;
+    }
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+
+    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup,
+                             ident)) {
+      return false;
+    }
+
+    auto filter = make_filter(FilterInfo::Type::Property);
+    filter.property_filter =
+        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_,
+                       PropertyFilter::Type::IS_NOT_NULL);
+    all_filters_.emplace_back(filter);
+    return true;
+  };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DCHECK(!utils::IsSubtype(*expr, AndOperator::kType))
@@ -513,6 +555,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     // left side of the operator. In that case, it's valid to do the IN list
     // optimization during the index lookup rewrite phase.
     if (!add_prop_in_list(in->expression1_, in->expression2_)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *is_not_null = utils::Downcast<NotOperator>(expr)) {
+    if (!add_prop_is_not_null_check(is_not_null)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else {
