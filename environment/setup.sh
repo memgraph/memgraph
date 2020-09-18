@@ -203,6 +203,7 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz
     wget https://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz
     wget https://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz
+    wget https://releases.llvm.org/$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz
     wget https://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
@@ -223,7 +224,7 @@ if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
     wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
 fi
 # list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
-$GPG --keyserver $KEYSERVER --recv-keys 0xC3C45C06
+$GPG --keyserver $KEYSERVER --recv-keys 0xA328C3A2C3C45C06
 $GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 # verify binutils
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
@@ -245,7 +246,7 @@ if [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt ] || [ ! -f cmake-$CMAKE_VERSION-SHA-
     # we filter out the missing files from the sums here manually.
     cat cmake-$CMAKE_VERSION-SHA-256.txt | grep "cmake-$CMAKE_VERSION.tar.gz" > cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x7BFB4EDA
+$GPG --keyserver $KEYSERVER --recv-keys 0xC6C265324BBEBDC350B513D02D2CEF1034921684
 sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 $GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
 # verify llvm, cfe, lld, clang-tools-extra
@@ -253,6 +254,7 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
     wget https://releases.llvm.org/$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
     wget https://releases.llvm.org/$LLVM_VERSION/cfe-$LLVM_VERSION.src.tar.xz.sig
     wget https://releases.llvm.org/$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
+    wget https://releases.llvm.org/$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
     wget https://releases.llvm.org/$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
 fi
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
@@ -260,6 +262,7 @@ $GPG --keyserver $KEYSERVER --recv-keys 0x345AD05D
 $GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
 $GPG --verify cfe-$LLVM_VERSION.src.tar.xz.sig cfe-$LLVM_VERSION.src.tar.xz
 $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
+$GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 popd
 
@@ -500,6 +503,8 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv cfe-$LLVM_VERSION.src llvm-$LLVM_VERSION/tools/clang
     tar -xvf ../archives/lld-$LLVM_VERSION.src.tar.xz
     mv lld-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/tools/lld
+    tar -xvf ../archives/compiler-rt-$LLVM_VERSION.src.tar.xz
+    mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
     tar -xvf ../archives/clang-tools-extra-$LLVM_VERSION.src.tar.xz
     mv clang-tools-extra-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/tools/clang/tools/extra
     pushd llvm-$LLVM_VERSION
@@ -546,7 +551,7 @@ if [ ! -f $PREFIX/README.md ]; then
  - GDB $GDB_VERSION
  - CMake $CMAKE_VERSION
  - Cppcheck $CPPCHECK_VERSION
- - LLVM (Clang, LLD, Clang tools extra) $LLVM_VERSION
+ - LLVM (Clang, LLD, compiler-rt, Clang tools extra) $LLVM_VERSION
 
 ## Required libraries
 
