@@ -27,7 +27,7 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
-BUILD_DIR = os.path.join(BASE_DIR, "build_release")
+BUILD_DIR = os.path.join(BASE_DIR, "build")
 
 
 def wait_for_server(port, delay=0.01):
@@ -131,7 +131,7 @@ def main():
 
     # Load tests from config file
     with open(os.path.join(TESTS_DIR, "config.yaml")) as f:
-        suites = yaml.load(f)
+        suites = yaml.safe_load(f)
 
     # venv used to run the qa engine
     venv_python = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
@@ -184,7 +184,7 @@ def main():
     qa_status_message = generate_remarkup(status_data)
 
     # Create the report file
-    qa_status_path = os.path.join(SCRIPT_DIR, ".quality_assurance_status")
+    qa_status_path = os.path.join(SCRIPT_DIR, "quality_assurance_status.txt")
     with open(qa_status_path, "w") as f:
         f.write(qa_status_message)
 

@@ -3,7 +3,7 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
-if ! which nodejs >/dev/null; then
+if ! which node >/dev/null; then
     echo "Please install nodejs!"
     exit 1
 fi
@@ -15,5 +15,5 @@ if [ ! -d node_modules ]; then
     rm driver.tar.gz || exit 1
 fi
 
-nodejs basic.js
-nodejs max_query_length.js
+node basic.js
+node max_query_length.js

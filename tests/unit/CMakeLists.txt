@@ -13,7 +13,11 @@ function(add_unit_test test_cpp)
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} gtest gmock gtest_main Threads::Threads)
   # register test
-  add_test(${target_name} ${exec_name})
+  if(TEST_COVERAGE)
+    add_test(${target_name} env LLVM_PROFILE_FILE=${exec_name}.profraw ./${exec_name})
+  else()
+    add_test(${target_name} ${exec_name})
+  endif()
   # add to memgraph__unit target
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)

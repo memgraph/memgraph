@@ -23,7 +23,7 @@ code=$?
 
 # Shutdown the memgraph process.
 kill $pid
-wait -n
+wait $pid
 code_mg=$?
 
 # Check memgraph exit code.

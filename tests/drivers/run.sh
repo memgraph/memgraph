@@ -31,7 +31,8 @@ fi
 $binary_dir/memgraph \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 &
+    --bolt-session-inactivity-timeout=10 \
+    --min-log-level 1 &
 pid=$!
 wait_for_server 7687
 
@@ -53,7 +54,7 @@ done
 
 # Stop memgraph.
 kill $pid
-wait -n
+wait $pid
 code_mg=$?
 
 # Temporary directory cleanup.

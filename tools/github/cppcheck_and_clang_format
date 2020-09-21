@@ -3,20 +3,18 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/../../"
 
-tmpfile="$DIR/.cppcheck_errors.tmp"
-errfile="$DIR/.cppcheck_errors"
+tmpfile="$DIR/cppcheck_and_clang_format.tmp"
+errfile="$DIR/cppcheck_and_clang_format.txt"
 
-mode=diff
-if echo "$PROJECT" | grep "release" >/dev/null 2>/dev/null; then
-    mode=release
-fi
+mode=${1:-diff}
+threads=$( cat /proc/cpuinfo | grep processor | wc -l )
 
 if [ "$mode" == diff ]; then
     files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '\.(hpp|h|cpp)$' )
     flags=""
 else
     files=src/
-    flags="-j$THREADS -Isrc"
+    flags="-j$threads -Isrc"
 fi
 
 cat > .cppcheck_suppressions <<EOF

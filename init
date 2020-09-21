@@ -1,22 +1,44 @@
 #!/bin/bash -e
 
-required_pkgs=(git # source code control
-               make pkg-config # build system
-               curl wget # for downloading libs
-               uuid-dev default-jre-headless # required by antlr
-               libreadline-dev # for memgraph console
-               libssl-dev
-               libseccomp-dev
-               python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
-               python3-yaml # for the configuration generator
-               libcurl4-openssl-dev # mg-requests
-               sbcl # for custom Lisp C++ preprocessing
-              )
+required_pkgs_apt=(git # source code control
+                   make pkg-config # build system
+                   curl wget # for downloading libs
+                   uuid-dev default-jre-headless # required by antlr
+                   libreadline-dev # for memgraph console
+                   libpython3-dev python3-dev # for query modules
+                   libssl-dev
+                   libseccomp-dev
+                   python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+                   python3-yaml # for the configuration generator
+                   libcurl4-openssl-dev # mg-requests
+                   sbcl # for custom Lisp C++ preprocessing
+                  )
 
-optional_pkgs=(doxygen graphviz # source documentation generators
-               php-cli # for user technical documentation generators
-               mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
-              )
+optional_pkgs_apt=(doxygen graphviz # source documentation generators
+                   php-cli # for user technical documentation generators
+                   mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
+                  )
+
+
+required_pkgs_yum=(# NOTE: git is too old on CentOS, install it manually from IUS
+                   make pkgconfig # build system
+                   curl wget # for downloading libs
+                   libuuid-devel java-1.8.0-openjdk # required by antlr
+                   readline-devel # for memgraph console
+                   python3-devel # for query modules
+                   openssl-devel
+                   libseccomp-devel
+                   python3 python-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
+                   # NOTE: python3-yaml doesn't exist on CentOS, install it manually using `pip3 install PyYAML`
+                   libcurl-devel # mg-requests
+                   sbcl # for custom Lisp C++ preprocessing
+                   rpm-build rpmlint # for RPM package building
+                  )
+
+optional_pkgs_yum=(doxygen graphviz # source documentation generators
+                   php-cli # for user technical documentation generators
+                   mono-complete nodejs zip unzip java-1.8.0-openjdk-devel # for driver tests
+                  )
 
 use_sudo=0
 
@@ -76,29 +98,55 @@ echo "Started installing dependencies for Memgraph"
 
 required_missing=0
 
-# install all dependencies on debian based operating systems
-for pkg in ${required_pkgs[@]}; do
-    if dpkg -s $pkg 2>/dev/null >/dev/null; then
-        echo "Found $pkg"
-    elif (( $use_sudo )); then
-        echo "Installing $pkg"
-        if [[ ! `sudo apt-get -y install $pkg` ]]; then
-            echo "Didn't install $pkg [required]"
+# install all dependencies on supported operating systems
+if command -v apt-get >/dev/null; then
+    for pkg in ${required_pkgs_apt[@]}; do
+        if dpkg -s $pkg 2>/dev/null >/dev/null; then
+            echo "Found $pkg"
+        elif (( $use_sudo )); then
+            echo "Installing $pkg"
+            if [[ ! `sudo apt-get -y install $pkg` ]]; then
+                echo "Didn't install $pkg [required]"
+                required_missing=1
+            fi
+        else
+            echo "Missing $pkg [required]"
             required_missing=1
         fi
-    else
-        echo "Missing $pkg [required]"
-        required_missing=1
-    fi
-done
-
-for pkg in ${optional_pkgs[@]}; do
-    if dpkg -s $pkg 2>/dev/null >/dev/null; then
-        echo "Found $pkg [optional]"
-    else
-        echo "Missing $pkg [optional]"
-    fi
-done
+    done
+    for pkg in ${optional_pkgs_apt[@]}; do
+        if dpkg -s $pkg 2>/dev/null >/dev/null; then
+            echo "Found $pkg [optional]"
+        else
+            echo "Missing $pkg [optional]"
+        fi
+    done
+elif command -v yum >/dev/null; then
+    for pkg in ${required_pkgs_yum[@]}; do
+        if yum list installed $pkg 2>/dev/null >/dev/null; then
+            echo "Found $pkg"
+        elif (( $use_sudo )); then
+            echo "Installing $pkg"
+            if [[ ! `sudo yum install -y $pkg` ]]; then
+                echo "Didn't install $pkg [required]"
+                required_missing=1
+            fi
+        else
+            echo "Missing $pkg [required]"
+            required_missing=1
+        fi
+    done
+    for pkg in ${optional_pkgs_yum[@]}; do
+        if yum list installed $pkg 2>/dev/null >/dev/null; then
+            echo "Found $pkg [optional]"
+        else
+            echo "Missing $pkg [optional]"
+        fi
+    done
+else
+    echo "Unsupported distribution!"
+    exit 1
+fi
 
 if (( $required_missing )); then
     echo "Missing required packages. EXITING!"
