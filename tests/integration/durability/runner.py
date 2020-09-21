@@ -124,12 +124,7 @@ def find_test_directories(directory):
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    if not os.path.exists(memgraph_binary):
-        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug", "memgraph")
     dump_binary = os.path.join(PROJECT_DIR, "build", "tools", "src", "mg_dump")
-    if not os.path.exists(dump_binary):
-        dump_binary = os.path.join(PROJECT_DIR, "build_debug", "tools", "src",
-                                   "mg_dump")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

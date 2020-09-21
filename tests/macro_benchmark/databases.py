@@ -57,11 +57,6 @@ class Memgraph:
 
         # find executable path
         runner_bin = self.args.runner_bin
-        if not os.path.exists(runner_bin):
-            # Apollo builds both debug and release binaries on diff
-            # so we need to use the release binary if the debug one
-            # doesn't exist
-            runner_bin = get_absolute_path("memgraph", "build_release")
 
         # start memgraph
         self.database_bin.run(runner_bin, database_args, timeout=600)
