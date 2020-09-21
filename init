@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-required_pkgs=(git arcanist # source code control
+required_pkgs=(git # source code control
                make pkg-config # build system
                curl wget # for downloading libs
                uuid-dev default-jre-headless # required by antlr
@@ -9,15 +9,13 @@ required_pkgs=(git arcanist # source code control
                libseccomp-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
                python3-yaml # for the configuration generator
-               uuid-dev # mg-utils
                libcurl4-openssl-dev # mg-requests
                sbcl # for custom Lisp C++ preprocessing
-               php-xml # for arcanist linters
               )
 
 optional_pkgs=(doxygen graphviz # source documentation generators
                php-cli # for user technical documentation generators
-               mono-runtime mono-mcs nodejs # for driver tests
+               mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
               )
 
 use_sudo=0
