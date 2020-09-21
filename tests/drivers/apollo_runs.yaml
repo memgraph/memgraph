@@ -1,6 +1,0 @@
-- name: drivers
-  commands: ./run.sh
-  infiles:
-    - . # all files present here
-    - ../../build_debug/memgraph # memgraph binary
-  enable_network: true

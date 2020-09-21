@@ -45,10 +45,6 @@ parser.add_argument("--num-clients", default=multiprocessing.cpu_count())
 parser.add_argument("--num-steps", type=int, default=5)
 args = parser.parse_args()
 
-# Find Memgraph directory (alternative location)
-if not os.path.exists(args.memgraph):
-    args.memgraph = os.path.join(BASE_DIR, "build_release", "memgraph")
-
 # Memgraph run command construction
 cwd = os.path.dirname(args.memgraph)
 cmd = [args.memgraph, "--bolt-num-workers=" + str(DB_WORKERS),

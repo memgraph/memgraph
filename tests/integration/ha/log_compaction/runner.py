@@ -79,10 +79,7 @@ class HaLogCompactionTest(HaTestBase):
 
 
 def find_correct_path(path):
-    f = os.path.join(PROJECT_DIR, "build", path)
-    if not os.path.exists(f):
-        f = os.path.join(PROJECT_DIR, "build_debug", path)
-    return f
+    return os.path.join(PROJECT_DIR, "build", path)
 
 
 if __name__ == "__main__":

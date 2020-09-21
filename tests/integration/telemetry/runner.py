@@ -84,15 +84,8 @@ if __name__ == "__main__":
     server_binary = os.path.join(SCRIPT_DIR, "server.py")
     client_binary = os.path.join(PROJECT_DIR, "build", "tests",
                                  "integration", "telemetry", "client")
-    if not os.path.exists(client_binary):
-        client_binary = os.path.join(PROJECT_DIR, "build_debug", "tests",
-                                     "integration", "telemetry", "client")
     kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests",
                                           "manual", "kvstore_console")
-    if not os.path.exists(kvstore_console_binary):
-        kvstore_console_binary = os.path.join(PROJECT_DIR, "build_debug",
-                                              "tests", "manual",
-                                              "kvstore_console")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", default=client_binary)

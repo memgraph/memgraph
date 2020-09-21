@@ -36,8 +36,6 @@ class Memgraph:
     def start(self):
         # find executable path
         binary = os.path.join(BASE_DIR, "build", "memgraph")
-        if not os.path.exists(binary):
-            binary = os.path.join(BASE_DIR, "build_release", "memgraph")
 
         # database args
         database_args = [binary,

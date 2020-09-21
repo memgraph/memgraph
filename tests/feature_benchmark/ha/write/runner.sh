@@ -22,9 +22,6 @@ cd "$DIR"
 
 # Find memgraph binaries.
 binary_dir="$DIR/../../../../build"
-if [ ! -d $binary_dir ]; then
-    binary_dir="$DIR/../../../../build_release"
-fi
 
 # Results for apollo
 RESULTS="$DIR/.apollo_measurements"

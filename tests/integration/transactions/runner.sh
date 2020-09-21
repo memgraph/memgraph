@@ -4,9 +4,6 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
 binary_dir="$DIR/../../../build"
-if [ ! -d $binary_dir ]; then
-    binary_dir="$DIR/../../../build_debug"
-fi
 
 # Start the memgraph process.
 $binary_dir/memgraph &
