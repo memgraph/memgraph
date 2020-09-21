@@ -23,9 +23,6 @@ mkdir -p $tmpdir
 
 # Find memgraph binaries.
 binary_dir="$DIR/../../build"
-if [ ! -d $binary_dir ]; then
-    binary_dir="$DIR/../../build_debug"
-fi
 
 # Start memgraph.
 $binary_dir/memgraph \

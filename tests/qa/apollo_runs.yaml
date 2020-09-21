@@ -1,7 +1,0 @@
-- name: quality_assurance
-  commands: TIMEOUT=300 ./continuous_integration
-  infiles:
-    - . # current directory
-    - ../../build_release/memgraph # memgraph release binary
-  outfile_paths: &OUTFILE_PATHS
-    - \./memgraph/tests/qa/\.quality_assurance_status

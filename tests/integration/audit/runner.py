@@ -106,13 +106,8 @@ def execute_test(memgraph_binary, tester_binary):
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    if not os.path.exists(memgraph_binary):
-        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug", "memgraph")
     tester_binary = os.path.join(PROJECT_DIR, "build", "tests",
                                  "integration", "audit", "tester")
-    if not os.path.exists(tester_binary):
-        tester_binary = os.path.join(PROJECT_DIR, "build_debug", "tests",
-                                     "integration", "audit", "tester")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

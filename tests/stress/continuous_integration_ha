@@ -84,9 +84,6 @@ def run_test(args, test, options, timeout):
                 "--logging", logging]
     elif test.endswith(".cpp"):
         exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
-        if not os.path.exists(exe):
-            exe = os.path.join(BASE_DIR, "build_release", "tests", "stress",
-                    test[:-4])
         binary = [exe]
     else:
         raise Exception("Test '{}' binary not supported!".format(test))
@@ -105,10 +102,6 @@ def run_test(args, test, options, timeout):
 
     return runtime
 
-
-# find HA memgraph binary
-if not os.path.exists(args.memgraph):
-    args.memgraph = os.path.join(BASE_DIR, "build_release", "memgraph_ha")
 
 # Generate database instance flags
 workers = [None for worker in range(CLUSTER_SIZE)]

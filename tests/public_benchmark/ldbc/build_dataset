@@ -13,9 +13,6 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 base_dir="${script_dir}/../../.."
 neo4j_dir="${base_dir}/libs/neo4j"
 build_dir="${base_dir}/build"
-if [ ! -d "${build_dir}" ]; then
-    build_dir="${base_dir}/build_release"
-fi
 
 # Add Maven to PATH
 export PATH=$PATH:${script_dir}/maven/bin

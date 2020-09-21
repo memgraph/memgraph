@@ -29,9 +29,6 @@ cd $tmpdir
 
 # Find memgraph binaries.
 memgraph_dir="$DIR/../../build"
-if [ ! -d $memgraph_dir ]; then
-    memgraph_dir="$DIR/../../build_release"
-fi
 
 # Find mg_client binaries.
 client_dir="$memgraph_dir/tools/src"

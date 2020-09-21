@@ -32,9 +32,6 @@ for i in ca1 ca2; do
 done
 
 binary_dir="$DIR/../../../build"
-if [ ! -d $binary_dir ]; then
-    binary_dir="$DIR/../../../build_debug"
-fi
 
 set +e
 

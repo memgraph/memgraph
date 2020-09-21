@@ -1,5 +1,0 @@
-- name: test_lcp
-  cd: ../build_debug/tests/unit
-  commands: ./test_lcp
-  infiles:
-    - test_lcp

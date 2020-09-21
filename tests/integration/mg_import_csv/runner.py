@@ -11,6 +11,7 @@ import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+BUILD_DIR = os.path.join(BASE_DIR, "build")
 
 
 def wait_for_server(port, delay=0.1):
@@ -18,16 +19,6 @@ def wait_for_server(port, delay=0.1):
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
     time.sleep(delay)
-
-
-def get_build_dir():
-    if os.path.exists(os.path.join(BASE_DIR, "build_release")):
-        return os.path.join(BASE_DIR, "build_release")
-    if os.path.exists(os.path.join(BASE_DIR, "build_debug")):
-        return os.path.join(BASE_DIR, "build_debug")
-    if os.path.exists(os.path.join(BASE_DIR, "build_community")):
-        return os.path.join(BASE_DIR, "build_community")
-    return os.path.join(BASE_DIR, "build")
 
 
 def extract_rows(data):
@@ -173,11 +164,11 @@ def execute_test(name, test_path, test_config, memgraph_binary,
 
 
 if __name__ == "__main__":
-    memgraph_binary = os.path.join(get_build_dir(), "memgraph")
+    memgraph_binary = os.path.join(BUILD_DIR, "memgraph")
     mg_import_csv_binary = os.path.join(
-        get_build_dir(), "src", "mg_import_csv")
+        BUILD_DIR, "src", "mg_import_csv")
     tester_binary = os.path.join(
-        get_build_dir(), "tests", "integration", "mg_import_csv", "tester")
+        BUILD_DIR, "tests", "integration", "mg_import_csv", "tester")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

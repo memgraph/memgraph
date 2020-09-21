@@ -28,11 +28,6 @@ class QueryClient:
 
         client_path = "tests/macro_benchmark/query_client"
         client = get_absolute_path(client_path, "build")
-        if not os.path.exists(client):
-            # Apollo builds both debug and release binaries on diff
-            # so we need to use the release client if the debug one
-            # doesn't exist
-            client = get_absolute_path(client_path, "build_release")
 
         queries_fd, queries_path = tempfile.mkstemp()
         try:
@@ -93,11 +88,6 @@ class LongRunningClient:
 
         client_path = "tests/macro_benchmark/{}".format(client)
         client = get_absolute_path(client_path, "build")
-        if not os.path.exists(client):
-            # Apollo builds both debug and release binaries on diff
-            # so we need to use the release client if the debug one
-            # doesn't exist
-            client = get_absolute_path(client_path, "build_release")
 
         config_fd, config_path = tempfile.mkstemp()
         try:
