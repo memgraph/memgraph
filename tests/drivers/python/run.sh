@@ -12,7 +12,7 @@ fi
 # setup virtual environment
 if [ ! -d "ve3" ]; then
     # Driver downloaded from: https://pypi.org/project/neo4j-driver/1.5.3/
-    wget -nv http://deps.memgraph.io/drivers/python/neo4j-driver-1.5.3.tar.gz -O neo4j-driver.tar.gz || exit 1
+    wget -nv https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/drivers/python/neo4j-driver-1.5.3.tar.gz -O neo4j-driver.tar.gz || exit 1
     tar -xzf neo4j-driver.tar.gz || exit 1
     mv neo4j-driver-1.5.3 neo4j-driver || exit 1
     virtualenv -p python3 ve3 || exit 1
