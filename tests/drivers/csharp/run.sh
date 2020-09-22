@@ -16,7 +16,7 @@ if [ ! -f $DRIVER ]; then
     driver_dir=$( mktemp -d driver.XXXXXXXX ) || exit 1
     cd $driver_dir || exit 1
     # Driver downloaded from: https://www.nuget.org/packages/Neo4j.Driver/1.5.3
-    wget -nv http://deps.memgraph.io/drivers/csharp/neo4j.driver.1.5.3.nupkg || exit 1
+    wget -nv https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/drivers/csharp/neo4j.driver.1.5.3.nupkg || exit 1
     unzip -q neo4j.driver.1.5.3.nupkg || exit 1
     cp lib/net452/Neo4j.Driver.dll .. || exit 1
     cd .. || exit 1

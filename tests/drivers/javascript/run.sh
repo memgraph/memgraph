@@ -10,7 +10,7 @@ fi
 
 if [ ! -d node_modules ]; then
     # Driver generated with: `npm install neo4j-driver`
-    wget -nv http://deps.memgraph.io/drivers/javascript/neo4j-javascript-driver-1.6.1.tar.gz -O driver.tar.gz || exit 1
+    wget -nv https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/drivers/javascript/neo4j-javascript-driver-1.6.1.tar.gz -O driver.tar.gz || exit 1
     tar -xzf driver.tar.gz || exit 1
     rm driver.tar.gz || exit 1
 fi
