@@ -24,3 +24,6 @@ add_subdirectory(integration)
 
 # feature benchmark test binaries
 add_subdirectory(feature_benchmark)
+
+# mgbench benchmark test binaries
+add_subdirectory(mgbench)
