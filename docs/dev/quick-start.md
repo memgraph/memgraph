@@ -52,7 +52,7 @@ After installing the packages, issue the following commands:
 ### Compiling
 
 Memgraph is compiled using our own custom toolchain that can be obtained from
-[Toolchain repository](https://deps.memgraph.io/toolchain).  You should read
+[Toolchain repository](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain).  You should read
 the `README.txt` file in the repository and install the apropriate toolchain
 for your distribution.  After you have installed the toolchain you should read
 the instructions for the toolchain in the toolchain install directory
