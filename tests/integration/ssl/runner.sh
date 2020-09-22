@@ -16,7 +16,7 @@ mkdir -p $tmpdir
 cd $tmpdir
 
 easyrsa="EasyRSA-3.0.4"
-wget -nv http://deps.memgraph.io/$easyrsa.tgz
+wget -nv https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/$easyrsa.tgz
 
 tar -xf $easyrsa.tgz
 mv $easyrsa ca1

@@ -17,7 +17,7 @@ if [ -d "$name" ]; then
 fi
 
 echo_info "Downloading and unpacking OpenLDAP"
-wget -nv -O $name.tgz http://deps.memgraph.io/$name.tgz
+wget -nv -O $name.tgz https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/$name.tgz
 tar -xf $name.tgz
 rm $name.tgz
 
