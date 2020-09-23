@@ -2,6 +2,8 @@
 
 #include <glog/logging.h>
 
+#include <fmt/format.h>
+
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
@@ -22,11 +24,40 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
-  // TODO so far we only support version 1 of the protocol so it doesn't
-  // make sense to check which version the client prefers this will change in
-  // the future.
+  DCHECK(session.input_stream_.size() >= kHandshakeSize)
+    << "Wrong size of the handshake data!";
 
-  if (!session.output_stream_.Write(kProtocol, sizeof(kProtocol))) {
+  auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
+  
+  uint8_t protocol[4] = { 0x00 };
+  for (int i = 0; i < 4 && !protocol[3]; ++i) {
+    dataPosition += 2; // version is defined only by the last 2 bytes
+
+    uint16_t version = 0;
+    memcpy(&version, dataPosition, sizeof(version));
+    if (!version) {
+      break;
+    }
+
+    for (const auto supportedVersion : kSupportedVersions) {
+      if (supportedVersion == version) {
+        memcpy(protocol + 2, &version, sizeof(version));
+        break;
+      }
+    }
+
+    dataPosition += 2;
+  }
+
+  session.version_.minor = protocol[2];
+  session.version_.major = protocol[3];
+  if (!session.version_.major) {
+    DLOG(WARNING) << "Server doesn't support any of the requested versions!";
+    return State::Close;
+  }
+
+
+  if (!session.output_stream_.Write(protocol, sizeof(protocol))) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }
@@ -37,4 +68,4 @@ State StateHandshakeRun(TSession &session) {
 
   return State::Init;
 }
-}
+} // namespace communication::bolt

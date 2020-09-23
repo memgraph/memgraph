@@ -142,6 +142,13 @@ class Session {
   bool handshake_done_{false};
   State state_{State::Handshake};
 
+  struct Version {
+    uint8_t major;
+    uint8_t minor;
+  };
+
+  Version version_;
+
  private:
   void ClientFailureInvalidData() {
     // Set the state to Close.
