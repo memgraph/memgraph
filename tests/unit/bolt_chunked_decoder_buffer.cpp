@@ -1,13 +1,14 @@
 #include "bolt_common.hpp"
-#include "communication/buffer.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
+#include "communication/buffer.hpp"
 
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
 using BufferT = communication::Buffer;
 using StreamBufferT = io::network::StreamBuffer;
-using DecoderBufferT = communication::bolt::ChunkedDecoderBuffer<BufferT::ReadEnd>;
+using DecoderBufferT =
+    communication::bolt::ChunkedDecoderBuffer<BufferT::ReadEnd>;
 using ChunkStateT = communication::bolt::ChunkState;
 
 TEST(BoltBuffer, CorrectChunk) {

@@ -135,12 +135,14 @@ void CheckIgnoreMessage(std::vector<uint8_t> &output) {
 
 // Execute and check a correct handshake
 void ExecuteHandshake(TestInputStream &input_stream, TestSession &session,
-                      std::vector<uint8_t> &output) {
-  input_stream.Write(handshake_req, 20);
+                      std::vector<uint8_t> &output,
+                      const uint8_t *request = handshake_req,
+                      const uint8_t *expected_resp = handshake_resp) {
+  input_stream.Write(request, 20);
   session.Execute();
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
-  CheckOutput(output, handshake_resp, 4);
+  CheckOutput(output, expected_resp, 4);
 }
 
 // Write bolt chunk and execute command
@@ -225,6 +227,38 @@ TEST(BoltSession, HandshakeWriteFail) {
 TEST(BoltSession, HandshakeOK) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
+}
+
+TEST(BoltSession, HandshakeMultiVersionRequest) {
+  INIT_VARS;
+  const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
+                                      0x04, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00,
+                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  const uint8_t priority_response[] = {0x00, 0x00, 0x00, 0x04};
+  ExecuteHandshake(input_stream, session, output, priority_request,
+                   priority_response);
+  ASSERT_EQ(session.version_.minor, 0);
+  ASSERT_EQ(session.version_.major, 4);
+
+  session.handshake_done_ = false;
+  session.state_ = State::Handshake;
+  const uint8_t unsupported_first_request[] = {
+      0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+      0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  const uint8_t unsupported_first_response[] = {0x00, 0x00, 0x01, 0x04};
+  ExecuteHandshake(input_stream, session, output, unsupported_first_request,
+                   unsupported_first_response);
+  ASSERT_EQ(session.version_.minor, 1);
+  ASSERT_EQ(session.version_.major, 4);
+
+  session.handshake_done_ = false;
+  session.state_ = State::Handshake;
+  const uint8_t no_supported_versions_request[] = {
+      0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+      0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  ASSERT_THROW(ExecuteHandshake(input_stream, session, output,
+                                no_supported_versions_request),
+               SessionException);
 }
 
 TEST(BoltSession, InitWrongSignature) {
