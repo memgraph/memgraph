@@ -10,6 +10,7 @@
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/exceptions.hpp"
 
 namespace communication::bolt {
 
@@ -245,6 +246,8 @@ State StateExecutingRun(Session &session, State state) {
     return HandleDiscardAll(session, state, marker);
   } else if (signature == Signature::Reset) {
     return HandleReset(session, state, marker);
+  } else if (signature == Signature::Goodbye && session.version_.major != 1) {
+    throw SessionClosedException("Closing connection.");
   } else {
     DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",
                                  utils::UnderlyingCast(signature));

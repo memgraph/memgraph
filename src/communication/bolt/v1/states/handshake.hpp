@@ -18,20 +18,21 @@ namespace communication::bolt {
  */
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
-  auto precmp = memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
+  auto precmp =
+      memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
     DLOG(WARNING) << "Received a wrong preamble!";
     return State::Close;
   }
 
   DCHECK(session.input_stream_.size() >= kHandshakeSize)
-    << "Wrong size of the handshake data!";
+      << "Wrong size of the handshake data!";
 
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
-  
-  uint8_t protocol[4] = { 0x00 };
+
+  uint8_t protocol[4] = {0x00};
   for (int i = 0; i < 4 && !protocol[3]; ++i) {
-    dataPosition += 2; // version is defined only by the last 2 bytes
+    dataPosition += 2;  // version is defined only by the last 2 bytes
 
     uint16_t version = 0;
     memcpy(&version, dataPosition, sizeof(version));
@@ -56,7 +57,6 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
-
   if (!session.output_stream_.Write(protocol, sizeof(protocol))) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
@@ -68,4 +68,4 @@ State StateHandshakeRun(TSession &session) {
 
   return State::Init;
 }
-} // namespace communication::bolt
+}  // namespace communication::bolt

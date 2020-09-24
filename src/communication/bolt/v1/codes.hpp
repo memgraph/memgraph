@@ -9,8 +9,9 @@ static constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
 
 enum class Signature : uint8_t {
   Init = 0x01,
-  AckFailure = 0x0E,
+  AckFailure = 0x0E,  // only v1
   Reset = 0x0F,
+  Goodbye = 0x02,
 
   Run = 0x10,
   DiscardAll = 0x2F,
