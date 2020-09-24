@@ -3,6 +3,7 @@
 
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
+#include "communication/exceptions.hpp"
 
 using communication::bolt::ClientError;
 using communication::bolt::Session;
@@ -93,6 +94,28 @@ const uint8_t ackfailure_req[] = {0xb0, 0x0e};
 const uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 const uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
 
+namespace v4 {
+const uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
+                                 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+const uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x04};
+const uint8_t init_req[] = {
+    0xb1, 0x01, 0xa5, 0x8a, 0x75, 0x73, 0x65, 0x72, 0x5f, 0x61, 0x67, 0x65,
+    0x6e, 0x74, 0xd0, 0x2f, 0x6e, 0x65, 0x6f, 0x34, 0x6a, 0x2d, 0x70, 0x79,
+    0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x34, 0x2e, 0x31, 0x2e, 0x31, 0x20, 0x50,
+    0x79, 0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x33, 0x2e, 0x37, 0x2e, 0x33, 0x2d,
+    0x66, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x30, 0x20, 0x28, 0x6c, 0x69, 0x6e,
+    0x75, 0x78, 0x29, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x85, 0x62,
+    0x61, 0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70,
+    0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69,
+    0x61, 0x6c, 0x73, 0x80, 0x87, 0x72, 0x6f, 0x75, 0x74, 0x69, 0x6e, 0x67,
+    0xa1, 0x87, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x8e, 0x6c, 0x6f,
+    0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x3a, 0x37, 0x36, 0x38, 0x37};
+
+const uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
+const uint8_t goodbye[] = {0xb0, 0x02};
+}  // namespace v4
+
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
   len = utils::HostToBigEndian(len);
@@ -156,11 +179,14 @@ void ExecuteCommand(TestInputStream &input_stream, TestSession &session,
 
 // Execute and check a correct init
 void ExecuteInit(TestInputStream &input_stream, TestSession &session,
-                 std::vector<uint8_t> &output) {
-  ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
+                 std::vector<uint8_t> &output,
+                 const uint8_t *request = init_req,
+                 size_t request_size = sizeof(init_req),
+                 const uint8_t *response = init_resp) {
+  ExecuteCommand(input_stream, session, request, request_size);
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
-  CheckOutput(output, init_resp, 7);
+  CheckOutput(output, response, 7);
 }
 
 // Write bolt encoded run request
@@ -230,35 +256,43 @@ TEST(BoltSession, HandshakeOK) {
 }
 
 TEST(BoltSession, HandshakeMultiVersionRequest) {
-  INIT_VARS;
-  const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
-                                      0x04, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00,
-                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  const uint8_t priority_response[] = {0x00, 0x00, 0x00, 0x04};
-  ExecuteHandshake(input_stream, session, output, priority_request,
-                   priority_response);
-  ASSERT_EQ(session.version_.minor, 0);
-  ASSERT_EQ(session.version_.major, 4);
+  // Should pick the first version, 4.0, even though a higher version is present
+  // but with a lower priority
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {
+        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+        0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x00, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request,
+                     priority_response);
+    ASSERT_EQ(session.version_.minor, 0);
+    ASSERT_EQ(session.version_.major, 4);
+  }
 
-  session.handshake_done_ = false;
-  session.state_ = State::Handshake;
-  const uint8_t unsupported_first_request[] = {
-      0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-      0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  const uint8_t unsupported_first_response[] = {0x00, 0x00, 0x01, 0x04};
-  ExecuteHandshake(input_stream, session, output, unsupported_first_request,
-                   unsupported_first_response);
-  ASSERT_EQ(session.version_.minor, 1);
-  ASSERT_EQ(session.version_.major, 4);
+  // Should pick the second version, 4.1, because first, 3.0, is not supported
+  {
+    INIT_VARS;
+    const uint8_t unsupported_first_request[] = {
+        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+        0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t unsupported_first_response[] = {0x00, 0x00, 0x01, 0x04};
+    ExecuteHandshake(input_stream, session, output, unsupported_first_request,
+                     unsupported_first_response);
+    ASSERT_EQ(session.version_.minor, 1);
+    ASSERT_EQ(session.version_.major, 4);
+  }
 
-  session.handshake_done_ = false;
-  session.state_ = State::Handshake;
-  const uint8_t no_supported_versions_request[] = {
-      0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-      0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  ASSERT_THROW(ExecuteHandshake(input_stream, session, output,
-                                no_supported_versions_request),
-               SessionException);
+  // No supported version present in the request
+  {
+    INIT_VARS;
+    const uint8_t no_supported_versions_request[] = {
+        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    ASSERT_THROW(ExecuteHandshake(input_stream, session, output,
+                                  no_supported_versions_request),
+                 SessionException);
+  }
 }
 
 TEST(BoltSession, InitWrongSignature) {
@@ -313,10 +347,18 @@ TEST(BoltSession, InitWriteFail) {
   ASSERT_EQ(output.size(), 0);
 }
 
-TEST(BoltSession, InitOK) {
+TEST(BoltSession, InitOKV1) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
+}
+
+TEST(BoltSession, InitOKV4) {
+  INIT_VARS;
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                   v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, v4::init_req, sizeof(v4::init_req),
+              v4::init_resp);
 }
 
 TEST(BoltSession, ExecuteRunWrongMarker) {
@@ -688,6 +730,30 @@ TEST(BoltSession, PartialChunk) {
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);
+}
+
+TEST(BoltSession, Goodbye) {
+  // v4 supports goodbye message
+  {
+    INIT_VARS;
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                     v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, v4::init_req,
+                sizeof(v4::init_req), v4::init_resp);
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
+        communication::SessionClosedException);
+  }
+
+  // v1 does not support goodbye message
+  {
+    INIT_VARS;
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
+        SessionException);
+  }
 }
 
 int main(int argc, char **argv) {
