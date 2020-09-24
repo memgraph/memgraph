@@ -28,17 +28,22 @@ State StateErrorRun(TSession &session, State state) {
   // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();
 
-  if (signature == Signature::AckFailure || signature == Signature::Reset) {
+  if ((session.version_.major == 1 && signature == Signature::AckFailure) ||
+      signature == Signature::Reset) {
     if (signature == Signature::AckFailure) {
       DLOG(INFO) << "AckFailure received";
     } else {
       DLOG(INFO) << "Reset received";
     }
 
-    if (!session.encoder_.MessageSuccess()) {
-      DLOG(WARNING) << "Couldn't send success message!";
-      return State::Close;
+    // From version 4.0 client doesn't expect response message for a RESET
+    if (session.version_.major == 1) {
+      if (!session.encoder_.MessageSuccess()) {
+        DLOG(WARNING) << "Couldn't send success message!";
+        return State::Close;
+      }
     }
+
     if (signature == Signature::Reset) {
       session.Abort();
       return State::Idle;

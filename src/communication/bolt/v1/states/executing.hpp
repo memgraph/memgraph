@@ -213,9 +213,11 @@ State HandleReset(Session &session, State, Marker marker) {
 
   // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
-  if (!session.encoder_.MessageSuccess()) {
-    DLOG(WARNING) << "Couldn't send success message!";
-    return State::Close;
+  if (session.version_.major == 1) {
+    if (!session.encoder_.MessageSuccess()) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
   }
 
   session.Abort();
