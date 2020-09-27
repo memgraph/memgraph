@@ -45,8 +45,8 @@ class MemgraphAdjlistInnerDict(collections.abc.Mapping):
         self._neighbors = None
 
     def __getitem__(self, key):
-        # NOTE: coreviews.py:143, UnionAtlas expects a KeyError when indexing
-        # with a vertex that is not a neighbor.
+        # NOTE: NetworkX 2.4, classes/coreviews.py:143. UnionAtlas expects a
+        # KeyError when indexing with a vertex that is not a neighbor.
         if key not in self:
             raise KeyError
         if not self._multi:
@@ -146,7 +146,7 @@ class UnhashableProperties(collections.abc.Mapping):
     def __contains__(self, key):
         return key in self._properties
 
-    # NOTE: Explicitly disable hashing.
+    # NOTE: Explicitly disable hashing. See the comment in MemgraphNodeDict.
     __hash__ = None
 
 
@@ -159,11 +159,11 @@ class MemgraphNodeDict(collections.abc.Mapping):
     def __getitem__(self, key):
         if key not in self:
             raise KeyError
-        # NOTE: NetworkX expects the tuples provided to add_nodes_from to be
-        # unhashable and cause a TypeError when trying to index the node
-        # dictionary. This happens because the data dictionary element of the
-        # tuple is unhashable. We do the same thing by returning an unhashable
-        # data dictionary. See multidigraph.py:1076.
+        # NOTE: NetworkX 2.4, classes/digraph.py:484. NetworkX expects the
+        # tuples provided to add_nodes_from to be unhashable and cause a
+        # TypeError when trying to index the node dictionary. This happens
+        # because the data dictionary element of the tuple is unhashable. We do
+        # the same thing by returning an unhashable data dictionary.
         return UnhashableProperties(key.properties)
 
     def __iter__(self):
@@ -173,11 +173,10 @@ class MemgraphNodeDict(collections.abc.Mapping):
         return len(self._ctx.graph.vertices)
 
     def __contains__(self, key):
-        # NOTE: NetworkX, graph.py:403, Graph.__contains__ relies on
+        # NOTE: NetworkX 2.4, graph.py:425. Graph.__contains__ relies on
         # self._node's (i.e. the dictionary produced by node_dict_factory)
         # __contains__ to raise a TypeError when indexing with something weird,
-        # e.g. with sets. This is the behavior of dict. Vertices.__contains__
-        # doesn't check for this and will just error with an AttributeError.
+        # e.g. with sets. This is the behavior of dict.
         if not isinstance(key, mgp.Vertex):
             raise TypeError
         return key in self._ctx.graph.vertices
@@ -216,12 +215,12 @@ class MemgraphDiGraphBase:
 
         super().__init__(None, **kwargs)
 
-        # NOTE: Necessary hack because NetworkX assumes that the customizable
-        # factory functions will only ever return *empty* dictionaries. In our
-        # case, the factory functions return our custom, already populated,
-        # dictionaries. Because self._pred and self._end are initialized by the
-        # same factory function, they end up storing the same adjacency lists
-        # which is not good. We correct that here.
+        # NOTE: This is a necessary hack because NetworkX assumes that the
+        # customizable factory functions will only ever return *empty*
+        # dictionaries. In our case, the factory functions return our custom,
+        # already populated, dictionaries. Because self._pred and self._end are
+        # initialized by the same factory function, they end up storing the
+        # same adjacency lists which is not good. We correct that here.
         self._pred = MemgraphAdjlistOuterDict(ctx, succ=False, multi=multi)
 
     def _error(self):
@@ -459,8 +458,9 @@ def strongly_connected_components(ctx: mgp.ProcCtx
 
 # networkx.algorithms.connectivity.edge_kcomponents.k_edge_components
 #
-# NOTE: We create a copy of the graph because the algorithm copies the graph
-# using __class__() and tries to modify it.
+# NOTE: NetworkX 2.4, algorithms/connectivity/edge_kcompnents.py:367. We create
+# a *copy* of the graph because the algorithm copies the graph using
+# __class__() and tries to modify it.
 @mgp.read_proc
 def k_edge_components(ctx: mgp.ProcCtx,
                       k: int
@@ -501,8 +501,9 @@ def find_cycle(ctx: mgp.ProcCtx,
 
 # networkx.algorithms.cycles.simple_cycles
 #
-# NOTE: We create a copy of the graph because the algorithm copies the graph
-# using type() and tries to pass initial data.
+# NOTE: NetworkX 2.4, algorithms/cycles.py:183. We create a *copy* of the graph
+# because the algorithm copies the graph using type() and tries to pass initial
+# data.
 @mgp.read_proc
 def simple_cycles(ctx: mgp.ProcCtx
                   ) -> mgp.Record(cycles=mgp.List[mgp.List[mgp.Vertex]]):
