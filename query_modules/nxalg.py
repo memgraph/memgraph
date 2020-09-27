@@ -197,10 +197,13 @@ class MemgraphDiGraphBase:
         # modify the graph's internal attributes and don't try to populate it
         # with initial data or modify it.
 
-        self.node_dict_factory = lambda: MemgraphNodeDict(ctx) if ctx else self._error
+        self.node_dict_factory = lambda: MemgraphNodeDict(ctx) \
+            if ctx else self._error
         self.node_attr_dict_factory = self._error
 
-        self.adjlist_outer_dict_factory = lambda: MemgraphAdjlistOuterDict(ctx, multi=multi) if ctx else self._error
+        self.adjlist_outer_dict_factory = \
+            lambda: MemgraphAdjlistOuterDict(ctx, multi=multi) \
+            if ctx else self._error
         self.adjlist_inner_dict_factory = self._error
         self.edge_key_dict_factory = self._error
         self.edge_attr_dict_factory = self._error
@@ -292,18 +295,20 @@ class PropertiesDictionary(collections.abc.Mapping):
 def node_connectivity(ctx: mgp.ProcCtx,
                       source: mgp.Nullable[mgp.Vertex] = None,
                       target: mgp.Nullable[mgp.Vertex] = None
-                     ) -> mgp.Record(connectivity=int):
+                      ) -> mgp.Record(connectivity=int):
     return mgp.Record(connectivity=nx.node_connectivity(
         MemgraphMultiDiGraph(ctx=ctx), source, target))
 
+
 # networkx.algorithms.assortativity.degree_assortativity_coefficient
 @mgp.read_proc
-def degree_assortativity_coefficient(ctx: mgp.ProcCtx,
-                                     x: str = 'out',
-                                     y: str = 'in',
-                                     weight: mgp.Nullable[str] = None,
-                                     nodes: mgp.Nullable[mgp.List[mgp.Vertex]] = None
-                                     ) -> mgp.Record(assortativity=float):
+def degree_assortativity_coefficient(
+        ctx: mgp.ProcCtx,
+        x: str = 'out',
+        y: str = 'in',
+        weight: mgp.Nullable[str] = None,
+        nodes: mgp.Nullable[mgp.List[mgp.Vertex]] = None
+) -> mgp.Record(assortativity=float):
     return mgp.Record(assortativity=nx.degree_assortativity_coefficient(
         MemgraphMultiDiGraph(ctx=ctx), x, y, weight, nodes))
 
@@ -326,7 +331,7 @@ def is_bipartite(ctx: mgp.ProcCtx) -> mgp.Record(is_bipartite=bool):
 def node_boundary(ctx: mgp.ProcCtx,
                   nbunch1: mgp.List[mgp.Vertex],
                   nbunch2: mgp.Nullable[mgp.List[mgp.Vertex]] = None
-                 ) -> mgp.Record(boundary=mgp.List[mgp.Vertex]):
+                  ) -> mgp.Record(boundary=mgp.List[mgp.Vertex]):
     return mgp.Record(boundary=list(nx.node_boundary(
         MemgraphMultiDiGraph(ctx=ctx), nbunch1, nbunch2)))
 
@@ -419,10 +424,11 @@ def communicability(ctx: mgp.ProcCtx
 
 # networkx.algorithms.community.kclique.k_clique_communities
 @mgp.read_proc
-def k_clique_communities(ctx: mgp.ProcCtx,
-                         k: int,
-                         cliques: mgp.Nullable[mgp.List[mgp.List[mgp.Vertex]]] = None
-                         ) -> mgp.Record(communities=mgp.List[mgp.List[mgp.Vertex]]):
+def k_clique_communities(
+        ctx: mgp.ProcCtx,
+        k: int,
+        cliques: mgp.Nullable[mgp.List[mgp.List[mgp.Vertex]]] = None
+) -> mgp.Record(communities=mgp.List[mgp.List[mgp.Vertex]]):
     return mgp.Record(communities=[
         list(s) for s in nx.community.k_clique_communities(
             MemgraphMultiGraph(ctx=ctx), k, cliques)])
@@ -442,16 +448,18 @@ def k_components(ctx: mgp.ProcCtx,
 
 # networkx.algorithms.components.biconnected_components
 @mgp.read_proc
-def biconnected_components(ctx: mgp.ProcCtx
-                           ) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
+def biconnected_components(
+        ctx: mgp.ProcCtx
+) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
     comps = nx.biconnected_components(MemgraphMultiGraph(ctx=ctx))
     return mgp.Record(components=[list(s) for s in comps])
 
 
 # networkx.algorithms.components.strongly_connected_components
 @mgp.read_proc
-def strongly_connected_components(ctx: mgp.ProcCtx
-                                  ) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
+def strongly_connected_components(
+        ctx: mgp.ProcCtx
+) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
     comps = nx.strongly_connected_components(MemgraphMultiDiGraph(ctx=ctx))
     return mgp.Record(components=[list(s) for s in comps])
 
@@ -462,9 +470,10 @@ def strongly_connected_components(ctx: mgp.ProcCtx
 # a *copy* of the graph because the algorithm copies the graph using
 # __class__() and tries to modify it.
 @mgp.read_proc
-def k_edge_components(ctx: mgp.ProcCtx,
-                      k: int
-                      ) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
+def k_edge_components(
+        ctx: mgp.ProcCtx,
+        k: int
+) -> mgp.Record(components=mgp.List[mgp.List[mgp.Vertex]]):
     return mgp.Record(components=[list(s) for s in nx.k_edge_components(
         nx.DiGraph(MemgraphDiGraph(ctx=ctx)), k)])
 
@@ -539,8 +548,8 @@ def ancestors(ctx: mgp.ProcCtx,
 # networkx.algorithms.dag.descendants
 @mgp.read_proc
 def descendants(ctx: mgp.ProcCtx,
-              source: mgp.Vertex
-              ) -> mgp.Record(descendants=mgp.List[mgp.Vertex]):
+                source: mgp.Vertex
+                ) -> mgp.Record(descendants=mgp.List[mgp.Vertex]):
     return mgp.Record(descendants=list(nx.descendants(
         MemgraphMultiDiGraph(ctx=ctx), source)))
 
@@ -706,10 +715,11 @@ def pagerank(ctx: mgp.ProcCtx,
 
 # networkx.algorithms.link_prediction.jaccard_coefficient
 @mgp.read_proc
-def jaccard_coefficient(ctx: mgp.ProcCtx,
-                        ebunch: mgp.Nullable[mgp.List[mgp.List[mgp.Vertex]]] = None
-                        ) -> mgp.Record(u=mgp.Vertex, v=mgp.Vertex,
-                                        coef=float):
+def jaccard_coefficient(
+        ctx: mgp.ProcCtx,
+        ebunch: mgp.Nullable[mgp.List[mgp.List[mgp.Vertex]]] = None
+) -> mgp.Record(u=mgp.Vertex, v=mgp.Vertex,
+                coef=float):
     return [mgp.Record(u=u, v=v, coef=c) for u, v, c
             in nx.jaccard_coefficient(MemgraphGraph(ctx=ctx), ebunch)]
 
@@ -962,7 +972,6 @@ def dfs_predecessors(ctx: mgp.ProcCtx,
             for n, p in nx.dfs_predecessors(
                     MemgraphMultiDiGraph(ctx=ctx), source,
                     depth_limit=depth_limit).items()]
-
 
 
 # networkx.algorithms.traversal.depth_first_search.dfs_successors
