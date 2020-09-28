@@ -7,8 +7,10 @@
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace {
 
@@ -31,6 +33,21 @@ class InterpreterTest : public ::testing::Test {
   query::InterpreterContext interpreter_context_{&db_};
   query::Interpreter interpreter_{&interpreter_context_};
 
+  auto Prepare(
+      const std::string &query,
+      const std::map<std::string, storage::PropertyValue> &params = {}) {
+    ResultStreamFaker stream(&db_);
+
+    const auto [header, _] = interpreter_.Prepare(query, params);
+    stream.Header(header);
+    return stream;
+  }
+
+  void Pull(ResultStreamFaker *stream, int n = query::Interpreter::pullAll) {
+    const auto summary = interpreter_.Pull(stream, n);
+    stream->Summary(summary);
+  }
+
   /**
    * Execute the given query and commit the transaction.
    *
@@ -39,16 +56,39 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(
       const std::string &query,
       const std::map<std::string, storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(&db_);
+    ResultStreamFaker stream = Prepare(query, params);
 
-    auto [header, _] = interpreter_.Prepare(query, params);
-    stream.Header(header);
-    auto summary = interpreter_.PullAll(&stream);
+    auto summary = interpreter_.Pull(&stream);
     stream.Summary(summary);
 
     return stream;
   }
 };
+
+TEST_F(InterpreterTest, MultiplePulls) {
+  {
+    auto stream = Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    Pull(&stream, 2);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    ASSERT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+    ASSERT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+    Pull(&stream);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 5U);
+    ASSERT_EQ(stream.GetResults()[3][0].ValueInt(), 4);
+    ASSERT_EQ(stream.GetResults()[4][0].ValueInt(), 5);
+  }
+}
 
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
@@ -481,6 +521,40 @@ TEST_F(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
 
+TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Prepare("EXPLAIN MATCH (n) RETURN *;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
+                                         " * Once"};
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 1);
+  auto expected_it = expected_rows.begin();
+  ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0].front().ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 2);
+  ASSERT_EQ(stream.GetResults()[1].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[1].front().ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream);
+  ASSERT_EQ(stream.GetResults().size(), 3);
+  ASSERT_EQ(stream.GetResults()[2].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[2].front().ValueString(), *expected_it);
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for EXPLAIN ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
 TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
@@ -548,6 +622,43 @@ TEST_F(InterpreterTest, ProfileQuery) {
     EXPECT_EQ(row.front().ValueString(), *expected_it);
     ++expected_it;
   }
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for PROFILE ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto stream = Prepare("PROFILE MATCH (n) RETURN *;");
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
+                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  EXPECT_EQ(stream.GetHeader(), expected_header);
+
+  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  auto expected_it = expected_rows.begin();
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[0][0].ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  ASSERT_EQ(stream.GetResults()[1].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[1][0].ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream);
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  ASSERT_EQ(stream.GetResults()[2].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[2][0].ValueString(), *expected_it);
+
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...

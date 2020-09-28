@@ -1,5 +1,7 @@
 #pragma once
 
+#include <variant>
+
 #include <gflags/gflags.h>
 
 #include "query/context.hpp"
@@ -10,6 +12,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/stream.hpp"
+#include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -102,7 +105,7 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<QueryHandlerResult(AnyStream *stream)> query_handler;
+  std::function<QueryHandlerResult(AnyStream *stream, int n)> query_handler;
 };
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -182,8 +185,7 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db)
-      : db(db) {
+  explicit InterpreterContext(storage::Storage *db) : db(db) {
     CHECK(db) << "Storage must not be NULL";
   }
 
@@ -259,10 +261,16 @@ class Interpreter final {
   template <typename TStream>
   std::map<std::string, TypedValue> PullAll(TStream *result_stream);
 
+  template <typename TStream>
+  std::map<std::string, TypedValue> Pull(TStream *result_stream,
+                                         int n = pullAll);
+
   /**
    * Abort the current multicommand transaction.
    */
   void Abort();
+
+  static constexpr int pullAll = -1;
 
  private:
   InterpreterContext *interpreter_context_;
@@ -279,6 +287,30 @@ class Interpreter final {
   void Commit();
   void AdvanceCommand();
   void AbortCommand();
+
+ public:
+  struct PullPlan {
+    explicit PullPlan(std::shared_ptr<CachedPlan> plan,
+                      const Parameters &parameters, bool is_profile_query,
+                      DbAccessor *dba, InterpreterContext *interpreter_context,
+                      utils::MonotonicBufferResource *execution_memory);
+    std::optional<ExecutionContext> pull(
+        AnyStream *stream, int n, const std::vector<Symbol> &output_symbols,
+        std::map<std::string, TypedValue> *summary);
+
+   private:
+    std::shared_ptr<CachedPlan> plan_ = nullptr;
+    plan::UniqueCursorPtr cursor_ = nullptr;
+    // TODO (aandelic): Check if frame needs to be saved or can be created for
+    // every pull
+    Frame frame_;
+    ExecutionContext ctx_;
+    std::chrono::duration<double> execution_time_{0};
+
+    bool has_unsent_results_;
+  };
+
+  std::optional<PullPlan> pull_plan_;
 };
 
 template <typename TStream>
@@ -289,7 +321,7 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &execution_memory_};
-    QueryHandlerResult res = prepared_query_->query_handler(&stream);
+    QueryHandlerResult res = prepared_query_->query_handler(&stream, pullAll);
     // Erase the prepared query in order to enforce that every call to `PullAll`
     // must be preceded by a call to `Prepare`.
     prepared_query_ = std::nullopt;
@@ -306,7 +338,7 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
           // The only cases in which we have nothing to do are those where we're
           // either in an explicit transaction or the query is such that a
           // transaction wasn't started on a call to `Prepare()`.
-          CHECK(in_explicit_transaction_ || !db_accessor_);
+          // CHECK(in_explicit_transaction_ || !db_accessor_);
           break;
       }
     }
@@ -322,4 +354,42 @@ std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
   return summary_;
 }
 
+template <typename TStream>
+std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
+                                                    int n) {
+  CHECK(prepared_query_) << "Trying to call Pull without a prepared query";
+
+  try {
+    // Wrap the (statically polymorphic) stream type into a common type which
+    // the handler knows.
+    AnyStream stream{result_stream, &execution_memory_};
+    QueryHandlerResult res = prepared_query_->query_handler(&stream, n);
+
+    if (!in_explicit_transaction_) {
+      switch (res) {
+        case QueryHandlerResult::COMMIT:
+          Commit();
+          break;
+        case QueryHandlerResult::ABORT:
+          Abort();
+          break;
+        case QueryHandlerResult::NOTHING:
+          // The only cases in which we have nothing to do are those where we're
+          // either in an explicit transaction or the query is such that a
+          // transaction wasn't started on a call to `Prepare()`.
+          // CHECK(in_explicit_transaction_ || !db_accessor_);
+          break;
+      }
+    }
+  } catch (const ExplicitTransactionUsageException &) {
+    // Just let the exception propagate for error reporting purposes, but don't
+    // abort the current command.
+    throw;
+  } catch (const utils::BasicException &) {
+    AbortCommand();
+    throw;
+  }
+
+  return summary_;
+}
 }  // namespace query
