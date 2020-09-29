@@ -4,6 +4,7 @@
 
 #include <gflags/gflags.h>
 
+#include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -259,18 +260,18 @@ class Interpreter final {
    * @throw query::QueryException
    */
   template <typename TStream>
-  std::map<std::string, TypedValue> PullAll(TStream *result_stream);
+  std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
+    return Pull(result_stream, kPullAll);
+  }
 
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream,
-                                         int n = pullAll);
+                                         int n = kPullAll);
 
   /**
    * Abort the current multicommand transaction.
    */
   void Abort();
-
-  static constexpr int pullAll = -1;
 
  private:
   InterpreterContext *interpreter_context_;
@@ -288,47 +289,6 @@ class Interpreter final {
   void AdvanceCommand();
   void AbortCommand();
 };
-
-template <typename TStream>
-std::map<std::string, TypedValue> Interpreter::PullAll(TStream *result_stream) {
-  CHECK(prepared_query_) << "Trying to call PullAll without a prepared query";
-
-  try {
-    // Wrap the (statically polymorphic) stream type into a common type which
-    // the handler knows.
-    AnyStream stream{result_stream, &execution_memory_};
-    QueryHandlerResult res = prepared_query_->query_handler(&stream, pullAll);
-    // Erase the prepared query in order to enforce that every call to `PullAll`
-    // must be preceded by a call to `Prepare`.
-    prepared_query_ = std::nullopt;
-
-    if (!in_explicit_transaction_) {
-      switch (res) {
-        case QueryHandlerResult::COMMIT:
-          Commit();
-          break;
-        case QueryHandlerResult::ABORT:
-          Abort();
-          break;
-        case QueryHandlerResult::NOTHING:
-          // The only cases in which we have nothing to do are those where we're
-          // either in an explicit transaction or the query is such that a
-          // transaction wasn't started on a call to `Prepare()`.
-          // CHECK(in_explicit_transaction_ || !db_accessor_);
-          break;
-      }
-    }
-  } catch (const ExplicitTransactionUsageException &) {
-    // Just let the exception propagate for error reporting purposes, but don't
-    // abort the current command.
-    throw;
-  } catch (const utils::BasicException &) {
-    AbortCommand();
-    throw;
-  }
-
-  return summary_;
-}
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,

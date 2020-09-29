@@ -56,7 +56,7 @@ class Session {
   /**
    * Put results of the processed query in the `encoder`.
    */
-  virtual std::map<std::string, Value> PullAll(TEncoder *encoder) = 0;
+  virtual std::map<std::string, Value> Pull(TEncoder *encoder, int n) = 0;
 
   /** Aborts currently running query. */
   virtual void Abort() = 0;

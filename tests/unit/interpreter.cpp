@@ -43,7 +43,7 @@ class InterpreterTest : public ::testing::Test {
     return stream;
   }
 
-  void Pull(ResultStreamFaker *stream, int n = query::Interpreter::pullAll) {
+  void Pull(ResultStreamFaker *stream, int n = query::kPullAll) {
     const auto summary = interpreter_.Pull(stream, n);
     stream->Summary(summary);
   }

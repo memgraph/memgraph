@@ -38,7 +38,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> PullAll(TEncoder *encoder) override {
+  std::map<std::string, Value> Pull(TEncoder *encoder, int) override {
     if (query_ == kQueryReturn42) {
       encoder->MessageRecord(std::vector<Value>{Value(42)});
       return {};

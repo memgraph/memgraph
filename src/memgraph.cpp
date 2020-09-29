@@ -15,6 +15,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
@@ -249,11 +250,12 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::Value> PullAll(
-      TEncoder *encoder) override {
+  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder,
+                                                         int n) override {
     try {
       TypedValueResultStream stream(encoder, db_);
-      const auto &summary = interpreter_.PullAll(&stream);
+      const auto &summary =
+          interpreter_.Pull(&stream, communication::bolt::kPullAll);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
         auto maybe_value =

@@ -337,7 +337,7 @@ struct PullPlanVector {
             std::map<std::string, TypedValue> *summary) {
     int local_counter{0};
     while (global_counter < values_.size() &&
-           (n == Interpreter::pullAll || local_counter < n)) {
+           (n == kPullAll || local_counter < n)) {
       stream->Result(values_[global_counter]);
       ++global_counter;
       ++local_counter;
@@ -441,7 +441,7 @@ std::optional<ExecutionContext> PullPlan::pull(
 
   utils::Timer timer;
 
-  for (; n == Interpreter::pullAll || i < n; ++i) {
+  for (; n == kPullAll || i < n; ++i) {
     if (!pull_result()) {
       break;
     }
@@ -467,75 +467,7 @@ std::optional<ExecutionContext> PullPlan::pull(
   ctx_.profile_execution_time = execution_time_;
   return ctx_;
 }
-
 }  // namespace
-
-ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
-                             const Parameters &parameters,
-                             const std::vector<Symbol> &output_symbols,
-                             bool is_profile_query,
-                             std::map<std::string, TypedValue> *summary,
-                             DbAccessor *dba,
-                             InterpreterContext *interpreter_context,
-                             utils::MonotonicBufferResource *execution_memory) {
-  auto cursor = plan.plan().MakeCursor(execution_memory);
-  Frame frame(plan.symbol_table().max_position(), execution_memory);
-
-  // Set up temporary memory for a single Pull. Initial memory comes from the
-  // stack. 256 KiB should fit on the stack and should be more than enough for a
-  // single `Pull`.
-  constexpr size_t stack_size = 256 * 1024;
-  char stack_data[stack_size];
-
-  ExecutionContext ctx;
-  ctx.db_accessor = dba;
-  ctx.symbol_table = plan.symbol_table();
-  ctx.evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  ctx.evaluation_context.parameters = parameters;
-  ctx.evaluation_context.properties =
-      NamesToProperties(plan.ast_storage().properties_, dba);
-  ctx.evaluation_context.labels =
-      NamesToLabels(plan.ast_storage().labels_, dba);
-  ctx.execution_tsc_timer = utils::TSCTimer(interpreter_context->tsc_frequency);
-  ctx.max_execution_time_sec = interpreter_context->execution_timeout_sec;
-  ctx.is_shutting_down = &interpreter_context->is_shutting_down;
-  ctx.is_profile_query = is_profile_query;
-
-  utils::Timer timer;
-
-  while (true) {
-    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
-    // TODO (mferencevic): Tune the parameters accordingly.
-    utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
-    ctx.evaluation_context.memory = &pool_memory;
-
-    if (!cursor->Pull(frame, ctx)) {
-      break;
-    }
-
-    if (!output_symbols.empty()) {
-      // TODO: The streamed values should also probably use the above memory.
-      std::vector<TypedValue> values;
-      values.reserve(output_symbols.size());
-
-      for (const auto &symbol : output_symbols) {
-        values.emplace_back(frame[symbol]);
-      }
-
-      stream->Result(values);
-    }
-  }
-
-  auto execution_time = timer.Elapsed();
-  ctx.profile_execution_time = execution_time;
-  summary->insert_or_assign("plan_execution_time", execution_time.count());
-  cursor->Shutdown();
-
-  return ctx;
-}
 
 /**
  * Convert a parsed *Cypher* query's AST into a logical plan.
@@ -800,7 +732,7 @@ PreparedQuery PrepareProfileQuery(
         if (!ctx) {
           ctx = PullPlan(plan, parameters, true, dba, interpreter_context,
                          execution_memory)
-                    .pull(stream, Interpreter::pullAll, {}, summary);
+                    .pull(stream, kPullAll, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(
               ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
@@ -826,7 +758,7 @@ PreparedQuery PrepareDumpQuery(
     DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
   return PreparedQuery{{"QUERY"},
                        std::move(parsed_query.required_privileges),
-                       [dba](AnyStream *stream, int n = Interpreter::pullAll) {
+                       [dba](AnyStream *stream, int n) {
                          DumpDatabaseToCypherQueries(dba, stream);
                          return QueryHandlerResult::COMMIT;
                        }};

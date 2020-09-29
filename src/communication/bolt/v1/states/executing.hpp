@@ -11,6 +11,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "query/constants.hpp"
 
 namespace communication::bolt {
 
@@ -145,7 +146,7 @@ State HandlePullAll(Session &session, State state, Marker marker) {
 
   try {
     // PullAll can throw.
-    auto summary = session.PullAll(&session.encoder_);
+    auto summary = session.Pull(&session.encoder_, query::kPullAll);
     if (!session.encoder_.MessageSuccess(summary)) {
       DLOG(WARNING) << "Couldn't send query summary!";
       return State::Close;
