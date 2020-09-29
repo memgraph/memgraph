@@ -49,6 +49,10 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
+  void BeginTransaction() override {}
+  void CommitTransaction() override {}
+  void RollbackTransaction() override {}
+
   void Abort() override {}
 
   bool Authenticate(const std::string &username,
@@ -190,7 +194,8 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session,
 }
 
 // Write bolt encoded run request
-void WriteRunRequest(TestInputStream &input_stream, const char *str) {
+void WriteRunRequest(TestInputStream &input_stream, const char *str,
+                     const bool is_v1 = true) {
   // write chunk header
   auto len = strlen(str);
   WriteChunkHeader(input_stream, 3 + 2 + len + 1);
@@ -206,6 +211,11 @@ void WriteRunRequest(TestInputStream &input_stream, const char *str) {
 
   // write empty map for parameters
   input_stream.Write("\xA0", 1);  // TinyMap0
+
+  if (is_v1) {
+    // write empty map for extra field
+    input_stream.Write("\xA0", 1);  // TinyMap
+  }
 
   // write chunk tail
   WriteChunkTail(input_stream);

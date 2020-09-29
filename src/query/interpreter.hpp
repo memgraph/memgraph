@@ -268,6 +268,12 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream,
                                          int n = kPullAll);
 
+  void BeginTransaction();
+
+  void CommitTransaction();
+
+  void RollbackTransaction();
+
   /**
    * Abort the current multicommand transaction.
    */

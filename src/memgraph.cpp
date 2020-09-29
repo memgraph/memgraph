@@ -214,6 +214,12 @@ class BoltSession final
   using communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>::TEncoder;
 
+  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+
+  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+
+  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+
   std::vector<std::string> Interpret(
       const std::string &query,
       const std::map<std::string, communication::bolt::Value> &params)

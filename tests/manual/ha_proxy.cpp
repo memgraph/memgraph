@@ -92,6 +92,10 @@ class BoltSession final
     return metadata_;
   }
 
+  void BeginTransaction() override {}
+  void CommitTransaction() override {}
+  void RollbackTransaction() override {}
+
   void Abort() override {
     // Called only for cleanup.
     records_.clear();

@@ -58,6 +58,10 @@ class Session {
    */
   virtual std::map<std::string, Value> Pull(TEncoder *encoder, int n) = 0;
 
+  virtual void BeginTransaction() = 0;
+  virtual void CommitTransaction() = 0;
+  virtual void RollbackTransaction() = 0;
+
   /** Aborts currently running query. */
   virtual void Abort() = 0;
 

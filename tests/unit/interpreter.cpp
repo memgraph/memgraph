@@ -726,3 +726,36 @@ TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
+
+TEST_F(InterpreterTest, Transactions) {
+  {
+    ASSERT_THROW(interpreter_.CommitTransaction(),
+                 query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter_.RollbackTransaction(),
+                 query::ExplicitTransactionUsageException);
+    interpreter_.BeginTransaction();
+    ASSERT_THROW(interpreter_.BeginTransaction(),
+                 query::ExplicitTransactionUsageException);
+    auto stream = Prepare("RETURN 2");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "2");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    interpreter_.CommitTransaction();
+  }
+  {
+    interpreter_.BeginTransaction();
+    auto stream = Prepare("RETURN 2");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "2");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    interpreter_.RollbackTransaction();
+  }
+}

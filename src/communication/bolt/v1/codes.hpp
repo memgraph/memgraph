@@ -15,7 +15,10 @@ enum class Signature : uint8_t {
 
   Run = 0x10,
   DiscardAll = 0x2F,
-  PullAll = 0x3F,
+  Pull = 0x3F,
+  Begin = 0x11,
+  Commit = 0x12,
+  Rollback = 0x13,
 
   Record = 0x71,
   Success = 0x70,

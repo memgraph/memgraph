@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
@@ -66,14 +67,17 @@ State HandleRun(TSession &session, State state, Marker marker) {
   const std::map<std::string, Value> kEmptyFields = {
       {"fields", std::vector<Value>{}}};
 
-  if (marker != Marker::TinyStruct2) {
+  const auto expected_marker =
+      session.version_.major == 1 ? Marker::TinyStruct2 : Marker::TinyStruct3;
+  if (marker != expected_marker) {
     DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct2 marker, but received 0x{:02X}!",
+        "Expected {} marker, but received 0x{:02X}!",
+        session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3",
         utils::UnderlyingCast(marker));
     return State::Close;
   }
 
-  Value query, params;
+  Value query, params, extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     DLOG(WARNING) << "Couldn't read query string!";
     return State::Close;
@@ -82,6 +86,12 @@ State HandleRun(TSession &session, State state, Marker marker) {
   if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
     DLOG(WARNING) << "Couldn't read parameters!";
     return State::Close;
+  }
+
+  if (session.version_.major == 4) {
+    if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+      DLOG(WARNING) << "Couldn't read extra field!";
+    }
   }
 
   if (state != State::Idle) {
@@ -130,27 +140,48 @@ State HandleRun(TSession &session, State state, Marker marker) {
 }
 
 template <typename Session>
-State HandlePullAll(Session &session, State state, Marker marker) {
-  if (marker != Marker::TinyStruct) {
+State HandlePull(Session &session, State state, Marker marker) {
+  const auto expected_marker =
+      session.version_.major == 1 ? Marker::TinyStruct : Marker::TinyStruct1;
+  if (marker != expected_marker) {
     DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02X}!",
+        "Expected {} marker, but received 0x{:02X}!",
+        session.version_.major == 1 ? "TinyStruct" : "TinyStruct1",
         utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   if (state != State::Result) {
-    DLOG(WARNING) << "Unexpected PULL_ALL!";
+    DLOG(WARNING) << "Unexpected PULL!";
     // Same as `unexpected RUN` case.
     return State::Close;
   }
 
   try {
-    // PullAll can throw.
-    auto summary = session.Pull(&session.encoder_, query::kPullAll);
+    int n = query::kPullAll;
+    if (session.version_.major == 4) {
+      Value extra;
+      if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+        DLOG(WARNING) << "Couldn't read extra field!";
+      }
+      const auto &extra_map = extra.ValueMap();
+      if (extra_map.count("n")) {
+        const int received_n = extra_map.at("n").ValueInt();
+        n = received_n == communication::bolt::kPullAll ? query::kPullAll
+                                                        : received_n;
+      }
+    }
+    // Pull can throw.
+    auto summary = session.Pull(&session.encoder_, n);
     if (!session.encoder_.MessageSuccess(summary)) {
       DLOG(WARNING) << "Couldn't send query summary!";
       return State::Close;
     }
+
+    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+      return State::Result;
+    }
+
     return State::Idle;
   } catch (const std::exception &e) {
     DLOG(WARNING) << fmt::format("Error message: {}", e.what());
@@ -226,6 +257,150 @@ State HandleReset(Session &session, State, Marker marker) {
   return State::Idle;
 }
 
+template <typename Session>
+State HandleBegin(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "BEGIN messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct1) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct1 marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  Value extra;
+  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+    DLOG(WARNING) << "Couldn't read extra fields!";
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected BEGIN command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  try {
+    if (!session.encoder_.MessageSuccess({})) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
+    session.BeginTransaction();
+    return State::Idle;
+  } catch (const std::exception &e) {
+    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+    }
+    session.encoder_buffer_.Clear();
+    auto code_message = ExceptionToErrorMessage(e);
+    bool fail_sent = session.encoder_.MessageFailure(
+        {{"code", code_message.first}, {"message", code_message.second}});
+    if (!fail_sent) {
+      DLOG(WARNING) << "Couldn't send failure message!";
+      return State::Close;
+    }
+    return State::Error;
+  }
+}
+
+template <typename Session>
+State HandleCommit(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "COMMIT messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected COMMIT command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  try {
+    if (!session.encoder_.MessageSuccess({})) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
+    session.CommitTransaction();
+    return State::Idle;
+  } catch (const std::exception &e) {
+    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+    }
+    session.encoder_buffer_.Clear();
+    auto code_message = ExceptionToErrorMessage(e);
+    bool fail_sent = session.encoder_.MessageFailure(
+        {{"code", code_message.first}, {"message", code_message.second}});
+    if (!fail_sent) {
+      DLOG(WARNING) << "Couldn't send failure message!";
+      return State::Close;
+    }
+    return State::Error;
+  }
+}
+
+template <typename Session>
+State HandleRollback(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "ROLLBACK messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected ROLLBACK command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  try {
+    if (!session.encoder_.MessageSuccess({})) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
+    session.RollbackTransaction();
+    return State::Idle;
+  } catch (const std::exception &e) {
+    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+    }
+    session.encoder_buffer_.Clear();
+    auto code_message = ExceptionToErrorMessage(e);
+    bool fail_sent = session.encoder_.MessageFailure(
+        {{"code", code_message.first}, {"message", code_message.second}});
+    if (!fail_sent) {
+      DLOG(WARNING) << "Couldn't send failure message!";
+      return State::Close;
+    }
+    return State::Error;
+  }
+}
+
 /**
  * Executor state run function
  * This function executes an initialized Bolt session.
@@ -243,10 +418,16 @@ State StateExecutingRun(Session &session, State state) {
 
   if (signature == Signature::Run) {
     return HandleRun(session, state, marker);
-  } else if (signature == Signature::PullAll) {
-    return HandlePullAll(session, state, marker);
+  } else if (signature == Signature::Pull) {
+    return HandlePull(session, state, marker);
   } else if (signature == Signature::DiscardAll) {
     return HandleDiscardAll(session, state, marker);
+  } else if (signature == Signature::Begin) {
+    return HandleBegin(session, state, marker);
+  } else if (signature == Signature::Commit) {
+    return HandleCommit(session, state, marker);
+  } else if (signature == Signature::Rollback) {
+    return HandleRollback(session, state, marker);
   } else if (signature == Signature::Reset) {
     return HandleReset(session, state, marker);
   } else if (signature == Signature::Goodbye && session.version_.major != 1) {

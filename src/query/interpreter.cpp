@@ -1135,11 +1135,27 @@ PreparedQuery PrepareConstraintQuery(
       }};
 }
 
+void Interpreter::BeginTransaction() {
+  const auto prepared_query = PrepareTransactionQuery("BEGIN");
+  prepared_query.query_handler(nullptr, 0);
+}
+
+void Interpreter::CommitTransaction() {
+  const auto prepared_query = PrepareTransactionQuery("COMMIT");
+  prepared_query.query_handler(nullptr, 0);
+}
+
+void Interpreter::RollbackTransaction() {
+  const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
+  prepared_query.query_handler(nullptr, 0);
+}
+
 std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
 Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, storage::PropertyValue> &params) {
   // Clear the last prepared query.
+  // TODO (aandelic): Why is this allowed?
   prepared_query_ = std::nullopt;
   execution_memory_.Release();
 

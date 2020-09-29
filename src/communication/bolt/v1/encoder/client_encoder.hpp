@@ -102,7 +102,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   }
 
   /**
-   * Writes a PullAll message.
+   * Writes a Pull message.
    *
    * From the Bolt v1 documentation:
    *   PullAllMessage (signature=0x3F) {
@@ -113,7 +113,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    */
   bool MessagePullAll() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
-    WriteRAW(utils::UnderlyingCast(Signature::PullAll));
+    WriteRAW(utils::UnderlyingCast(Signature::Pull));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (!buffer_.Flush(true)) return false;
