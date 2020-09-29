@@ -158,7 +158,8 @@ State HandlePull(Session &session, State state, Marker marker) {
   }
 
   try {
-    int n = query::kPullAll;
+    std::optional<int> n;
+
     if (session.version_.major == 4) {
       Value extra;
       if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
@@ -166,11 +167,13 @@ State HandlePull(Session &session, State state, Marker marker) {
       }
       const auto &extra_map = extra.ValueMap();
       if (extra_map.count("n")) {
-        const int received_n = extra_map.at("n").ValueInt();
-        n = received_n == communication::bolt::kPullAll ? query::kPullAll
-                                                        : received_n;
+        if (const auto n_value = extra_map.at("n").ValueInt();
+            n_value != kPullAll) {
+          n = n_value;
+        }
       }
     }
+
     // Pull can throw.
     auto summary = session.Pull(&session.encoder_, n);
     if (!session.encoder_.MessageSuccess(summary)) {

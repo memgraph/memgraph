@@ -106,7 +106,8 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<QueryHandlerResult(AnyStream *stream, int n)> query_handler;
+  std::function<QueryHandlerResult(AnyStream *stream, std::optional<int> n)>
+      query_handler;
 };
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -261,12 +262,12 @@ class Interpreter final {
    */
   template <typename TStream>
   std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
-    return Pull(result_stream, kPullAll);
+    return Pull(result_stream);
   }
 
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream,
-                                         int n = kPullAll);
+                                         std::optional<int> n = {});
 
   void BeginTransaction();
 
@@ -298,7 +299,7 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
-                                                    int n) {
+                                                    std::optional<int> n) {
   CHECK(prepared_query_) << "Trying to call Pull without a prepared query";
 
   try {

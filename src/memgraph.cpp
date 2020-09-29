@@ -256,12 +256,11 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder,
-                                                         int n) override {
+  std::map<std::string, communication::bolt::Value> Pull(
+      TEncoder *encoder, std::optional<int> n) override {
     try {
       TypedValueResultStream stream(encoder, db_);
-      const auto &summary =
-          interpreter_.Pull(&stream, communication::bolt::kPullAll);
+      const auto &summary = interpreter_.Pull(&stream, n);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
         auto maybe_value =
