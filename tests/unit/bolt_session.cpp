@@ -78,32 +78,32 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.
-const uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
-                                 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-const uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x01};
-const uint8_t init_req[] = {
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
+                                     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x01};
+constexpr uint8_t init_req[] = {
     0xb2, 0x01, 0xd0, 0x15, 0x6c, 0x69, 0x62, 0x6e, 0x65, 0x6f, 0x34,
     0x6a, 0x2d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2f, 0x31, 0x2e,
     0x32, 0x2e, 0x31, 0xa3, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65,
     0x85, 0x62, 0x61, 0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e,
     0x63, 0x69, 0x70, 0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64,
     0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x80};
-const uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
-const uint8_t run_req_header[] = {0xb2, 0x10, 0xd1};
-const uint8_t pullall_req[] = {0xb0, 0x3f};
-const uint8_t discardall_req[] = {0xb0, 0x2f};
-const uint8_t reset_req[] = {0xb0, 0x0f};
-const uint8_t ackfailure_req[] = {0xb0, 0x0e};
-const uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
-const uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
+constexpr uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
+constexpr uint8_t run_req_header[] = {0xb2, 0x10, 0xd1};
+constexpr uint8_t pullall_req[] = {0xb0, 0x3f};
+constexpr uint8_t discardall_req[] = {0xb0, 0x2f};
+constexpr uint8_t reset_req[] = {0xb0, 0x0f};
+constexpr uint8_t ackfailure_req[] = {0xb0, 0x0e};
+constexpr uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
+constexpr uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
 
 namespace v4 {
-const uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
-                                 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-const uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x04};
-const uint8_t init_req[] = {
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
+                                     0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x04};
+constexpr uint8_t init_req[] = {
     0xb1, 0x01, 0xa5, 0x8a, 0x75, 0x73, 0x65, 0x72, 0x5f, 0x61, 0x67, 0x65,
     0x6e, 0x74, 0xd0, 0x2f, 0x6e, 0x65, 0x6f, 0x34, 0x6a, 0x2d, 0x70, 0x79,
     0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x34, 0x2e, 0x31, 0x2e, 0x31, 0x20, 0x50,
@@ -116,8 +116,9 @@ const uint8_t init_req[] = {
     0xa1, 0x87, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x8e, 0x6c, 0x6f,
     0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x3a, 0x37, 0x36, 0x38, 0x37};
 
-const uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
-const uint8_t goodbye[] = {0xb0, 0x02};
+constexpr uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
+constexpr uint8_t run_req_header[] = {0xb3, 0x10, 0xd1};
+constexpr uint8_t goodbye[] = {0xb0, 0x02};
 }  // namespace v4
 
 // Write bolt chunk header (length)
@@ -195,13 +196,15 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session,
 
 // Write bolt encoded run request
 void WriteRunRequest(TestInputStream &input_stream, const char *str,
-                     const bool is_v1 = true) {
+                     const bool is_v4 = false,
+                     const uint8_t *run_header = run_req_header,
+                     const size_t run_header_size = sizeof(run_req_header)) {
   // write chunk header
   auto len = strlen(str);
-  WriteChunkHeader(input_stream, 3 + 2 + len + 1);
+  WriteChunkHeader(input_stream, (3 + is_v4) + 2 + len + 1);
 
   // write string header
-  input_stream.Write(run_req_header, 3);
+  input_stream.Write(run_header, run_header_size);
 
   // write string length
   WriteChunkHeader(input_stream, len);
@@ -212,7 +215,7 @@ void WriteRunRequest(TestInputStream &input_stream, const char *str,
   // write empty map for parameters
   input_stream.Write("\xA0", 1);  // TinyMap0
 
-  if (is_v1) {
+  if (is_v4) {
     // write empty map for extra field
     input_stream.Write("\xA0", 1);  // TinyMap
   }
@@ -357,18 +360,19 @@ TEST(BoltSession, InitWriteFail) {
   ASSERT_EQ(output.size(), 0);
 }
 
-TEST(BoltSession, InitOKV1) {
-  INIT_VARS;
-  ExecuteHandshake(input_stream, session, output);
-  ExecuteInit(input_stream, session, output);
-}
-
-TEST(BoltSession, InitOKV4) {
-  INIT_VARS;
-  ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                   v4::handshake_resp);
-  ExecuteInit(input_stream, session, output, v4::init_req, sizeof(v4::init_req),
-              v4::init_resp);
+TEST(BoltSession, InitOK) {
+  {
+    INIT_VARS;
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+  }
+  {
+    INIT_VARS;
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                     v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, v4::init_req,
+                sizeof(v4::init_req), v4::init_resp);
+  }
 }
 
 TEST(BoltSession, ExecuteRunWrongMarker) {
@@ -430,15 +434,34 @@ TEST(BoltSession, ExecuteRunBasicException) {
 }
 
 TEST(BoltSession, ExecuteRunWithoutPullAll) {
-  INIT_VARS;
+  // v1
+  {
+    INIT_VARS;
 
-  ExecuteHandshake(input_stream, session, output);
-  ExecuteInit(input_stream, session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, kQueryReturn42);
-  session.Execute();
+    WriteRunRequest(input_stream, kQueryReturn42);
+    session.Execute();
 
-  ASSERT_EQ(session.state_, State::Result);
+    ASSERT_EQ(session.state_, State::Result);
+  }
+
+  // v4+
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                     v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, v4::init_req,
+                sizeof(v4::init_req), v4::init_resp);
+
+    WriteRunRequest(input_stream, kQueryReturn42, true, v4::run_req_header,
+                    sizeof(v4::run_req_header));
+    session.Execute();
+
+    ASSERT_EQ(session.state_, State::Result);
+  }
 }
 
 TEST(BoltSession, ExecutePullAllDiscardAllResetWrongMarker) {
