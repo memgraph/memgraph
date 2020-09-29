@@ -287,30 +287,6 @@ class Interpreter final {
   void Commit();
   void AdvanceCommand();
   void AbortCommand();
-
- public:
-  struct PullPlan {
-    explicit PullPlan(std::shared_ptr<CachedPlan> plan,
-                      const Parameters &parameters, bool is_profile_query,
-                      DbAccessor *dba, InterpreterContext *interpreter_context,
-                      utils::MonotonicBufferResource *execution_memory);
-    std::optional<ExecutionContext> pull(
-        AnyStream *stream, int n, const std::vector<Symbol> &output_symbols,
-        std::map<std::string, TypedValue> *summary);
-
-   private:
-    std::shared_ptr<CachedPlan> plan_ = nullptr;
-    plan::UniqueCursorPtr cursor_ = nullptr;
-    // TODO (aandelic): Check if frame needs to be saved or can be created for
-    // every pull
-    Frame frame_;
-    ExecutionContext ctx_;
-    std::chrono::duration<double> execution_time_{0};
-
-    bool has_unsent_results_;
-  };
-
-  std::optional<PullPlan> pull_plan_;
 };
 
 template <typename TStream>

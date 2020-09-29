@@ -357,13 +357,31 @@ struct PullPlanVector {
   std::vector<std::vector<TypedValue>> values_;
 };
 
-}  // namespace
+struct PullPlan {
+  explicit PullPlan(std::shared_ptr<CachedPlan> plan,
+                    const Parameters &parameters, bool is_profile_query,
+                    DbAccessor *dba, InterpreterContext *interpreter_context,
+                    utils::MonotonicBufferResource *execution_memory);
+  std::optional<ExecutionContext> pull(
+      AnyStream *stream, int n, const std::vector<Symbol> &output_symbols,
+      std::map<std::string, TypedValue> *summary);
 
-Interpreter::PullPlan::PullPlan(
-    const std::shared_ptr<CachedPlan> plan, const Parameters &parameters,
-    const bool is_profile_query, DbAccessor *dba,
-    InterpreterContext *interpreter_context,
-    utils::MonotonicBufferResource *execution_memory)
+ private:
+  std::shared_ptr<CachedPlan> plan_ = nullptr;
+  plan::UniqueCursorPtr cursor_ = nullptr;
+  // TODO (aandelic): Check if frame needs to be saved or can be created for
+  // every pull
+  Frame frame_;
+  ExecutionContext ctx_;
+  std::chrono::duration<double> execution_time_{0};
+
+  bool has_unsent_results_;
+};
+
+PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
+                   const Parameters &parameters, const bool is_profile_query,
+                   DbAccessor *dba, InterpreterContext *interpreter_context,
+                   utils::MonotonicBufferResource *execution_memory)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory) {
@@ -385,7 +403,7 @@ Interpreter::PullPlan::PullPlan(
   ctx_.is_profile_query = is_profile_query;
 }
 
-std::optional<ExecutionContext> Interpreter::PullPlan::pull(
+std::optional<ExecutionContext> PullPlan::pull(
     AnyStream *stream, int n, const std::vector<Symbol> &output_symbols,
     std::map<std::string, TypedValue> *summary) {
   // Set up temporary memory for a single Pull. Initial memory comes from the
@@ -423,7 +441,7 @@ std::optional<ExecutionContext> Interpreter::PullPlan::pull(
 
   utils::Timer timer;
 
-  for (; n == pullAll || i < n; ++i) {
+  for (; n == Interpreter::pullAll || i < n; ++i) {
     if (!pull_result()) {
       break;
     }
@@ -449,6 +467,8 @@ std::optional<ExecutionContext> Interpreter::PullPlan::pull(
   ctx_.profile_execution_time = execution_time_;
   return ctx_;
 }
+
+}  // namespace
 
 ExecutionContext PullAllPlan(AnyStream *stream, const CachedPlan &plan,
                              const Parameters &parameters,
@@ -624,9 +644,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context, DbAccessor *dba,
-    utils::MonotonicBufferResource *execution_memory,
-    std::optional<Interpreter::PullPlan> *pull_plan_ptr) {
-  CHECK(pull_plan_ptr) << "Cannot initialize pull plan";
+    utils::MonotonicBufferResource *execution_memory) {
   auto plan = CypherQueryToPlan(
       parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage),
       utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
@@ -649,13 +667,14 @@ PreparedQuery PrepareCypherQuery(
             .first);
   }
 
-  pull_plan_ptr->emplace(Interpreter::PullPlan(plan, parsed_query.parameters,
-                                               false, dba, interpreter_context,
-                                               execution_memory));
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
+                                 interpreter_context, execution_memory);
   return PreparedQuery{
       std::move(header), std::move(parsed_query.required_privileges),
-      [&pull_plan = *pull_plan_ptr, output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, int n = Interpreter::pullAll) mutable {
+      [pull_plan = std::move(pull_plan),
+       output_symbols = std::move(output_symbols),
+       summary](AnyStream *stream, int n) {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
           return QueryHandlerResult::COMMIT;
         }
@@ -707,9 +726,9 @@ PreparedQuery PrepareExplainQuery(
   return PreparedQuery{
       {"QUERY PLAN"},
       std::move(parsed_query.required_privileges),
-      [summary, pull_plan = PullPlanVector(std::move(printed_plan_rows))](
-          AnyStream *stream, int n = Interpreter::pullAll) mutable {
-        if (pull_plan.pull(stream, n, summary)) {
+      [summary, pull_plan = std::make_shared<PullPlanVector>(
+                    std::move(printed_plan_rows))](AnyStream *stream, int n) {
+        if (pull_plan->pull(stream, n, summary)) {
           return QueryHandlerResult::COMMIT;
         }
         return QueryHandlerResult::NOTHING;
@@ -775,14 +794,14 @@ PreparedQuery PrepareProfileQuery(
        parameters = std::move(parsed_inner_query.parameters), summary, dba,
        interpreter_context, execution_memory,
        ctx = std::optional<ExecutionContext>{},
-       pull_plan = std::optional<PullPlanVector>{}](
-          AnyStream *stream, int n = Interpreter::pullAll) mutable {
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](AnyStream *stream,
+                                                             int n) mutable {
         // No output symbols are given so that nothing is streamed.
         if (!ctx) {
-          ctx = Interpreter::PullPlan(plan, parameters, true, dba,
-                                      interpreter_context, execution_memory)
+          ctx = PullPlan(plan, parameters, true, dba, interpreter_context,
+                         execution_memory)
                     .pull(stream, Interpreter::pullAll, {}, summary);
-          pull_plan.emplace(
+          pull_plan = std::make_shared<PullPlanVector>(
               ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
 
@@ -875,8 +894,7 @@ PreparedQuery PrepareIndexQuery(
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler)](
-                           AnyStream *stream, int n = Interpreter::pullAll) {
+                       [handler = std::move(handler)](AnyStream *stream, int) {
                          handler();
                          return QueryHandlerResult::NOTHING;
                        }};
@@ -886,9 +904,7 @@ PreparedQuery PrepareAuthQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
     InterpreterContext *interpreter_context, DbAccessor *dba,
-    utils::MonotonicBufferResource *execution_memory,
-    std::optional<Interpreter::PullPlan> *pull_plan_ptr) {
-  CHECK(pull_plan_ptr) << "Cannot initialize pull plan";
+    utils::MonotonicBufferResource *execution_memory) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -911,15 +927,14 @@ PreparedQuery PrepareAuthQuery(
               [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
           0.0, AstStorage{}, symbol_table));
 
-  pull_plan_ptr->emplace(Interpreter::PullPlan(plan, parsed_query.parameters,
-                                               false, dba, interpreter_context,
-                                               execution_memory));
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
+                                 interpreter_context, execution_memory);
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
-      [&pull_plan = *pull_plan_ptr, callback = std::move(callback),
+      [pull_plan = std::move(pull_plan), callback = std::move(callback),
        output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, int n = Interpreter::pullAll) mutable {
-        CHECK(pull_plan) << "Pull plan missing!";
+       summary](AnyStream *stream, int n) {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
           return callback.should_abort_query ? QueryHandlerResult::ABORT
                                              : QueryHandlerResult::COMMIT;
@@ -1012,13 +1027,14 @@ PreparedQuery PrepareInfoQuery(
       std::move(header), std::move(parsed_query.required_privileges),
       [handler = std::move(handler), summary,
        action = QueryHandlerResult::NOTHING,
-       pull_plan = std::optional<PullPlanVector>{}](
-          AnyStream *stream, int n = Interpreter::pullAll) mutable {
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](AnyStream *stream,
+                                                             int n) mutable {
         if (!pull_plan) {
           auto [results, action_on_complete] = handler();
           action = action_on_complete;
-          pull_plan.emplace(std::move(results));
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
+
         if (pull_plan->pull(stream, n, summary)) {
           return action;
         }
@@ -1178,13 +1194,13 @@ PreparedQuery PrepareConstraintQuery(
     } break;
   }
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler)](
-                           AnyStream *stream, int n = Interpreter::pullAll) {
-                         handler();
-                         return QueryHandlerResult::COMMIT;
-                       }};
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler)](AnyStream *stream, int n) {
+        handler();
+        return QueryHandlerResult::COMMIT;
+      }};
 }
 
 std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
@@ -1215,7 +1231,6 @@ Interpreter::Prepare(
     AbortCommand();
   }
 
-  CHECK(!pull_plan_) << "Previous query still executing!";
   try {
     summary_ = {};
 
@@ -1252,7 +1267,7 @@ Interpreter::Prepare(
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(
           std::move(parsed_query), &summary_, interpreter_context_,
-          &*execution_db_accessor_, &execution_memory_, &pull_plan_);
+          &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(
           std::move(parsed_query), &summary_, interpreter_context_,
@@ -1272,8 +1287,7 @@ Interpreter::Prepare(
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(
           std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, &*execution_db_accessor_, &execution_memory_,
-          &pull_plan_);
+          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(
           std::move(parsed_query), in_explicit_transaction_, &summary_,
@@ -1298,7 +1312,6 @@ Interpreter::Prepare(
 
 void Interpreter::Abort() {
   prepared_query_ = std::nullopt;
-  pull_plan_ = std::nullopt;
   execution_memory_.Release();
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
@@ -1310,7 +1323,6 @@ void Interpreter::Abort() {
 
 void Interpreter::Commit() {
   prepared_query_ = std::nullopt;
-  pull_plan_ = std::nullopt;
   execution_memory_.Release();
   if (!db_accessor_) return;
   auto maybe_constraint_violation = db_accessor_->Commit();
@@ -1354,7 +1366,6 @@ void Interpreter::Commit() {
 
 void Interpreter::AdvanceCommand() {
   prepared_query_ = std::nullopt;
-  pull_plan_ = std::nullopt;
   execution_memory_.Release();
   if (!db_accessor_) return;
   db_accessor_->AdvanceCommand();
@@ -1362,7 +1373,6 @@ void Interpreter::AdvanceCommand() {
 
 void Interpreter::AbortCommand() {
   prepared_query_ = std::nullopt;
-  pull_plan_ = std::nullopt;
   execution_memory_.Release();
   if (in_explicit_transaction_) {
     expect_rollback_ = true;
