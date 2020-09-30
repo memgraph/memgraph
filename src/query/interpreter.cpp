@@ -762,12 +762,17 @@ PreparedQuery PrepareProfileQuery(
 PreparedQuery PrepareDumpQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
     DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
-  return PreparedQuery{{"QUERY"},
-                       std::move(parsed_query.required_privileges),
-                       [dba](AnyStream *stream, std::optional<int> n) {
-                         DumpDatabaseToCypherQueries(dba, stream);
-                         return QueryHandlerResult::COMMIT;
-                       }};
+  return PreparedQuery{
+      {"QUERY"},
+      std::move(parsed_query.required_privileges),
+      [pull_plan = std::make_shared<PullPlanDump>(dba)](
+          AnyStream *stream,
+          std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      }};
 }
 
 PreparedQuery PrepareIndexQuery(
