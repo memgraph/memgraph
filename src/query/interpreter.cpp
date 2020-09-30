@@ -765,12 +765,14 @@ PreparedQuery PrepareDumpQuery(
   return PreparedQuery{
       {"QUERY"},
       std::move(parsed_query.required_privileges),
-      [pull_plan = std::make_shared<PullPlanDump>(dba)](
+      [pull_plan = std::make_shared<PullPlanDump>(dba), summary](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n)) {
+          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }

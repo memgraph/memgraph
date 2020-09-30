@@ -1,7 +1,5 @@
 #pragma once
 
-#include <variant>
-
 #include <gflags/gflags.h>
 
 #include "query/constants.hpp"
