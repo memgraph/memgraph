@@ -375,7 +375,7 @@ struct PullPlan {
   ExecutionContext ctx_;
   std::chrono::duration<double> execution_time_{0};
 
-  bool has_unsent_results_;
+  bool has_unsent_results_ = false;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
@@ -608,11 +608,12 @@ PreparedQuery PrepareCypherQuery(
       std::move(header), std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan),
        output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, std::optional<int> n) {
+       summary](AnyStream *stream,
+                std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
           return QueryHandlerResult::COMMIT;
         }
-        return QueryHandlerResult::NOTHING;
+        return std::nullopt;
       }};
 }
 
@@ -657,16 +658,18 @@ PreparedQuery PrepareExplainQuery(
   summary->insert_or_assign(
       "explain", plan::PlanToJson(*dba, &cypher_query_plan->plan()).dump());
 
-  return PreparedQuery{{"QUERY PLAN"},
-                       std::move(parsed_query.required_privileges),
-                       [summary, pull_plan = std::make_shared<PullPlanVector>(
-                                     std::move(printed_plan_rows))](
-                           AnyStream *stream, std::optional<int> n) {
-                         if (pull_plan->pull(stream, n, summary)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return QueryHandlerResult::NOTHING;
-                       }};
+  return PreparedQuery{
+      {"QUERY PLAN"},
+      std::move(parsed_query.required_privileges),
+      [summary, pull_plan = std::make_shared<PullPlanVector>(
+                    std::move(printed_plan_rows))](
+          AnyStream *stream,
+          std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->pull(stream, n, summary)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      }};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -729,7 +732,8 @@ PreparedQuery PrepareProfileQuery(
        interpreter_context, execution_memory,
        ctx = std::optional<ExecutionContext>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable {
+          AnyStream *stream,
+          std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!ctx) {
           ctx = PullPlan(plan, parameters, true, dba, interpreter_context,
@@ -750,7 +754,7 @@ PreparedQuery PrepareProfileQuery(
           return QueryHandlerResult::ABORT;
         }
 
-        return QueryHandlerResult::NOTHING;
+        return std::nullopt;
       }};
 }
 
@@ -869,13 +873,14 @@ PreparedQuery PrepareAuthQuery(
       callback.header, std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan), callback = std::move(callback),
        output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream, std::optional<int> n) {
+       summary](AnyStream *stream,
+                std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
           return callback.should_abort_query ? QueryHandlerResult::ABORT
                                              : QueryHandlerResult::COMMIT;
         }
 
-        return QueryHandlerResult::NOTHING;
+        return std::nullopt;
       }};
 }
 
@@ -963,7 +968,8 @@ PreparedQuery PrepareInfoQuery(
       [handler = std::move(handler), summary,
        action = QueryHandlerResult::NOTHING,
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable {
+          AnyStream *stream,
+          std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           auto [results, action_on_complete] = handler();
           action = action_on_complete;
@@ -974,7 +980,7 @@ PreparedQuery PrepareInfoQuery(
           return action;
         }
 
-        return QueryHandlerResult::NOTHING;
+        return std::nullopt;
       }};
 }
 
@@ -1140,17 +1146,17 @@ PreparedQuery PrepareConstraintQuery(
 
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
-  prepared_query.query_handler(nullptr, 0);
+  prepared_query.query_handler(nullptr, {});
 }
 
 void Interpreter::CommitTransaction() {
   const auto prepared_query = PrepareTransactionQuery("COMMIT");
-  prepared_query.query_handler(nullptr, 0);
+  prepared_query.query_handler(nullptr, {});
 }
 
 void Interpreter::RollbackTransaction() {
   const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
-  prepared_query.query_handler(nullptr, 0);
+  prepared_query.query_handler(nullptr, {});
 }
 
 std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>

@@ -106,7 +106,8 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<QueryHandlerResult(AnyStream *stream, std::optional<int> n)>
+  std::function<std::optional<QueryHandlerResult>(AnyStream *stream,
+                                                  std::optional<int> n)>
       query_handler;
 };
 
@@ -306,10 +307,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &execution_memory_};
-    QueryHandlerResult res = prepared_query_->query_handler(&stream, n);
+    const auto maybe_res = prepared_query_->query_handler(&stream, n);
 
-    if (!in_explicit_transaction_) {
-      switch (res) {
+    if (maybe_res && !in_explicit_transaction_) {
+      switch (*maybe_res) {
         case QueryHandlerResult::COMMIT:
           Commit();
           break;
@@ -320,7 +321,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
           // The only cases in which we have nothing to do are those where we're
           // either in an explicit transaction or the query is such that a
           // transaction wasn't started on a call to `Prepare()`.
-          // CHECK(in_explicit_transaction_ || !db_accessor_);
+          CHECK(in_explicit_transaction_ || !db_accessor_);
           break;
       }
     }
