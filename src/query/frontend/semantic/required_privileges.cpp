@@ -59,6 +59,26 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     AddPrivilege(AuthQuery::Privilege::DUMP);
   }
 
+  void Visit(ReplicationQuery &replication_query) override {
+    switch (replication_query.action_) {
+      case ReplicationQuery::Action::SET_REPLICATION_MODE:
+        AddPrivilege(AuthQuery::Privilege::REPLICATION);
+        break;
+      case ReplicationQuery::Action::SHOW_REPLICATION_MODE:
+        AddPrivilege(AuthQuery::Privilege::REPLICATION);
+        break;
+      case ReplicationQuery::Action::CREATE_REPLICA:
+        AddPrivilege(AuthQuery::Privilege::REPLICATION);
+        break;
+      case ReplicationQuery::Action::DROP_REPLICA:
+        AddPrivilege(AuthQuery::Privilege::REPLICATION);
+        break;
+      case ReplicationQuery::Action::SHOW_REPLICAS:
+        AddPrivilege(AuthQuery::Privilege::REPLICATION);
+        break;
+    }
+  }
+
   bool PreVisit(Create &) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
