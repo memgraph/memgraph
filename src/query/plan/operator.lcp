@@ -90,6 +90,7 @@ class ScanAll;
 class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
+class ScanAllByLabelProperty;
 class ScanAllById;
 class Expand;
 class ExpandVariable;
@@ -118,7 +119,8 @@ class CallProcedure;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
-    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, ScanAllById,
+    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
+    ScanAllByLabelProperty, ScanAllById,
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
@@ -731,6 +733,37 @@ property value.
    cpp<#)
   (:serialize (:slk))
   (:clone))
+
+(lcp:define-class scan-all-by-label-property (scan-all)
+  ((label "::storage::LabelId" :scope :public)
+   (property "::storage::PropertyId" :scope :public)
+   (property-name "std::string" :scope :public)
+   (expression "Expression *" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+
+  (:documentation
+   "Behaves like @c ScanAll, but this operator produces only vertices with
+given label and property.
+
+@sa ScanAll
+@sa ScanAllByLabelPropertyRange
+@sa ScanAllByLabelPropertyValue")
+  (:public
+   #>cpp
+   ScanAllByLabelProperty() {}
+   ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input,
+                          Symbol output_symbol, storage::LabelId label,
+                          storage::PropertyId property,
+                          const std::string &property_name,
+                          storage::View view = storage::View::OLD);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+
 
 (lcp:define-class scan-all-by-id (scan-all)
   ((expression "Expression *" :scope :public

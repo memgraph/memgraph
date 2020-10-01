@@ -258,6 +258,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByLabelProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByLabelProperty &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAllById &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -626,6 +635,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             std::move(unwind_operator), node_symbol,
             GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, expression, view);
+      } else if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+        return std::make_unique<ScanAllByLabelProperty>(
+            input, node_symbol, GetLabel(found_index->label),
+            GetProperty(prop_filter.property_), prop_filter.property_.name,
+            view);
       } else {
         CHECK(prop_filter.value_) << "Property filter should either have "
                                      "bounds or a value expression.";
