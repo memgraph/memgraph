@@ -13,6 +13,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "query/constants.hpp"
+#include "utils/likely.hpp"
 
 namespace communication::bolt {
 
@@ -414,6 +415,12 @@ State StateExecutingRun(Session &session, State state) {
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
     DLOG(WARNING) << "Missing header data!";
     return State::Close;
+  }
+
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
+               session.version_.minor == 1)) {
+    LOG(INFO) << "Received NOOP message";
+    return state;
   }
 
   if (signature == Signature::Run) {

@@ -93,6 +93,12 @@ State StateInitRun(Session &session) {
     return State::Close;
   }
 
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
+               session.version_.minor == 1)) {
+    LOG(INFO) << "Received NOOP message";
+    return State::Init;
+  }
+
   if (UNLIKELY(signature != Signature::Init)) {
     DLOG(WARNING) << fmt::format(
         "Expected Init signature, but received 0x{:02X}!",

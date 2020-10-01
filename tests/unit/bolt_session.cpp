@@ -150,6 +150,14 @@ constexpr uint8_t reset_req[] = {0xb0, 0x0f};
 constexpr uint8_t goodbye[] = {0xb0, 0x02};
 }  // namespace v4
 
+namespace v4_1 {
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x01,
+                                     0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x01, 0x04};
+constexpr uint8_t noop[] = {0x00, 0x00};
+}  // namespace v4_1
+
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
   len = utils::HostToBigEndian(len);
@@ -889,6 +897,63 @@ TEST(BoltSession, Goodbye) {
     ExecuteInit(input_stream, session, output);
     ASSERT_THROW(
         ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
+        SessionException);
+  }
+}
+
+TEST(BoltSession, Noop) {
+  // v4.1 supports NOOP chunk
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_1::handshake_req,
+                     v4_1::handshake_resp);
+    ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
+    WriteRunRequest(input_stream, kQueryReturn42, true);
+    ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
+    ExecuteCommand(input_stream, session, v4::pullall_req,
+                   sizeof(v4::pullall_req));
+    ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
+  }
+
+  // v1 does not support NOOP chunk
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, handshake_req,
+                     handshake_resp);
+
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
+        SessionException);
+    CheckFailureMessage(output);
+
+    session.state_ = State::Init;
+    ExecuteInit(input_stream, session, output);
+
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
+        SessionException);
+    CheckFailureMessage(output);
+
+    session.state_ = State::Idle;
+    WriteRunRequest(input_stream, kQueryEmpty);
+    session.Execute();
+    CheckSuccessMessage(output);
+
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
+        SessionException);
+    CheckFailureMessage(output);
+
+    session.state_ = State::Result;
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(v4::pullall_req));
+    CheckSuccessMessage(output);
+
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
         SessionException);
   }
 }
