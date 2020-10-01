@@ -323,6 +323,121 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
   }
 }
 
+Callback HandleReplicationQuery(ReplicationQuery *repl_query,
+                                ReplicationQueryHandler *handler,
+                                const Parameters &parameters,
+                                DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
+                                db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (repl_query->action_) {
+    case ReplicationQuery::Action::SET_REPLICATION_MODE: {
+      callback.fn = [handler, mode = repl_query->mode_] {
+        if (!handler->SetReplicationMode(mode)) {
+          throw QueryRuntimeException(
+              "Couldn't set the desired replication mode.");
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::SHOW_REPLICATION_MODE: {
+      callback.header = {"replication mode"};
+      callback.fn = [handler] {
+        auto mode = handler->ShowReplicationMode();
+        switch (mode) {
+          case ReplicationQuery::ReplicationMode::MAIN: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+          }
+          case ReplicationQuery::ReplicationMode::REPLICA: {
+            return std::vector<std::vector<TypedValue>>{
+                {TypedValue("replica")}};
+          }
+        }
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::CREATE_REPLICA: {
+      const auto &name = repl_query->replica_name_;
+      const auto &sync_mode = repl_query->sync_mode_;
+      auto hostname =
+          EvaluateOptionalExpression(repl_query->hostname_, &evaluator);
+      auto timeout =
+          EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      std::optional<double> opt_timeout;
+      if (timeout.IsDouble()) {
+        opt_timeout = timeout.ValueDouble();
+      } else if (timeout.IsInt()) {
+        opt_timeout = static_cast<double>(timeout.ValueInt());
+      }
+      callback.fn = [handler, name, hostname, sync_mode, opt_timeout] {
+        CHECK(hostname.IsString());
+        if (!handler->CreateReplica(name, std::string(hostname.ValueString()),
+                                    sync_mode, opt_timeout)) {
+          throw QueryRuntimeException(
+              "Couldn't create the desired replica '{}'.", name);
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::DROP_REPLICA: {
+      const auto &name = repl_query->replica_name_;
+      callback.fn = [handler, name] {
+        if (!handler->DropReplica(name)) {
+          throw QueryRuntimeException("Couldn't drop the replica '{}'.", name);
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::SHOW_REPLICAS: {
+      callback.header = {"name", "hostname", "sync_mode", "timeout"};
+      callback.fn = [handler, replica_nfields = callback.header.size()] {
+        const auto &replicas = handler->ShowReplicas();
+        auto typed_replicas = std::vector<std::vector<TypedValue>>{};
+        typed_replicas.reserve(replicas.size());
+        for (auto &replica : replicas) {
+          std::vector<TypedValue> typed_replica;
+          typed_replica.reserve(replica_nfields);
+
+          typed_replica.emplace_back(TypedValue(replica.name));
+          typed_replica.emplace_back(TypedValue(replica.hostname));
+          switch (replica.sync_mode) {
+            case ReplicationQuery::SyncMode::SYNC:
+              typed_replica.emplace_back(TypedValue("sync"));
+              break;
+            case ReplicationQuery::SyncMode::ASYNC:
+              typed_replica.emplace_back(TypedValue("async"));
+              break;
+          }
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.sync_mode)));
+          if (replica.timeout) {
+            typed_replica.emplace_back(TypedValue(*replica.timeout));
+          } else {
+            typed_replica.emplace_back(TypedValue());
+          }
+
+          typed_replicas.emplace_back(std::move(typed_replica));
+        }
+        return typed_replicas;
+      };
+      return callback;
+    }
+      return callback;
+  }
+}
+
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
     : interpreter_context_(interpreter_context) {
   CHECK(interpreter_context_) << "Interpreter context must not be NULL";
@@ -896,6 +1011,50 @@ PreparedQuery PrepareAuthQuery(
       }};
 }
 
+PreparedQuery PrepareReplicationQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction,
+    std::map<std::string, TypedValue> *summary,
+    InterpreterContext *interpreter_context, DbAccessor *dba,
+    utils::MonotonicBufferResource *execution_memory) {
+  if (in_explicit_transaction) {
+    throw ReplicationModificationInMulticommandTxException();
+  }
+
+  auto *replication_query =
+      utils::Downcast<ReplicationQuery>(parsed_query.query);
+  auto callback =
+      HandleReplicationQuery(replication_query, interpreter_context->repl,
+                             parsed_query.parameters, dba);
+
+  SymbolTable symbol_table;
+  std::vector<Symbol> output_symbols;
+  for (const auto &column : callback.header) {
+    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
+  }
+
+  auto plan =
+      std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
+          std::make_unique<plan::OutputTable>(
+              output_symbols,
+              [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
+          0.0, AstStorage{}, symbol_table));
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
+                                 interpreter_context, execution_memory);
+  return PreparedQuery{
+      callback.header, std::move(parsed_query.required_privileges),
+      [pull_plan = std::move(pull_plan), callback = std::move(callback),
+       output_symbols = std::move(output_symbols),
+       summary](AnyStream *stream,
+                std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
+          return callback.should_abort_query ? QueryHandlerResult::ABORT
+                                             : QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      }};
+}
+ 
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
@@ -1276,6 +1435,11 @@ Interpreter::PrepareResult Interpreter::Prepare(
           std::move(parsed_query), in_explicit_transaction_,
           &query_execution->summary, interpreter_context_,
           &query_execution->execution_memory);
+    } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
+      prepared_query = PrepareReplicationQuery(
+          std::move(parsed_query), in_explicit_transaction_,
+          &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }

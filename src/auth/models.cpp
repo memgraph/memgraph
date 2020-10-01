@@ -40,6 +40,8 @@ std::string PermissionToString(Permission permission) {
       return "CONSTRAINT";
     case Permission::DUMP:
       return "DUMP";
+    case Permission::REPLICATION:
+      return "REPLICATION";
     case Permission::AUTH:
       return "AUTH";
   }

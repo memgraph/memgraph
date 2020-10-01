@@ -167,4 +167,11 @@ class InvalidArgumentsException : public QueryException {
                                    argument_name, message)) {}
 };
 
+class ReplicationModificationInMulticommandTxException : public QueryException {
+ public:
+  ReplicationModificationInMulticommandTxException()
+      : QueryException(
+            "Replication clause not allowed in multicommand transactions.") {}
+};
+
 }  // namespace query
