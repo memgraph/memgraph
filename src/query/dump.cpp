@@ -387,7 +387,6 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
               const auto &vertex = *current_vertex_iter;
               auto maybe_edges = vertex.OutEdges(storage::View::OLD);
               CHECK(maybe_edges.HasValue()) << "Invalid database state!";
-              size_t current_edge_index = 0U;
               auto current_edge_iter = maybe_current_edge_iter
                                            ? *maybe_current_edge_iter
                                            : maybe_edges->begin();
@@ -399,7 +398,6 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
                 stream->Result({TypedValue(os.str())});
 
                 ++local_counter;
-                ++current_edge_index;
               }
 
               if (current_edge_iter != maybe_edges->end()) {
