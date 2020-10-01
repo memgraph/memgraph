@@ -333,8 +333,7 @@ struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values)
       : values_(std::move(values)) {}
 
-  bool pull(AnyStream *stream, std::optional<int> n,
-            std::map<std::string, TypedValue> *summary) {
+  bool pull(AnyStream *stream, std::optional<int> n) {
     int local_counter{0};
     while (global_counter < values_.size() && (!n || local_counter < n)) {
       stream->Result(values_[global_counter]);
@@ -342,13 +341,7 @@ struct PullPlanVector {
       ++local_counter;
     }
 
-    if (global_counter == values_.size()) {
-      summary->insert_or_assign("has_more", false);
-      return true;
-    }
-
-    summary->insert_or_assign("has_more", true);
-    return false;
+    return global_counter == values_.size();
   }
 
  private:
@@ -457,12 +450,9 @@ std::optional<ExecutionContext> PullPlan::pull(
   has_unsent_results_ = i == n && pull_result();
 
   if (has_unsent_results_) {
-    // TODO (aandelic): Check how to send only has_more while not results left
-    summary->insert_or_assign("has_more", true);
     return std::nullopt;
   }
 
-  summary->insert_or_assign("has_more", false);
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
@@ -569,8 +559,11 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
   }
 
   return {
-      {}, {}, [handler = std::move(handler)](AnyStream *, std::optional<int>) {
+      {},
+      {},
+      [this, handler = std::move(handler)](AnyStream *, std::optional<int>) {
         handler();
+        summary_.insert_or_assign("has_more", false);
         return QueryHandlerResult::NOTHING;
       }};
 }
@@ -611,8 +604,10 @@ PreparedQuery PrepareCypherQuery(
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
+          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -665,9 +660,11 @@ PreparedQuery PrepareExplainQuery(
                     std::move(printed_plan_rows))](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->pull(stream, n, summary)) {
+        if (pull_plan->pull(stream, n)) {
+          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -745,20 +742,20 @@ PreparedQuery PrepareProfileQuery(
 
         CHECK(ctx) << "Failed to execute the query!";
 
-        if (pull_plan->pull(stream, n, summary)) {
+        if (pull_plan->pull(stream, n)) {
           summary->insert_or_assign(
               "profile",
               ProfilingStatsToJson(ctx->stats, ctx->profile_execution_time)
                   .dump());
-
+          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::ABORT;
         }
 
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
 
-// TODO (aandelic): Add support for pulling variable number of results
 PreparedQuery PrepareDumpQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
     DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
@@ -837,13 +834,14 @@ PreparedQuery PrepareIndexQuery(
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
-        handler();
-        return QueryHandlerResult::NOTHING;
-      }};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [summary, handler = std::move(handler)](
+                           AnyStream *stream, std::optional<int>) {
+                         handler();
+                         summary->insert_or_assign("has_more", false);
+                         return QueryHandlerResult::NOTHING;
+                       }};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -883,10 +881,12 @@ PreparedQuery PrepareAuthQuery(
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
+          summary->insert_or_assign("has_more", false);
           return callback.should_abort_query ? QueryHandlerResult::ABORT
                                              : QueryHandlerResult::COMMIT;
         }
 
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -983,10 +983,12 @@ PreparedQuery PrepareInfoQuery(
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
 
-        if (pull_plan->pull(stream, n, summary)) {
+        if (pull_plan->pull(stream, n)) {
+          summary->insert_or_assign("has_more", false);
           return action;
         }
 
+        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -1142,13 +1144,14 @@ PreparedQuery PrepareConstraintQuery(
     } break;
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
-        handler();
-        return QueryHandlerResult::COMMIT;
-      }};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [summary, handler = std::move(handler)](
+                           AnyStream *stream, std::optional<int> n) {
+                         handler();
+                         summary->insert_or_assign("has_more", false);
+                         return QueryHandlerResult::COMMIT;
+                       }};
 }
 
 void Interpreter::BeginTransaction() {
