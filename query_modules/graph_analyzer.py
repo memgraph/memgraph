@@ -4,6 +4,7 @@ from collections import OrderedDict
 from itertools import chain, repeat
 from inspect import cleandoc
 from typing import List, Tuple, Optional
+from mgp_networkx import MemgraphMultiDiGraph
 import networkx as nx
 
 
@@ -47,7 +48,7 @@ def analyze(context: mgp.ProcCtx,
     Example call (with parameter):
         CALL graph_analyzer.analyze(['nodes', 'edges']) YIELD *;
     '''
-    g = _convert_to_multidigraph(context)
+    g = MemgraphMultiDiGraph(ctx=context)
     recs = _analyze_graph(context, g, analyses)
     return [mgp.Record(name=name, value=value) for name, value in recs]
 
@@ -81,7 +82,11 @@ def analyze_subgraph(context: mgp.ProcCtx,
         YIELD *
         RETURN name, value;
     '''
-    g = _convert_to_subgraph_multidigraph(context, vertices, edges)
+    vertices, edges = map(set, [vertices, edges])
+    g = nx.subgraph_view(
+        MemgraphMultiDiGraph(ctx=context),
+        lambda n: n in vertices,
+        lambda n1, n2, e: e in edges)
     recs = _analyze_graph(context, g, analyses)
     return [mgp.Record(name=name, value=value) for name, value in recs]
 
@@ -263,36 +268,3 @@ def _strongly_components(g: nx.MultiDiGraph):
     '''Returns number of strongly connected components.'''
     comps = nx.algorithms.components.number_strongly_connected_components(g)
     return 'Number of strongly connected components', comps
-
-
-def _convert_to_multidigraph(context: mgp.ProcCtx,
-                             ) -> Optional[nx.MultiDiGraph]:
-    g = nx.MultiDiGraph()
-
-    for v in context.graph.vertices:
-        context.check_must_abort()
-        g.add_node(v.id)
-
-    for v in context.graph.vertices:
-        context.check_must_abort()
-        for e in v.out_edges:
-            g.add_edge(e.from_vertex.id, e.to_vertex.id)
-
-    return g
-
-
-def _convert_to_subgraph_multidigraph(context: mgp.ProcCtx,
-                                      vertices: mgp.List[mgp.Vertex],
-                                      edges: mgp.List[mgp.Edge]
-                                      ) -> Optional[nx.MultiDiGraph]:
-    g = nx.MultiDiGraph()
-
-    for v in vertices:
-        context.check_must_abort()
-        g.add_node(v.id)
-
-    for e in edges:
-        context.check_must_abort()
-        g.add_edge(e.from_vertex.id, e.to_vertex.id)
-
-    return g

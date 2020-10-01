@@ -64,6 +64,13 @@ class Properties:
         self._len = None
         self._vertex_or_edge = vertex_or_edge
 
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, as the underlying C API should
+        # not support deepcopy. Besides, it doesn't make much sense to actually
+        # copy _mgp.Edge and _mgp.Vertex types as they are actually references
+        # to graph elements and not proper values.
+        return Properties(self._vertex_or_edge)
+
     def get(self, property_name: str, default=None) -> object:
         '''Get the value of a property with the given name or return default.
 
@@ -236,6 +243,8 @@ class Edge:
         '''Raise InvalidContextError.'''
         if not self.is_valid():
             raise InvalidContextError()
+        if not isinstance(other, Edge):
+            return NotImplemented
         return self._edge == other._edge
 
     def __hash__(self) -> int:
@@ -325,6 +334,8 @@ class Vertex:
         '''Raise InvalidContextError'''
         if not self.is_valid():
             raise InvalidContextError()
+        if not isinstance(other, Vertex):
+            return NotImplemented
         return self._vertex == other._vertex
 
     def __hash__(self) -> int:
@@ -372,8 +383,8 @@ class Path:
             pass
         # This is the same as the shallow copy, as the underlying C API should
         # not support deepcopy. Besides, it doesn't make much sense to actually
-        # copy Edge and Vertex types as they are actually references to graph
-        # elements and not proper values.
+        # copy _mgp.Edge and _mgp.Vertex types as they are actually references
+        # to graph elements and not proper values.
         path = self.__copy__()
         memo[id(self._path)] = path._path
         return path
@@ -471,7 +482,7 @@ class Vertices:
 
     def __contains__(self, vertex):
         try:
-            _ = self.graph.get_vertex_by_id(vertex.id)
+            _ = self._graph.get_vertex_by_id(vertex.id)
             return True
         except IndexError:
             return False
