@@ -8,6 +8,7 @@ import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
                       | ALTER
+                      | ASYNC
                       | AUTH
                       | CLEAR
                       | DATABASE
@@ -18,12 +19,19 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GRANT
                       | IDENTIFIED
+                      | MAIN
+                      | MODE
                       | PASSWORD
                       | PRIVILEGES
+                      | REPLICA
+                      | REPLICAS
+                      | REPLICATION
                       | REVOKE
                       | ROLE
                       | ROLES
                       | STATS
+                      | SYNC
+                      | TIMEOUT
                       | TO
                       | USER
                       | USERS
@@ -42,6 +50,7 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | dumpQuery
+      | replicationQuery
       ;
 
 authQuery : createRole
@@ -60,6 +69,13 @@ authQuery : createRole
           | showRoleForUser
           | showUsersForRole
           ;
+
+replicationQuery : setReplicationMode
+                 | showReplicationMode
+                 | createReplica
+                 | dropReplica
+                 | showReplicas
+                 ;
 
 userOrRoleName : symbolicName ;
 
@@ -100,3 +116,19 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
+
+setReplicationMode  : SET REPLICATION MODE TO ( MAIN | REPLICA ) ;
+
+showReplicationMode : SHOW REPLICATION MODE ;
+
+replicaName : symbolicName ;
+
+hostName : literal ;
+
+createReplica : CREATE REPLICA replicaName ( SYNC | ASYNC )
+                ( WITH TIMEOUT timeout=literal ) ?
+                TO hostName ;
+
+dropReplica : DROP REPLICA replicaName ;
+
+showReplicas  : SHOW REPLICAS ;

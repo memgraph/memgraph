@@ -72,6 +72,7 @@ class InfoQuery;
 class ConstraintQuery;
 class RegexMatch;
 class DumpQuery;
+class ReplicationQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
@@ -115,7 +116,7 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
-                              IndexQuery, AuthQuery, InfoQuery,
-                              ConstraintQuery, DumpQuery> {};
+                              IndexQuery, AuthQuery, InfoQuery, ConstraintQuery,
+                              DumpQuery, ReplicationQuery> {};
 
 }  // namespace query
