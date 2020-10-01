@@ -51,6 +51,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabel);
   PRE_VISIT(ScanAllByLabelPropertyValue);
   PRE_VISIT(ScanAllByLabelPropertyRange);
+  PRE_VISIT(ScanAllByLabelProperty);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -308,6 +309,26 @@ class ExpectScanAllByLabelPropertyRange
   std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
   std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
 };
+
+class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
+ public:
+  ExpectScanAllByLabelProperty(
+      storage::LabelId label,
+      const std::pair<std::string, storage::PropertyId> &prop_pair)
+      : label_(label), property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByLabelProperty &scan_all,
+                const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label_, label_);
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  storage::LabelId label_;
+  storage::PropertyId property_;
+};
+
+
 
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:

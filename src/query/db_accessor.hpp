@@ -235,6 +235,11 @@ class DbAccessor final {
   }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            storage::PropertyId property) {
+    return VerticesIterable(accessor_->Vertices(label, property, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
                             storage::PropertyId property,
                             const storage::PropertyValue &value) {
     return VerticesIterable(accessor_->Vertices(label, property, value, view));
