@@ -92,6 +92,11 @@ class BoltSession final
     return metadata_;
   }
 
+  std::map<std::string, communication::bolt::Value> Discard(
+      std::optional<int>) override {
+    return {};
+  }
+
   void BeginTransaction() override {}
   void CommitTransaction() override {}
   void RollbackTransaction() override {}

@@ -139,8 +139,9 @@ State HandleRun(TSession &session, State state, Marker marker) {
   }
 }
 
-template <typename Session>
-State HandlePull(Session &session, State state, Marker marker) {
+namespace detail {
+template <bool is_pull, typename Session>
+State HandlePullDiscard(Session &session, State state, Marker marker) {
   const auto expected_marker =
       session.version_.major == 1 ? Marker::TinyStruct : Marker::TinyStruct1;
   if (marker != expected_marker) {
@@ -152,7 +153,11 @@ State HandlePull(Session &session, State state, Marker marker) {
   }
 
   if (state != State::Result) {
-    DLOG(WARNING) << "Unexpected PULL!";
+    if constexpr (is_pull) {
+      DLOG(WARNING) << "Unexpected PULL!";
+    } else {
+      DLOG(WARNING) << "Unexpected DISCARD!";
+    }
     // Same as `unexpected RUN` case.
     return State::Close;
   }
@@ -174,8 +179,14 @@ State HandlePull(Session &session, State state, Marker marker) {
       }
     }
 
-    // Pull can throw.
-    auto summary = session.Pull(&session.encoder_, n);
+    std::map<std::string, Value> summary;
+    if constexpr (is_pull) {
+      // Pull can throw.
+      summary = session.Pull(&session.encoder_, n);
+    } else {
+      summary = session.Discard(n);
+    }
+
     if (!session.encoder_.MessageSuccess(summary)) {
       DLOG(WARNING) << "Couldn't send query summary!";
       return State::Close;
@@ -202,30 +213,16 @@ State HandlePull(Session &session, State state, Marker marker) {
     return State::Error;
   }
 }
+}  // namespace detail
 
 template <typename Session>
-State HandleDiscardAll(Session &session, State state, Marker marker) {
-  if (marker != Marker::TinyStruct) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02X}!",
-        utils::UnderlyingCast(marker));
-    return State::Close;
-  }
+State HandlePull(Session &session, State state, Marker marker) {
+  return detail::HandlePullDiscard<true>(session, state, marker);
+}
 
-  if (state != State::Result) {
-    DLOG(WARNING) << "Unexpected DISCARD_ALL!";
-    // Same as `unexpected RUN` case.
-    return State::Close;
-  }
-
-  // Clear all pending data and send a success message.
-  session.encoder_buffer_.Clear();
-  if (!session.encoder_.MessageSuccess()) {
-    DLOG(WARNING) << "Couldn't send success message!";
-    return State::Close;
-  }
-
-  return State::Idle;
+template <typename Session>
+State HandleDiscard(Session &session, State state, Marker marker) {
+  return detail::HandlePullDiscard<false>(session, state, marker);
 }
 
 template <typename Session>
@@ -424,7 +421,7 @@ State StateExecutingRun(Session &session, State state) {
   } else if (signature == Signature::Pull) {
     return HandlePull(session, state, marker);
   } else if (signature == Signature::DiscardAll) {
-    return HandleDiscardAll(session, state, marker);
+    return HandleDiscard(session, state, marker);
   } else if (signature == Signature::Begin) {
     return HandleBegin(session, state, marker);
   } else if (signature == Signature::Commit) {

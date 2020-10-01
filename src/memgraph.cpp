@@ -258,8 +258,39 @@ class BoltSession final
 
   std::map<std::string, communication::bolt::Value> Pull(
       TEncoder *encoder, std::optional<int> n) override {
+    TypedValueResultStream stream(encoder, db_);
+    return PullResults(stream, n);
+  }
+
+  std::map<std::string, communication::bolt::Value> Discard(
+      std::optional<int> n) override {
+    DiscardValueResultStream stream;
+    return PullResults(stream, n);
+  }
+
+  void Abort() override { interpreter_.Abort(); }
+
+  bool Authenticate(const std::string &username,
+                    const std::string &password) override {
+#ifdef MG_ENTERPRISE
+    if (!auth_->HasUsers()) return true;
+    user_ = auth_->Authenticate(username, password);
+    return !!user_;
+#else
+    return true;
+#endif
+  }
+
+  std::optional<std::string> GetServerNameForInit() override {
+    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
+    return FLAGS_bolt_server_name_for_init;
+  }
+
+ private:
+  template <typename TStream>
+  std::map<std::string, communication::bolt::Value> PullResults(
+      TStream &stream, std::optional<int> n) {
     try {
-      TypedValueResultStream stream(encoder, db_);
       const auto &summary = interpreter_.Pull(&stream, n);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
@@ -286,25 +317,6 @@ class BoltSession final
     }
   }
 
-  void Abort() override { interpreter_.Abort(); }
-
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override {
-#ifdef MG_ENTERPRISE
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
-    return !!user_;
-#else
-    return true;
-#endif
-  }
-
-  std::optional<std::string> GetServerNameForInit() override {
-    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-    return FLAGS_bolt_server_name_for_init;
-  }
-
- private:
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
@@ -341,6 +353,12 @@ class BoltSession final
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
     const storage::Storage *db_;
+  };
+
+  struct DiscardValueResultStream {
+    void Result(const std::vector<query::TypedValue> &) {
+      // do nothing
+    }
   };
 
   // NOTE: Needed only for ToBoltValue conversions

@@ -59,6 +59,8 @@ class Session {
   virtual std::map<std::string, Value> Pull(TEncoder *encoder,
                                             std::optional<int> n) = 0;
 
+  virtual std::map<std::string, Value> Discard(std::optional<int> n) = 0;
+
   virtual void BeginTransaction() = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;

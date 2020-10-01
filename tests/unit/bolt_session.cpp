@@ -13,6 +13,7 @@ using communication::bolt::Value;
 
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
+static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryEmpty = "no results";
 
 class TestSessionData {};
@@ -29,7 +30,8 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
   std::vector<std::string> Interpret(
       const std::string &query,
       const std::map<std::string, Value> &params) override {
-    if (query == kQueryReturn42 || query == kQueryEmpty) {
+    if (query == kQueryReturn42 || query == kQueryEmpty ||
+        query == kQueryReturnMultiple) {
       query_ = query;
       return {"result_name"};
     } else {
@@ -39,15 +41,37 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
   }
 
   std::map<std::string, Value> Pull(TEncoder *encoder,
-                                    std::optional<int>) override {
+                                    std::optional<int> n) override {
     if (query_ == kQueryReturn42) {
       encoder->MessageRecord(std::vector<Value>{Value(42)});
       return {};
     } else if (query_ == kQueryEmpty) {
       return {};
+    } else if (query_ == kQueryReturnMultiple) {
+      static const std::array elements{1, 2, 3};
+      static size_t global_counter = 0;
+
+      int local_counter = 0;
+      for (; global_counter < elements.size() && (!n || local_counter < *n);
+           ++global_counter) {
+        encoder->MessageRecord(
+            std::vector<Value>{Value(elements[global_counter])});
+        ++local_counter;
+      }
+
+      if (global_counter == elements.size()) {
+        global_counter = 0;
+        return {std::pair("has_more", false)};
+      }
+
+      return {std::pair("has_more", true)};
     } else {
       throw ClientError("client sent invalid query");
     }
+  }
+
+  std::map<std::string, Value> Discard(std::optional<int> n) override {
+    return {};
   }
 
   void BeginTransaction() override {}
@@ -119,6 +143,10 @@ constexpr uint8_t init_req[] = {
 
 constexpr uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 constexpr uint8_t run_req_header[] = {0xb3, 0x10, 0xd1};
+constexpr uint8_t pullall_req[] = {0xb1, 0x3f, 0xa0};
+constexpr uint8_t pull_one_req[] = {0xb1, 0x3f, 0xa1, 0x81, 0x6e, 0x01};
+constexpr uint8_t discardall_req[] = {0xb0, 0x2f};
+constexpr uint8_t reset_req[] = {0xb0, 0x0f};
 constexpr uint8_t goodbye[] = {0xb0, 0x02};
 }  // namespace v4
 
@@ -185,25 +213,26 @@ void ExecuteCommand(TestInputStream &input_stream, TestSession &session,
 
 // Execute and check a correct init
 void ExecuteInit(TestInputStream &input_stream, TestSession &session,
-                 std::vector<uint8_t> &output,
-                 const uint8_t *request = init_req,
-                 size_t request_size = sizeof(init_req),
-                 const uint8_t *response = init_resp) {
+                 std::vector<uint8_t> &output, const bool is_v4 = false) {
+  const auto *request = is_v4 ? v4::init_req : init_req;
+  const auto request_size = is_v4 ? sizeof(v4::init_req) : sizeof(init_req);
   ExecuteCommand(input_stream, session, request, request_size);
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
+  const auto *response = is_v4 ? v4::init_resp : init_resp;
   CheckOutput(output, response, 7);
 }
 
 // Write bolt encoded run request
 void WriteRunRequest(TestInputStream &input_stream, const char *str,
-                     const bool is_v4 = false,
-                     const uint8_t *run_header = run_req_header,
-                     const size_t run_header_size = sizeof(run_req_header)) {
+                     const bool is_v4 = false) {
   // write chunk header
   auto len = strlen(str);
   WriteChunkHeader(input_stream, (3 + is_v4) + 2 + len + 1);
 
+  const auto *run_header = is_v4 ? v4::run_req_header : run_req_header;
+  const auto run_header_size =
+      is_v4 ? sizeof(v4::run_req_header) : sizeof(run_req_header);
   // write string header
   input_stream.Write(run_header, run_header_size);
 
@@ -371,8 +400,7 @@ TEST(BoltSession, InitOK) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output, v4::handshake_req,
                      v4::handshake_resp);
-    ExecuteInit(input_stream, session, output, v4::init_req,
-                sizeof(v4::init_req), v4::init_resp);
+    ExecuteInit(input_stream, session, output, true);
   }
 }
 
@@ -454,11 +482,9 @@ TEST(BoltSession, ExecuteRunWithoutPullAll) {
 
     ExecuteHandshake(input_stream, session, output, v4::handshake_req,
                      v4::handshake_resp);
-    ExecuteInit(input_stream, session, output, v4::init_req,
-                sizeof(v4::init_req), v4::init_resp);
+    ExecuteInit(input_stream, session, output, true);
 
-    WriteRunRequest(input_stream, kQueryReturn42, true, v4::run_req_header,
-                    sizeof(v4::run_req_header));
+    WriteRunRequest(input_stream, kQueryReturn42, true);
     session.Execute();
 
     ASSERT_EQ(session.state_, State::Result);
@@ -511,35 +537,37 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
 TEST(BoltSession, ExecutePullAllDiscardAllReset) {
   // This test first tests PULL_ALL then DISCARD_ALL and then RESET
   // It tests a good message
-  const uint8_t *dataset[3] = {pullall_req, discardall_req, reset_req};
+  {
+    const uint8_t *dataset[3] = {pullall_req, discardall_req, reset_req};
 
-  for (int i = 0; i < 3; ++i) {
-    // first test with socket write success, then with socket write fail
-    for (int j = 0; j < 2; ++j) {
-      INIT_VARS;
+    for (int i = 0; i < 3; ++i) {
+      // first test with socket write success, then with socket write fail
+      for (int j = 0; j < 2; ++j) {
+        INIT_VARS;
 
-      ExecuteHandshake(input_stream, session, output);
-      ExecuteInit(input_stream, session, output);
-      WriteRunRequest(input_stream, kQueryReturn42);
-      session.Execute();
+        ExecuteHandshake(input_stream, session, output);
+        ExecuteInit(input_stream, session, output);
+        WriteRunRequest(input_stream, kQueryReturn42);
+        session.Execute();
 
-      if (j == 1) output.clear();
+        if (j == 1) output.clear();
 
-      output_stream.SetWriteSuccess(j == 0);
-      if (j == 0) {
-        ExecuteCommand(input_stream, session, dataset[i], 2);
-      } else {
-        ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
-                     SessionException);
-      }
+        output_stream.SetWriteSuccess(j == 0);
+        if (j == 0) {
+          ExecuteCommand(input_stream, session, dataset[i], 2);
+        } else {
+          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
+                       SessionException);
+        }
 
-      if (j == 0) {
-        ASSERT_EQ(session.state_, State::Idle);
-        ASSERT_FALSE(session.encoder_buffer_.HasData());
-        PrintOutput(output);
-      } else {
-        ASSERT_EQ(session.state_, State::Close);
-        ASSERT_EQ(output.size(), 0);
+        if (j == 0) {
+          ASSERT_EQ(session.state_, State::Idle);
+          ASSERT_FALSE(session.encoder_buffer_.HasData());
+          PrintOutput(output);
+        } else {
+          ASSERT_EQ(session.state_, State::Close);
+          ASSERT_EQ(output.size(), 0);
+        }
       }
     }
   }
@@ -658,38 +686,69 @@ TEST(BoltSession, ErrorWrongMarker) {
 }
 
 TEST(BoltSession, ErrorOK) {
-  // test ACK_FAILURE and RESET
-  const uint8_t *dataset[] = {ackfailure_req, reset_req};
+  // v1
+  {
+    // test ACK_FAILURE and RESET
+    const uint8_t *dataset[] = {ackfailure_req, reset_req};
 
-  for (int i = 0; i < 2; ++i) {
-    // first test with socket write success, then with socket write fail
-    for (int j = 0; j < 2; ++j) {
+    for (int i = 0; i < 2; ++i) {
+      // first test with socket write success, then with socket write fail
+      for (int j = 0; j < 2; ++j) {
+        INIT_VARS;
+
+        ExecuteHandshake(input_stream, session, output);
+        ExecuteInit(input_stream, session, output);
+
+        WriteRunRequest(input_stream, kInvalidQuery);
+        session.Execute();
+
+        output.clear();
+
+        output_stream.SetWriteSuccess(j == 0);
+        if (j == 0) {
+          ExecuteCommand(input_stream, session, dataset[i], 2);
+        } else {
+          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
+                       SessionException);
+        }
+
+        // assert that all data from the init message was cleaned up
+        ASSERT_EQ(session.decoder_buffer_.Size(), 0);
+
+        if (j == 0) {
+          ASSERT_EQ(session.state_, State::Idle);
+          CheckOutput(output, success_resp, sizeof(success_resp));
+        } else {
+          ASSERT_EQ(session.state_, State::Close);
+          ASSERT_EQ(output.size(), 0);
+        }
+      }
+    }
+  }
+
+  // v4+
+  {
+    const uint8_t *dataset[] = {ackfailure_req, v4::reset_req};
+    for (int i = 0; i < 2; ++i) {
       INIT_VARS;
 
-      ExecuteHandshake(input_stream, session, output);
-      ExecuteInit(input_stream, session, output);
+      ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                       v4::handshake_resp);
+      ExecuteInit(input_stream, session, output, true);
 
-      WriteRunRequest(input_stream, kInvalidQuery);
+      WriteRunRequest(input_stream, kInvalidQuery, true);
       session.Execute();
 
       output.clear();
 
-      output_stream.SetWriteSuccess(j == 0);
-      if (j == 0) {
-        ExecuteCommand(input_stream, session, dataset[i], 2);
+      ExecuteCommand(input_stream, session, dataset[i], 2);
+
+      // ACK_FAILURE does not exist in v4+
+      if (i == 0) {
+        ASSERT_EQ(session.state_, State::Error);
       } else {
-        ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
-                     SessionException);
-      }
-
-      // assert that all data from the init message was cleaned up
-      ASSERT_EQ(session.decoder_buffer_.Size(), 0);
-
-      if (j == 0) {
         ASSERT_EQ(session.state_, State::Idle);
-        CheckOutput(output, success_resp, sizeof(success_resp));
-      } else {
-        ASSERT_EQ(session.state_, State::Close);
+        // Reset does not produce response messages in v4+
         ASSERT_EQ(output.size(), 0);
       }
     }
@@ -743,6 +802,51 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
   ASSERT_EQ(num, 3);
 }
 
+TEST(BoltSession, PartialPull) {
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req,
+                   v4::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  WriteRunRequest(input_stream, kQueryReturnMultiple, true);
+  ExecuteCommand(input_stream, session, v4::pull_one_req,
+                 sizeof(v4::pull_one_req));
+
+  // Not all results were pulled
+  ASSERT_EQ(session.state_, State::Result);
+  PrintOutput(output);
+
+  int len, num = 0;
+  while (output.size() > 0) {
+    len = (output[0] << 8) + output[1];
+    output.erase(output.begin(), output.begin() + len + 4);
+    ++num;
+  }
+
+  // the first is a success with the query headers
+  // the second is a record message
+  // and the last is a success message with query run metadata
+  ASSERT_EQ(num, 3);
+
+  ExecuteCommand(input_stream, session, v4::pullall_req,
+                 sizeof(v4::pullall_req));
+  ASSERT_EQ(session.state_, State::Idle);
+  PrintOutput(output);
+
+  len = 0;
+  num = 0;
+  while (output.size() > 0) {
+    len = (output[0] << 8) + output[1];
+    output.erase(output.begin(), output.begin() + len + 4);
+    ++num;
+  }
+
+  // First two are the record messages
+  // and the last is a success message with query run metadata
+  ASSERT_EQ(num, 3);
+}
+
 TEST(BoltSession, PartialChunk) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
@@ -772,8 +876,7 @@ TEST(BoltSession, Goodbye) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output, v4::handshake_req,
                      v4::handshake_resp);
-    ExecuteInit(input_stream, session, output, v4::init_req,
-                sizeof(v4::init_req), v4::init_resp);
+    ExecuteInit(input_stream, session, output, true);
     ASSERT_THROW(
         ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
         communication::SessionClosedException);
