@@ -32,7 +32,8 @@ install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_exampl
 
 # Install the Python modules
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
-install(FILES pagerank.py DESTINATION lib/memgraph/query_modules)
+install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
+install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 
 if (MG_ENTERPRISE)
