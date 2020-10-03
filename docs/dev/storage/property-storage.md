@@ -1,7 +1,7 @@
-# Property storage
+# Property storage (Depricated)
 
 Although the reader is probably familiar with properties in *Memgraph*, let's
-briefly recap. 
+briefly recap.
 
 Both vertices and edges can store an arbitrary number of properties. Properties
 are, in essence, ordered pairs of property names and property values. Each
@@ -23,7 +23,7 @@ Property values are modeled in a class conveniently called `PropertyValue`.
 
 ## Mapping between property names and property keys.
 
-Although users think of property names in terms of descriptive strings 
+Although users think of property names in terms of descriptive strings
 (e.g. "location" or "department"), *Memgraph* internally converts those names
 into property keys which are, essentially, unsigned 16-bit integers.
 

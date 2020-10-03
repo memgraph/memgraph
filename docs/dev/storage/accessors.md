@@ -1,4 +1,4 @@
-# DatabaseAccessor
+# DatabaseAccessor (Obsolete)
 
 A `DatabaseAccessor` actually wraps a transactional access to database
 data, for a single transaction. In that sense the naming is bad. It

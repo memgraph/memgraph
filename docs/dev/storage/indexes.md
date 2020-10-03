@@ -1,4 +1,4 @@
-# Label indexes
+# Label indexes (Depricated)
 
 These are unsorted indexes that contain all the vertices that have the label
 the indexes are for (one index per label). These kinds of indexes get

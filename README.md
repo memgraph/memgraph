@@ -1,24 +1,41 @@
-# memgraph
+# Memgraph
 
 Memgraph is an ACID compliant high performance transactional distributed
 in-memory graph database featuring runtime native query compiling, lock free
 data structures, multi-version concurrency control and asynchronous IO.
 
-## dependencies
+## Development Documentation
 
-Memgraph can be compiled using any modern c++ compiler. It mostly relies on
-the standard template library, however, some things do require external
-libraries.
+* [Quick Start](docs/dev/quick-start.md)
+* [Workflow](docs/dev/workflow.md)
+* [Storage](docs/dev/storage/contents.md)
+* [Query Engine](docs/dev/query/contents.md)
+* [Lisp C++ Preprocessor (LCP)](docs/dev/lcp.md)
 
-Some code contains linux-specific libraries and the build is only supported
-on a 64 bit linux kernel.
+## Feature Specifications
 
-* linux
-* clang 3.8 (good c++11 support, especially lock free atomics)
-* antlr (compiler frontend)
-* cppitertools
-* fmt format
-* google benchmark
-* google test
-* glog
-* gflags
+Each prominent Memgraph feature requires a feature specification. The purpose
+of the feature specification is to have a base for discussing all aspects of
+the feature. Elements of feature specifications should be:
+
+* High-level context.
+* Interface.
+* User stories. Usage from the end-user perspective. In the case of a library,
+  that should be cases on how to use the programming interface. In the case of
+a shell script, that should be cases on how to use flags.
+* Discussion about concurrency, memory management, error management.
+* Any other essential functional or non-functional requirements.
+* Test and benchmark strategy.
+* Possible future changes/improvements/extensions.
+* Security concerns.
+* Additional and/or optional implementation details.
+
+It's crucial to keep feature spec up-to-date with the implementation. Take a
+look at the list of [feature specifications](docs/feature_spec/contents.md) to
+learn more about powerful Memgraph features.
+
+## User Documentation
+
+Memgraph user documentation is maintained within
+[docs](https://github.com/memgraph/docs) repository. The documentation is also
+available on [GitBook](https://docs.memgraph.com).

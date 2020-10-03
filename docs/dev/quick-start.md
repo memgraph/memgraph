@@ -52,12 +52,13 @@ After installing the packages, issue the following commands:
 ### Compiling
 
 Memgraph is compiled using our own custom toolchain that can be obtained from
-[Toolchain repository](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain).  You should read
-the `README.txt` file in the repository and install the apropriate toolchain
-for your distribution.  After you have installed the toolchain you should read
-the instructions for the toolchain in the toolchain install directory
-(`/opt/toolchain-vXYZ/README.md`) and install dependencies that are necessary
-to run the toolchain.
+[Toolchain
+repository](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain). You
+should read the `README.txt` file in the repository and install the apropriate
+toolchain for your distribution.  After you have installed the toolchain you
+should read the instructions for the toolchain in the toolchain install
+directory (`/opt/toolchain-vXYZ/README.md`) and install dependencies that are
+necessary to run the toolchain.
 
 When you want to compile Memgraph you should activate the toolchain using the
 prepared toolchain activation script that is also described in the toolchain
