@@ -1,4 +1,4 @@
-# Property storage (Depricated)
+# Property Storage
 
 Although the reader is probably familiar with properties in *Memgraph*, let's
 briefly recap.
@@ -21,7 +21,7 @@ must be one of the following types:
 
 Property values are modeled in a class conveniently called `PropertyValue`.
 
-## Mapping between property names and property keys.
+## Mapping Between Property Names and Property Keys.
 
 Although users think of property names in terms of descriptive strings
 (e.g. "location" or "department"), *Memgraph* internally converts those names
@@ -49,7 +49,7 @@ An interface of `PropertyValueStore` is as follows:
  `clear`   | Clears the storage.
  `iterator`| Provides an extension of `std::input_iterator` that iterates over storage.
 
-## Storage location
+## Storage Location
 
 By default, *Memgraph* is an in-memory database and all properties are therefore
 stored in working memory unless specified otherwise by the user. User has an
@@ -63,12 +63,12 @@ property key has the following format:
 ```
 |---location--|------id------|
 |-Memory|Disk-|-----2^15-----|
-``` 
+```
 
 In other words, the most significant bit determines the location where the
-property will be stored. 
+property will be stored.
 
-### In-memory storage
+### In-memory Storage
 
 The underlying implementation of in-memory storage for the time being is
 `std::vector<std::pair<Property, PropertyValue>>`. Implementations of`at`, `set`
@@ -76,7 +76,7 @@ and `erase` are linear in time. This implementation is arguably more efficient
 than `std::map` or `std::unordered_map` when the average number of properties of
 a record is relatively small (up to 10) which seems to be the case.
 
-### On-disk storage
+### On-disk Storage
 
 #### KVStore
 
@@ -120,12 +120,12 @@ KVStore storage = ...;
 for (auto it = storage.begin("alpha"); it != storage.end("omega"); ++it) {}
 ```
 
-#### Data organization on disk
+#### Data Organization on Disk
 
 Each `PropertyValueStore` instance can access a static `KVStore` object that can
 store `(key, value)` pairs on disk. The key of each property on disk consists of
 two parts &mdash; a unique identifier (unsigned 64-bit integer) of the current
-record version (see mvcc docummentation for further clarification) and a 
+record version (see mvcc docummentation for further clarification) and a
 property key as described above. The actual value of the property is serialized
 into a bytestring using bolt `BaseEncoder`. Similarly, deserialization is
 performed by bolt `Decoder`.

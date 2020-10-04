@@ -1,4 +1,4 @@
-# DatabaseAccessor (Obsolete)
+# DatabaseAccessor
 
 A `DatabaseAccessor` actually wraps a transactional access to database
 data, for a single transaction. In that sense the naming is bad. It
@@ -38,7 +38,7 @@ interpretation code) should work with accessors. There is a
 `RecordAccessor` as a base class for `VertexAccessor` and
 `EdgeAccessor`. Following is an enumeration of their purpose.
 
-### Data access
+### Data Access
 
 The client interacts with Memgraph using the Cypher query language. That
 language has certain semantics which imply that multiple versions of the
@@ -75,7 +75,7 @@ In distributed Memgraph accessors also contain a lot of the remote graph
 element handling logic. More info on that is available in the
 documentation for distributed.
 
-### Deferred MVCC data lookup for Edges
+### Deferred MVCC Data Lookup for Edges
 
 Vertices and edges are versioned using MVCC. This means that for each
 transaction an MVCC lookup needs to be done to determine which version
@@ -100,7 +100,7 @@ working with that data directly whenever possible! Always consider the
 accessors to be the first go-to for interacting with data, especially
 when in the context of a transaction.
 
-# Skiplist accessor
+# Skiplist Accessor
 
 The term "accessor" is also used in the context of a skiplist. Every
 operation on a skiplist must be performed within on an

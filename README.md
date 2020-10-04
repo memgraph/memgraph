@@ -8,8 +8,9 @@ data structures, multi-version concurrency control and asynchronous IO.
 
 * [Quick Start](docs/dev/quick-start.md)
 * [Workflow](docs/dev/workflow.md)
-* [Storage](docs/dev/storage/contents.md)
+* [Storage](docs/dev/storage/v2/contents.md)
 * [Query Engine](docs/dev/query/contents.md)
+* [Communication](docs/dev/communication/contents.md)
 * [Lisp C++ Preprocessor (LCP)](docs/dev/lcp.md)
 
 ## Feature Specifications
@@ -39,3 +40,8 @@ learn more about powerful Memgraph features.
 Memgraph user documentation is maintained within
 [docs](https://github.com/memgraph/docs) repository. The documentation is also
 available on [GitBook](https://docs.memgraph.com).
+
+## Licences
+
+* [Community](release/LICENSE_COMMUNITY.md)
+* [Enterprise](release/LICENSE_ENTERPRISE.md)
