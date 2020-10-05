@@ -62,6 +62,9 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
+  DLOG(INFO) << fmt::format("Using version {}.{} of protocol",
+                            session.version_.major, session.version_.minor);
+
   // Delete data from the input stream. It is guaranteed that there will more
   // than, or equal to 20 bytes (kHandshakeSize) in the buffer.
   session.input_stream_.Shift(kHandshakeSize);

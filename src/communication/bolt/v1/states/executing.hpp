@@ -255,12 +255,16 @@ State HandleReset(Session &session, State, Marker marker) {
 
   // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
-  if (session.version_.major == 1) {
+
+  // From version 4.0 client doesn't expect response message for a RESET
+  // or at least it shouldn't expect, but all the drivers wait for the
+  // success message
+  // if (session.version_.major == 1) {
     if (!session.encoder_.MessageSuccess()) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
-  }
+  // }
 
   session.Abort();
 

@@ -150,13 +150,11 @@ State StateInitRun(Session &session) {
   // Return success.
   {
     bool success_sent = false;
-    auto server_name = session.GetServerNameForInit();
-    if (server_name) {
-      success_sent =
-          session.encoder_.MessageSuccess({{"server", *server_name}});
-    } else {
-      success_sent = session.encoder_.MessageSuccess();
+    std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+    if (auto server_name = session.GetServerNameForInit(); server_name) {
+      metadata.insert({"server", *server_name});
     }
+    success_sent = session.encoder_.MessageSuccess(metadata);
     if (!success_sent) {
       DLOG(WARNING) << "Couldn't send success message to the client!";
       return State::Close;
