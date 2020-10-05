@@ -30,6 +30,7 @@ $binary_dir/memgraph \
     --query-execution-timeout-sec=5 \
     --bolt-session-inactivity-timeout=10 \
     --bolt-cert-file="" \
+    --bolt-server-name-for-init="Neo4j/1.1" \
     --min-log-level 1 &
 pid=$!
 wait_for_server 7687
