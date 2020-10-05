@@ -195,3 +195,5 @@ setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
 
 echo "Done installing dependencies for Memgraph"
+
+git config core.hooksPath .githooks
