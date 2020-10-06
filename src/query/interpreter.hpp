@@ -396,8 +396,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
       query_execution.reset();
     }
   } catch (const ExplicitTransactionUsageException &) {
-    // Just let the exception propagate for error reporting purposes, but don't
-    // abort the current command.
+    query_execution.reset();
     throw;
   } catch (const utils::BasicException &) {
     AbortCommand(&query_execution);
