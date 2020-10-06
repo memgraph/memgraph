@@ -50,7 +50,7 @@ class Session {
   /**
    * Process the given `query` with `params`.
    */
-  virtual std::vector<std::string> Interpret(
+  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params) = 0;
 
   /**

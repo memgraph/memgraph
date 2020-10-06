@@ -110,7 +110,8 @@ State HandleRun(TSession &session, State state, Marker marker) {
 
   try {
     // Interpret can throw.
-    auto header = session.Interpret(query.ValueString(), params.ValueMap());
+    auto [header, qid] =
+        session.Interpret(query.ValueString(), params.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;

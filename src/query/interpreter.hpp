@@ -5,6 +5,7 @@
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/stripped.hpp"
@@ -230,6 +231,12 @@ class Interpreter final {
   Interpreter &operator=(Interpreter &&) = delete;
   ~Interpreter() { Abort(); }
 
+  struct PrepareResult {
+    std::vector<std::string> headers;
+    std::vector<query::AuthQuery::Privilege> privileges;
+    std::optional<int> qid;
+  };
+
   /**
    * Prepare a query for execution.
    *
@@ -239,9 +246,9 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-  Prepare(const std::string &query,
-          const std::map<std::string, storage::PropertyValue> &params);
+  PrepareResult Prepare(
+      const std::string &query,
+      const std::map<std::string, storage::PropertyValue> &params);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -266,7 +273,8 @@ class Interpreter final {
 
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream,
-                                         std::optional<int> n = {});
+                                         std::optional<int> n = {},
+                                         std::optional<int> qid = {});
 
   void BeginTransaction();
 
@@ -280,58 +288,115 @@ class Interpreter final {
   void Abort();
 
  private:
+  struct QueryExecution {
+    std::optional<PreparedQuery> prepared_query;
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    std::map<std::string, TypedValue> summary;
+
+    explicit QueryExecution() = default;
+    QueryExecution(const QueryExecution &) = delete;
+    QueryExecution(QueryExecution &&) = default;
+    QueryExecution &operator=(const QueryExecution &) = delete;
+    QueryExecution &operator=(QueryExecution &&) = default;
+
+    ~QueryExecution() {
+      prepared_query.reset();
+      execution_memory.Release();
+    }
+  };
+
+  std::vector<std::optional<QueryExecution>> query_executions_;
+
   InterpreterContext *interpreter_context_;
-  std::optional<PreparedQuery> prepared_query_;
-  std::map<std::string, TypedValue> summary_;
 
   std::optional<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
-  utils::MonotonicBufferResource execution_memory_{kExecutionMemoryBlockSize};
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
-  void AbortCommand();
+  void AbortCommand(std::optional<QueryExecution> *query_execution);
+
+  size_t ActiveQueryExecutions() {
+    return std::count_if(query_executions_.begin(), query_executions_.end(),
+                         [](const auto &execution) {
+                           return execution && execution->prepared_query;
+                         });
+  }
 };
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
-                                                    std::optional<int> n) {
-  CHECK(prepared_query_) << "Trying to call Pull without a prepared query";
+                                                    std::optional<int> n,
+                                                    std::optional<int> qid) {
+  CHECK(in_explicit_transaction_ || !qid)
+      << "qid can be only used in explicit transaction!";
+  const int qid_value =
+      qid ? *qid : static_cast<int>(query_executions_.size() - 1);
 
+  if (qid_value < 0 || qid_value >= query_executions_.size()) {
+    throw InvalidArgumentsException("qid",
+                                    "Query with specified ID does not exist!");
+  }
+
+  if (n && n < 0) {
+    throw InvalidArgumentsException("n",
+                                    "Cannot fetch negative number of results!");
+  }
+
+  auto &query_execution = query_executions_[qid_value];
+
+  CHECK(query_execution && query_execution->prepared_query)
+      << "Query already finished executing!";
+
+  std::optional<std::map<std::string, TypedValue>> maybe_summary;
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, &execution_memory_};
-    const auto maybe_res = prepared_query_->query_handler(&stream, n);
+    AnyStream stream{result_stream, &query_execution->execution_memory};
+    const auto maybe_res =
+        query_execution->prepared_query->query_handler(&stream, n);
 
-    if (maybe_res && !in_explicit_transaction_) {
-      switch (*maybe_res) {
-        case QueryHandlerResult::COMMIT:
-          Commit();
-          break;
-        case QueryHandlerResult::ABORT:
-          Abort();
-          break;
-        case QueryHandlerResult::NOTHING:
-          // The only cases in which we have nothing to do are those where we're
-          // either in an explicit transaction or the query is such that a
-          // transaction wasn't started on a call to `Prepare()`.
-          CHECK(in_explicit_transaction_ || !db_accessor_);
-          break;
+    if (maybe_res) {
+      if (!in_explicit_transaction_) {
+        switch (*maybe_res) {
+          case QueryHandlerResult::COMMIT:
+            Commit();
+            break;
+          case QueryHandlerResult::ABORT:
+            Abort();
+            break;
+          case QueryHandlerResult::NOTHING:
+            // The only cases in which we have nothing to do are those where
+            // we're either in an explicit transaction or the query is such that
+            // a transaction wasn't started on a call to `Prepare()`.
+            CHECK(in_explicit_transaction_ || !db_accessor_);
+            break;
+        }
       }
+      maybe_summary.emplace(std::move(query_execution->summary));
+      query_execution.reset();
     }
   } catch (const ExplicitTransactionUsageException &) {
     // Just let the exception propagate for error reporting purposes, but don't
     // abort the current command.
     throw;
   } catch (const utils::BasicException &) {
-    AbortCommand();
+    AbortCommand(&query_execution);
     throw;
   }
 
-  return summary_;
+  while (!query_executions_.empty() && !query_executions_.back()) {
+    query_executions_.pop_back();
+  }
+
+  if (maybe_summary) {
+    maybe_summary->insert_or_assign("has_more", false);
+    return std::move(*maybe_summary);
+  }
+
+  return {{"has_more", TypedValue(true)}};
 }
 }  // namespace query

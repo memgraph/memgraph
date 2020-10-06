@@ -537,10 +537,13 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
       try {
         Commit();
       } catch (const utils::BasicException &) {
-        AbortCommand();
+        AbortCommand(nullptr);
         throw;
       }
 
+      // TODO (antonio2368): Check what should be done if there are some
+      // unfinished queries.
+      query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
     };
@@ -551,6 +554,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
             "No current transaction to rollback.");
       }
       Abort();
+      // TODO (antonio2368): Check what should be done if there are some
+      // unfinished queries.
+      query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
     };
@@ -559,11 +565,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
   }
 
   return {
-      {},
-      {},
-      [this, handler = std::move(handler)](AnyStream *, std::optional<int>) {
+      {}, {}, [handler = std::move(handler)](AnyStream *, std::optional<int>) {
         handler();
-        summary_.insert_or_assign("has_more", false);
         return QueryHandlerResult::NOTHING;
       }};
 }
@@ -604,10 +607,8 @@ PreparedQuery PrepareCypherQuery(
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
-          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -656,15 +657,13 @@ PreparedQuery PrepareExplainQuery(
   return PreparedQuery{
       {"QUERY PLAN"},
       std::move(parsed_query.required_privileges),
-      [summary, pull_plan = std::make_shared<PullPlanVector>(
-                    std::move(printed_plan_rows))](
+      [pull_plan =
+           std::make_shared<PullPlanVector>(std::move(printed_plan_rows))](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n)) {
-          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -747,11 +746,9 @@ PreparedQuery PrepareProfileQuery(
               "profile",
               ProfilingStatsToJson(ctx->stats, ctx->profile_execution_time)
                   .dump());
-          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::ABORT;
         }
 
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -762,14 +759,12 @@ PreparedQuery PrepareDumpQuery(
   return PreparedQuery{
       {"QUERY"},
       std::move(parsed_query.required_privileges),
-      [pull_plan = std::make_shared<PullPlanDump>(dba), summary](
+      [pull_plan = std::make_shared<PullPlanDump>(dba)](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n)) {
-          summary->insert_or_assign("has_more", false);
           return QueryHandlerResult::COMMIT;
         }
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -834,14 +829,13 @@ PreparedQuery PrepareIndexQuery(
     }
   }
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [summary, handler = std::move(handler)](
-                           AnyStream *stream, std::optional<int>) {
-                         handler();
-                         summary->insert_or_assign("has_more", false);
-                         return QueryHandlerResult::NOTHING;
-                       }};
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
+        handler();
+        return QueryHandlerResult::NOTHING;
+      }};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -881,12 +875,9 @@ PreparedQuery PrepareAuthQuery(
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->pull(stream, n, output_symbols, summary)) {
-          summary->insert_or_assign("has_more", false);
           return callback.should_abort_query ? QueryHandlerResult::ABORT
                                              : QueryHandlerResult::COMMIT;
         }
-
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -972,8 +963,7 @@ PreparedQuery PrepareInfoQuery(
 
   return PreparedQuery{
       std::move(header), std::move(parsed_query.required_privileges),
-      [handler = std::move(handler), summary,
-       action = QueryHandlerResult::NOTHING,
+      [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
           AnyStream *stream,
           std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -984,11 +974,8 @@ PreparedQuery PrepareInfoQuery(
         }
 
         if (pull_plan->pull(stream, n)) {
-          summary->insert_or_assign("has_more", false);
           return action;
         }
-
-        summary->insert_or_assign("has_more", true);
         return std::nullopt;
       }};
 }
@@ -1144,14 +1131,13 @@ PreparedQuery PrepareConstraintQuery(
     } break;
   }
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [summary, handler = std::move(handler)](
-                           AnyStream *stream, std::optional<int> n) {
-                         handler();
-                         summary->insert_or_assign("has_more", false);
-                         return QueryHandlerResult::COMMIT;
-                       }};
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
+        handler();
+        return QueryHandlerResult::COMMIT;
+      }};
 }
 
 void Interpreter::BeginTransaction() {
@@ -1169,22 +1155,31 @@ void Interpreter::RollbackTransaction() {
   prepared_query.query_handler(nullptr, {});
 }
 
-std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-Interpreter::Prepare(
+Interpreter::PrepareResult Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, storage::PropertyValue> &params) {
-  // Clear the last prepared query.
-  // TODO (aandelic): Why is this allowed?
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
+  if (!in_explicit_transaction_) {
+    // TODO (antonio2368): Should this throw?
+    CHECK(!ActiveQueryExecutions()) << "Only one active execution allowed "
+                                       "while not in explicit transaction!";
+    query_executions_.clear();
+  }
+
+  query_executions_.emplace_back(QueryExecution{});
+  auto &query_execution = query_executions_.back();
+  std::optional<int> qid = in_explicit_transaction_
+                               ? static_cast<int>(query_executions_.size() - 1)
+                               : std::optional<int>{};
 
   // Handle transaction control queries.
   auto query_upper = utils::Trim(utils::ToUpperCase(query_string));
 
   if (query_upper == "BEGIN" || query_upper == "COMMIT" ||
       query_upper == "ROLLBACK") {
-    prepared_query_ = PrepareTransactionQuery(query_upper);
-    return {prepared_query_->header, prepared_query_->privileges};
+    query_execution->prepared_query.emplace(
+        PrepareTransactionQuery(query_upper));
+    return {query_execution->prepared_query->header,
+            query_execution->prepared_query->privileges, qid};
   }
 
   // All queries other than transaction control queries advance the command in
@@ -1195,28 +1190,26 @@ Interpreter::Prepare(
   // If we're not in an explicit transaction block and we have an open
   // transaction, abort it since we're about to prepare a new query.
   else if (db_accessor_) {
-    AbortCommand();
+    AbortCommand(&query_execution);
   }
 
   try {
-    summary_ = {};
-
     // TODO: Set summary['type'] based on transaction metadata. The type can't
     // be determined based only on the toplevel logical operator -- for example
     // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
     // toplevel operator). For now we always set "rw" because something must be
     // set, but it doesn't have to be correct (for Bolt clients).
-    summary_["type"] = "rw";
+    query_execution->summary["type"] = "rw";
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
-    summary_["cost_estimate"] = 0.0;
+    query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
     ParsedQuery parsed_query =
         ParseQuery(query_string, params, &interpreter_context_->ast_cache,
                    &interpreter_context_->antlr_lock);
-    summary_["parsing_time"] = parsing_timer.Elapsed().count();
+    query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
     if (!in_explicit_transaction_ &&
@@ -1232,54 +1225,61 @@ Interpreter::Prepare(
     PreparedQuery prepared_query;
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(
-          std::move(parsed_query), &summary_, interpreter_context_,
-          &*execution_db_accessor_, &execution_memory_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary,
+                             interpreter_context_, &*execution_db_accessor_,
+                             &query_execution->execution_memory);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(
-          std::move(parsed_query), &summary_, interpreter_context_,
-          &*execution_db_accessor_, &execution_memory_);
+          std::move(parsed_query), &query_execution->summary,
+          interpreter_context_, &*execution_db_accessor_,
+          &query_execution->execution_memory);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(
-          std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
+          std::move(parsed_query), in_explicit_transaction_,
+          &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareDumpQuery(std::move(parsed_query), &summary_,
-                           &*execution_db_accessor_, &execution_memory_);
+      prepared_query = PrepareDumpQuery(
+          std::move(parsed_query), &query_execution->summary,
+          &*execution_db_accessor_, &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareIndexQuery(
-          std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, &execution_memory_);
+      prepared_query =
+          PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                            &query_execution->summary, interpreter_context_,
+                            &query_execution->execution_memory);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(
-          std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, &*execution_db_accessor_, &execution_memory_);
+          std::move(parsed_query), in_explicit_transaction_,
+          &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(
-          std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, interpreter_context_->db, &execution_memory_);
+          std::move(parsed_query), in_explicit_transaction_,
+          &query_execution->summary, interpreter_context_,
+          interpreter_context_->db, &query_execution->execution_memory);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(
-          std::move(parsed_query), in_explicit_transaction_, &summary_,
-          interpreter_context_, &execution_memory_);
+          std::move(parsed_query), in_explicit_transaction_,
+          &query_execution->summary, interpreter_context_,
+          &query_execution->execution_memory);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }
 
-    summary_["planning_time"] = planning_timer.Elapsed().count();
-    prepared_query_ = std::move(prepared_query);
+    query_execution->summary["planning_time"] =
+        planning_timer.Elapsed().count();
+    query_execution->prepared_query.emplace(std::move(prepared_query));
 
-    return {prepared_query_->header, prepared_query_->privileges};
+    return {query_execution->prepared_query->header,
+            query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
-    AbortCommand();
+    AbortCommand(&query_execution);
     throw;
   }
 }
 
 void Interpreter::Abort() {
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
@@ -1289,8 +1289,6 @@ void Interpreter::Abort() {
 }
 
 void Interpreter::Commit() {
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
   if (!db_accessor_) return;
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
@@ -1332,15 +1330,14 @@ void Interpreter::Commit() {
 }
 
 void Interpreter::AdvanceCommand() {
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
   if (!db_accessor_) return;
   db_accessor_->AdvanceCommand();
 }
 
-void Interpreter::AbortCommand() {
-  prepared_query_ = std::nullopt;
-  execution_memory_.Release();
+void Interpreter::AbortCommand(std::optional<QueryExecution> *query_execution) {
+  if (query_execution) {
+    query_execution->reset();
+  }
   if (in_explicit_transaction_) {
     expect_rollback_ = true;
   } else {

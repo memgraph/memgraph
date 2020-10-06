@@ -220,7 +220,7 @@ class BoltSession final
 
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
-  std::vector<std::string> Interpret(
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query,
       const std::map<std::string, communication::bolt::Value> &params)
       override {
@@ -236,7 +236,7 @@ class BoltSession final
 #ifdef MG_ENTERPRISE
       if (user_) {
         const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.second) {
+        for (const auto &privilege : result.privileges) {
           if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
               auth::PermissionLevel::GRANT) {
             interpreter_.Abort();
@@ -247,7 +247,7 @@ class BoltSession final
         }
       }
 #endif
-      return result.first;
+      return {result.headers, result.qid};
 
     } catch (const query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
