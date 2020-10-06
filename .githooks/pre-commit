@@ -12,7 +12,8 @@ fi
 # Redirect output to stderr.
 exec 1>&2
 
-tmpdir=$(mktemp -d -t temp-XXXXXXXX)
+tmpdir=$(mktemp -d repo-XXXXXXXX)
+trap "rm -rf $tmpdir" EXIT INT
 
 modified_files=$(git diff --cached --name-only --diff-filter=AM $against | sed -nE "/.*\.(cpp|cc|cxx|c|h|hpp|lcp)/p")
 for file in $modified_files; do
@@ -27,7 +28,7 @@ for file in $modified_files; do
   code=$?
 
   if [ $code -ne 0 ]; then
-    break 
+    break
   fi
 
   echo "Running clang-tidy..."
@@ -35,7 +36,7 @@ for file in $modified_files; do
   code=$?
 
   if [ $code -ne 0 ]; then
-   break 
+   break
   fi
 done;
 

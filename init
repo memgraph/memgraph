@@ -196,4 +196,8 @@ setup_virtualenv tests/integration/ldap
 
 echo "Done installing dependencies for Memgraph"
 
-git config core.hooksPath .githooks
+echo "Linking git hooks"
+for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
+  ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+  echo "Added $hook hook"
+done;
