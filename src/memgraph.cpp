@@ -257,15 +257,16 @@ class BoltSession final
   }
 
   std::map<std::string, communication::bolt::Value> Pull(
-      TEncoder *encoder, std::optional<int> n) override {
+      TEncoder *encoder, std::optional<int> n,
+      std::optional<int> qid) override {
     TypedValueResultStream stream(encoder, db_);
-    return PullResults(stream, n);
+    return PullResults(stream, n, qid);
   }
 
   std::map<std::string, communication::bolt::Value> Discard(
-      std::optional<int> n) override {
+      std::optional<int> n, std::optional<int> qid) override {
     DiscardValueResultStream stream;
-    return PullResults(stream, n);
+    return PullResults(stream, n, qid);
   }
 
   void Abort() override { interpreter_.Abort(); }
@@ -289,9 +290,9 @@ class BoltSession final
  private:
   template <typename TStream>
   std::map<std::string, communication::bolt::Value> PullResults(
-      TStream &stream, std::optional<int> n) {
+      TStream &stream, std::optional<int> n, std::optional<int> qid) {
     try {
-      const auto &summary = interpreter_.Pull(&stream, n);
+      const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
         auto maybe_value =

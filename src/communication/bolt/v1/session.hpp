@@ -57,9 +57,11 @@ class Session {
    * Put results of the processed query in the `encoder`.
    */
   virtual std::map<std::string, Value> Pull(TEncoder *encoder,
-                                            std::optional<int> n) = 0;
+                                            std::optional<int> n,
+                                            std::optional<int> qid) = 0;
 
-  virtual std::map<std::string, Value> Discard(std::optional<int> n) = 0;
+  virtual std::map<std::string, Value> Discard(std::optional<int> n,
+                                               std::optional<int> qid) = 0;
 
   virtual void BeginTransaction() = 0;
   virtual void CommitTransaction() = 0;

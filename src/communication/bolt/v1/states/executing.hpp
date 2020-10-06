@@ -166,6 +166,7 @@ State HandlePullDiscard(Session &session, State state, Marker marker) {
 
   try {
     std::optional<int> n;
+    std::optional<int> qid;
 
     if (session.version_.major == 4) {
       Value extra;
@@ -179,14 +180,21 @@ State HandlePullDiscard(Session &session, State state, Marker marker) {
           n = n_value;
         }
       }
+
+      if (extra_map.count("qid")) {
+        if (const auto qid_value = extra_map.at("qid").ValueInt();
+            qid_value != kPullLast) {
+          qid = qid_value;
+        }
+      }
     }
 
     std::map<std::string, Value> summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(&session.encoder_, n);
+      summary = session.Pull(&session.encoder_, n, qid);
     } else {
-      summary = session.Discard(n);
+      summary = session.Discard(n, qid);
     }
 
     if (!session.encoder_.MessageSuccess(summary)) {

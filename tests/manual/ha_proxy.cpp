@@ -85,7 +85,7 @@ class BoltSession final
   }
 
   std::map<std::string, communication::bolt::Value> Pull(
-      TEncoder *encoder, std::optional<int>) override {
+      TEncoder *encoder, std::optional<int>, std::optional<int>) override {
     for (const auto &record : records_) {
       encoder->MessageRecord(record);
     }
@@ -93,7 +93,7 @@ class BoltSession final
   }
 
   std::map<std::string, communication::bolt::Value> Discard(
-      std::optional<int>) override {
+      std::optional<int>, std::optional<int>) override {
     return {};
   }
 
