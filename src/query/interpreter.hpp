@@ -240,9 +240,8 @@ class Interpreter final {
   /**
    * Prepare a query for execution.
    *
-   * To prepare a query for execution means to preprocess the query and adjust
-   * the state of the `Interpreter` in such a way so that the next call to
-   * `PullAll` executes the query.
+   * Preparing a query means to preprocess the query and save it for
+   * future calls of `Pull`.
    *
    * @throw query::QueryException
    */
@@ -271,6 +270,23 @@ class Interpreter final {
     return Pull(result_stream);
   }
 
+  /**
+   * Execute a prepared query and stream result into the given stream.
+   *
+   * TStream should be a type implementing the `Stream` concept, i.e. it should
+   * contain the member function `void Result(const std::vector<TypedValue> &)`.
+   * The provided vector argument is valid only for the duration of the call to
+   * `Result`. The stream should make an explicit copy if it wants to use it
+   * further.
+   *
+   * @param n If set, amount of rows to be pulled from result,
+   * otherwise all the rows are pulled.
+   * @param qid If set, id of the query from which the result should be pulled,
+   * otherwise the last query should be used.
+   *
+   * @throw utils::BasicException
+   * @throw query::QueryException
+   */
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream,
                                          std::optional<int> n = {},

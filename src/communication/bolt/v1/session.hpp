@@ -55,11 +55,24 @@ class Session {
 
   /**
    * Put results of the processed query in the `encoder`.
+   *
+   * @param n If set, defines amount of rows to be pulled from the result,
+   * otherwise all the rows are pulled.
+   * @param q If set, defines from which query to pull the results,
+   * otherwise the last query is used.
    */
   virtual std::map<std::string, Value> Pull(TEncoder *encoder,
                                             std::optional<int> n,
                                             std::optional<int> qid) = 0;
 
+  /**
+   * Discard results of the processed query.
+   *
+   * @param n If set, defines amount of rows to be discarded from the result,
+   * otherwise all the rows are discarded.
+   * @param q If set, defines from which query to discard the results,
+   * otherwise the last query is used.
+   */
   virtual std::map<std::string, Value> Discard(std::optional<int> n,
                                                std::optional<int> qid) = 0;
 

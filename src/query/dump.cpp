@@ -435,7 +435,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
             return 0;
           }} {}
 
-bool PullPlanDump::pull(AnyStream *stream, std::optional<int> n) {
+bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
   // Each function should return number of results it streamed after it
   // finishes. If the function did not finish streaming all the results,

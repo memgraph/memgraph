@@ -15,7 +15,7 @@ struct PullPlanDump {
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
-  bool pull(AnyStream *stream, std::optional<int> n);
+  bool Pull(AnyStream *stream, std::optional<int> n);
 
  private:
   query::DbAccessor *dba_ = nullptr;

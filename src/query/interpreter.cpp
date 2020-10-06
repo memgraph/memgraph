@@ -333,70 +333,68 @@ struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values)
       : values_(std::move(values)) {}
 
-  bool pull(AnyStream *stream, std::optional<int> n) {
-    int local_counter{0};
-    while (global_counter < values_.size() && (!n || local_counter < n)) {
-      stream->Result(values_[global_counter]);
-      ++global_counter;
-      ++local_counter;
+    bool Pull(AnyStream *stream, std::optional<int> n) {
+      int local_counter{0};
+      while (global_counter < values_.size() && (!n || local_counter < n)) {
+        stream->Result(values_[global_counter]);
+        ++global_counter;
+        ++local_counter;
+      }
+
+      return global_counter == values_.size();
     }
 
-    return global_counter == values_.size();
+   private:
+    int global_counter{0};
+    std::vector<std::vector<TypedValue>> values_;
+  };
+
+  struct PullPlan {
+    explicit PullPlan(std::shared_ptr<CachedPlan> plan,
+                      const Parameters &parameters, bool is_profile_query,
+                      DbAccessor *dba, InterpreterContext *interpreter_context,
+                      utils::MonotonicBufferResource *execution_memory);
+    std::optional<ExecutionContext> Pull(
+        AnyStream *stream, std::optional<int> n,
+        const std::vector<Symbol> &output_symbols,
+        std::map<std::string, TypedValue> *summary);
+
+   private:
+    std::shared_ptr<CachedPlan> plan_ = nullptr;
+    plan::UniqueCursorPtr cursor_ = nullptr;
+    Frame frame_;
+    ExecutionContext ctx_;
+    std::chrono::duration<double> execution_time_{0};
+
+    bool has_unsent_results_ = false;
+  };
+
+  PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
+                     const Parameters &parameters, const bool is_profile_query,
+                     DbAccessor *dba, InterpreterContext *interpreter_context,
+                     utils::MonotonicBufferResource *execution_memory)
+      : plan_(plan),
+        cursor_(plan->plan().MakeCursor(execution_memory)),
+        frame_(plan->symbol_table().max_position(), execution_memory) {
+    ctx_.db_accessor = dba;
+    ctx_.symbol_table = plan->symbol_table();
+    ctx_.evaluation_context.timestamp =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    ctx_.evaluation_context.parameters = parameters;
+    ctx_.evaluation_context.properties =
+        NamesToProperties(plan->ast_storage().properties_, dba);
+    ctx_.evaluation_context.labels =
+        NamesToLabels(plan->ast_storage().labels_, dba);
+    ctx_.execution_tsc_timer =
+        utils::TSCTimer(interpreter_context->tsc_frequency);
+    ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
+    ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
+    ctx_.is_profile_query = is_profile_query;
   }
 
- private:
-  int global_counter{0};
-  std::vector<std::vector<TypedValue>> values_;
-};
-
-struct PullPlan {
-  explicit PullPlan(std::shared_ptr<CachedPlan> plan,
-                    const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context,
-                    utils::MonotonicBufferResource *execution_memory);
-  std::optional<ExecutionContext> pull(
-      AnyStream *stream, std::optional<int> n,
-      const std::vector<Symbol> &output_symbols,
-      std::map<std::string, TypedValue> *summary);
-
- private:
-  std::shared_ptr<CachedPlan> plan_ = nullptr;
-  plan::UniqueCursorPtr cursor_ = nullptr;
-  // TODO (aandelic): Check if frame needs to be saved or can be created for
-  // every pull
-  Frame frame_;
-  ExecutionContext ctx_;
-  std::chrono::duration<double> execution_time_{0};
-
-  bool has_unsent_results_ = false;
-};
-
-PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
-                   const Parameters &parameters, const bool is_profile_query,
-                   DbAccessor *dba, InterpreterContext *interpreter_context,
-                   utils::MonotonicBufferResource *execution_memory)
-    : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
-      frame_(plan->symbol_table().max_position(), execution_memory) {
-  ctx_.db_accessor = dba;
-  ctx_.symbol_table = plan->symbol_table();
-  ctx_.evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  ctx_.evaluation_context.parameters = parameters;
-  ctx_.evaluation_context.properties =
-      NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx_.evaluation_context.labels =
-      NamesToLabels(plan->ast_storage().labels_, dba);
-  ctx_.execution_tsc_timer =
-      utils::TSCTimer(interpreter_context->tsc_frequency);
-  ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
-  ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
-  ctx_.is_profile_query = is_profile_query;
-}
-
-std::optional<ExecutionContext> PullPlan::pull(
+  std::optional<ExecutionContext> PullPlan::Pull(
     AnyStream *stream, std::optional<int> n,
     const std::vector<Symbol> &output_symbols,
     std::map<std::string, TypedValue> *summary) {
@@ -541,7 +539,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
         throw;
       }
 
-      // TODO (antonio2368): Check what should be done if there are some
+      // TODO(antonio2368): Check what should be done if there are some
       // unfinished queries.
       query_executions_.clear();
       expect_rollback_ = false;
@@ -554,7 +552,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
             "No current transaction to rollback.");
       }
       Abort();
-      // TODO (antonio2368): Check what should be done if there are some
+      // TODO(antonio2368): Check what should be done if there are some
       // unfinished queries.
       query_executions_.clear();
       expect_rollback_ = false;
@@ -606,7 +604,7 @@ PreparedQuery PrepareCypherQuery(
        output_symbols = std::move(output_symbols),
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->pull(stream, n, output_symbols, summary)) {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -661,7 +659,7 @@ PreparedQuery PrepareExplainQuery(
            std::make_shared<PullPlanVector>(std::move(printed_plan_rows))](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->pull(stream, n)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -734,14 +732,14 @@ PreparedQuery PrepareProfileQuery(
         if (!ctx) {
           ctx = PullPlan(plan, parameters, true, dba, interpreter_context,
                          execution_memory)
-                    .pull(stream, {}, {}, summary);
+                    .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(
               ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
 
         CHECK(ctx) << "Failed to execute the query!";
 
-        if (pull_plan->pull(stream, n)) {
+        if (pull_plan->Pull(stream, n)) {
           summary->insert_or_assign(
               "profile",
               ProfilingStatsToJson(ctx->stats, ctx->profile_execution_time)
@@ -762,7 +760,7 @@ PreparedQuery PrepareDumpQuery(
       [pull_plan = std::make_shared<PullPlanDump>(dba)](
           AnyStream *stream,
           std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->pull(stream, n)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -874,7 +872,7 @@ PreparedQuery PrepareAuthQuery(
        output_symbols = std::move(output_symbols),
        summary](AnyStream *stream,
                 std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->pull(stream, n, output_symbols, summary)) {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
           return callback.should_abort_query ? QueryHandlerResult::ABORT
                                              : QueryHandlerResult::COMMIT;
         }
@@ -973,7 +971,7 @@ PreparedQuery PrepareInfoQuery(
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
 
-        if (pull_plan->pull(stream, n)) {
+        if (pull_plan->Pull(stream, n)) {
           return action;
         }
         return std::nullopt;
@@ -1159,7 +1157,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, storage::PropertyValue> &params) {
   if (!in_explicit_transaction_) {
-    // TODO (antonio2368): Should this throw?
+    // TODO(antonio2368): Should this throw?
     CHECK(!ActiveQueryExecutions()) << "Only one active execution allowed "
                                        "while not in explicit transaction!";
     query_executions_.clear();
