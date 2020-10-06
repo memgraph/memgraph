@@ -27,13 +27,13 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       : Session<TestInputStream, TestOutputStream>(input_stream,
                                                    output_stream) {}
 
-  std::vector<std::string> Interpret(
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query,
       const std::map<std::string, Value> &params) override {
     if (query == kQueryReturn42 || query == kQueryEmpty ||
         query == kQueryReturnMultiple) {
       query_ = query;
-      return {"result_name"};
+      return {{"result_name"}, {}};
     } else {
       query_ = "";
       throw ClientError("client sent invalid query");

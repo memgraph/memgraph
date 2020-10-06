@@ -38,13 +38,14 @@ class InterpreterTest : public ::testing::Test {
       const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(&db_);
 
-    const auto [header, _] = interpreter_.Prepare(query, params);
+    const auto [header, _, qid] = interpreter_.Prepare(query, params);
     stream.Header(header);
-    return stream;
+    return std::pair{std::move(stream), qid};
   }
 
-  void Pull(ResultStreamFaker *stream, std::optional<int> n = {}) {
-    const auto summary = interpreter_.Pull(stream, n);
+  void Pull(ResultStreamFaker *stream, std::optional<int> n = {},
+            std::optional<int> qid = {}) {
+    const auto summary = interpreter_.Pull(stream, n, qid);
     stream->Summary(summary);
   }
 
@@ -56,18 +57,19 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(
       const std::string &query,
       const std::map<std::string, storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream = Prepare(query, params);
+    auto prepare_result = Prepare(query, params);
 
-    auto summary = interpreter_.Pull(&stream);
+    auto &stream = prepare_result.first;
+    auto summary = interpreter_.Pull(&stream, {}, prepare_result.second);
     stream.Summary(summary);
 
-    return stream;
+    return std::move(stream);
   }
 };
 
 TEST_F(InterpreterTest, MultiplePulls) {
   {
-    auto stream = Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
+    auto [stream, qid] = Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "n");
     Pull(&stream, 1);
@@ -524,7 +526,7 @@ TEST_F(InterpreterTest, ExplainQuery) {
 TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
-  auto stream = Prepare("EXPLAIN MATCH (n) RETURN *;");
+  auto [stream, qid] = Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
   std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
@@ -634,7 +636,7 @@ TEST_F(InterpreterTest, ProfileQuery) {
 TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
-  auto stream = Prepare("PROFILE MATCH (n) RETURN *;");
+  auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
                                            "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -736,7 +738,7 @@ TEST_F(InterpreterTest, Transactions) {
     interpreter_.BeginTransaction();
     ASSERT_THROW(interpreter_.BeginTransaction(),
                  query::ExplicitTransactionUsageException);
-    auto stream = Prepare("RETURN 2");
+    auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");
     Pull(&stream, 1);
@@ -748,7 +750,7 @@ TEST_F(InterpreterTest, Transactions) {
   }
   {
     interpreter_.BeginTransaction();
-    auto stream = Prepare("RETURN 2");
+    auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");
     Pull(&stream, 1);
@@ -757,5 +759,73 @@ TEST_F(InterpreterTest, Transactions) {
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
     interpreter_.RollbackTransaction();
+  }
+}
+
+TEST_F(InterpreterTest, Qid) {
+  {
+    interpreter_.BeginTransaction();
+    auto [stream, qid] = Prepare("RETURN 2");
+    ASSERT_TRUE(qid);
+    ASSERT_THROW(Pull(&stream, {}, *qid + 1), query::InvalidArgumentsException);
+    interpreter_.RollbackTransaction();
+  }
+  {
+    interpreter_.BeginTransaction();
+    auto [stream1, qid1] = Prepare("UNWIND(range(1,3)) as n RETURN n");
+    ASSERT_TRUE(qid1);
+    ASSERT_EQ(stream1.GetHeader().size(), 1U);
+    EXPECT_EQ(stream1.GetHeader()[0], "n");
+
+    auto [stream2, qid2] = Prepare("UNWIND(range(4,6)) as n RETURN n");
+    ASSERT_TRUE(qid2);
+    ASSERT_EQ(stream2.GetHeader().size(), 1U);
+    EXPECT_EQ(stream2.GetHeader()[0], "n");
+
+    Pull(&stream1, 1, qid1);
+    ASSERT_EQ(stream1.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream1.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream1.GetResults().size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[0][0].ValueInt(), 1);
+
+    auto [stream3, qid3] = Prepare("UNWIND(range(7,9)) as n RETURN n");
+    ASSERT_TRUE(qid3);
+    ASSERT_EQ(stream3.GetHeader().size(), 1U);
+    EXPECT_EQ(stream3.GetHeader()[0], "n");
+
+    Pull(&stream2, {}, qid2);
+    ASSERT_EQ(stream2.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream2.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream2.GetResults().size(), 3U);
+    ASSERT_EQ(stream2.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream2.GetResults()[0][0].ValueInt(), 4);
+    ASSERT_EQ(stream2.GetResults()[1][0].ValueInt(), 5);
+    ASSERT_EQ(stream2.GetResults()[2][0].ValueInt(), 6);
+
+    Pull(&stream3, 1, qid3);
+    ASSERT_EQ(stream3.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream3.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream3.GetResults().size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[0][0].ValueInt(), 7);
+
+    Pull(&stream1, {}, qid1);
+    ASSERT_EQ(stream1.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream1.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream1.GetResults().size(), 3U);
+    ASSERT_EQ(stream1.GetResults()[1].size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[1][0].ValueInt(), 2);
+    ASSERT_EQ(stream1.GetResults()[2][0].ValueInt(), 3);
+
+    Pull(&stream3);
+    ASSERT_EQ(stream3.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream3.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream3.GetResults().size(), 3U);
+    ASSERT_EQ(stream3.GetResults()[1].size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[1][0].ValueInt(), 8);
+    ASSERT_EQ(stream3.GetResults()[2][0].ValueInt(), 9);
+
+    interpreter_.CommitTransaction();
   }
 }
