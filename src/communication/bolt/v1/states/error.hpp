@@ -43,15 +43,10 @@ State StateErrorRun(TSession &session, State state) {
       DLOG(INFO) << "Reset received";
     }
 
-    // From version 4.0 client doesn't expect response message for a RESET
-    // or at least it shouldn't expect, but all the drivers wait for the
-    // success message
-    // if (session.version_.major == 1) {
-      if (!session.encoder_.MessageSuccess()) {
-        DLOG(WARNING) << "Couldn't send success message!";
-        return State::Close;
-      }
-    // }
+    if (!session.encoder_.MessageSuccess()) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
 
     if (signature == Signature::Reset) {
       session.Abort();
