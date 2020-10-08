@@ -1,9 +1,9 @@
-FROM debian:stretch
+FROM debian:buster
 
 ARG deb_release
 
 RUN apt-get update && apt-get install -y \
-    openssl libcurl3 libssl1.1 python3 libpython3.5 python3-pip \
+    openssl libcurl4 libssl1.1 python3 libpython3.7 python3-pip \
     --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
