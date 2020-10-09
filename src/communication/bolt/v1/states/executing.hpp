@@ -64,6 +64,23 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(
 }
 
 template <typename TSession>
+inline State HandleFailure(TSession &session, const std::exception &e) {
+  DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+  if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+    DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+  }
+  session.encoder_buffer_.Clear();
+  auto code_message = ExceptionToErrorMessage(e);
+  bool fail_sent = session.encoder_.MessageFailure(
+      {{"code", code_message.first}, {"message", code_message.second}});
+  if (!fail_sent) {
+    DLOG(WARNING) << "Couldn't send failure message!";
+    return State::Close;
+  }
+  return State::Error;
+}
+
+template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
   const std::map<std::string, Value> kEmptyFields = {
       {"fields", std::vector<Value>{}}};
@@ -125,25 +142,13 @@ State HandleRun(TSession &session, State state, Marker marker) {
     }
     return State::Result;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 
 namespace detail {
-template <bool is_pull, typename Session>
-State HandlePullDiscard(Session &session, State state, Marker marker) {
+template <bool is_pull, typename TSession>
+State HandlePullDiscard(TSession &session, State state, Marker marker) {
   const auto expected_marker =
       session.version_.major == 1 ? Marker::TinyStruct : Marker::TinyStruct1;
   if (marker != expected_marker) {
@@ -208,19 +213,7 @@ State HandlePullDiscard(Session &session, State state, Marker marker) {
 
     return State::Idle;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 }  // namespace detail
@@ -302,19 +295,7 @@ State HandleBegin(Session &session, State state, Marker marker) {
     session.BeginTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 
@@ -348,19 +329,7 @@ State HandleCommit(Session &session, State state, Marker marker) {
     session.CommitTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 
@@ -394,19 +363,7 @@ State HandleRollback(Session &session, State state, Marker marker) {
     session.RollbackTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 
