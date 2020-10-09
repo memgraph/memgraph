@@ -150,6 +150,10 @@ State StateInitRun(Session &session) {
   // Return success.
   {
     bool success_sent = false;
+    // Neo4j's Java driver 4.1.1+ requires connection_id.
+    // The only usage in the mentioned version is for logging purposes.
+    // Because it's not critical for the regular usage of the driver
+    // we send a hardcoded value for now.
     std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
     if (auto server_name = session.GetServerNameForInit(); server_name) {
       metadata.insert({"server", *server_name});

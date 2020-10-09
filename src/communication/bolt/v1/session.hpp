@@ -49,6 +49,8 @@ class Session {
 
   /**
    * Process the given `query` with `params`.
+   * @return A pair which contains list of headers and qid which is set only
+   * if an explicit transaction was started.
    */
   virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params) = 0;

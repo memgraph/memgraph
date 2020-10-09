@@ -35,14 +35,14 @@ State StateHandshakeRun(TSession &session) {
     dataPosition += 2;  // version is defined only by the last 2 bytes
 
     uint16_t version = 0;
-    memcpy(&version, dataPosition, sizeof(version));
+    std::memcpy(&version, dataPosition, sizeof(version));
     if (!version) {
       break;
     }
 
     for (const auto supportedVersion : kSupportedVersions) {
       if (supportedVersion == version) {
-        memcpy(protocol + 2, &version, sizeof(version));
+        std::memcpy(protocol + 2, &version, sizeof(version));
         break;
       }
     }
