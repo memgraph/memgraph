@@ -35,7 +35,7 @@ class Parser {
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
-    void syntaxError(antlr4::IRecognizer *, antlr4::Token *, size_t line,
+    void syntaxError(antlr4::Recognizer *, antlr4::Token *, size_t line,
                      size_t position, const std::string &message,
                      std::exception_ptr) override {
       if (error_.empty()) {

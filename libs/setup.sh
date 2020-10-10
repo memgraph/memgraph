@@ -44,13 +44,11 @@ clone () {
 }
 
 # antlr
-antlr_generator_filename="antlr-4.6-complete.jar"
-# wget -O ${antlr_generator_filename} http://www.antlr.org/download/${antlr_generator_filename}
+antlr_generator_filename="antlr-4.8-complete.jar"
+# wget -nv -O ${antlr_generator_filename} http://www.antlr.org/download/${antlr_generator_filename}
 wget -nv -O ${antlr_generator_filename} https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${antlr_generator_filename}
-antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
+antlr4_tag="7a3f40bc341ddfb463d6e0aa1a6265064d020cb6" # v4.8 2020-01-20
 clone https://github.com/antlr/antlr4.git antlr4 $antlr4_tag
-# fix missing include
-sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp/runtime/src/support/CPPUtils.h
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 

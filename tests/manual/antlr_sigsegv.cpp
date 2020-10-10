@@ -10,6 +10,12 @@
 #include "utils/signals.hpp"
 #include "utils/stacktrace.hpp"
 
+// This test was introduced because Antlr Cpp runtime doesn't work well in a
+// highly concurrent environment. Interpreter `interpret.hpp` contains
+// `antlr_lock` used to avoid crashes.
+//   v4.6 -> crashes.
+//   v4.8 -> doesn't not crash but sometimes this tests doesn not finish.
+
 using namespace std::chrono_literals;
 
 TEST(Antlr, Sigsegv) {
