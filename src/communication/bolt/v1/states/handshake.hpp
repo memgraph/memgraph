@@ -19,7 +19,7 @@ namespace communication::bolt {
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
   auto precmp =
-      memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
+      std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
     DLOG(WARNING) << "Received a wrong preamble!";
     return State::Close;

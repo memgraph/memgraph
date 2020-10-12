@@ -384,7 +384,7 @@ State StateExecutingRun(Session &session, State state) {
 
   if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
                session.version_.minor == 1)) {
-    LOG(INFO) << "Received NOOP message";
+    DLOG(INFO) << "Received NOOP message";
     return state;
   }
 
@@ -392,7 +392,7 @@ State StateExecutingRun(Session &session, State state) {
     return HandleRun(session, state, marker);
   } else if (signature == Signature::Pull) {
     return HandlePull(session, state, marker);
-  } else if (signature == Signature::DiscardAll) {
+  } else if (signature == Signature::Discard) {
     return HandleDiscard(session, state, marker);
   } else if (signature == Signature::Begin) {
     return HandleBegin(session, state, marker);

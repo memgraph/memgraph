@@ -316,11 +316,25 @@ class Interpreter final {
     QueryExecution &operator=(QueryExecution &&) = default;
 
     ~QueryExecution() {
+      // We should always release the execution memory AFTER we
+      // destroy the prepared query which is using that instance
+      // of execution memory.
       prepared_query.reset();
       execution_memory.Release();
     }
   };
 
+  // Interpreter supports multiple prepared queries at the same time.
+  // The client can reference a specific query for pull using an arbitrary qid
+  // which is in our case the index of the query in the vector.
+  // To simplify the handling of the qid we avoid modifying the vector if it
+  // affects the position of the currently running queries in any way.
+  // For example, we cannot delete the prepared query from the vector because
+  // every prepared query after the deleted one will be moved by one place
+  // making their qid not equal to the their index inside the vector.
+  // To avoid this, we use optional with which we manualy control construction
+  // and deletion of a single query execution, i.e. when a query finishes,
+  // we reset the corresponding optional.
   std::vector<std::optional<QueryExecution>> query_executions_;
 
   InterpreterContext *interpreter_context_;
@@ -367,6 +381,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
   CHECK(query_execution && query_execution->prepared_query)
       << "Query already finished executing!";
 
+  // Each prepared query has its own summary so we need to somehow preserve
+  // it after it finishes executing because it gets destroyed alongside
+  // the prepared query and its execution memory.
   std::optional<std::map<std::string, TypedValue>> maybe_summary;
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
@@ -375,6 +392,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
     const auto maybe_res =
         query_execution->prepared_query->query_handler(&stream, n);
 
+    // If the query finished executing, we have received a value which tells
+    // us what to do after.
     if (maybe_res) {
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
@@ -392,8 +411,18 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
             break;
         }
       }
+      // Preserve summary and destroy the query execution
       maybe_summary.emplace(std::move(query_execution->summary));
       query_execution.reset();
+
+      // We can safely delete query executions from the end of the vector
+      // if it finished executing, because no unfinished query execution
+      // is moved inside the vector making their qid still valid.
+      // We can also remove from the end all previously finished query
+      // executions.
+      while (!query_executions_.empty() && !query_executions_.back()) {
+        query_executions_.pop_back();
+      }
     }
   } catch (const ExplicitTransactionUsageException &) {
     query_execution.reset();
@@ -401,10 +430,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
   } catch (const utils::BasicException &) {
     AbortCommand(&query_execution);
     throw;
-  }
-
-  while (!query_executions_.empty() && !query_executions_.back()) {
-    query_executions_.pop_back();
   }
 
   if (maybe_summary) {

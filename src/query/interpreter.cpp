@@ -329,72 +329,85 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context)
 }
 
 namespace {
+// Struct for lazy pulling from a vector
 struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values)
       : values_(std::move(values)) {}
 
-    bool Pull(AnyStream *stream, std::optional<int> n) {
-      int local_counter{0};
-      while (global_counter < values_.size() && (!n || local_counter < n)) {
-        stream->Result(values_[global_counter]);
-        ++global_counter;
-        ++local_counter;
-      }
-
-      return global_counter == values_.size();
+  // @return true if there are more unstreamed elements in vector,
+  // false otherwise.
+  bool Pull(AnyStream *stream, std::optional<int> n) {
+    int local_counter{0};
+    while (global_counter < values_.size() && (!n || local_counter < n)) {
+      stream->Result(values_[global_counter]);
+      ++global_counter;
+      ++local_counter;
     }
 
-   private:
-    int global_counter{0};
-    std::vector<std::vector<TypedValue>> values_;
-  };
-
-  struct PullPlan {
-    explicit PullPlan(std::shared_ptr<CachedPlan> plan,
-                      const Parameters &parameters, bool is_profile_query,
-                      DbAccessor *dba, InterpreterContext *interpreter_context,
-                      utils::MonotonicBufferResource *execution_memory);
-    std::optional<ExecutionContext> Pull(
-        AnyStream *stream, std::optional<int> n,
-        const std::vector<Symbol> &output_symbols,
-        std::map<std::string, TypedValue> *summary);
-
-   private:
-    std::shared_ptr<CachedPlan> plan_ = nullptr;
-    plan::UniqueCursorPtr cursor_ = nullptr;
-    Frame frame_;
-    ExecutionContext ctx_;
-    std::chrono::duration<double> execution_time_{0};
-
-    bool has_unsent_results_ = false;
-  };
-
-  PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
-                     const Parameters &parameters, const bool is_profile_query,
-                     DbAccessor *dba, InterpreterContext *interpreter_context,
-                     utils::MonotonicBufferResource *execution_memory)
-      : plan_(plan),
-        cursor_(plan->plan().MakeCursor(execution_memory)),
-        frame_(plan->symbol_table().max_position(), execution_memory) {
-    ctx_.db_accessor = dba;
-    ctx_.symbol_table = plan->symbol_table();
-    ctx_.evaluation_context.timestamp =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
-    ctx_.evaluation_context.parameters = parameters;
-    ctx_.evaluation_context.properties =
-        NamesToProperties(plan->ast_storage().properties_, dba);
-    ctx_.evaluation_context.labels =
-        NamesToLabels(plan->ast_storage().labels_, dba);
-    ctx_.execution_tsc_timer =
-        utils::TSCTimer(interpreter_context->tsc_frequency);
-    ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
-    ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
-    ctx_.is_profile_query = is_profile_query;
+    return global_counter == values_.size();
   }
 
-  std::optional<ExecutionContext> PullPlan::Pull(
+ private:
+  int global_counter{0};
+  std::vector<std::vector<TypedValue>> values_;
+};
+
+struct PullPlan {
+  explicit PullPlan(std::shared_ptr<CachedPlan> plan,
+                    const Parameters &parameters, bool is_profile_query,
+                    DbAccessor *dba, InterpreterContext *interpreter_context,
+                    utils::MonotonicBufferResource *execution_memory);
+  std::optional<ExecutionContext> Pull(
+      AnyStream *stream, std::optional<int> n,
+      const std::vector<Symbol> &output_symbols,
+      std::map<std::string, TypedValue> *summary);
+
+ private:
+  std::shared_ptr<CachedPlan> plan_ = nullptr;
+  plan::UniqueCursorPtr cursor_ = nullptr;
+  Frame frame_;
+  ExecutionContext ctx_;
+
+  // As it's possible to query execution using multiple pulls
+  // we need the keep track of the total execution time across
+  // those pulls by accumulating the execution time.
+  std::chrono::duration<double> execution_time_{0};
+
+  // To pull the results from a query we call the `Pull` method on
+  // the cursor which saves the results in a Frame.
+  // Becuase we can't find out if there are some saved results in a frame,
+  // and the cursor cannot deduce if the next pull will have a result,
+  // we have to keep track of any unsent results from previous `PullPlan::Pull`
+  // manually by using this flag.
+  bool has_unsent_results_ = false;
+};
+
+PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
+                   const Parameters &parameters, const bool is_profile_query,
+                   DbAccessor *dba, InterpreterContext *interpreter_context,
+                   utils::MonotonicBufferResource *execution_memory)
+    : plan_(plan),
+      cursor_(plan->plan().MakeCursor(execution_memory)),
+      frame_(plan->symbol_table().max_position(), execution_memory) {
+  ctx_.db_accessor = dba;
+  ctx_.symbol_table = plan->symbol_table();
+  ctx_.evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  ctx_.evaluation_context.parameters = parameters;
+  ctx_.evaluation_context.properties =
+      NamesToProperties(plan->ast_storage().properties_, dba);
+  ctx_.evaluation_context.labels =
+      NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.execution_tsc_timer =
+      utils::TSCTimer(interpreter_context->tsc_frequency);
+  ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
+  ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
+  ctx_.is_profile_query = is_profile_query;
+}
+
+std::optional<ExecutionContext> PullPlan::Pull(
     AnyStream *stream, std::optional<int> n,
     const std::vector<Symbol> &output_symbols,
     std::map<std::string, TypedValue> *summary) {
@@ -404,7 +417,8 @@ struct PullPlanVector {
   constexpr size_t stack_size = 256 * 1024;
   char stack_data[stack_size];
 
-  const auto pull_result = [&]() {
+  // Returns true if a result was pulled.
+  const auto pull_result = [&]() -> bool {
     utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
     // TODO (mferencevic): Tune the parameters accordingly.
     utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
@@ -425,13 +439,14 @@ struct PullPlanVector {
     stream->Result(values);
   };
 
+  // Get the execution time of all possible result pulls and streams.
+  utils::Timer timer;
+
   int i = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
     stream_values();
     ++i;
   }
-
-  utils::Timer timer;
 
   for (; !n || i < n; ++i) {
     if (!pull_result()) {
@@ -443,9 +458,13 @@ struct PullPlanVector {
     }
   }
 
-  execution_time_ += timer.Elapsed();
-
+  // If we finished because we streamed the requested n results,
+  // we try to pull the next result to see if there is more.
+  // If there is additional result, we leave the pulled result in the frame
+  // and set the flag to true.
   has_unsent_results_ = i == n && pull_result();
+
+  execution_time_ += timer.Elapsed();
 
   if (has_unsent_results_) {
     return std::nullopt;
@@ -539,8 +558,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
         throw;
       }
 
-      // TODO(antonio2368): Check what should be done if there are some
-      // unfinished queries.
       query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
@@ -552,8 +569,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
             "No current transaction to rollback.");
       }
       Abort();
-      // TODO(antonio2368): Check what should be done if there are some
-      // unfinished queries.
       query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
@@ -724,6 +739,8 @@ PreparedQuery PrepareProfileQuery(
       [plan = std::move(cypher_query_plan),
        parameters = std::move(parsed_inner_query.parameters), summary, dba,
        interpreter_context, execution_memory,
+       // We want to execute the query we are profiling lazily, so we delay
+       // the construction of the corresponding context.
        ctx = std::optional<ExecutionContext>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
           AnyStream *stream,
@@ -1287,6 +1304,11 @@ void Interpreter::Abort() {
 }
 
 void Interpreter::Commit() {
+  // It's possible that some queries did not finish because the user did
+  // not pull all of the results from the query.
+  // For now, we will not check if there are some unfinished queries.
+  // We should document clearly that all results should be pulled to complete
+  // a query.
   if (!db_accessor_) return;
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {

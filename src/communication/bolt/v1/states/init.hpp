@@ -95,7 +95,7 @@ State StateInitRun(Session &session) {
 
   if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
                session.version_.minor == 1)) {
-    LOG(INFO) << "Received NOOP message";
+    DLOG(INFO) << "Received NOOP message";
     return State::Init;
   }
 

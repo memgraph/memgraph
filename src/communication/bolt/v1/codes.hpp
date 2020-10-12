@@ -15,7 +15,7 @@ enum class Signature : uint8_t {
   Goodbye = 0x02,
 
   Run = 0x10,
-  DiscardAll = 0x2F,
+  Discard = 0x2F,
   Pull = 0x3F,
   Begin = 0x11,
   Commit = 0x12,

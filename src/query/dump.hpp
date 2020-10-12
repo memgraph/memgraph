@@ -37,6 +37,12 @@ struct PullPlanDump {
   bool internal_index_created_ = false;
 
   size_t current_function_index_ = 0;
+
+  // We define every part of the dump query in a self contained function.
+  // Each functions is responsible of keeping track of its execution status.
+  // If a function did finish its execution, it should return number of results
+  // it streamed so we know how many rows should be pulled from the next
+  // function, otherwise std::nullopt is returned.
   std::vector<std::function<std::optional<size_t>(AnyStream *stream,
                                                   std::optional<int> n)>>
       pull_functions_;
