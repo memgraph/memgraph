@@ -36,7 +36,7 @@ struct PullPlanDump {
   VertexAccessorIterable vertices_iterable_;
   bool internal_index_created_ = false;
 
-  size_t current_function_index_ = 0;
+  size_t current_chunk_index_ = 0;
 
   // We define every part of the dump query in a self contained function.
   // Each functions is responsible of keeping track of its execution status.
@@ -45,6 +45,6 @@ struct PullPlanDump {
   // function, otherwise std::nullopt is returned.
   std::vector<std::function<std::optional<size_t>(AnyStream *stream,
                                                   std::optional<int> n)>>
-      pull_functions_;
+      pull_chunks_;
 };
 }  // namespace query

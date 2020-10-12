@@ -226,7 +226,7 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba,
 PullPlanDump::PullPlanDump(DbAccessor *dba)
     : dba_(dba),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_functions_{
+      pull_chunks_{
           // Dump all label indices
           [this, global_index = 0U](
               AnyStream *stream,
@@ -359,7 +359,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
               std::optional<int> n) mutable -> std::optional<size_t> {
             // Delay the call of begin() function
             // If multiple begins are called before an iteration,
-            // one iteration will make the rest of iterators in undefined
+            // one iteration will make the rest of iterators be in undefined
             // states.
             if (!maybe_current_iter) {
               maybe_current_iter.emplace(vertices_iterable_.begin());
@@ -392,7 +392,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
               std::optional<int> n) mutable -> std::optional<size_t> {
             // Delay the call of begin() function
             // If multiple begins are called before an iteration,
-            // one iteration will make the rest of iterators in undefined
+            // one iteration will make the rest of iterators be in undefined
             // states.
             if (!maybe_current_vertex_iter) {
               maybe_current_vertex_iter.emplace(vertices_iterable_.begin());
@@ -460,22 +460,27 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
   // Each function should return number of results it streamed after it
   // finishes. If the function did not finish streaming all the results,
-  // std::nullopt should be returned.
-  while (current_function_index_ < pull_functions_.size() && (!n || *n > 0)) {
+  // std::nullopt should be returned because n results have already been sent.
+  while (current_chunk_index_ < pull_chunks_.size() && (!n || *n > 0)) {
     const auto maybe_streamed_count =
-        pull_functions_[current_function_index_](stream, n);
+        pull_chunks_[current_chunk_index_](stream, n);
 
     if (!maybe_streamed_count) {
+      // n wasn't large enough to stream all the results from the current chunk
       break;
     }
 
     if (n) {
+      // chunk finished streaming its results
+      // subtract number of results streamed in current pull
+      // so we know how many results we need to stream from future
+      // chunks.
       *n -= *maybe_streamed_count;
     }
 
-    ++current_function_index_;
+    ++current_chunk_index_;
   }
-  return current_function_index_ == pull_functions_.size();
+  return current_chunk_index_ == pull_chunks_.size();
 }
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
