@@ -1180,7 +1180,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
     query_executions_.clear();
   }
 
-  query_executions_.emplace_back(QueryExecution{});
+  query_executions_.emplace_back(std::make_unique<QueryExecution>());
   auto &query_execution = query_executions_.back();
   std::optional<int> qid = in_explicit_transaction_
                                ? static_cast<int>(query_executions_.size() - 1)
@@ -1354,9 +1354,10 @@ void Interpreter::AdvanceCommand() {
   db_accessor_->AdvanceCommand();
 }
 
-void Interpreter::AbortCommand(std::optional<QueryExecution> *query_execution) {
+void Interpreter::AbortCommand(
+    std::unique_ptr<QueryExecution> *query_execution) {
   if (query_execution) {
-    query_execution->reset();
+    query_execution->reset(nullptr);
   }
   if (in_explicit_transaction_) {
     expect_rollback_ = true;

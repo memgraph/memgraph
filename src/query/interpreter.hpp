@@ -335,7 +335,7 @@ class Interpreter final {
   // To avoid this, we use optional with which we manualy control construction
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding optional.
-  std::vector<std::optional<QueryExecution>> query_executions_;
+  std::vector<std::unique_ptr<QueryExecution>> query_executions_;
 
   InterpreterContext *interpreter_context_;
 
@@ -347,7 +347,7 @@ class Interpreter final {
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
-  void AbortCommand(std::optional<QueryExecution> *query_execution);
+  void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
 
   size_t ActiveQueryExecutions() {
     return std::count_if(query_executions_.begin(), query_executions_.end(),
@@ -411,21 +411,18 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
             break;
         }
       }
-      // Preserve summary and destroy the query execution
-      maybe_summary.emplace(std::move(query_execution->summary));
-      query_execution.reset();
 
-      // We can safely delete query executions from the end of the vector
-      // if it finished executing, because no unfinished query execution
-      // is moved inside the vector making their qid still valid.
-      // We can also remove from the end all previously finished query
-      // executions.
-      while (!query_executions_.empty() && !query_executions_.back()) {
-        query_executions_.pop_back();
+      // Transaction commits and rollbacks clear query executions
+      if (!query_executions_.empty()) {
+        // Preserve summary and destroy the query execution
+        maybe_summary.emplace(std::move(query_execution->summary));
+        query_execution.reset(nullptr);
+      } else {
+        maybe_summary.emplace();
       }
     }
   } catch (const ExplicitTransactionUsageException &) {
-    query_execution.reset();
+    query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
     AbortCommand(&query_execution);
