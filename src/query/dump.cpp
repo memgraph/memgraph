@@ -386,8 +386,11 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
           [this,
            maybe_current_vertex_iter =
                std::optional<VertexAccessorIterableIterator>{},
+           // we need to save the iterable which contains list of accessor so
+           // our saved iterator is valid in the next run
+           maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},
            maybe_current_edge_iter =
-               std::optional<EdgeAcessorIterableIterator>{}](
+               std::optional<EdgeAccessorIterableIterator>{}](
               AnyStream *stream,
               std::optional<int> n) mutable -> std::optional<size_t> {
             // Delay the call of begin() function
@@ -404,7 +407,13 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
                    (!n || local_counter < *n);
                  ++current_vertex_iter) {
               const auto &vertex = *current_vertex_iter;
-              auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+              // If we have a saved iterable from a previous pull
+              // we need to use the same iterable
+              if (!maybe_edge_iterable) {
+                maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(
+                    vertex.OutEdges(storage::View::OLD));
+              }
+              auto &maybe_edges = *maybe_edge_iterable;
               CHECK(maybe_edges.HasValue()) << "Invalid database state!";
               auto current_edge_iter = maybe_current_edge_iter
                                            ? *maybe_current_edge_iter
@@ -425,6 +434,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
               }
 
               maybe_current_edge_iter = std::nullopt;
+              maybe_edge_iterable = nullptr;
             }
 
             if (current_vertex_iter == vertices_iterable_.end()) {
