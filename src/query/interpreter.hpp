@@ -2,7 +2,6 @@
 
 #include <gflags/gflags.h>
 
-#include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"

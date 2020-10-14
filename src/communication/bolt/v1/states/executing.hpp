@@ -12,7 +12,6 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
-#include "query/constants.hpp"
 #include "utils/likely.hpp"
 
 namespace communication::bolt {
