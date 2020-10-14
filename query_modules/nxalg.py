@@ -2,11 +2,13 @@ import sys
 import mgp
 try:
     import networkx as nx
+    import numpy  # noqa E401
+    import scipy  # noqa E401
 except ImportError as import_error:
     sys.stderr.write((
         '\n'
-        'NOTE: Please install networkx to be able to use proxied '
-        'NetworkX algorithms. E.g., CALL nxalg.pagerank(...).\n'
+        'NOTE: Please install networkx, numpy, scipy to be able to '
+        'use proxied NetworkX algorithms. E.g., CALL nxalg.pagerank(...).\n'
         'Using Python:\n'
         + sys.version +
         '\n'))
