@@ -558,7 +558,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
         throw;
       }
 
-      query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
     };
@@ -569,7 +568,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
             "No current transaction to rollback.");
       }
       Abort();
-      query_executions_.clear();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
     };

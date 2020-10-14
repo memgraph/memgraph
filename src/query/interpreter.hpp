@@ -390,10 +390,16 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
     AnyStream stream{result_stream, &query_execution->execution_memory};
     const auto maybe_res =
         query_execution->prepared_query->query_handler(&stream, n);
+    // Stream is using execution memory of the query_execution which
+    // can be deleted after its execution so the stream should be cleared
+    // first.
+    stream.~AnyStream();
 
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
+      // Save its summary
+      maybe_summary.emplace(std::move(query_execution->summary));
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
           case QueryHandlerResult::COMMIT:
@@ -409,15 +415,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
             CHECK(in_explicit_transaction_ || !db_accessor_);
             break;
         }
-      }
-
-      // Transaction commits and rollbacks clear query executions
-      if (!query_executions_.empty()) {
-        // Preserve summary and destroy the query execution
-        maybe_summary.emplace(std::move(query_execution->summary));
-        query_execution.reset(nullptr);
+        // As the transaction is done we can clear all the executions
+        query_executions_.clear();
       } else {
-        maybe_summary.emplace();
+        // We can only clear this execution
+        query_execution.reset(nullptr);
       }
     }
   } catch (const ExplicitTransactionUsageException &) {
