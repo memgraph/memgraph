@@ -1,8 +1,20 @@
+import sys
 import mgp
-from mgp_networkx import (MemgraphMultiDiGraph, MemgraphDiGraph,
+try:
+    import networkx as nx
+except ImportError as import_error:
+    sys.stderr.write((
+        '\n'
+        'NOTE: Please install networkx to be able to use proxied '
+        'NetworkX algorithms. E.g., CALL nxalg.pagerank(...).\n'
+        'Using Python:\n'
+        + sys.version +
+        '\n'))
+    raise import_error
+# Imported last because it also depends on networkx.
+from mgp_networkx import (MemgraphMultiDiGraph, MemgraphDiGraph,  # noqa: E402
                           MemgraphMultiGraph, MemgraphGraph,
                           PropertiesDictionary)
-import networkx as nx
 
 
 # networkx.algorithms.approximation.connectivity.node_connectivity
