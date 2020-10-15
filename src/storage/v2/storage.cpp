@@ -1081,20 +1081,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
   auto from_vertex = from->vertex_;
   auto to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock,
-                                               std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
+  std::scoped_lock(from_vertex->lock, to_vertex->lock);
 
   if (!PrepareForWrite(&transaction_, from_vertex))
     return Error::SERIALIZATION_ERROR;
