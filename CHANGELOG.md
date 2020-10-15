@@ -9,9 +9,9 @@
   objects, which is useful to use Memgraph data from NetworkX algorithms
   optimally.
 * Added `nxalg.py` query module as a proxy to NetworkX algorithms.
-* Added plan optimization to use label-property index where the property is not
-  null. In essence, the query optimizer replaces ScanAll + Filter with a
-  ScanAll variant performing label and property lookup.
+* Added plan optimization to use a label-property index where the property is
+  not null. As a result, the query engine, instead of scanning all elements and
+  applying the filter, performs a label-property index lookup when possible.
 
 ### Bug Fixes and Other Changes
 
