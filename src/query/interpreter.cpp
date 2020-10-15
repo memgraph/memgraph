@@ -444,6 +444,7 @@ std::optional<ExecutionContext> PullPlan::Pull(
 
   int i = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
+    // stream unsent results from previous pull
     stream_values();
     ++i;
   }

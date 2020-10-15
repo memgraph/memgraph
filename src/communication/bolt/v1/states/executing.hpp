@@ -286,16 +286,18 @@ State HandleBegin(Session &session, State state, Marker marker) {
   DCHECK(!session.encoder_buffer_.HasData())
       << "There should be no data to write in this state";
 
+  if (!session.encoder_.MessageSuccess({})) {
+    DLOG(WARNING) << "Couldn't send success message!";
+    return State::Close;
+  }
+
   try {
-    if (!session.encoder_.MessageSuccess({})) {
-      DLOG(WARNING) << "Couldn't send success message!";
-      return State::Close;
-    }
     session.BeginTransaction();
-    return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
+
+  return State::Idle;
 }
 
 template <typename Session>

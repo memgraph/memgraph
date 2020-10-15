@@ -418,7 +418,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
         // As the transaction is done we can clear all the executions
         query_executions_.clear();
       } else {
-        // We can only clear this execution
+        // We can only clear this execution as some of the queries
+        // in the transaction can be in unfinished state
         query_execution.reset(nullptr);
       }
     }
@@ -431,10 +432,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
   }
 
   if (maybe_summary) {
+    // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);
   }
 
+  // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
 }  // namespace query
