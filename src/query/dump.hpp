@@ -38,13 +38,23 @@ struct PullPlanDump {
 
   size_t current_chunk_index_ = 0;
 
+  using PullChunk = std::function<std::optional<size_t>(AnyStream *stream,
+                                                        std::optional<int> n)>;
   // We define every part of the dump query in a self contained function.
   // Each functions is responsible of keeping track of its execution status.
   // If a function did finish its execution, it should return number of results
   // it streamed so we know how many rows should be pulled from the next
   // function, otherwise std::nullopt is returned.
-  std::vector<std::function<std::optional<size_t>(AnyStream *stream,
-                                                  std::optional<int> n)>>
-      pull_chunks_;
+  std::vector<PullChunk> pull_chunks_;
+
+  PullChunk CreateLabelIndicesPullChunk();
+  PullChunk CreateLabelPropertyIndicesPullChunk();
+  PullChunk CreateExistenceConstraintsPullChunk();
+  PullChunk CreateUniqueConstraintsPullChunk();
+  PullChunk CreateInternalIndexPullChunk();
+  PullChunk CreateVertexPullChunk();
+  PullChunk CreateEdgePullChunk();
+  PullChunk CreateDropInternalIndexPullChunk();
+  PullChunk CreateInternalIndexCleanupPullChunk();
 };
 }  // namespace query
