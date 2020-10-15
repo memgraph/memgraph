@@ -406,7 +406,7 @@ State StateExecutingRun(Session &session, State state) {
   } else if (signature == Signature::Goodbye && session.version_.major != 1) {
     throw SessionClosedException("Closing connection.");
   } else {
-    DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",
+    DLOG(WARNING) << fmt::format("Unrecognized signature received (0x{:02X})!",
                                  utils::UnderlyingCast(signature));
     return State::Close;
   }
