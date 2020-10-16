@@ -1,5 +1,23 @@
 # Change Log
 
+## v1.2.0
+
+### Major Features and Improvements
+
+* Added support for Bolt v4.0 and v4.1.
+* Added `mgp_networkx.py` as an alternative implementation of NetworkX graph
+  objects, which is useful to use Memgraph data from NetworkX algorithms
+  optimally.
+* Added `nxalg.py` query module as a proxy to NetworkX algorithms.
+* Added plan optimization to use a label-property index where the property is
+  not null. As a result, the query engine, instead of scanning all elements and
+  applying the filter, performs a label-property index lookup when possible.
+
+### Bug Fixes and Other Changes
+
+* Fixed Cypher `ID` function `Null` handling. When the `ID` function receives
+  `Null`, it will also return `Null`.
+
 ## v1.1.0
 
 ### Major Features and Improvements
