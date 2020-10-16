@@ -55,24 +55,26 @@ class Decoder final : public durability::BaseDecoder {
   }
 
   std::optional<bool> ReadBool() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_BOOL) return std::nullopt;
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_BOOL)
+      return std::nullopt;
     bool value;
     slk::Load(&value, reader_);
     return value;
   }
 
   std::optional<uint64_t> ReadUint() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_INT)
+      return std::nullopt;
     uint64_t value;
     slk::Load(&value, reader_);
     return value;
   }
 
   std::optional<double> ReadDouble() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_DOUBLE)
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_DOUBLE)
       return std::nullopt;
     double value;
     slk::Load(&value, reader_);
@@ -80,8 +82,8 @@ class Decoder final : public durability::BaseDecoder {
   }
 
   std::optional<std::string> ReadString() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_STRING)
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_STRING)
       return std::nullopt;
     std::string value;
     slk::Load(&value, reader_);
@@ -89,8 +91,8 @@ class Decoder final : public durability::BaseDecoder {
   }
 
   std::optional<PropertyValue> ReadPropertyValue() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
       return std::nullopt;
     PropertyValue value;
     slk::Load(&value, reader_);
@@ -98,16 +100,17 @@ class Decoder final : public durability::BaseDecoder {
   }
 
   bool SkipString() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_STRING) return false;
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_STRING)
+      return false;
     std::string value;
     slk::Load(&value, reader_);
     return true;
   }
 
   bool SkipPropertyValue() override {
-    auto marker = ReadMarker();
-    if (!marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
+    if (const auto marker = ReadMarker();
+        !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
       return false;
     PropertyValue value;
     slk::Load(&value, reader_);
