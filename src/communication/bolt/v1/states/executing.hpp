@@ -7,9 +7,12 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/exceptions.hpp"
+#include "utils/likely.hpp"
 
 namespace communication::bolt {
 
@@ -60,18 +63,38 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(
 }
 
 template <typename TSession>
+inline State HandleFailure(TSession &session, const std::exception &e) {
+  DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+  if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+    DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+  }
+  session.encoder_buffer_.Clear();
+  auto code_message = ExceptionToErrorMessage(e);
+  bool fail_sent = session.encoder_.MessageFailure(
+      {{"code", code_message.first}, {"message", code_message.second}});
+  if (!fail_sent) {
+    DLOG(WARNING) << "Couldn't send failure message!";
+    return State::Close;
+  }
+  return State::Error;
+}
+
+template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
   const std::map<std::string, Value> kEmptyFields = {
       {"fields", std::vector<Value>{}}};
 
-  if (marker != Marker::TinyStruct2) {
+  const auto expected_marker =
+      session.version_.major == 1 ? Marker::TinyStruct2 : Marker::TinyStruct3;
+  if (marker != expected_marker) {
     DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct2 marker, but received 0x{:02X}!",
+        "Expected {} marker, but received 0x{:02X}!",
+        session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3",
         utils::UnderlyingCast(marker));
     return State::Close;
   }
 
-  Value query, params;
+  Value query, params, extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     DLOG(WARNING) << "Couldn't read query string!";
     return State::Close;
@@ -80,6 +103,12 @@ State HandleRun(TSession &session, State state, Marker marker) {
   if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
     DLOG(WARNING) << "Couldn't read parameters!";
     return State::Close;
+  }
+
+  if (session.version_.major == 4) {
+    if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+      DLOG(WARNING) << "Couldn't read extra field!";
+    }
   }
 
   if (state != State::Idle) {
@@ -97,7 +126,8 @@ State HandleRun(TSession &session, State state, Marker marker) {
 
   try {
     // Interpret can throw.
-    auto header = session.Interpret(query.ValueString(), params.ValueMap());
+    auto [header, qid] =
+        session.Interpret(query.ValueString(), params.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -111,85 +141,90 @@ State HandleRun(TSession &session, State state, Marker marker) {
     }
     return State::Result;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
 }
 
-template <typename Session>
-State HandlePullAll(Session &session, State state, Marker marker) {
-  if (marker != Marker::TinyStruct) {
+namespace detail {
+template <bool is_pull, typename TSession>
+State HandlePullDiscard(TSession &session, State state, Marker marker) {
+  const auto expected_marker =
+      session.version_.major == 1 ? Marker::TinyStruct : Marker::TinyStruct1;
+  if (marker != expected_marker) {
     DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02X}!",
+        "Expected {} marker, but received 0x{:02X}!",
+        session.version_.major == 1 ? "TinyStruct" : "TinyStruct1",
         utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   if (state != State::Result) {
-    DLOG(WARNING) << "Unexpected PULL_ALL!";
+    if constexpr (is_pull) {
+      DLOG(WARNING) << "Unexpected PULL!";
+    } else {
+      DLOG(WARNING) << "Unexpected DISCARD!";
+    }
     // Same as `unexpected RUN` case.
     return State::Close;
   }
 
   try {
-    // PullAll can throw.
-    auto summary = session.PullAll(&session.encoder_);
+    std::optional<int> n;
+    std::optional<int> qid;
+
+    if (session.version_.major == 4) {
+      Value extra;
+      if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+        DLOG(WARNING) << "Couldn't read extra field!";
+      }
+      const auto &extra_map = extra.ValueMap();
+      if (extra_map.count("n")) {
+        if (const auto n_value = extra_map.at("n").ValueInt();
+            n_value != kPullAll) {
+          n = n_value;
+        }
+      }
+
+      if (extra_map.count("qid")) {
+        if (const auto qid_value = extra_map.at("qid").ValueInt();
+            qid_value != kPullLast) {
+          qid = qid_value;
+        }
+      }
+    }
+
+    std::map<std::string, Value> summary;
+    if constexpr (is_pull) {
+      // Pull can throw.
+      summary = session.Pull(&session.encoder_, n, qid);
+    } else {
+      summary = session.Discard(n, qid);
+    }
+
     if (!session.encoder_.MessageSuccess(summary)) {
       DLOG(WARNING) << "Couldn't send query summary!";
       return State::Close;
     }
+
+    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+      return State::Result;
+    }
+
     return State::Idle;
   } catch (const std::exception &e) {
-    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
-    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
-    }
-    session.encoder_buffer_.Clear();
-    auto code_message = ExceptionToErrorMessage(e);
-    bool fail_sent = session.encoder_.MessageFailure(
-        {{"code", code_message.first}, {"message", code_message.second}});
-    if (!fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::Error;
+    return HandleFailure(session, e);
   }
+}
+}  // namespace detail
+
+template <typename Session>
+State HandlePull(Session &session, State state, Marker marker) {
+  return detail::HandlePullDiscard<true>(session, state, marker);
 }
 
 template <typename Session>
-State HandleDiscardAll(Session &session, State state, Marker marker) {
-  if (marker != Marker::TinyStruct) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02X}!",
-        utils::UnderlyingCast(marker));
-    return State::Close;
-  }
-
-  if (state != State::Result) {
-    DLOG(WARNING) << "Unexpected DISCARD_ALL!";
-    // Same as `unexpected RUN` case.
-    return State::Close;
-  }
-
-  // Clear all pending data and send a success message.
-  session.encoder_buffer_.Clear();
-  if (!session.encoder_.MessageSuccess()) {
-    DLOG(WARNING) << "Couldn't send success message!";
-    return State::Close;
-  }
-
-  return State::Idle;
+State HandleDiscard(Session &session, State state, Marker marker) {
+  return detail::HandlePullDiscard<false>(session, state, marker);
 }
 
 template <typename Session>
@@ -212,6 +247,7 @@ State HandleReset(Session &session, State, Marker marker) {
 
   // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
+
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message!";
     return State::Close;
@@ -220,6 +256,116 @@ State HandleReset(Session &session, State, Marker marker) {
   session.Abort();
 
   return State::Idle;
+}
+
+template <typename Session>
+State HandleBegin(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "BEGIN messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct1) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct1 marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  Value extra;
+  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+    DLOG(WARNING) << "Couldn't read extra fields!";
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected BEGIN command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  if (!session.encoder_.MessageSuccess({})) {
+    DLOG(WARNING) << "Couldn't send success message!";
+    return State::Close;
+  }
+
+  try {
+    session.BeginTransaction();
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+  return State::Idle;
+}
+
+template <typename Session>
+State HandleCommit(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "COMMIT messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected COMMIT command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  try {
+    if (!session.encoder_.MessageSuccess({})) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
+    session.CommitTransaction();
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename Session>
+State HandleRollback(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    DLOG(WARNING) << "ROLLBACK messsage not supported in Bolt v1!";
+    return State::Close;
+  }
+
+  if (marker != Marker::TinyStruct) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct marker, but received 0x{:02x}!",
+        utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+
+  if (state != State::Idle) {
+    DLOG(WARNING) << "Unexpected ROLLBACK command!";
+    return State::Close;
+  }
+
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
+
+  try {
+    if (!session.encoder_.MessageSuccess({})) {
+      DLOG(WARNING) << "Couldn't send success message!";
+      return State::Close;
+    }
+    session.RollbackTransaction();
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 
 /**
@@ -237,16 +383,30 @@ State StateExecutingRun(Session &session, State state) {
     return State::Close;
   }
 
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
+               session.version_.minor == 1)) {
+    DLOG(INFO) << "Received NOOP message";
+    return state;
+  }
+
   if (signature == Signature::Run) {
     return HandleRun(session, state, marker);
-  } else if (signature == Signature::PullAll) {
-    return HandlePullAll(session, state, marker);
-  } else if (signature == Signature::DiscardAll) {
-    return HandleDiscardAll(session, state, marker);
+  } else if (signature == Signature::Pull) {
+    return HandlePull(session, state, marker);
+  } else if (signature == Signature::Discard) {
+    return HandleDiscard(session, state, marker);
+  } else if (signature == Signature::Begin) {
+    return HandleBegin(session, state, marker);
+  } else if (signature == Signature::Commit) {
+    return HandleCommit(session, state, marker);
+  } else if (signature == Signature::Rollback) {
+    return HandleRollback(session, state, marker);
   } else if (signature == Signature::Reset) {
     return HandleReset(session, state, marker);
+  } else if (signature == Signature::Goodbye && session.version_.major != 1) {
+    throw SessionClosedException("Closing connection.");
   } else {
-    DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",
+    DLOG(WARNING) << fmt::format("Unrecognized signature received (0x{:02X})!",
                                  utils::UnderlyingCast(signature));
     return State::Close;
   }

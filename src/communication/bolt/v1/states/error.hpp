@@ -7,6 +7,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/cast.hpp"
+#include "utils/likely.hpp"
 
 namespace communication::bolt {
 
@@ -25,10 +26,17 @@ State StateErrorRun(TSession &session, State state) {
     return State::Close;
   }
 
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
+               session.version_.minor == 1)) {
+    DLOG(INFO) << "Received NOOP message";
+    return state;
+  }
+
   // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();
 
-  if (signature == Signature::AckFailure || signature == Signature::Reset) {
+  if ((session.version_.major == 1 && signature == Signature::AckFailure) ||
+      signature == Signature::Reset) {
     if (signature == Signature::AckFailure) {
       DLOG(INFO) << "AckFailure received";
     } else {
@@ -39,6 +47,7 @@ State StateErrorRun(TSession &session, State state) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
+
     if (signature == Signature::Reset) {
       session.Abort();
       return State::Idle;

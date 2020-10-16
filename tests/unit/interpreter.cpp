@@ -7,8 +7,10 @@
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace {
 
@@ -31,6 +33,22 @@ class InterpreterTest : public ::testing::Test {
   query::InterpreterContext interpreter_context_{&db_};
   query::Interpreter interpreter_{&interpreter_context_};
 
+  auto Prepare(
+      const std::string &query,
+      const std::map<std::string, storage::PropertyValue> &params = {}) {
+    ResultStreamFaker stream(&db_);
+
+    const auto [header, _, qid] = interpreter_.Prepare(query, params);
+    stream.Header(header);
+    return std::pair{std::move(stream), qid};
+  }
+
+  void Pull(ResultStreamFaker *stream, std::optional<int> n = {},
+            std::optional<int> qid = {}) {
+    const auto summary = interpreter_.Pull(stream, n, qid);
+    stream->Summary(summary);
+  }
+
   /**
    * Execute the given query and commit the transaction.
    *
@@ -39,16 +57,40 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(
       const std::string &query,
       const std::map<std::string, storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(&db_);
+    auto prepare_result = Prepare(query, params);
 
-    auto [header, _] = interpreter_.Prepare(query, params);
-    stream.Header(header);
-    auto summary = interpreter_.PullAll(&stream);
+    auto &stream = prepare_result.first;
+    auto summary = interpreter_.Pull(&stream, {}, prepare_result.second);
     stream.Summary(summary);
 
-    return stream;
+    return std::move(stream);
   }
 };
+
+TEST_F(InterpreterTest, MultiplePulls) {
+  {
+    auto [stream, qid] = Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    Pull(&stream, 2);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    ASSERT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+    ASSERT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+    Pull(&stream);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 5U);
+    ASSERT_EQ(stream.GetResults()[3][0].ValueInt(), 4);
+    ASSERT_EQ(stream.GetResults()[4][0].ValueInt(), 5);
+  }
+}
 
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
@@ -481,6 +523,40 @@ TEST_F(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
 
+TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto [stream, qid] = Prepare("EXPLAIN MATCH (n) RETURN *;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
+                                         " * Once"};
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 1);
+  auto expected_it = expected_rows.begin();
+  ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0].front().ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 2);
+  ASSERT_EQ(stream.GetResults()[1].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[1].front().ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream);
+  ASSERT_EQ(stream.GetResults().size(), 3);
+  ASSERT_EQ(stream.GetResults()[2].size(), 1U);
+  EXPECT_EQ(stream.GetResults()[2].front().ValueString(), *expected_it);
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for EXPLAIN ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
 TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
@@ -557,6 +633,43 @@ TEST_F(InterpreterTest, ProfileQuery) {
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
 
+TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
+                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  EXPECT_EQ(stream.GetHeader(), expected_header);
+
+  std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
+  auto expected_it = expected_rows.begin();
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[0][0].ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream, 1);
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  ASSERT_EQ(stream.GetResults()[1].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[1][0].ValueString(), *expected_it);
+  ++expected_it;
+
+  Pull(&stream);
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  ASSERT_EQ(stream.GetResults()[2].size(), 4U);
+  ASSERT_EQ(stream.GetResults()[2][0].ValueString(), *expected_it);
+
+  // We should have a plan cache for MATCH ...
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  // We should have AST cache for PROFILE ... and for inner MATCH ...
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  Interpret("MATCH (n) RETURN *;");
+  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
 TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
   Interpret("BEGIN");
   ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"),
@@ -614,4 +727,105 @@ TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
   Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+}
+
+TEST_F(InterpreterTest, Transactions) {
+  {
+    ASSERT_THROW(interpreter_.CommitTransaction(),
+                 query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter_.RollbackTransaction(),
+                 query::ExplicitTransactionUsageException);
+    interpreter_.BeginTransaction();
+    ASSERT_THROW(interpreter_.BeginTransaction(),
+                 query::ExplicitTransactionUsageException);
+    auto [stream, qid] = Prepare("RETURN 2");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "2");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    interpreter_.CommitTransaction();
+  }
+  {
+    interpreter_.BeginTransaction();
+    auto [stream, qid] = Prepare("RETURN 2");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "2");
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    interpreter_.RollbackTransaction();
+  }
+}
+
+TEST_F(InterpreterTest, Qid) {
+  {
+    interpreter_.BeginTransaction();
+    auto [stream, qid] = Prepare("RETURN 2");
+    ASSERT_TRUE(qid);
+    ASSERT_THROW(Pull(&stream, {}, *qid + 1), query::InvalidArgumentsException);
+    interpreter_.RollbackTransaction();
+  }
+  {
+    interpreter_.BeginTransaction();
+    auto [stream1, qid1] = Prepare("UNWIND(range(1,3)) as n RETURN n");
+    ASSERT_TRUE(qid1);
+    ASSERT_EQ(stream1.GetHeader().size(), 1U);
+    EXPECT_EQ(stream1.GetHeader()[0], "n");
+
+    auto [stream2, qid2] = Prepare("UNWIND(range(4,6)) as n RETURN n");
+    ASSERT_TRUE(qid2);
+    ASSERT_EQ(stream2.GetHeader().size(), 1U);
+    EXPECT_EQ(stream2.GetHeader()[0], "n");
+
+    Pull(&stream1, 1, qid1);
+    ASSERT_EQ(stream1.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream1.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream1.GetResults().size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[0][0].ValueInt(), 1);
+
+    auto [stream3, qid3] = Prepare("UNWIND(range(7,9)) as n RETURN n");
+    ASSERT_TRUE(qid3);
+    ASSERT_EQ(stream3.GetHeader().size(), 1U);
+    EXPECT_EQ(stream3.GetHeader()[0], "n");
+
+    Pull(&stream2, {}, qid2);
+    ASSERT_EQ(stream2.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream2.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream2.GetResults().size(), 3U);
+    ASSERT_EQ(stream2.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream2.GetResults()[0][0].ValueInt(), 4);
+    ASSERT_EQ(stream2.GetResults()[1][0].ValueInt(), 5);
+    ASSERT_EQ(stream2.GetResults()[2][0].ValueInt(), 6);
+
+    Pull(&stream3, 1, qid3);
+    ASSERT_EQ(stream3.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream3.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream3.GetResults().size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[0][0].ValueInt(), 7);
+
+    Pull(&stream1, {}, qid1);
+    ASSERT_EQ(stream1.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream1.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream1.GetResults().size(), 3U);
+    ASSERT_EQ(stream1.GetResults()[1].size(), 1U);
+    ASSERT_EQ(stream1.GetResults()[1][0].ValueInt(), 2);
+    ASSERT_EQ(stream1.GetResults()[2][0].ValueInt(), 3);
+
+    Pull(&stream3);
+    ASSERT_EQ(stream3.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream3.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream3.GetResults().size(), 3U);
+    ASSERT_EQ(stream3.GetResults()[1].size(), 1U);
+    ASSERT_EQ(stream3.GetResults()[1][0].ValueInt(), 8);
+    ASSERT_EQ(stream3.GetResults()[2][0].ValueInt(), 9);
+
+    interpreter_.CommitTransaction();
+  }
 }

@@ -15,6 +15,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
@@ -213,7 +214,13 @@ class BoltSession final
   using communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>::TEncoder;
 
-  std::vector<std::string> Interpret(
+  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+
+  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+
+  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query,
       const std::map<std::string, communication::bolt::Value> &params)
       override {
@@ -229,7 +236,7 @@ class BoltSession final
 #ifdef MG_ENTERPRISE
       if (user_) {
         const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.second) {
+        for (const auto &privilege : result.privileges) {
           if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
               auth::PermissionLevel::GRANT) {
             interpreter_.Abort();
@@ -240,7 +247,7 @@ class BoltSession final
         }
       }
 #endif
-      return result.first;
+      return {result.headers, result.qid};
 
     } catch (const query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
@@ -249,11 +256,43 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::Value> PullAll(
-      TEncoder *encoder) override {
+  std::map<std::string, communication::bolt::Value> Pull(
+      TEncoder *encoder, std::optional<int> n,
+      std::optional<int> qid) override {
+    TypedValueResultStream stream(encoder, db_);
+    return PullResults(stream, n, qid);
+  }
+
+  std::map<std::string, communication::bolt::Value> Discard(
+      std::optional<int> n, std::optional<int> qid) override {
+    DiscardValueResultStream stream;
+    return PullResults(stream, n, qid);
+  }
+
+  void Abort() override { interpreter_.Abort(); }
+
+  bool Authenticate(const std::string &username,
+                    const std::string &password) override {
+#ifdef MG_ENTERPRISE
+    if (!auth_->HasUsers()) return true;
+    user_ = auth_->Authenticate(username, password);
+    return !!user_;
+#else
+    return true;
+#endif
+  }
+
+  std::optional<std::string> GetServerNameForInit() override {
+    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
+    return FLAGS_bolt_server_name_for_init;
+  }
+
+ private:
+  template <typename TStream>
+  std::map<std::string, communication::bolt::Value> PullResults(
+      TStream &stream, std::optional<int> n, std::optional<int> qid) {
     try {
-      TypedValueResultStream stream(encoder, db_);
-      const auto &summary = interpreter_.PullAll(&stream);
+      const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
         auto maybe_value =
@@ -279,25 +318,6 @@ class BoltSession final
     }
   }
 
-  void Abort() override { interpreter_.Abort(); }
-
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override {
-#ifdef MG_ENTERPRISE
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
-    return !!user_;
-#else
-    return true;
-#endif
-  }
-
-  std::optional<std::string> GetServerNameForInit() override {
-    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-    return FLAGS_bolt_server_name_for_init;
-  }
-
- private:
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
@@ -334,6 +354,12 @@ class BoltSession final
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
     const storage::Storage *db_;
+  };
+
+  struct DiscardValueResultStream {
+    void Result(const std::vector<query::TypedValue> &) {
+      // do nothing
+    }
   };
 
   // NOTE: Needed only for ToBoltValue conversions
