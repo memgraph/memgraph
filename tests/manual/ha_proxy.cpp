@@ -60,7 +60,7 @@ class BoltSession final
   using communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>::TEncoder;
 
-  std::vector<std::string> Interpret(
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query,
       const std::map<std::string, communication::bolt::Value> &params)
       override {
@@ -70,7 +70,7 @@ class BoltSession final
       auto ret = client_->Execute(query, params);
       records_ = std::move(ret.records);
       metadata_ = std::move(ret.metadata);
-      return ret.fields;
+      return {ret.fields, {}};
     } catch (const communication::bolt::ClientQueryException &e) {
       // Wrap query exceptions in a client error to indicate to the client that
       // it should fix the query and try again.
@@ -84,13 +84,22 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::Value> PullAll(
-      TEncoder *encoder) override {
+  std::map<std::string, communication::bolt::Value> Pull(
+      TEncoder *encoder, std::optional<int>, std::optional<int>) override {
     for (const auto &record : records_) {
       encoder->MessageRecord(record);
     }
     return metadata_;
   }
+
+  std::map<std::string, communication::bolt::Value> Discard(
+      std::optional<int>, std::optional<int>) override {
+    return {};
+  }
+
+  void BeginTransaction() override {}
+  void CommitTransaction() override {}
+  void RollbackTransaction() override {}
 
   void Abort() override {
     // Called only for cleanup.
