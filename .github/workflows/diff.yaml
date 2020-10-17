@@ -1,6 +1,10 @@
 name: Diff
 
-on: [push]
+on:
+  push:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
 
 jobs:
   community_build:
