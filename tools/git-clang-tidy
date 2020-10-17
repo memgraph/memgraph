@@ -1,0 +1,13 @@
+#!/bin/bash
+
+## Run this script through arc lint
+
+if echo "$1" | egrep -q '\.(cpp|hpp)$'; then
+    clang-tidy -quiet -p $( realpath build ) "$1"
+elif echo "$1" | egrep -q '\.lcp$'; then
+    clang-tidy -quiet -p $( realpath build ) "$1.cpp" "$(dirname $1)/$(basename $1 .lcp).hpp"
+fi
+
+code=$?
+[ $code -eq 1 ] && exit 0
+exit $code

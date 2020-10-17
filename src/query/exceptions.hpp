@@ -159,4 +159,12 @@ class StreamClauseInMulticommandTxException : public QueryException {
             "Stream clause not allowed in multicommand transactions.") {}
 };
 
+class InvalidArgumentsException : public QueryException {
+ public:
+  InvalidArgumentsException(const std::string &argument_name,
+                            const std::string &message)
+      : QueryException(fmt::format("Invalid arguments sent: {} - {}",
+                                   argument_name, message)) {}
+};
+
 }  // namespace query

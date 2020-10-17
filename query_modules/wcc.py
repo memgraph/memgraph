@@ -1,6 +1,15 @@
+import sys
 import mgp
-
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError as import_error:
+    sys.stderr.write(
+        '\n'
+        'NOTE: Please install networkx to be able to use wcc module.\n'
+        'Using Python:\n'
+        + sys.version +
+        '\n')
+    raise import_error
 
 
 @mgp.read_proc
@@ -28,8 +37,10 @@ def get_components(vertices: mgp.List[mgp.Vertex],
     vertices labeled `Person` and edges between such vertices can be obtained
     using the following openCypher query:
 
-    MATCH (n:Person)-[e]->(m:Person) WITH collect(n) AS nodes, collect(e) AS edges
-    CALL wcc.get_components(nodes, edges) YIELD * RETURN n_components, components;
+    MATCH (n:Person)-[e]->(m:Person)
+    WITH collect(n) AS nodes, collect(e) AS edges
+    CALL wcc.get_components(nodes, edges) YIELD *
+    RETURN n_components, components;
     '''
     g = nx.DiGraph()
     g.add_nodes_from(vertices)

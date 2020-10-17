@@ -1,7 +1,16 @@
+import sys
 import mgp
-
 import collections
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError as import_error:
+    sys.stderr.write((
+        '\n'
+        'NOTE: Please install networkx to be able to use Memgraph NetworkX '
+        'wrappers. Using Python:\n'
+        + sys.version +
+        '\n'))
+    raise import_error
 
 
 class MemgraphAdjlistOuterDict(collections.abc.Mapping):
