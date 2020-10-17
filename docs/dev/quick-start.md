@@ -17,7 +17,7 @@ On ArchLinux or Gentoo, you probably already know what to do.
 After installing `git`, you are now ready to fetch your own copy of Memgraph
 source code. Run the following command:
 
-    git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
+    git clone https://github.com/memgraph/memgraph.git
 
 The above will create a `memgraph` directory and put all source code there.
 
