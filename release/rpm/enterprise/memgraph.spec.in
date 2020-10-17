@@ -139,7 +139,6 @@ chattr -i -R /usr/share/memgraph/examples || true
 %config(noreplace) "/etc/memgraph/memgraph.conf"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
-%config(noreplace) "/etc/logrotate.d/memgraph_audit"
 
 @CPACK_RPM_USER_INSTALL_FILES@
 
