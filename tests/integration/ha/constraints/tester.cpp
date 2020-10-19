@@ -22,8 +22,9 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_string(step, "",
               "The step to execute (available: create, check, add_node, drop");
 DEFINE_int32(property_value, 0, "Value of the property when creating a node.");
-DEFINE_int32(expected_status, 0,
-            "Expected query execution status when creating a node, 0 is success");
+DEFINE_int32(
+    expected_status, 0,
+    "Expected query execution status when creating a node, 0 is success");
 DEFINE_int32(expected_result, 0, "Expected query result");
 
 using namespace std::chrono_literals;
@@ -32,7 +33,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   try {
     std::vector<io::network::Endpoint> endpoints;
@@ -70,8 +71,8 @@ int main(int argc, char **argv) {
 
       if (result.records.size() != FLAGS_expected_result) {
         LOG(WARNING) << "Unexpected number of nodes: "
-                     << "expected " << FLAGS_expected_result
-                     << ", got " << result.records.size();
+                     << "expected " << FLAGS_expected_result << ", got "
+                     << result.records.size();
         return 2;
       }
       return 0;
@@ -93,7 +94,6 @@ int main(int argc, char **argv) {
   } catch (const utils::BasicException &) {
     LOG(WARNING) << "Error while executing query.";
   }
-
 
   return 1;
 }

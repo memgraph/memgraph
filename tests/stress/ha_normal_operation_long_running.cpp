@@ -109,7 +109,7 @@ class GraphSession {
 
   bool Bernoulli(double p) { return GetRandom() < p; }
 
-  template<typename T>
+  template <typename T>
   T RandomElement(const std::set<T> &data) {
     uint32_t pos = std::floor(GetRandom() * data.size());
     auto it = data.begin();
@@ -380,7 +380,7 @@ int main(int argc, char **argv) {
   CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
   CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   LOG(INFO) << "Starting Memgraph HA normal operation long running test";
 
@@ -397,7 +397,8 @@ int main(int argc, char **argv) {
     // cleanup and create indexes
     client.Execute("MATCH (n) DETACH DELETE n", {});
     for (int i = 0; i < FLAGS_worker_count; ++i) {
-      client.Execute(fmt::format("CREATE INDEX ON :indexed_label{}(id)", i), {});
+      client.Execute(fmt::format("CREATE INDEX ON :indexed_label{}(id)", i),
+                     {});
     }
   } catch (const communication::bolt::ClientFatalException &e) {
     LOG(WARNING) << "Unable to find cluster leader";
@@ -415,8 +416,7 @@ int main(int argc, char **argv) {
   // sessions
   std::vector<GraphSession> sessions;
   sessions.reserve(FLAGS_worker_count);
-  for (int i = 0; i < FLAGS_worker_count; ++i)
-    sessions.emplace_back(i);
+  for (int i = 0; i < FLAGS_worker_count; ++i) sessions.emplace_back(i);
 
   // workers
   std::vector<std::thread> threads;
@@ -424,8 +424,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < FLAGS_worker_count; ++i)
     threads.emplace_back([&, i]() { sessions[i].Run(); });
 
-  for (int i = 0; i < FLAGS_worker_count; ++i)
-    threads[i].join();
+  for (int i = 0; i < FLAGS_worker_count; ++i) threads[i].join();
 
   if (!FLAGS_stats_file.empty()) {
     uint64_t executed = 0;

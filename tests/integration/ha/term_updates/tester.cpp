@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   try {
     std::vector<io::network::Endpoint> endpoints;
@@ -52,8 +52,8 @@ int main(int argc, char **argv) {
 
       if (result.records.size() != FLAGS_expected_results) {
         LOG(WARNING) << "Unexpected number of nodes: "
-                     << "expected " << FLAGS_expected_results
-                     << ", got " << result.records.size();
+                     << "expected " << FLAGS_expected_results << ", got "
+                     << result.records.size();
         return 2;
       }
       return 0;
