@@ -8,7 +8,7 @@ required_pkgs_apt=(git # source code control
                    libpython3-dev python3-dev # for query modules
                    libssl-dev
                    libseccomp-dev
-                   python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+                   python3 python-virtualenv python3-pip # for gql_behave, macro_benchmark and stress tests
                    python3-yaml # for the configuration generator
                    libcurl4-openssl-dev # mg-requests
                    sbcl # for custom Lisp C++ preprocessing
@@ -28,7 +28,7 @@ required_pkgs_yum=(# NOTE: git is too old on CentOS, install it manually from IU
                    python3-devel # for query modules
                    openssl-devel
                    libseccomp-devel
-                   python3 python-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
+                   python3 python-virtualenv python3-pip nmap-ncat # for gql_behave, macro_benchmark and stress tests
                    # NOTE: python3-yaml doesn't exist on CentOS, install it manually using `pip3 install PyYAML`
                    libcurl-devel # mg-requests
                    sbcl # for custom Lisp C++ preprocessing
@@ -185,8 +185,8 @@ cd libs
 ./setup.sh
 cd ..
 
-# setup qa dependencies
-setup_virtualenv tests/qa
+# setup gql_behave dependencies
+setup_virtualenv tests/gql_behave
 
 # setup stress dependencies
 setup_virtualenv tests/stress
