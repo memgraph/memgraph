@@ -35,7 +35,7 @@ unsigned long IdFunction() {
 }
 
 void SetupThreading() {
-  mutex.resize(CRYPTO_num_locks());
+  crypto_locks.resize(CRYPTO_num_locks());
   CRYPTO_set_id_callback(IdFunction);
   CRYPTO_set_locking_callback(LockingFunction);
 }
@@ -43,7 +43,7 @@ void SetupThreading() {
 void Cleanup() {
   CRYPTO_set_id_callback(nullptr);
   CRYPTO_set_locking_callback(nullptr);
-  mutex.clear();
+  crypto_locks.clear();
 }
 #else
 void SetupThreading() {}
