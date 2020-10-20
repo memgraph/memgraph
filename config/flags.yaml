@@ -39,14 +39,6 @@ modifications:
     value: "/var/log/memgraph/memgraph.log"
     override: true
 
-  - name: "bolt_cert_file"
-    value: "/etc/memgraph/ssl/cert.pem"
-    override: true
-
-  - name: "bolt_key_file"
-    value: "/etc/memgraph/ssl/key.pem"
-    override: true
-
   - name: "bolt_num_workers"
     value: ""
     override: false
