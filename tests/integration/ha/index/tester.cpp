@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 
   const std::string index = ":Node(id)";
 
-  communication::Init();
+  communication::SSLInit sslInit;
   try {
     std::vector<io::network::Endpoint> endpoints(FLAGS_cluster_size);
     for (int i = 0; i < FLAGS_cluster_size; ++i)
