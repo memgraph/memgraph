@@ -17,14 +17,15 @@ namespace {
 // You need to manually define locks, locking callbacks and id function.
 // https://stackoverflow.com/a/42856544
 // https://wiki.openssl.org/index.php/Library_Initialization#libssl_Initialization
+// https://www.openssl.org/docs/man1.0.2/man3/CRYPTO_num_locks.html
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-std::vector<utils::SpinLock> mutex;
+std::vector<utils::SpinLock> crypto_locks;
 
 void LockingFunction(int mode, int n, const char *file, int line) {
   if (mode & CRYPTO_LOCK) {
-    mutex[n].lock();
+    crypto_locks[n].lock();
   } else {
-    mutex[n].unlock();
+    crypto_locks[n].unlock();
   }
 }
 

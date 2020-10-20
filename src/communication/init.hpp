@@ -7,12 +7,14 @@ namespace communication {
  * is used to initialize all libraries (primarily OpenSSL) and to fix some
  * issues also related to OpenSSL (handling of SIGPIPE).
  *
+ * We define a struct to take advantage of RAII so that the proper cleanup
+ * is called after we are finished using the SSL connection.
+ *
  * Description of OpenSSL init can be seen here:
  * https://wiki.openssl.org/index.php/Library_Initialization
  *
  * NOTE: This object must be created **exactly** once.
  */
-
 struct SSLInit {
   SSLInit();
 
