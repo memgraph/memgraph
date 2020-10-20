@@ -2,6 +2,9 @@
 
 ## v1.2.0
 
+### Breaking Changes
+* SSL is disabled by default (`--bolt-cert-file` and `--bolt-key-file` are empty).
+
 ### Major Features and Improvements
 
 * Added support for Bolt v4.0 and v4.1.
