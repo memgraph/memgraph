@@ -17,6 +17,9 @@
 
 * Fixed Cypher `ID` function `Null` handling. When the `ID` function receives
   `Null`, it will also return `Null`.
+* Fixed bug that caused random crashes in SSL communication on platforms
+  that use older versions of OpenSSL (< 1.1) by adding proper multi-threading
+  handling.
 
 ## v1.1.0
 

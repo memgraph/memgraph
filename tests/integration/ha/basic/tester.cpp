@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   try {
     std::vector<io::network::Endpoint> endpoints(FLAGS_cluster_size);

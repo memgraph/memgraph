@@ -883,7 +883,7 @@ int main(int argc, char **argv) {
   }
 
   // Initialize the communication library.
-  communication::Init();
+  communication::SSLInit sslInit;
 
   // Initialize the requests library.
   requests::Init();

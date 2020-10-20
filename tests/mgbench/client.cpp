@@ -15,6 +15,7 @@
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/init.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
@@ -229,7 +230,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};
