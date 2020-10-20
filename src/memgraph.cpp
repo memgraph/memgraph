@@ -1002,6 +1002,9 @@ int main(int argc, char **argv) {
   if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
     context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
     service_name = "BoltS";
+    std::cout << "Using secure Bolt connection (with SSL)" << std::endl;
+  } else {
+    std::cout << "Using non-secure Bolt connection (without SSL)" << std::endl;
   }
 
   ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)},
