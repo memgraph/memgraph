@@ -1,6 +1,7 @@
 #include "storage/v2/storage.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 
 #include <gflags/gflags.h>
@@ -412,405 +413,12 @@ Storage::Storage(Config config)
   }
 
 #ifdef MG_REPLICATION
-  // Create RPC server.
-  if (FLAGS_replica) {
-    // TODO(mferencevic): Add support for SSL.
-    replication_server_context_.emplace();
-    // NOTE: The replication server must have a single thread for processing
-    // because there is no need for more processing threads - each replica can
-    // have only a single main server. Also, the single-threaded guarantee
-    // simplifies the rest of the implementation.
-    // TODO(mferencevic): Make endpoint configurable.
-    replication_server_.emplace(io::network::Endpoint{"127.0.0.1", 10000},
-                                &*replication_server_context_,
-                                /* workers_count = */ 1);
-    replication_server_->Register<AppendDeltasRpc>([this](auto *req_reader,
-                                                          auto *res_builder) {
-      AppendDeltasReq req;
-      slk::Load(&req, req_reader);
-
-      DLOG(INFO) << "Received AppendDeltasRpc:";
-
-      replication::Decoder decoder(req_reader);
-
-      auto edge_acc = edges_.access();
-      auto vertex_acc = vertices_.access();
-
-      std::optional<std::pair<uint64_t, storage::Storage::Accessor>>
-          commit_timestamp_and_accessor;
-      auto get_transaction = [this, &commit_timestamp_and_accessor](
-                                 uint64_t commit_timestamp) {
-        if (!commit_timestamp_and_accessor) {
-          commit_timestamp_and_accessor.emplace(commit_timestamp, Access());
-        } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
-          throw utils::BasicException("Received more than one transaction!");
-        }
-        return &commit_timestamp_and_accessor->second;
-      };
-
-      bool transaction_complete = false;
-      for (uint64_t i = 0; !transaction_complete; ++i) {
-        uint64_t timestamp;
-        durability::WalDeltaData delta;
-
-        try {
-          timestamp = ReadWalDeltaHeader(&decoder);
-          DLOG(INFO) << "   Delta " << i;
-          DLOG(INFO) << "       Timestamp " << timestamp;
-          delta = ReadWalDeltaData(&decoder);
-        } catch (const slk::SlkReaderException &) {
-          throw utils::BasicException("Missing data!");
-        } catch (const durability::RecoveryFailure &) {
-          throw utils::BasicException("Invalid data!");
-        }
-
-        switch (delta.type) {
-          case durability::WalDeltaData::Type::VERTEX_CREATE: {
-            DLOG(INFO) << "       Create vertex "
-                       << delta.vertex_create_delete.gid.AsUint();
-            auto transaction = get_transaction(timestamp);
-            transaction->CreateVertex(delta.vertex_create_delete.gid);
-            break;
-          }
-          case durability::WalDeltaData::Type::VERTEX_DELETE: {
-            DLOG(INFO) << "       Delete vertex "
-                       << delta.vertex_create_delete.gid.AsUint();
-            auto transaction = get_transaction(timestamp);
-            auto vertex = transaction->FindVertex(
-                delta.vertex_create_delete.gid, storage::View::NEW);
-            if (!vertex) throw utils::BasicException("Invalid transaction!");
-            auto ret = transaction->DeleteVertex(&*vertex);
-            if (ret.HasError() || !ret.GetValue())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
-            DLOG(INFO) << "       Vertex "
-                       << delta.vertex_add_remove_label.gid.AsUint()
-                       << " add label " << delta.vertex_add_remove_label.label;
-            auto transaction = get_transaction(timestamp);
-            auto vertex = transaction->FindVertex(
-                delta.vertex_add_remove_label.gid, storage::View::NEW);
-            if (!vertex) throw utils::BasicException("Invalid transaction!");
-            auto ret = vertex->AddLabel(
-                transaction->NameToLabel(delta.vertex_add_remove_label.label));
-            if (ret.HasError() || !ret.GetValue())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
-            DLOG(INFO) << "       Vertex "
-                       << delta.vertex_add_remove_label.gid.AsUint()
-                       << " remove label "
-                       << delta.vertex_add_remove_label.label;
-            auto transaction = get_transaction(timestamp);
-            auto vertex = transaction->FindVertex(
-                delta.vertex_add_remove_label.gid, storage::View::NEW);
-            if (!vertex) throw utils::BasicException("Invalid transaction!");
-            auto ret = vertex->RemoveLabel(
-                transaction->NameToLabel(delta.vertex_add_remove_label.label));
-            if (ret.HasError() || !ret.GetValue())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-            DLOG(INFO) << "       Vertex "
-                       << delta.vertex_edge_set_property.gid.AsUint()
-                       << " set property "
-                       << delta.vertex_edge_set_property.property << " to "
-                       << delta.vertex_edge_set_property.value;
-            auto transaction = get_transaction(timestamp);
-            auto vertex = transaction->FindVertex(
-                delta.vertex_edge_set_property.gid, storage::View::NEW);
-            if (!vertex) throw utils::BasicException("Invalid transaction!");
-            auto ret = vertex->SetProperty(
-                transaction->NameToProperty(
-                    delta.vertex_edge_set_property.property),
-                delta.vertex_edge_set_property.value);
-            if (ret.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::EDGE_CREATE: {
-            DLOG(INFO) << "       Create edge "
-                       << delta.edge_create_delete.gid.AsUint() << " of type "
-                       << delta.edge_create_delete.edge_type << " from vertex "
-                       << delta.edge_create_delete.from_vertex.AsUint()
-                       << " to vertex "
-                       << delta.edge_create_delete.to_vertex.AsUint();
-            auto transaction = get_transaction(timestamp);
-            auto from_vertex = transaction->FindVertex(
-                delta.edge_create_delete.from_vertex, storage::View::NEW);
-            if (!from_vertex)
-              throw utils::BasicException("Invalid transaction!");
-            auto to_vertex = transaction->FindVertex(
-                delta.edge_create_delete.to_vertex, storage::View::NEW);
-            if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-            auto edge = transaction->CreateEdge(
-                &*from_vertex, &*to_vertex,
-                transaction->NameToEdgeType(delta.edge_create_delete.edge_type),
-                delta.edge_create_delete.gid);
-            if (edge.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::EDGE_DELETE: {
-            DLOG(INFO) << "       Delete edge "
-                       << delta.edge_create_delete.gid.AsUint() << " of type "
-                       << delta.edge_create_delete.edge_type << " from vertex "
-                       << delta.edge_create_delete.from_vertex.AsUint()
-                       << " to vertex "
-                       << delta.edge_create_delete.to_vertex.AsUint();
-            auto transaction = get_transaction(timestamp);
-            auto from_vertex = transaction->FindVertex(
-                delta.edge_create_delete.from_vertex, storage::View::NEW);
-            if (!from_vertex)
-              throw utils::BasicException("Invalid transaction!");
-            auto to_vertex = transaction->FindVertex(
-                delta.edge_create_delete.to_vertex, storage::View::NEW);
-            if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-            auto edges =
-                from_vertex->OutEdges(storage::View::NEW,
-                                      {transaction->NameToEdgeType(
-                                          delta.edge_create_delete.edge_type)},
-                                      &*to_vertex);
-            if (edges.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            if (edges->size() != 1)
-              throw utils::BasicException("Invalid transaction!");
-            auto &edge = (*edges)[0];
-            auto ret = transaction->DeleteEdge(&edge);
-            if (ret.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-          case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
-            DLOG(INFO) << "       Edge "
-                       << delta.vertex_edge_set_property.gid.AsUint()
-                       << " set property "
-                       << delta.vertex_edge_set_property.property << " to "
-                       << delta.vertex_edge_set_property.value;
-
-            if (!config_.items.properties_on_edges)
-              throw utils::BasicException(
-                  "Can't set properties on edges because properties on edges "
-                  "are disabled!");
-
-            auto transaction = get_transaction(timestamp);
-
-            // The following block of code effectively implements `FindEdge` and
-            // yields an accessor that is only valid for managing the edge's
-            // properties.
-            auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
-            if (edge == edge_acc.end())
-              throw utils::BasicException("Invalid transaction!");
-            // The edge visibility check must be done here manually because we
-            // don't allow direct access to the edges through the public API.
-            {
-              bool is_visible = true;
-              Delta *delta = nullptr;
-              {
-                std::lock_guard<utils::SpinLock> guard(edge->lock);
-                is_visible = !edge->deleted;
-                delta = edge->delta;
-              }
-              ApplyDeltasForRead(&transaction->transaction_, delta, View::NEW,
-                                 [&is_visible](const Delta &delta) {
-                                   switch (delta.action) {
-                                     case Delta::Action::ADD_LABEL:
-                                     case Delta::Action::REMOVE_LABEL:
-                                     case Delta::Action::SET_PROPERTY:
-                                     case Delta::Action::ADD_IN_EDGE:
-                                     case Delta::Action::ADD_OUT_EDGE:
-                                     case Delta::Action::REMOVE_IN_EDGE:
-                                     case Delta::Action::REMOVE_OUT_EDGE:
-                                       break;
-                                     case Delta::Action::RECREATE_OBJECT: {
-                                       is_visible = true;
-                                       break;
-                                     }
-                                     case Delta::Action::DELETE_OBJECT: {
-                                       is_visible = false;
-                                       break;
-                                     }
-                                   }
-                                 });
-              if (!is_visible)
-                throw utils::BasicException("Invalid transaction!");
-            }
-            EdgeRef edge_ref(&*edge);
-            // Here we create an edge accessor that we will use to get the
-            // properties of the edge. The accessor is created with an invalid
-            // type and invalid from/to pointers because we don't know them
-            // here, but that isn't an issue because we won't use that part of
-            // the API here.
-            auto ea = EdgeAccessor{edge_ref,
-                                   EdgeTypeId::FromUint(0UL),
-                                   nullptr,
-                                   nullptr,
-                                   &transaction->transaction_,
-                                   &indices_,
-                                   &constraints_,
-                                   config_.items};
-
-            auto ret =
-                ea.SetProperty(transaction->NameToProperty(
-                                   delta.vertex_edge_set_property.property),
-                               delta.vertex_edge_set_property.value);
-            if (ret.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            break;
-          }
-
-          case durability::WalDeltaData::Type::TRANSACTION_END: {
-            DLOG(INFO) << "       Transaction end";
-            if (!commit_timestamp_and_accessor ||
-                commit_timestamp_and_accessor->first != timestamp)
-              throw utils::BasicException("Invalid data!");
-            auto ret = commit_timestamp_and_accessor->second.Commit(
-                commit_timestamp_and_accessor->first);
-            if (ret.HasError())
-              throw utils::BasicException("Invalid transaction!");
-            commit_timestamp_and_accessor = std::nullopt;
-            transaction_complete = true;
-            break;
-          }
-
-          case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
-            DLOG(INFO) << "       Create label index on :"
-                       << delta.operation_label.label;
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            if (!CreateIndex(NameToLabel(delta.operation_label.label)))
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
-            DLOG(INFO) << "       Drop label index on :"
-                       << delta.operation_label.label;
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            if (!DropIndex(NameToLabel(delta.operation_label.label)))
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
-            DLOG(INFO) << "       Create label+property index on :"
-                       << delta.operation_label_property.label << " ("
-                       << delta.operation_label_property.property << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            if (!CreateIndex(
-                    NameToLabel(delta.operation_label_property.label),
-                    NameToProperty(delta.operation_label_property.property)))
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
-            DLOG(INFO) << "       Drop label+property index on :"
-                       << delta.operation_label_property.label << " ("
-                       << delta.operation_label_property.property << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            if (!DropIndex(
-                    NameToLabel(delta.operation_label_property.label),
-                    NameToProperty(delta.operation_label_property.property)))
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
-            DLOG(INFO) << "       Create existence constraint on :"
-                       << delta.operation_label_property.label << " ("
-                       << delta.operation_label_property.property << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            auto ret = CreateExistenceConstraint(
-                NameToLabel(delta.operation_label_property.label),
-                NameToProperty(delta.operation_label_property.property));
-            if (!ret.HasValue() || !ret.GetValue())
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
-            DLOG(INFO) << "       Drop existence constraint on :"
-                       << delta.operation_label_property.label << " ("
-                       << delta.operation_label_property.property << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            if (!DropExistenceConstraint(
-                    NameToLabel(delta.operation_label_property.label),
-                    NameToProperty(delta.operation_label_property.property)))
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
-            std::stringstream ss;
-            utils::PrintIterable(ss,
-                                 delta.operation_label_properties.properties);
-            DLOG(INFO) << "       Create unique constraint on :"
-                       << delta.operation_label_properties.label << " ("
-                       << ss.str() << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            std::set<PropertyId> properties;
-            for (const auto &prop :
-                 delta.operation_label_properties.properties) {
-              properties.emplace(NameToProperty(prop));
-            }
-            auto ret = CreateUniqueConstraint(
-                NameToLabel(delta.operation_label_properties.label),
-                properties);
-            if (!ret.HasValue() ||
-                ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-          case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
-            std::stringstream ss;
-            utils::PrintIterable(ss,
-                                 delta.operation_label_properties.properties);
-            DLOG(INFO) << "       Drop unique constraint on :"
-                       << delta.operation_label_properties.label << " ("
-                       << ss.str() << ")";
-            if (commit_timestamp_and_accessor)
-              throw utils::BasicException("Invalid transaction!");
-            std::set<PropertyId> properties;
-            for (const auto &prop :
-                 delta.operation_label_properties.properties) {
-              properties.emplace(NameToProperty(prop));
-            }
-            auto ret = DropUniqueConstraint(
-                NameToLabel(delta.operation_label_properties.label),
-                properties);
-            if (ret != UniqueConstraints::DeletionStatus::SUCCESS)
-              throw utils::BasicException("Invalid transaction!");
-            transaction_complete = true;
-            break;
-          }
-        }
-      }
-
-      if (commit_timestamp_and_accessor)
-        throw utils::BasicException("Invalid data!");
-
-      AppendDeltasRes res;
-      slk::Save(res, res_builder);
-    });
-    replication_server_->Start();
-  }
-
-  // Create replication client.
+  // For testing purposes until we can define the instance type from
+  // a query.
   if (FLAGS_main) {
-    replication_client_.emplace(&name_id_mapper_, config_.items,
-                                io::network::Endpoint{"127.0.0.1", 10000},
-                                false);
+    SetReplicationState(ReplicationState::MAIN);
+  } else if (FLAGS_replica) {
+    SetReplicationState(ReplicationState::REPLICA);
   }
 #endif
 }
@@ -1013,20 +621,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
   auto from_vertex = from->vertex_;
   auto to_vertex = to->vertex_;
 
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock,
-                                               std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
+  std::scoped_lock(from_vertex->lock, to_vertex->lock);
 
   if (!PrepareForWrite(&transaction_, from_vertex))
     return Error::SERIALIZATION_ERROR;
@@ -1749,7 +1344,8 @@ Transaction Storage::CreateTransaction() {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
 #ifdef MG_REPLICATION
-    if (!FLAGS_replica) {
+    if (replication_state_.load() !=
+        ReplicationState::REPLICA) {
       start_timestamp = timestamp_++;
     } else {
       start_timestamp = timestamp_;
@@ -2224,5 +1820,417 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 #endif
   FinalizeWalFile();
 }
+
+#ifdef MG_REPLICATION
+void Storage::ConfigureReplica() {
+  // Create RPC server.
+  // TODO(mferencevic): Add support for SSL.
+  replication_server_context_.emplace();
+  // NOTE: The replication server must have a single thread for processing
+  // because there is no need for more processing threads - each replica can
+  // have only a single main server. Also, the single-threaded guarantee
+  // simplifies the rest of the implementation.
+  // TODO(mferencevic): Make endpoint configurable.
+  replication_server_.emplace(io::network::Endpoint{"127.0.0.1", 10000},
+                              &*replication_server_context_,
+                              /* workers_count = */ 1);
+  replication_server_->Register<AppendDeltasRpc>([this](auto *req_reader,
+                                                        auto *res_builder) {
+    AppendDeltasReq req;
+    slk::Load(&req, req_reader);
+
+    DLOG(INFO) << "Received AppendDeltasRpc:";
+
+    replication::Decoder decoder(req_reader);
+
+    auto edge_acc = edges_.access();
+    auto vertex_acc = vertices_.access();
+
+    std::optional<std::pair<uint64_t, storage::Storage::Accessor>>
+        commit_timestamp_and_accessor;
+    auto get_transaction =
+        [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
+          if (!commit_timestamp_and_accessor) {
+            commit_timestamp_and_accessor.emplace(commit_timestamp, Access());
+          } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
+            throw utils::BasicException("Received more than one transaction!");
+          }
+          return &commit_timestamp_and_accessor->second;
+        };
+
+    bool transaction_complete = false;
+    for (uint64_t i = 0; !transaction_complete; ++i) {
+      uint64_t timestamp;
+      durability::WalDeltaData delta;
+
+      try {
+        timestamp = ReadWalDeltaHeader(&decoder);
+        DLOG(INFO) << "   Delta " << i;
+        DLOG(INFO) << "       Timestamp " << timestamp;
+        delta = ReadWalDeltaData(&decoder);
+      } catch (const slk::SlkReaderException &) {
+        throw utils::BasicException("Missing data!");
+      } catch (const durability::RecoveryFailure &) {
+        throw utils::BasicException("Invalid data!");
+      }
+
+      switch (delta.type) {
+        case durability::WalDeltaData::Type::VERTEX_CREATE: {
+          DLOG(INFO) << "       Create vertex "
+                     << delta.vertex_create_delete.gid.AsUint();
+          auto transaction = get_transaction(timestamp);
+          transaction->CreateVertex(delta.vertex_create_delete.gid);
+          break;
+        }
+        case durability::WalDeltaData::Type::VERTEX_DELETE: {
+          DLOG(INFO) << "       Delete vertex "
+                     << delta.vertex_create_delete.gid.AsUint();
+          auto transaction = get_transaction(timestamp);
+          auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid,
+                                                storage::View::NEW);
+          if (!vertex) throw utils::BasicException("Invalid transaction!");
+          auto ret = transaction->DeleteVertex(&*vertex);
+          if (ret.HasError() || !ret.GetValue())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
+          DLOG(INFO) << "       Vertex "
+                     << delta.vertex_add_remove_label.gid.AsUint()
+                     << " add label " << delta.vertex_add_remove_label.label;
+          auto transaction = get_transaction(timestamp);
+          auto vertex = transaction->FindVertex(
+              delta.vertex_add_remove_label.gid, storage::View::NEW);
+          if (!vertex) throw utils::BasicException("Invalid transaction!");
+          auto ret = vertex->AddLabel(
+              transaction->NameToLabel(delta.vertex_add_remove_label.label));
+          if (ret.HasError() || !ret.GetValue())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
+          DLOG(INFO) << "       Vertex "
+                     << delta.vertex_add_remove_label.gid.AsUint()
+                     << " remove label " << delta.vertex_add_remove_label.label;
+          auto transaction = get_transaction(timestamp);
+          auto vertex = transaction->FindVertex(
+              delta.vertex_add_remove_label.gid, storage::View::NEW);
+          if (!vertex) throw utils::BasicException("Invalid transaction!");
+          auto ret = vertex->RemoveLabel(
+              transaction->NameToLabel(delta.vertex_add_remove_label.label));
+          if (ret.HasError() || !ret.GetValue())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
+          DLOG(INFO) << "       Vertex "
+                     << delta.vertex_edge_set_property.gid.AsUint()
+                     << " set property "
+                     << delta.vertex_edge_set_property.property << " to "
+                     << delta.vertex_edge_set_property.value;
+          auto transaction = get_transaction(timestamp);
+          auto vertex = transaction->FindVertex(
+              delta.vertex_edge_set_property.gid, storage::View::NEW);
+          if (!vertex) throw utils::BasicException("Invalid transaction!");
+          auto ret =
+              vertex->SetProperty(transaction->NameToProperty(
+                                      delta.vertex_edge_set_property.property),
+                                  delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::EDGE_CREATE: {
+          DLOG(INFO) << "       Create edge "
+                     << delta.edge_create_delete.gid.AsUint() << " of type "
+                     << delta.edge_create_delete.edge_type << " from vertex "
+                     << delta.edge_create_delete.from_vertex.AsUint()
+                     << " to vertex "
+                     << delta.edge_create_delete.to_vertex.AsUint();
+          auto transaction = get_transaction(timestamp);
+          auto from_vertex = transaction->FindVertex(
+              delta.edge_create_delete.from_vertex, storage::View::NEW);
+          if (!from_vertex) throw utils::BasicException("Invalid transaction!");
+          auto to_vertex = transaction->FindVertex(
+              delta.edge_create_delete.to_vertex, storage::View::NEW);
+          if (!to_vertex) throw utils::BasicException("Invalid transaction!");
+          auto edge = transaction->CreateEdge(
+              &*from_vertex, &*to_vertex,
+              transaction->NameToEdgeType(delta.edge_create_delete.edge_type),
+              delta.edge_create_delete.gid);
+          if (edge.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::EDGE_DELETE: {
+          DLOG(INFO) << "       Delete edge "
+                     << delta.edge_create_delete.gid.AsUint() << " of type "
+                     << delta.edge_create_delete.edge_type << " from vertex "
+                     << delta.edge_create_delete.from_vertex.AsUint()
+                     << " to vertex "
+                     << delta.edge_create_delete.to_vertex.AsUint();
+          auto transaction = get_transaction(timestamp);
+          auto from_vertex = transaction->FindVertex(
+              delta.edge_create_delete.from_vertex, storage::View::NEW);
+          if (!from_vertex) throw utils::BasicException("Invalid transaction!");
+          auto to_vertex = transaction->FindVertex(
+              delta.edge_create_delete.to_vertex, storage::View::NEW);
+          if (!to_vertex) throw utils::BasicException("Invalid transaction!");
+          auto edges = from_vertex->OutEdges(
+              storage::View::NEW,
+              {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)},
+              &*to_vertex);
+          if (edges.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          if (edges->size() != 1)
+            throw utils::BasicException("Invalid transaction!");
+          auto &edge = (*edges)[0];
+          auto ret = transaction->DeleteEdge(&edge);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+        case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
+          DLOG(INFO) << "       Edge "
+                     << delta.vertex_edge_set_property.gid.AsUint()
+                     << " set property "
+                     << delta.vertex_edge_set_property.property << " to "
+                     << delta.vertex_edge_set_property.value;
+
+          if (!config_.items.properties_on_edges)
+            throw utils::BasicException(
+                "Can't set properties on edges because properties on edges "
+                "are disabled!");
+
+          auto transaction = get_transaction(timestamp);
+
+          // The following block of code effectively implements `FindEdge` and
+          // yields an accessor that is only valid for managing the edge's
+          // properties.
+          auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
+          if (edge == edge_acc.end())
+            throw utils::BasicException("Invalid transaction!");
+          // The edge visibility check must be done here manually because we
+          // don't allow direct access to the edges through the public API.
+          {
+            bool is_visible = true;
+            Delta *delta = nullptr;
+            {
+              std::lock_guard<utils::SpinLock> guard(edge->lock);
+              is_visible = !edge->deleted;
+              delta = edge->delta;
+            }
+            ApplyDeltasForRead(&transaction->transaction_, delta, View::NEW,
+                               [&is_visible](const Delta &delta) {
+                                 switch (delta.action) {
+                                   case Delta::Action::ADD_LABEL:
+                                   case Delta::Action::REMOVE_LABEL:
+                                   case Delta::Action::SET_PROPERTY:
+                                   case Delta::Action::ADD_IN_EDGE:
+                                   case Delta::Action::ADD_OUT_EDGE:
+                                   case Delta::Action::REMOVE_IN_EDGE:
+                                   case Delta::Action::REMOVE_OUT_EDGE:
+                                     break;
+                                   case Delta::Action::RECREATE_OBJECT: {
+                                     is_visible = true;
+                                     break;
+                                   }
+                                   case Delta::Action::DELETE_OBJECT: {
+                                     is_visible = false;
+                                     break;
+                                   }
+                                 }
+                               });
+            if (!is_visible)
+              throw utils::BasicException("Invalid transaction!");
+          }
+          EdgeRef edge_ref(&*edge);
+          // Here we create an edge accessor that we will use to get the
+          // properties of the edge. The accessor is created with an invalid
+          // type and invalid from/to pointers because we don't know them
+          // here, but that isn't an issue because we won't use that part of
+          // the API here.
+          auto ea = EdgeAccessor{edge_ref,
+                                 EdgeTypeId::FromUint(0UL),
+                                 nullptr,
+                                 nullptr,
+                                 &transaction->transaction_,
+                                 &indices_,
+                                 &constraints_,
+                                 config_.items};
+
+          auto ret =
+              ea.SetProperty(transaction->NameToProperty(
+                                 delta.vertex_edge_set_property.property),
+                             delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          break;
+        }
+
+        case durability::WalDeltaData::Type::TRANSACTION_END: {
+          DLOG(INFO) << "       Transaction end";
+          if (!commit_timestamp_and_accessor ||
+              commit_timestamp_and_accessor->first != timestamp)
+            throw utils::BasicException("Invalid data!");
+          auto ret = commit_timestamp_and_accessor->second.Commit(
+              commit_timestamp_and_accessor->first);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction!");
+          commit_timestamp_and_accessor = std::nullopt;
+          transaction_complete = true;
+          break;
+        }
+
+        case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
+          DLOG(INFO) << "       Create label index on :"
+                     << delta.operation_label.label;
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          if (!CreateIndex(NameToLabel(delta.operation_label.label)))
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
+          DLOG(INFO) << "       Drop label index on :"
+                     << delta.operation_label.label;
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          if (!DropIndex(NameToLabel(delta.operation_label.label)))
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
+          DLOG(INFO) << "       Create label+property index on :"
+                     << delta.operation_label_property.label << " ("
+                     << delta.operation_label_property.property << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          if (!CreateIndex(
+                  NameToLabel(delta.operation_label_property.label),
+                  NameToProperty(delta.operation_label_property.property)))
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
+          DLOG(INFO) << "       Drop label+property index on :"
+                     << delta.operation_label_property.label << " ("
+                     << delta.operation_label_property.property << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          if (!DropIndex(
+                  NameToLabel(delta.operation_label_property.label),
+                  NameToProperty(delta.operation_label_property.property)))
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
+          DLOG(INFO) << "       Create existence constraint on :"
+                     << delta.operation_label_property.label << " ("
+                     << delta.operation_label_property.property << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          auto ret = CreateExistenceConstraint(
+              NameToLabel(delta.operation_label_property.label),
+              NameToProperty(delta.operation_label_property.property));
+          if (!ret.HasValue() || !ret.GetValue())
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
+          DLOG(INFO) << "       Drop existence constraint on :"
+                     << delta.operation_label_property.label << " ("
+                     << delta.operation_label_property.property << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          if (!DropExistenceConstraint(
+                  NameToLabel(delta.operation_label_property.label),
+                  NameToProperty(delta.operation_label_property.property)))
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
+          std::stringstream ss;
+          utils::PrintIterable(ss, delta.operation_label_properties.properties);
+          DLOG(INFO) << "       Create unique constraint on :"
+                     << delta.operation_label_properties.label << " ("
+                     << ss.str() << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          std::set<PropertyId> properties;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            properties.emplace(NameToProperty(prop));
+          }
+          auto ret = CreateUniqueConstraint(
+              NameToLabel(delta.operation_label_properties.label), properties);
+          if (!ret.HasValue() ||
+              ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+        case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
+          std::stringstream ss;
+          utils::PrintIterable(ss, delta.operation_label_properties.properties);
+          DLOG(INFO) << "       Drop unique constraint on :"
+                     << delta.operation_label_properties.label << " ("
+                     << ss.str() << ")";
+          if (commit_timestamp_and_accessor)
+            throw utils::BasicException("Invalid transaction!");
+          std::set<PropertyId> properties;
+          for (const auto &prop : delta.operation_label_properties.properties) {
+            properties.emplace(NameToProperty(prop));
+          }
+          auto ret = DropUniqueConstraint(
+              NameToLabel(delta.operation_label_properties.label), properties);
+          if (ret != UniqueConstraints::DeletionStatus::SUCCESS)
+            throw utils::BasicException("Invalid transaction!");
+          transaction_complete = true;
+          break;
+        }
+      }
+    }
+
+    if (commit_timestamp_and_accessor)
+      throw utils::BasicException("Invalid data!");
+
+    AppendDeltasRes res;
+    slk::Save(res, res_builder);
+  });
+  replication_server_->Start();
+}
+
+void Storage::ConfigureMain() {
+  replication_client_.emplace(&name_id_mapper_, config_.items,
+                              io::network::Endpoint{"127.0.0.1", 10000}, false);
+}
+
+void Storage::SetReplicationState(const ReplicationState state) {
+  std::lock_guard replication_guard{replication_lock_};
+  replication_server_.reset();
+  replication_server_context_.reset();
+  replication_client_.reset();
+
+  switch (state) {
+    case ReplicationState::MAIN:
+      ConfigureMain();
+      break;
+    case ReplicationState::REPLICA:
+      ConfigureReplica();
+      break;
+    case ReplicationState::NONE:
+    default:
+      break;
+  }
+
+  replication_state_.store(state, std::memory_order_release);
+}
+#endif
 
 }  // namespace storage

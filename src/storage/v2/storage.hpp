@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
@@ -165,6 +166,10 @@ struct StorageInfo {
   uint64_t memory_usage;
   uint64_t disk_usage;
 };
+
+#ifdef MG_REPLICATION
+enum class ReplicationState : uint8_t { NONE, MAIN, REPLICA };
+#endif
 
 class Storage final {
  public:
@@ -399,6 +404,10 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
+#ifdef MG_REPLICATION
+  void SetReplicationState(ReplicationState state);
+#endif
+
  private:
   Transaction CreateTransaction();
 
@@ -414,6 +423,11 @@ class Storage final {
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
                    const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
+
+#ifdef MG_REPLICATION
+  void ConfigureReplica();
+  void ConfigureMain();
+#endif
 
   // Main storage lock.
   //
@@ -490,10 +504,12 @@ class Storage final {
 
   // Replication
 #ifdef MG_REPLICATION
+  utils::SpinLock replication_lock_;
   std::optional<communication::ServerContext> replication_server_context_;
   std::optional<rpc::Server> replication_server_;
   // TODO(mferencevic): Add support for multiple clients.
   std::optional<replication::ReplicationClient> replication_client_;
+  std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
 #endif
 };
 
