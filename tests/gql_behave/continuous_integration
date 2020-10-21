@@ -61,17 +61,18 @@ def generate_status(suite, result_path, required):
     total = result["total"]
     passed = result["passed"]
     ratio = passed / total
-    msg = "{} / {} //({:.2%})//".format(passed, total, ratio)
+    msg = "{} / {} ({:.2%})".format(passed, total, ratio)
     if required:
         if passed == total:
-            msg += " {icon check color=green}"
+            msg += " &#x1F44D;"  # +1 emoji
         else:
-            msg += " {icon times color=red}"
+            msg += " &#x26D4;"   # no entry emoji
     return (msg, passed, total)
 
 
 def generate_result_html(data):
-    ret = "<h1>Quality assurance status</h1>\n"
+    ret = "<!DOCTYPE html>\n"
+    ret += "<h1>Memgraph GQL Behave Tests Status</h1>\n"
     ret += "<table>\n"
     for row in data:
         ret += "  <tr>\n"
@@ -148,7 +149,7 @@ def main():
 
     # Results storage
     result_csv = "suite,status,quantity\n"
-    status_data = [["Suite", "Scenarios"]]
+    status_data = [["Suite", "Status"]]
     mandatory_fails = []
 
     # Run suites
