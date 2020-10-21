@@ -1,10 +1,10 @@
-# Label indexes
+# Label Indexes
 
 These are unsorted indexes that contain all the vertices that have the label
 the indexes are for (one index per label). These kinds of indexes get
 automatically generated for each label used in the database.
 
-### Updating the indexes
+### Updating the Indexes
 
 Whenever something gets added to the record we update the index (add that
 record to index). We keep an index which might contain garbage (not relevant
@@ -64,7 +64,7 @@ same order, with (record, vlist) pair
     already superseded by a newer record and as such won't be inserted while
     it's being deleted
 
-### Querying the index
+### Querying the Index
 
 We run through the index for the given label and do `vlist.find` operation for
 the current transaction, and check if the newest return record has that
@@ -75,7 +75,7 @@ in the index are sorted by their `vlist*` and as such we can filter consecutive
 duplicate `vlist*` to only return one of those while still being able to create
 an iterator to index.
 
-### Cleaning the index
+### Cleaning the Index
 
 Cleaning the index is not as straightforward as it seems as a lot of garbage
 can accumulate, but it's hard to know when exactly can we delete some (record,

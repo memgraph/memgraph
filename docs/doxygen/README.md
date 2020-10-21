@@ -1,7 +1,6 @@
 # Memgraph Code Documentation
 
-IMPORTANT: auto-generated (run doxygen Doxyfile in the project root)
+IMPORTANT: Auto-generated (run doxygen Doxyfile in the project root).
 
-* HTML - just open docs/doxygen/html/index.html
-
-* Latex - run make inside docs/doxygen/latex
+* HTML - Open docs/doxygen/html/index.html.
+* Latex - Run make inside docs/doxygen/latex.
