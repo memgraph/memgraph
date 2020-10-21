@@ -194,13 +194,12 @@ def main():
     with open(result_csv_path, "w") as f:
         f.write(result_csv)
 
-    print("CSV status is generated in %s" % result_csv_path)
-    print("HTML status is generated in %s" % result_html_path)
+    print(f'CSV status is generated in {result_csv_path}')
+    print(f'HTML status is generated in {result_html_path}')
 
     # Check if tests failed
     if mandatory_fails != []:
-        sys.exit("Some tests that must pass have failed -- %s"
-                 % str(mandatory_fails))
+        sys.exit(f'Some tests that must pass have failed: {mandatory_fails}')
 
 
 if __name__ == "__main__":
