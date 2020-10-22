@@ -21,10 +21,9 @@ void Save(const storage::PropertyValue::Type &type, slk::Builder *builder) {
 }
 
 void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  static_assert(
-      std::is_same_v<std::underlying_type_t<storage::PropertyValue::Type>,
-                     uint8_t>);
-  uint8_t value;
+  using PVTypeUnderlyingType =
+      std::underlying_type_t<storage::PropertyValue::Type>;
+  PVTypeUnderlyingType value;
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
@@ -152,10 +151,9 @@ void Save(const storage::durability::Marker &marker, slk::Builder *builder) {
 }
 
 void Load(storage::durability::Marker *marker, slk::Reader *reader) {
-  static_assert(
-      std::is_same_v<uint8_t,
-                     std::underlying_type_t<storage::durability::Marker>>);
-  uint8_t value;
+  using PVTypeUnderlyingType =
+      std::underlying_type_t<storage::PropertyValue::Type>;
+  PVTypeUnderlyingType value;
   slk::Load(&value, reader);
   *marker = static_cast<storage::durability::Marker>(value);
 }
