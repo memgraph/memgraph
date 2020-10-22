@@ -28,6 +28,6 @@ fi
 source ve3/bin/activate
 
 # execute test
-python3 basic.py || exit 1
+python3 docs_how_to_query.py || exit 1
 python3 max_query_length.py || exit 1
 python3 transactions.py || exit 1
