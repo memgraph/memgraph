@@ -504,7 +504,7 @@ class Storage final {
 
   // Replication
 #ifdef MG_REPLICATION
-  utils::SpinLock replication_lock_;
+  utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
   std::optional<communication::ServerContext> replication_server_context_;
   std::optional<rpc::Server> replication_server_;
   // TODO(mferencevic): Add support for multiple clients.

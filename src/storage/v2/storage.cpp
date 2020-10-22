@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -11,6 +12,8 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
 
@@ -1344,8 +1347,7 @@ Transaction Storage::CreateTransaction() {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
 #ifdef MG_REPLICATION
-    if (replication_state_.load() !=
-        ReplicationState::REPLICA) {
+    if (replication_state_.load() != ReplicationState::REPLICA) {
       start_timestamp = timestamp_++;
     } else {
       start_timestamp = timestamp_;
@@ -1621,6 +1623,7 @@ void Storage::AppendToWal(const Transaction &transaction,
       transaction.commit_timestamp->load(std::memory_order_acquire);
 
 #ifdef MG_REPLICATION
+  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   std::optional<replication::ReplicationClient::Handler> stream;
   if (replication_client_) {
     try {
@@ -1629,6 +1632,7 @@ void Storage::AppendToWal(const Transaction &transaction,
       LOG(FATAL) << "Couldn't replicate data!";
     }
   }
+  replication_guard.unlock();
 #endif
 
   // Helper lambda that traverses the delta chain on order to find the first
@@ -1807,6 +1811,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   wal_file_->AppendOperation(operation, label, properties,
                              final_commit_timestamp);
 #ifdef MG_REPLICATION
+  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_client_) {
     auto stream = replication_client_->ReplicateTransaction();
     try {
@@ -1817,6 +1822,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
       LOG(FATAL) << "Couldn't replicate data!";
     }
   }
+  replication_guard.unlock();
 #endif
   FinalizeWalFile();
 }
@@ -2212,7 +2218,12 @@ void Storage::ConfigureMain() {
 }
 
 void Storage::SetReplicationState(const ReplicationState state) {
-  std::lock_guard replication_guard{replication_lock_};
+  if (replication_state_.load(std::memory_order_acquire) == state) {
+    return;
+  }
+
+  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+
   replication_server_.reset();
   replication_server_context_.reset();
   replication_client_.reset();
