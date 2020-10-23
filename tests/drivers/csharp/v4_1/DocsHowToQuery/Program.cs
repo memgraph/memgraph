@@ -22,10 +22,6 @@ public class Basic {
         var name = node["name"];
         var age = (long) node["age"];
 
-        Console.WriteLine("Label: " + label);
-        Console.WriteLine("name: " + name);
-        Console.WriteLine("age: " + age);
-
         if (!label.Equals("Person") || !name.Equals("Alice") || !age.Equals(22)) {
           Console.WriteLine("Data doesn't match!");
           System.Environment.Exit(1);

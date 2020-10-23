@@ -13,5 +13,5 @@ if [ ! -d node_modules ]; then
     npm install neo4j-driver
 fi
 
-node basic.js
+node docs_how_to_query.js
 node max_query_length.js

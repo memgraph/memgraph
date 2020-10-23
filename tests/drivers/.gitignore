@@ -11,8 +11,11 @@ java/**/*.class
 java/**/*.jar
 
 # javascript driver
-javascript/**/node_modules
-javascript/**/package-lock.json
+javascript/websockify-js/
+
+# node driver
+node/**/node_modules
+node/**/package-lock.json
 
 # python driver
 python/ve3
