@@ -25,7 +25,7 @@
 * Fixed bug that caused random crashes in SSL communication on platforms
   that use older versions of OpenSSL (< 1.1) by adding proper multi-threading
   handling.
-* Fix `DISCARD` message handling. The quey is now executed before discarding
+* Fix `DISCARD` message handling. The query is now executed before discarding
   the results.
 
 ## v1.1.0
