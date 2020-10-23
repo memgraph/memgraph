@@ -22,11 +22,11 @@ if [ ! -f $REACTIVE_STREAM_DEP ]; then
     wget -nv https://repo1.maven.org/maven2/org/reactivestreams/reactive-streams/1.0.3/reactive-streams-1.0.3.jar -O $REACTIVE_STREAM_DEP || exit 1
 fi
 
-javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Basic.java
-java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Basic
+javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery.java
+java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery
 
 javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP MaxQueryLength.java
 java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP MaxQueryLength
 
 javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Transactions.java
-java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Transactions 
+java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP Transactions
