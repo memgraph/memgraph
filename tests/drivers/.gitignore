@@ -1,15 +1,18 @@
 # csharp driver
-csharp/*.dll
-csharp/*.exe
-csharp/driver.*
+csharp/**/*.dll
+csharp/**/*.exe
+csharp/**/driver.*
+csharp/**/bin
+csharp/**/obj
+csharp/**/build
 
 # java driver
-java/*.class
-java/*.jar
+java/**/*.class
+java/**/*.jar
 
 # javascript driver
-javascript/node_modules
-javascript/package-lock.json
+javascript/**/node_modules
+javascript/**/package-lock.json
 
 # python driver
 python/ve3

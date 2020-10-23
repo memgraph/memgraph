@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN pip3 install networkx
+RUN pip3 install networkx==2.4 numpy==1.19.2 scipy==1.5.2
 
 COPY ${deb_release} /
 

@@ -86,4 +86,9 @@ if [ -d /run/systemd/system ]; then
     deb-systemd-invoke start memgraph.service >/dev/null || true
 fi
 
+# Take a look at the preinst script for the detailed explanation.
+if dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+    dpkg-maintscript-helper rm_conffile /etc/logrotate.d/memgraph_audit 1.1.999 -- "$@"
+fi
+
 exit 0

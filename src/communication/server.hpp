@@ -28,8 +28,8 @@ namespace communication {
  * Current Server achitecture:
  * incoming connection -> server -> listener -> session
  *
- * NOTE: If you use this server you **must** call `communication::Init()` from
- * the `main` function before using the server!
+ * NOTE: If you use this server you **must** create `communication::SSLInit`
+ * from the `main` function before using the server!
  *
  * @tparam TSession the server can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
