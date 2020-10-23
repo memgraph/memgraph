@@ -3,7 +3,7 @@
 # Build and package Docker image of Memgraph.
 
 function print_help () {
-    echo "Usage: $0 [--latest] MEMGPRAH_PACKAGE.deb"
+    echo "Usage: $0 [--latest] MEMGRAPH_PACKAGE.deb"
     echo "Optional arguments:"
     echo -e "\t-h|--help\t\tPrint help."
     echo -e "\t--latest\t\tTag image as latest version."
