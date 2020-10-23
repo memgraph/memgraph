@@ -12,9 +12,9 @@ for i in dotnet; do
 done
 
 for i in *; do
-  if [ ! -d $i ]; then 
+  if [ ! -d $i ]; then
     continue
-  fi 
+  fi
   pushd $i
   dotnet publish -c release --self-contained --runtime linux-x64 --framework netcoreapp2.1 -o build/
   ./build/$i
