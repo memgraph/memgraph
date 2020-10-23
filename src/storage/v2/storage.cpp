@@ -1660,13 +1660,10 @@ void Storage::AppendToWal(const Transaction &transaction,
   std::list<replication::ReplicationClient::Handler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
     try {
-      for (auto &client : replication_clients_) {
-        streams.push_back(client.ReplicateTransaction());
-      }
-      //std::transform(replication_clients_.begin(), replication_clients_.end(),
-      //               std::back_inserter(streams), [](auto &client) {
-      //                 return client.ReplicateTransaction();
-      //               });
+      std::transform(replication_clients_.begin(), replication_clients_.end(),
+                     std::back_inserter(streams), [](auto &client) {
+                       return client.ReplicateTransaction();
+                     });
     } catch (const rpc::RpcFailedException &) {
       LOG(FATAL) << "Couldn't replicate data!";
     }
@@ -1692,7 +1689,6 @@ void Storage::AppendToWal(const Transaction &transaction,
         try {
           for (auto &stream : streams) {
             stream.AppendDelta(*delta, parent, final_commit_timestamp);
-            break;
           }
         } catch (const rpc::RpcFailedException &) {
           LOG(FATAL) << "Couldn't replicate data!";
@@ -1836,7 +1832,6 @@ void Storage::AppendToWal(const Transaction &transaction,
     for (auto &stream : streams) {
       stream.AppendTransactionEnd(final_commit_timestamp);
       stream.Finalize();
-      break;
     }
   } catch (const rpc::RpcFailedException &) {
     LOG(FATAL) << "Couldn't replicate data!";
@@ -1884,7 +1879,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                               /* workers_count = */ 1);
   replication_server_->Register<AppendDeltasRpc>([this, endpoint](auto *req_reader,
                                                         auto *res_builder) {
-    std::cout << endpoint.port() << '\n';
     AppendDeltasReq req;
     slk::Load(&req, req_reader);
 
