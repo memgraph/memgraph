@@ -405,7 +405,31 @@ class Storage final {
   StorageInfo GetInfo() const;
 
 #ifdef MG_ENTERPRISE
-  void SetReplicationState(ReplicationState state);
+  template <ReplicationState state, typename... Args>
+  void SetReplicationState(Args &&... args) {
+    if (replication_state_.load(std::memory_order_acquire) == state) {
+      return;
+    }
+
+    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+
+    if (replication_server_) {
+      replication_server_->Shutdown();
+      replication_server_->AwaitShutdown();
+      replication_server_.reset();
+    }
+
+    replication_server_context_.reset();
+    replication_clients_.clear();
+
+    if constexpr (state == ReplicationState::REPLICA) {
+      ConfigureReplica(std::forward<Args>(args)...);
+    }
+
+    replication_state_.store(state, std::memory_order_release);
+  }
+
+  void RegisterReplica(io::network::Endpoint endpoint);
 #endif
 
  private:
@@ -425,8 +449,7 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
 #ifdef MG_ENTERPRISE
-  void ConfigureReplica();
-  void ConfigureMain();
+  void ConfigureReplica(io::network::Endpoint endpoint);
 #endif
 
   // Main storage lock.
@@ -505,10 +528,14 @@ class Storage final {
   // Replication
 #ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
+
+  // Replica servers need to accept Rpc requests so we setup a server
   std::optional<communication::ServerContext> replication_server_context_;
   std::optional<rpc::Server> replication_server_;
-  // TODO(mferencevic): Add support for multiple clients.
-  std::optional<replication::ReplicationClient> replication_client_;
+  // Main server needs to send the Rpc requests so we use a replication
+  // client
+  std::list<replication::ReplicationClient> replication_clients_;
+
   std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
 #endif
 };
