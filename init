@@ -20,16 +20,16 @@ optional_pkgs_apt=(doxygen graphviz # source documentation generators
                   )
 
 
-required_pkgs_yum=(# NOTE: git is too old on CentOS, install it manually from IUS
-                   make pkgconfig # build system
+required_pkgs_yum=(git # source code control
+                   make pkgconf-pkg-config # build system
                    curl wget # for downloading libs
                    libuuid-devel java-1.8.0-openjdk # required by antlr
                    readline-devel # for memgraph console
-                   python3-devel # for query modules
+                   python36-devel # for query modules
                    openssl-devel
                    libseccomp-devel
-                   python3 python-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
-                   # NOTE: python3-yaml doesn't exist on CentOS, install it manually using `pip3 install PyYAML`
+                   python36 python3-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
+                   # NOTE: python3-yaml does NOT exist on CentOS, install it manually using `pip3 install PyYAML`
                    libcurl-devel # mg-requests
                    sbcl # for custom Lisp C++ preprocessing
                    rpm-build rpmlint # for RPM package building
