@@ -1889,7 +1889,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                                         &*rpc_server.replication_server_context,
                                         /* workers_count = */ 1);
   rpc_server.replication_server->Register<
-      AppendDeltasRpc>([this, endpoint](auto *req_reader, auto *res_builder) {
+      AppendDeltasRpc>([this, endpoint = std::move(endpoint)](
+                           auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     slk::Load(&req, req_reader);
 
