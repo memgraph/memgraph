@@ -17,11 +17,11 @@
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 #include "storage/v2/replication/rpc.hpp"
 #endif
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 DEFINE_bool(main, false, "Set to true to be the main");
 DEFINE_bool(replica, false, "Set to true to be the replica");
 #endif
@@ -415,7 +415,7 @@ Storage::Storage(Config config)
                    [this] { this->CollectGarbage(); });
   }
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
@@ -430,7 +430,7 @@ Storage::~Storage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   if (replication_server_) {
     replication_server_->Shutdown();
     replication_server_->AwaitShutdown();
@@ -496,7 +496,7 @@ VertexAccessor Storage::Accessor::CreateVertex() {
                         &storage_->constraints_, config_);
 }
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -677,7 +677,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                       &storage_->indices_, &storage_->constraints_, config_);
 }
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                                                    VertexAccessor *to,
                                                    EdgeTypeId edge_type,
@@ -873,7 +873,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
   return Commit(std::nullopt);
 }
@@ -919,7 +919,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
       if (!desired_commit_timestamp) {
         commit_timestamp = storage_->timestamp_++;
       } else {
@@ -1372,7 +1372,7 @@ Transaction Storage::CreateTransaction() {
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
     if (replication_state_.load() != ReplicationState::REPLICA) {
       start_timestamp = timestamp_++;
     } else {
@@ -1648,7 +1648,7 @@ void Storage::AppendToWal(const Transaction &transaction,
   auto current_commit_timestamp =
       transaction.commit_timestamp->load(std::memory_order_acquire);
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   std::optional<replication::ReplicationClient::Handler> stream;
   if (replication_client_) {
@@ -1676,7 +1676,7 @@ void Storage::AppendToWal(const Transaction &transaction,
     while (true) {
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
         if (stream) {
           try {
             stream->AppendDelta(*delta, parent, final_commit_timestamp);
@@ -1818,7 +1818,7 @@ void Storage::AppendToWal(const Transaction &transaction,
 
   FinalizeWalFile();
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   if (stream) {
     try {
       stream->AppendTransactionEnd(final_commit_timestamp);
@@ -1836,7 +1836,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   if (!InitializeWalFile()) return;
   wal_file_->AppendOperation(operation, label, properties,
                              final_commit_timestamp);
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_client_) {
     auto stream = replication_client_->ReplicateTransaction();
@@ -1853,7 +1853,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   FinalizeWalFile();
 }
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 void Storage::ConfigureReplica() {
   // Create RPC server.
   // TODO(mferencevic): Add support for SSL.

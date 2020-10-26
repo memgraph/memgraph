@@ -23,7 +23,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
 #include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -167,7 +167,7 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
 enum class ReplicationState : uint8_t { NONE, MAIN, REPLICA };
 #endif
 
@@ -317,7 +317,7 @@ class Storage final {
     void Abort();
 
    private:
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
 
@@ -404,7 +404,7 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   void SetReplicationState(ReplicationState state);
 #endif
 
@@ -424,7 +424,7 @@ class Storage final {
                    const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
 
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   void ConfigureReplica();
   void ConfigureMain();
 #endif
@@ -503,7 +503,7 @@ class Storage final {
   uint64_t wal_unsynced_transactions_{0};
 
   // Replication
-#ifdef MG_REPLICATION
+#ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
   std::optional<communication::ServerContext> replication_server_context_;
   std::optional<rpc::Server> replication_server_;
