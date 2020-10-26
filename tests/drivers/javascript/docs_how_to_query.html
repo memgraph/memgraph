@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Javascript Browser Example | Memgraph</title>
+  <script src="https://cdn.jsdelivr.net/npm/neo4j-driver"></script>
+</head>
+<body>
+  <p>Check console for Cypher query outputs...</p>
+  <script>
+    const driver = neo4j.driver(
+      "bolt://localhost:9999",
+      neo4j.auth.basic("", ""),
+    );
+
+    (async function main() {
+      const session = driver.session();
+
+      try {
+        await session.run("MATCH (n) DETACH DELETE n;");
+        console.log("Database cleared.");
+
+        await session.run("CREATE (alice:Person {name: 'Alice', age: 22});");
+        console.log("Record created.");
+
+        const result = await session.run("MATCH (n) RETURN n;");
+        console.log("Record matched.");
+        const alice = result.records[0].get("n");
+        const label = alice.labels[0]
+        const name = alice.properties["name"];
+        const age = alice.properties["age"];
+
+        if (label != "Person" || name != "Alice" || age != 22) {
+            console.error("Data doesn't match.");
+        }
+
+        console.log("Label: " + label);
+        console.log("name: " + name);
+        console.log("age: " + age);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        session.close();
+      }
+
+      driver.close();
+    })();
+  </script>
+</body>
+</html>
