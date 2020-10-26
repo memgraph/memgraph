@@ -29,6 +29,33 @@ You should use a pointer to `const` then. The primary reason being is that
 references obscure the semantics of moving an object, thus making bugs with
 references pointing to invalid memory harder to track down.
 
+Example of this can be seen while capturing member variables by reference 
+inside a lambda.
+Let's define a class that has two members, where one of those members is a
+lambda that captures the other member by reference.
+
+```cpp
+struct S {
+  std::function<void()> foo;
+  int bar;
+
+  S() : foo([&]() { std::cout << bar; })
+  {} 
+};
+```
+What would happend if we move an instance of this object? Our lambda
+reference capture will point to the same location as before, i.e. it 
+will point to the **old** memory location of `bar`. This means we have
+a dangling reference in our code!
+There are multiple ways to avoid this. The simple solutions would be
+capturing by value or disabling move constructors/assignments.
+Still, if we capture by reference an object that is not a member
+of the struct containing the lambda, we can still have a dangling
+reference if we move that object somewhere in our code and there is
+nothing we can do to prevent that.
+So, be careful with lambda catptures, and remember that references are 
+still a pointer under the hood!
+
 [Style guide reference](https://google.github.io/styleguide/cppguide.html#Reference_Arguments)
 
 #### Constructors & RAII
