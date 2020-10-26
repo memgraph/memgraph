@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <variant>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -412,18 +413,12 @@ class Storage final {
     }
 
     std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-
-    if (replication_server_) {
-      replication_server_->Shutdown();
-      replication_server_->AwaitShutdown();
-      replication_server_.reset();
-    }
-
-    replication_server_context_.reset();
-    replication_clients_.clear();
+    rpc_context_.emplace<std::monostate>();
 
     if constexpr (state == ReplicationState::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
+    } else if (state == ReplicationState::MAIN) {
+      rpc_context_.emplace<ReplicationClientList>();
     }
 
     replication_state_.store(state, std::memory_order_release);
@@ -529,12 +524,26 @@ class Storage final {
 #ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
-  // Replica servers need to accept Rpc requests so we setup a server
-  std::optional<communication::ServerContext> replication_server_context_;
-  std::optional<rpc::Server> replication_server_;
-  // Main server needs to send the Rpc requests so we use a replication
-  // client
-  std::list<replication::ReplicationClient> replication_clients_;
+  struct RPCServer {
+    std::optional<communication::ServerContext> replication_server_context;
+    std::optional<rpc::Server> replication_server;
+
+    explicit RPCServer() = default;
+    RPCServer(const RPCServer &) = delete;
+    RPCServer(RPCServer &&) = delete;
+    RPCServer &operator=(const RPCServer &) = delete;
+    RPCServer &operator=(RPCServer &&) = delete;
+
+    ~RPCServer() {
+      if (replication_server) {
+        replication_server->Shutdown();
+        replication_server->AwaitShutdown();
+      }
+    }
+  };
+
+  using ReplicationClientList = std::list<replication::ReplicationClient>;
+  std::variant<std::monostate, RPCServer, ReplicationClientList> rpc_context_;
 
   std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
 #endif

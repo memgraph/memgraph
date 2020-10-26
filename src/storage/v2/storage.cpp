@@ -4,6 +4,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <variant>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -435,10 +436,7 @@ Storage::~Storage() {
 #ifdef MG_ENTERPRISE
   {
     std::lock_guard<utils::RWLock> replication_guard(replication_lock_);
-    if (replication_server_) {
-      replication_server_->Shutdown();
-      replication_server_->AwaitShutdown();
-    }
+    rpc_context_.emplace<std::monostate>();
   }
 #endif
   wal_file_ = std::nullopt;
@@ -1659,8 +1657,13 @@ void Storage::AppendToWal(const Transaction &transaction,
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   std::list<replication::ReplicationClient::Handler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
+    auto *replication_clients =
+        std::get_if<ReplicationClientList>(&rpc_context_);
+    CHECK(replication_clients)
+        << "Main instance does not have replication clients set!";
+
     try {
-      std::transform(replication_clients_.begin(), replication_clients_.end(),
+      std::transform(replication_clients->begin(), replication_clients->end(),
                      std::back_inserter(streams), [](auto &client) {
                        return client.ReplicateTransaction();
                      });
@@ -1848,8 +1851,12 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 #ifdef MG_ENTERPRISE
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_state_.load() == ReplicationState::MAIN) {
+    auto *replication_clients =
+        std::get_if<ReplicationClientList>(&rpc_context_);
+    CHECK(replication_clients)
+        << "Main instance does not have replication clients set!";
     try {
-      for (auto &client : replication_clients_) {
+      for (auto &client : *replication_clients) {
         auto stream = client.ReplicateTransaction();
         stream.AppendOperation(operation, label, properties,
                                final_commit_timestamp);
@@ -1866,19 +1873,23 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 
 #ifdef MG_ENTERPRISE
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
+  rpc_context_.emplace<RPCServer>();
+
+  auto &rpc_server = std::get<RPCServer>(rpc_context_);
+
   // Create RPC server.
   // TODO(mferencevic): Add support for SSL.
-  replication_server_context_.emplace();
+  rpc_server.replication_server_context.emplace();
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
   // simplifies the rest of the implementation.
   // TODO(mferencevic): Make endpoint configurable.
-  replication_server_.emplace(endpoint,
-                              &*replication_server_context_,
-                              /* workers_count = */ 1);
-  replication_server_->Register<AppendDeltasRpc>([this, endpoint](auto *req_reader,
-                                                        auto *res_builder) {
+  rpc_server.replication_server.emplace(endpoint,
+                                        &*rpc_server.replication_server_context,
+                                        /* workers_count = */ 1);
+  rpc_server.replication_server->Register<
+      AppendDeltasRpc>([this, endpoint](auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     slk::Load(&req, req_reader);
 
@@ -2246,7 +2257,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
     AppendDeltasRes res;
     slk::Save(res, res_builder);
   });
-  replication_server_->Start();
+  rpc_server.replication_server->Start();
 }
 
 void Storage::RegisterReplica(io::network::Endpoint endpoint) {
@@ -2254,7 +2265,10 @@ void Storage::RegisterReplica(io::network::Endpoint endpoint) {
         ReplicationState::MAIN)
       << "Only a main instance can register a replica!";
 
-  replication_clients_.emplace_back(&name_id_mapper_, config_.items,
+  auto *replication_clients = std::get_if<ReplicationClientList>(&rpc_context_);
+  CHECK(replication_clients)
+      << "Main instance does not have set replication clients!";
+  replication_clients->emplace_back(&name_id_mapper_, config_.items,
                                     std::move(endpoint), false);
 }
 #endif
