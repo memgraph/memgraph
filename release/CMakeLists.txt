@@ -41,6 +41,7 @@ if (MG_ENTERPRISE)
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/conffiles;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/copyright;"
+      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
@@ -48,6 +49,7 @@ else()
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/conffiles;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/copyright;"
+      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")

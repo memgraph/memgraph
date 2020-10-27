@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   nlohmann::json config;
   std::cin >> config;

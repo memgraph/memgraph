@@ -49,14 +49,38 @@ class Session {
 
   /**
    * Process the given `query` with `params`.
+   * @return A pair which contains list of headers and qid which is set only
+   * if an explicit transaction was started.
    */
-  virtual std::vector<std::string> Interpret(
+  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params) = 0;
 
   /**
    * Put results of the processed query in the `encoder`.
+   *
+   * @param n If set, defines amount of rows to be pulled from the result,
+   * otherwise all the rows are pulled.
+   * @param q If set, defines from which query to pull the results,
+   * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> PullAll(TEncoder *encoder) = 0;
+  virtual std::map<std::string, Value> Pull(TEncoder *encoder,
+                                            std::optional<int> n,
+                                            std::optional<int> qid) = 0;
+
+  /**
+   * Discard results of the processed query.
+   *
+   * @param n If set, defines amount of rows to be discarded from the result,
+   * otherwise all the rows are discarded.
+   * @param q If set, defines from which query to discard the results,
+   * otherwise the last query is used.
+   */
+  virtual std::map<std::string, Value> Discard(std::optional<int> n,
+                                               std::optional<int> qid) = 0;
+
+  virtual void BeginTransaction() = 0;
+  virtual void CommitTransaction() = 0;
+  virtual void RollbackTransaction() = 0;
 
   /** Aborts currently running query. */
   virtual void Abort() = 0;
@@ -141,6 +165,13 @@ class Session {
 
   bool handshake_done_{false};
   State state_{State::Handshake};
+
+  struct Version {
+    uint8_t major;
+    uint8_t minor;
+  };
+
+  Version version_;
 
  private:
   void ClientFailureInvalidData() {

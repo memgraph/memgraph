@@ -8,13 +8,18 @@ static constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
 static constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
 
 enum class Signature : uint8_t {
+  Noop = 0x00,
   Init = 0x01,
-  AckFailure = 0x0E,
+  AckFailure = 0x0E,  // only v1
   Reset = 0x0F,
+  Goodbye = 0x02,
 
   Run = 0x10,
-  DiscardAll = 0x2F,
-  PullAll = 0x3F,
+  Discard = 0x2F,
+  Pull = 0x3F,
+  Begin = 0x11,
+  Commit = 0x12,
+  Rollback = 0x13,
 
   Record = 0x71,
   Success = 0x70,

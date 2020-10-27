@@ -107,11 +107,12 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
 # Install logrotate configuration (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
-        DESTINATION /etc/logrotate.d RENAME memgraph)
 if (MG_ENTERPRISE)
-install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_audit.conf
-        DESTINATION /etc/logrotate.d RENAME memgraph_audit)
+install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_enterprise.conf
+        DESTINATION /etc/logrotate.d RENAME memgraph)
+else()
+install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_community.conf
+        DESTINATION /etc/logrotate.d RENAME memgraph)
 endif()
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph

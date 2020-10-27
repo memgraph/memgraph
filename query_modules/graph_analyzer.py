@@ -1,11 +1,21 @@
+import sys
 import mgp
-
 from collections import OrderedDict
 from itertools import chain, repeat
 from inspect import cleandoc
-from typing import List, Tuple, Optional
-from mgp_networkx import MemgraphMultiDiGraph
-import networkx as nx
+from typing import List, Tuple
+try:
+    import networkx as nx
+except ImportError as import_error:
+    sys.stderr.write((
+        '\n'
+        'NOTE: Please install networkx to be able to use graph_analyzer '
+        'module. Using Python:\n'
+        + sys.version +
+        '\n'))
+    raise import_error
+# Imported last because it also depends on networkx.
+from mgp_networkx import MemgraphMultiDiGraph  # noqa E402
 
 
 _MAX_LIST_SIZE = 10

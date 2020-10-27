@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "communication/bolt/client.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 #include "utils/algorithm.hpp"
@@ -550,7 +551,7 @@ int main(int argc, char **argv) {
   FLAGS_min_log_level = google::ERROR;
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
 #ifdef HAS_READLINE
   using_history();

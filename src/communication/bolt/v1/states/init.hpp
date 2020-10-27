@@ -11,6 +11,71 @@
 
 namespace communication::bolt {
 
+namespace detail {
+template <typename TSession>
+std::optional<Value> StateInitRunV1(TSession &session, const Marker marker) {
+  if (UNLIKELY(marker != Marker::TinyStruct2)) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct2 marker, but received 0x{:02X}!",
+        utils::UnderlyingCast(marker));
+    DLOG(WARNING) << "The client sent malformed data, but we are continuing "
+                     "because the official Neo4j Java driver sends malformed "
+                     "data. D'oh!";
+    // TODO: this should be uncommented when the Neo4j Java driver is fixed
+    // return State::Close;
+  }
+
+  Value client_name;
+  if (!session.decoder_.ReadValue(&client_name, Value::Type::String)) {
+    DLOG(WARNING) << "Couldn't read client name!";
+    return std::nullopt;
+  }
+
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
+    DLOG(WARNING) << "Couldn't read metadata!";
+    return std::nullopt;
+  }
+
+  LOG(INFO) << fmt::format("Client connected '{}'", client_name.ValueString())
+            << std::endl;
+
+  return metadata;
+}
+
+template <typename TSession>
+std::optional<Value> StateInitRunV4(TSession &session, const Marker marker) {
+  if (UNLIKELY(marker != Marker::TinyStruct1)) {
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct1 marker, but received 0x{:02X}!",
+        utils::UnderlyingCast(marker));
+    DLOG(WARNING) << "The client sent malformed data, but we are continuing "
+                     "because the official Neo4j Java driver sends malformed "
+                     "data. D'oh!";
+    // TODO: this should be uncommented when the Neo4j Java driver is fixed
+    // return State::Close;
+  }
+
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
+    DLOG(WARNING) << "Couldn't read metadata!";
+    return std::nullopt;
+  }
+
+  const auto &data = metadata.ValueMap();
+  if (!data.count("user_agent")) {
+    LOG(WARNING) << "The client didn't supply the user agent!";
+    return std::nullopt;
+  }
+
+  LOG(INFO) << fmt::format("Client connected '{}'",
+                           data.at("user_agent").ValueString())
+            << std::endl;
+
+  return metadata;
+}
+}  // namespace detail
+
 /**
  * Init state run function.
  * This function runs everything to initialize a Bolt session with the client.
@@ -28,41 +93,31 @@ State StateInitRun(Session &session) {
     return State::Close;
   }
 
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
+               session.version_.minor == 1)) {
+    DLOG(INFO) << "Received NOOP message";
+    return State::Init;
+  }
+
   if (UNLIKELY(signature != Signature::Init)) {
     DLOG(WARNING) << fmt::format(
         "Expected Init signature, but received 0x{:02X}!",
         utils::UnderlyingCast(signature));
     return State::Close;
   }
-  if (UNLIKELY(marker != Marker::TinyStruct2)) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct2 marker, but received 0x{:02X}!",
-        utils::UnderlyingCast(marker));
-    DLOG(WARNING) << "The client sent malformed data, but we are continuing "
-                     "because the official Neo4j Java driver sends malformed "
-                     "data. D'oh!";
-    // TODO: this should be uncommented when the Neo4j Java driver is fixed
-    // return State::Close;
-  }
 
-  Value client_name;
-  if (!session.decoder_.ReadValue(&client_name, Value::Type::String)) {
-    DLOG(WARNING) << "Couldn't read client name!";
+  auto maybeMetadata = session.version_.major == 1
+                           ? detail::StateInitRunV1(session, marker)
+                           : detail::StateInitRunV4(session, marker);
+
+  if (!maybeMetadata) {
     return State::Close;
   }
-
-  Value metadata;
-  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
-    DLOG(WARNING) << "Couldn't read metadata!";
-    return State::Close;
-  }
-
-  LOG(INFO) << fmt::format("Client connected '{}'", client_name.ValueString())
-            << std::endl;
 
   // Get authentication data.
-  std::string username, password;
-  auto &data = metadata.ValueMap();
+  std::string username;
+  std::string password;
+  auto &data = maybeMetadata->ValueMap();
   if (!data.count("scheme")) {
     LOG(WARNING) << "The client didn't supply authentication information!";
     return State::Close;
@@ -95,13 +150,15 @@ State StateInitRun(Session &session) {
   // Return success.
   {
     bool success_sent = false;
-    auto server_name = session.GetServerNameForInit();
-    if (server_name) {
-      success_sent =
-          session.encoder_.MessageSuccess({{"server", *server_name}});
-    } else {
-      success_sent = session.encoder_.MessageSuccess();
+    // Neo4j's Java driver 4.1.1+ requires connection_id.
+    // The only usage in the mentioned version is for logging purposes.
+    // Because it's not critical for the regular usage of the driver
+    // we send a hardcoded value for now.
+    std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+    if (auto server_name = session.GetServerNameForInit(); server_name) {
+      metadata.insert({"server", *server_name});
     }
+    success_sent = session.encoder_.MessageSuccess(metadata);
     if (!success_sent) {
       DLOG(WARNING) << "Couldn't send success message to the client!";
       return State::Close;

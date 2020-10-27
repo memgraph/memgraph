@@ -1,4 +1,3 @@
 /etc/memgraph/memgraph.conf
 /etc/memgraph/auth_module/ldap.example.yaml
 /etc/logrotate.d/memgraph
-/etc/logrotate.d/memgraph_audit

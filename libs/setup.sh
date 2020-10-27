@@ -52,12 +52,9 @@ clone https://github.com/antlr/antlr4.git antlr4 $antlr4_tag
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
-# cppitertools
-# Use our fork that uses experimental/optional instead of unique_ptr in
-# DerefHolder. Once we move memgraph to c++17 we can use cpp17 branch from
-# original repo.
-cppitertools_tag="4231e0bc6fba2737b2a7a8a1576cf06186b0de6a" # experimental_optional 17 Aug 2017
-clone https://github.com/memgraph/cppitertools.git cppitertools $cppitertools_tag
+# cppitertools v2.0 2019-12-23
+cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
+clone https://github.com/ryanhaining/cppitertools.git cppitertools $cppitertools_ref
 
 # fmt
 fmt_tag="7fa8f8fa48b0903deab5bb42e6760477173ac485" # v3.0.1
