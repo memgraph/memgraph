@@ -234,6 +234,10 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
+if (MG_ENTERPRISE)
+add_unit_test(storage_v2_replication.cpp)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+endif()
 
 # Test mg-auth
 
@@ -246,10 +250,11 @@ endif()
 # Test mg-slk
 
 if (MG_ENTERPRISE)
-## TODO: REPLACE single-node-ha
-#add_unit_test(slk_advanced.cpp)
-#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
+add_unit_test(slk_advanced.cpp)
+target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+endif()
 
+if (MG_ENTERPRISE)
 add_unit_test(slk_core.cpp)
 target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
 

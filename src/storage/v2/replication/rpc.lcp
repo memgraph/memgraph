@@ -1,0 +1,32 @@
+#>cpp
+#pragma once
+
+#include <cstring>
+#include <cstdint>
+
+#include "rpc/messages.hpp"
+#include "slk/serialization.hpp"
+#include "slk/streams.hpp"
+cpp<#
+
+;; TODO(mferencevic): Change namespace to `storage::replication` once LCP is
+;; updated to support such namespaces.
+(lcp:namespace storage)
+
+(lcp:define-rpc append-deltas
+  ;; The actual deltas are sent as additional data using the RPC client's
+  ;; streaming API for additional data.
+  (:request ())
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
+(lcp:define-rpc heartbeat
+  (:request
+    ((leader-id :uint16_t)
+     (term :uint64_t)))
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
+(lcp:pop-namespace) ;; storage
