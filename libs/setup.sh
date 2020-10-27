@@ -55,8 +55,8 @@ sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
 # cppitertools v2.0 2019-12-23
-cppitertools_tag="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
-clone https://github.com/ryanhaining/cppitertools.git cppitertools $cppitertools_tag
+cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
+clone https://github.com/ryanhaining/cppitertools.git cppitertools $cppitertools_ref
 
 # fmt
 fmt_tag="7fa8f8fa48b0903deab5bb42e6760477173ac485" # v3.0.1
