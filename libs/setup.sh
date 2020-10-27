@@ -43,12 +43,12 @@ clone () {
   popd
 }
 
-# antlr
+# antlr v4.8 2020-01-20
 antlr_generator_filename="antlr-4.8-complete.jar"
 # wget -nv -O ${antlr_generator_filename} http://www.antlr.org/download/${antlr_generator_filename}
 wget -nv -O ${antlr_generator_filename} https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${antlr_generator_filename}
-antlr4_tag="7a3f40bc341ddfb463d6e0aa1a6265064d020cb6" # v4.8 2020-01-20
-clone https://github.com/antlr/antlr4.git antlr4 $antlr4_tag
+antlr4_ref="7a3f40bc341ddfb463d6e0aa1a6265064d020cb6"
+clone https://github.com/antlr/antlr4.git antlr4 $antlr4_ref
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 

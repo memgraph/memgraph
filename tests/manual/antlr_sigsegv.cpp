@@ -13,8 +13,10 @@
 // This test was introduced because Antlr Cpp runtime doesn't work well in a
 // highly concurrent environment. Interpreter `interpret.hpp` contains
 // `antlr_lock` used to avoid crashes.
-//   v4.6 -> crashes.
-//   v4.8 -> doesn't not crash but sometimes this tests doesn not finish.
+//   v4.6 -> Crashes.
+//   v4.8 -> Does NOT crash but sometimes this tests does NOT finish.
+//           Looks like a deadlock.
+// The lock is still REQUIRED.
 
 using namespace std::chrono_literals;
 
