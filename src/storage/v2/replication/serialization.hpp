@@ -4,6 +4,7 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/replication/slk.hpp"
 #include "utils/cast.hpp"
+#include "utils/file.hpp"
 
 namespace storage::replication {
 
@@ -40,6 +41,21 @@ class Encoder final : public durability::BaseEncoder {
     slk::Save(value, builder_);
   }
 
+  void WriteFile(const std::filesystem::path &path) {
+    utils::InputFile file;
+    CHECK(file.Open(path))
+      << "Failed to open snapshot file!";
+    auto file_size = file.GetSize();
+    slk::Save(file_size, builder_);
+    uint8_t buffer[utils::kFileBufferSize];
+    while (file_size > 0) {
+      const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
+      file.Read(buffer, chunk_size);
+      builder_->Save(buffer, chunk_size);
+      file_size -= chunk_size;
+    }
+    file.Close();
+  }
  private:
   slk::Builder *builder_;
 };
@@ -114,6 +130,22 @@ class Decoder final : public durability::BaseDecoder {
       return false;
     PropertyValue value;
     slk::Load(&value, reader_);
+    return true;
+  }
+
+  bool ReadFile(const std::filesystem::path &path) {
+    utils::OutputFile file;
+    file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    size_t file_size;
+    slk::Load(&file_size, reader_);
+    uint8_t buffer[utils::kFileBufferSize];
+    while (file_size > 0) {
+      const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
+      reader_->Load(buffer, chunk_size);
+      file.Write(buffer, chunk_size);
+      file_size -= chunk_size;
+    }
+    file.Close();
     return true;
   }
 
