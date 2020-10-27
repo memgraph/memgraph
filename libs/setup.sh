@@ -54,8 +54,8 @@ sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
-# cppitertools
-cppitertools_tag="cb3635456bdb531121b82b4d2e3afc7ae1f56d47" # 2019-12-23
+# cppitertools v2.0 2019-12-23
+cppitertools_tag="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 clone https://github.com/ryanhaining/cppitertools.git cppitertools $cppitertools_tag
 
 # fmt
