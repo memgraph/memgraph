@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
@@ -21,6 +22,13 @@
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "rpc/server.hpp"
+#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
+#endif
 
 namespace storage {
 
@@ -158,6 +166,10 @@ struct StorageInfo {
   uint64_t memory_usage;
   uint64_t disk_usage;
 };
+
+#ifdef MG_ENTERPRISE
+enum class ReplicationState : uint8_t { NONE, MAIN, REPLICA };
+#endif
 
 class Storage final {
  public:
@@ -305,6 +317,19 @@ class Storage final {
     void Abort();
 
    private:
+#ifdef MG_ENTERPRISE
+    /// @throw std::bad_alloc
+    VertexAccessor CreateVertex(storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                    EdgeTypeId edge_type, storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    utils::BasicResult<ConstraintViolation, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp);
+#endif
+
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
@@ -379,6 +404,10 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
+#ifdef MG_ENTERPRISE
+  void SetReplicationState(ReplicationState state);
+#endif
+
  private:
   Transaction CreateTransaction();
 
@@ -394,6 +423,11 @@ class Storage final {
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
                    const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
+
+#ifdef MG_ENTERPRISE
+  void ConfigureReplica();
+  void ConfigureMain();
+#endif
 
   // Main storage lock.
   //
@@ -467,6 +501,16 @@ class Storage final {
 
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+  // Replication
+#ifdef MG_ENTERPRISE
+  utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
+  std::optional<communication::ServerContext> replication_server_context_;
+  std::optional<rpc::Server> replication_server_;
+  // TODO(mferencevic): Add support for multiple clients.
+  std::optional<replication::ReplicationClient> replication_client_;
+  std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
+#endif
 };
 
 }  // namespace storage
