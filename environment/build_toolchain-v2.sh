@@ -42,6 +42,80 @@ fi
 # check for installed dependencies
 DISTRO="$( grep -E '^(VERSION_)?ID=' /etc/os-release | sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-' )"
 case "$DISTRO" in
+    # Toolchain build does NOT pass because GDB 10.1 does NOT compile with
+    # readline 6.2 (it requires a newer one), on centos-7 use toolchain-v1.
+    # centos-7)
+    #     DEPS_MANAGER=yum
+    #     DEPS_COMPILE=(
+    #         coreutils gcc gcc-c++ make # generic build tools
+    #         wget # used for archive download
+    #         gnupg2 # used for archive signature verification
+    #         tar gzip bzip2 xz unzip # used for archive unpacking
+    #         zlib-devel # zlib library used for all builds
+    #         expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel texinfo # for gdb
+    #         libcurl-devel # for cmake
+    #         readline-devel # for cmake and llvm
+    #         libffi-devel libxml2-devel # for llvm
+    #         libedit-devel pcre-devel automake bison # for swig
+    #     )
+    #     DEPS_RUN=(
+    #         make # generic build tools
+    #         tar gzip bzip2 xz # used for archive unpacking
+    #         zlib # zlib library used for all builds
+    #         expat libipt libbabeltrace xz-libs python3 # for gdb
+    #         readline # for cmake and llvm
+    #         libffi libxml2 # for llvm
+    #     )
+    #     ;;
+
+    centos-8)
+        DEPS_MANAGER=yum
+        DEPS_COMPILE=(
+            coreutils gcc gcc-c++ make # generic build tools
+            wget # used for archive download
+            gnupg2 # used for archive signature verification
+            tar gzip bzip2 xz unzip # used for archive unpacking
+            zlib-devel # zlib library used for all builds
+            expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
+            libcurl-devel # for cmake
+            readline-devel # for cmake and llvm
+            libffi-devel libxml2-devel # for llvm
+            libedit-devel pcre-devel automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz # used for archive unpacking
+            zlib # zlib library used for all builds
+            expat libipt libbabeltrace xz-libs python36 # for gdb
+            readline # for cmake and llvm
+            libffi libxml2 # for llvm
+        )
+        ;;
+
+    debian-9)
+        DEPS_MANAGER=apt-get
+        DEPS_COMPILE=(
+            coreutils gcc g++ build-essential make # generic build tools
+            wget # used for archive download
+            gnupg # used for archive signature verification
+            tar gzip bzip2 xz-utils unzip # used for archive unpacking
+            zlib1g-dev # zlib library used for all builds
+            libexpat1-dev libipt-dev libbabeltrace-dev libbabeltrace-ctf-dev liblzma-dev python3-dev texinfo # for gdb
+            libcurl4-openssl-dev # for cmake
+            libreadline-dev # for cmake and llvm
+            libffi-dev libxml2-dev # for llvm
+            libedit-dev libpcre3-dev automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz-utils # used for archive unpacking
+            zlib1g # zlib library used for all builds
+            libexpat1 libipt1 libbabeltrace1 libbabeltrace-ctf1 liblzma5 python3 # for gdb
+            libcurl3 # for cmake
+            libreadline7 # for cmake and llvm
+            libffi6 libxml2 # for llvm
+        )
+        ;;
 
     debian-10)
         DEPS_MANAGER=apt-get
@@ -62,6 +136,31 @@ case "$DISTRO" in
             tar gzip bzip2 xz-utils # used for archive unpacking
             zlib1g # zlib library used for all builds
             libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
+            libcurl4 # for cmake
+            libreadline7 # for cmake and llvm
+            libffi6 libxml2 # for llvm
+        )
+        ;;
+
+    ubuntu-18.04)
+        DEPS_MANAGER=apt-get
+        DEPS_COMPILE=(
+            coreutils gcc g++ build-essential make # generic build tools
+            wget # used for archive download
+            gnupg # used for archive signature verification
+            tar gzip bzip2 xz-utils unzip # used for archive unpacking
+            zlib1g-dev # zlib library used for all builds
+            libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+            libcurl4-openssl-dev # for cmake
+            libreadline-dev # for cmake and llvm
+            libffi-dev libxml2-dev # for llvm
+            libedit-dev libpcre3-dev automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz-utils # used for archive unpacking
+            zlib1g # zlib library used for all builds
+            libexpat1 libipt1 libbabeltrace1 liblzma5 python3 # for gdb
             libcurl4 # for cmake
             libreadline7 # for cmake and llvm
             libffi6 libxml2 # for llvm
@@ -90,30 +189,6 @@ case "$DISTRO" in
             libcurl4 # for cmake
             libreadline8 # for cmake and llvm
             libffi7 libxml2 # for llvm
-        )
-        ;;
-
-    centos-8)
-        DEPS_MANAGER=yum
-        DEPS_COMPILE=(
-            coreutils gcc gcc-c++ make # generic build tools
-            wget # used for archive download
-            gnupg2 # used for archive signature verification
-            tar gzip bzip2 xz unzip # used for archive unpacking
-            zlib-devel # zlib library used for all builds
-            expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
-            libcurl-devel # for cmake
-            readline-devel # for cmake and llvm
-            libffi-devel libxml2-devel # for llvm
-            libedit-devel pcre-devel automake bison # for swig
-        )
-        DEPS_RUN=(
-            make # generic build tools
-            tar gzip bzip2 xz # used for archive unpacking
-            zlib # zlib library used for all builds
-            expat libipt libbabeltrace xz-libs python36 # for gdb
-            readline # for cmake and llvm
-            libffi libxml2 # for llvm
         )
         ;;
 
