@@ -524,20 +524,20 @@ class Storage final {
 #ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
-  struct RPCServer {
-    std::optional<communication::ServerContext> replication_server_context;
-    std::optional<rpc::Server> replication_server;
+  struct ReplicationServer {
+    std::optional<communication::ServerContext> rpc_server_context;
+    std::optional<rpc::Server> rpc_server;
 
-    explicit RPCServer() = default;
-    RPCServer(const RPCServer &) = delete;
-    RPCServer(RPCServer &&) = delete;
-    RPCServer &operator=(const RPCServer &) = delete;
-    RPCServer &operator=(RPCServer &&) = delete;
+    explicit ReplicationServer() = default;
+    ReplicationServer(const ReplicationServer &) = delete;
+    ReplicationServer(ReplicationServer &&) = delete;
+    ReplicationServer &operator=(const ReplicationServer &) = delete;
+    ReplicationServer &operator=(ReplicationServer &&) = delete;
 
-    ~RPCServer() {
-      if (replication_server) {
-        replication_server->Shutdown();
-        replication_server->AwaitShutdown();
+    ~ReplicationServer() {
+      if (rpc_server) {
+        rpc_server->Shutdown();
+        rpc_server->AwaitShutdown();
       }
     }
   };
@@ -545,7 +545,8 @@ class Storage final {
   using ReplicationClientList =
       utils::Synchronized<std::list<replication::ReplicationClient>,
                           utils::SpinLock>;
-  std::variant<std::monostate, RPCServer, ReplicationClientList> rpc_context_;
+  std::variant<std::monostate, ReplicationServer, ReplicationClientList>
+      rpc_context_;
 
   template <typename TRpcContext>
   TRpcContext &GetRpcContext() {

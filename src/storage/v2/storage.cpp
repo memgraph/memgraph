@@ -1869,22 +1869,22 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 
 #ifdef MG_ENTERPRISE
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
-  rpc_context_.emplace<RPCServer>();
+  rpc_context_.emplace<ReplicationServer>();
 
-  auto &rpc_server = GetRpcContext<RPCServer>();
+  auto &replication_server = GetRpcContext<ReplicationServer>();
 
   // Create RPC server.
   // TODO(mferencevic): Add support for SSL.
-  rpc_server.replication_server_context.emplace();
+  replication_server.rpc_server_context.emplace();
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
   // simplifies the rest of the implementation.
   // TODO(mferencevic): Make endpoint configurable.
-  rpc_server.replication_server.emplace(endpoint,
-                                        &*rpc_server.replication_server_context,
+  replication_server.rpc_server.emplace(endpoint,
+                                        &*replication_server.rpc_server_context,
                                         /* workers_count = */ 1);
-  rpc_server.replication_server->Register<
+  replication_server.rpc_server->Register<
       AppendDeltasRpc>([this, endpoint = std::move(endpoint)](
                            auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
@@ -2254,7 +2254,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
     AppendDeltasRes res;
     slk::Save(res, res_builder);
   });
-  rpc_server.replication_server->Start();
+  replication_server.rpc_server->Start();
 }
 
 void Storage::RegisterReplica(io::network::Endpoint endpoint) {
