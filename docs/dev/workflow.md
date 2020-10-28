@@ -122,3 +122,19 @@ your feature branch as if you just created and started working on that branch.
 You may continue with the usual workflow of [Making and Committing
 Changes](#making-and-committing-changes) and [Sending Changes on a
 Review](#sending-changes-on-a-review).
+
+### Code Integration Cheat Sheet
+
+```
+    |----------->|------------->|
+    |   rebase   |    merge     |
+    |<-----------|<-------------|
+    |   merge    | squash merge |
+    |                           |
+  main      epic_branch    task_branch
+    |                           |
+    |-------------------------->|
+    |          merge            |
+    |<--------------------------|
+    |       squash merge        |
+```
