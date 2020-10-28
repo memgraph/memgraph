@@ -7,13 +7,23 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 
+source "$DIR/util.sh"
+DISTRO="$(operating_system)"
+
 # toolchain version
 TOOLCHAIN_VERSION=2
 
 # package versions used
 GCC_VERSION=10.2.0
 BINUTILS_VERSION=2.35.1
-GDB_VERSION=10.1
+case "$DISTRO" in
+    centos-7) # because of readline.
+        GDB_VERSION=9.2
+    ;;
+    *)
+        GDB_VERSION=10.1
+    ;;
+esac
 CMAKE_VERSION=3.18.4
 CPPCHECK_VERSION=2.2
 LLVM_VERSION=11.0.0
@@ -40,7 +50,6 @@ elif  [[ $# -eq 1 ]]; then
 fi
 
 # check for installed dependencies
-DISTRO="$( grep -E '^(VERSION_)?ID=' /etc/os-release | sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-' )"
 case "$DISTRO" in
     # Toolchain build does NOT pass because GDB 10.1 does NOT compile with
     # readline 6.2 (it requires a newer one), on centos-7 use toolchain-v1.
