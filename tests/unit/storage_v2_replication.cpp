@@ -23,7 +23,6 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  main_store.SetReplicationState<storage::ReplicationState::MAIN>();
 
   storage::Storage replica_store(
       {.items = {.properties_on_edges = true},
@@ -35,7 +34,8 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
   replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
 
-  main_store.RegisterReplica(io::network::Endpoint{"127.0.0.1", 10000});
+  main_store.RegisterReplica("REPLICA",
+                             io::network::Endpoint{"127.0.0.1", 10000});
 
   // vertex create
   // vertex add label
@@ -265,7 +265,6 @@ TEST(ReplicationTest, MultipleSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  main_store.SetReplicationState<storage::ReplicationState::MAIN>();
 
   storage::Storage replica_store1(
       {.durability = {
@@ -285,8 +284,10 @@ TEST(ReplicationTest, MultipleSynchronousReplicationTest) {
   replica_store2.SetReplicationState<storage::ReplicationState::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 20000});
 
-  main_store.RegisterReplica(io::network::Endpoint{"127.0.0.1", 20000});
-  main_store.RegisterReplica(io::network::Endpoint{"127.0.0.1", 10000});
+  main_store.RegisterReplica("REPLICA1",
+                             io::network::Endpoint{"127.0.0.1", 10000});
+  main_store.RegisterReplica("REPLICA2",
+                             io::network::Endpoint{"127.0.0.1", 20000});
 
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
@@ -297,7 +298,8 @@ TEST(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto v = acc.CreateVertex();
     ASSERT_TRUE(v.AddLabel(main_store.NameToLabel(vertex_label)).HasValue());
     ASSERT_TRUE(v.SetProperty(main_store.NameToProperty(vertex_property),
-                              storage::PropertyValue(vertex_property_value)).HasValue());
+                              storage::PropertyValue(vertex_property_value))
+                    .HasValue());
     vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -308,10 +310,35 @@ TEST(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_TRUE(v);
     const auto labels = v->Labels(storage::View::OLD);
     ASSERT_TRUE(labels.HasValue());
-    ASSERT_THAT(*labels, UnorderedElementsAre(replica_store->NameToLabel(vertex_label)));
+    ASSERT_THAT(*labels,
+                UnorderedElementsAre(replica_store->NameToLabel(vertex_label)));
     ASSERT_FALSE(acc.Commit().HasError());
   };
 
   check_replica(&replica_store1);
   check_replica(&replica_store2);
+
+  main_store.UnregisterReplica("REPLICA2");
+  {
+    auto acc = main_store.Access();
+    auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // REPLICA1 should contain the new vertex
+  {
+    auto acc = replica_store1.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // REPLICA2 should not contain the new vertex
+  {
+    auto acc = replica_store2.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_FALSE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 }

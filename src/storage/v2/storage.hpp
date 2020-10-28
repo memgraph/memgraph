@@ -169,7 +169,7 @@ struct StorageInfo {
 };
 
 #ifdef MG_ENTERPRISE
-enum class ReplicationState : uint8_t { NONE, MAIN, REPLICA };
+enum class ReplicationState : uint8_t { MAIN, REPLICA };
 #endif
 
 class Storage final {
@@ -424,7 +424,8 @@ class Storage final {
     replication_state_.store(state, std::memory_order_release);
   }
 
-  void RegisterReplica(io::network::Endpoint endpoint);
+  void RegisterReplica(std::string name, io::network::Endpoint endpoint);
+  void UnregisterReplica(const std::string &name);
 #endif
 
  private:
@@ -545,7 +546,9 @@ class Storage final {
   using ReplicationClientList =
       utils::Synchronized<std::list<replication::ReplicationClient>,
                           utils::SpinLock>;
-  std::variant<std::monostate, ReplicationServer, ReplicationClientList>
+  // Monostate is used for explicitly calling the destructor of the current
+  // type
+  std::variant<ReplicationClientList, ReplicationServer, std::monostate>
       rpc_context_;
 
   template <typename TRpcContext>
@@ -555,7 +558,7 @@ class Storage final {
     return *context;
   }
 
-  std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
+  std::atomic<ReplicationState> replication_state_{ReplicationState::MAIN};
 #endif
 };
 

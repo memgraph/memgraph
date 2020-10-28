@@ -2257,15 +2257,35 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server.rpc_server->Start();
 }
 
-void Storage::RegisterReplica(io::network::Endpoint endpoint) {
+void Storage::RegisterReplica(std::string name,
+                              io::network::Endpoint endpoint) {
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_state_.load(std::memory_order_acquire) ==
         ReplicationState::MAIN)
       << "Only main instance can register a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
+
   replication_clients.WithLock([&](auto &clients) {
-    clients.emplace_back(&name_id_mapper_, config_.items, std::move(endpoint),
-                         false);
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&](auto &client) { return client.Name() == name; })) {
+      throw utils::BasicException("Replica with a same name already exists!");
+    }
+  });
+  replication_clients.WithLock([&](auto &clients) {
+    clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
+                         endpoint, false);
+  });
+}
+
+void Storage::UnregisterReplica(const std::string &name) {
+  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+  CHECK(replication_state_.load(std::memory_order_acquire) ==
+        ReplicationState::MAIN)
+      << "Only main instance can unregister a replica!";
+  auto &replication_clients = GetRpcContext<ReplicationClientList>();
+  replication_clients.WithLock([&](auto &clients) {
+    clients.remove_if(
+        [&](const auto &client) { return client.Name() == name; });
   });
 }
 #endif
