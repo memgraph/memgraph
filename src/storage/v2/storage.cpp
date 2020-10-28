@@ -1657,16 +1657,13 @@ void Storage::AppendToWal(const Transaction &transaction,
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   std::list<replication::ReplicationClient::Handler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
-    auto *replication_clients =
-        std::get_if<ReplicationClientList>(&rpc_context_);
-    CHECK(replication_clients)
-        << "Main instance does not have replication clients set!";
-
+    auto &replication_clients = GetRpcContext<ReplicationClientList>();
     try {
-      std::transform(replication_clients->begin(), replication_clients->end(),
-                     std::back_inserter(streams), [](auto &client) {
-                       return client.ReplicateTransaction();
-                     });
+      replication_clients.WithLock([&](auto &clients) {
+        std::transform(
+            clients.begin(), clients.end(), std::back_inserter(streams),
+            [](auto &client) { return client.ReplicateTransaction(); });
+      });
     } catch (const rpc::RpcFailedException &) {
       LOG(FATAL) << "Couldn't replicate data!";
     }
@@ -1851,20 +1848,19 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 #ifdef MG_ENTERPRISE
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_state_.load() == ReplicationState::MAIN) {
-    auto *replication_clients =
-        std::get_if<ReplicationClientList>(&rpc_context_);
-    CHECK(replication_clients)
-        << "Main instance does not have replication clients set!";
-    try {
-      for (auto &client : *replication_clients) {
+    auto &replication_clients = GetRpcContext<ReplicationClientList>();
+    replication_clients.WithLock([&](auto &clients) {
+      for (auto &client : clients) {
         auto stream = client.ReplicateTransaction();
-        stream.AppendOperation(operation, label, properties,
-                               final_commit_timestamp);
-        stream.Finalize();
+        try {
+          stream.AppendOperation(operation, label, properties,
+                                 final_commit_timestamp);
+          stream.Finalize();
+        } catch (const rpc::RpcFailedException &) {
+          LOG(FATAL) << "Couldn't replicate data!";
+        }
       }
-    } catch (const rpc::RpcFailedException &) {
-      LOG(FATAL) << "Couldn't replicate data!";
-    }
+    });
   }
   replication_guard.unlock();
 #endif
@@ -1875,7 +1871,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   rpc_context_.emplace<RPCServer>();
 
-  auto &rpc_server = std::get<RPCServer>(rpc_context_);
+  auto &rpc_server = GetRpcContext<RPCServer>();
 
   // Create RPC server.
   // TODO(mferencevic): Add support for SSL.
@@ -2262,15 +2258,15 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 }
 
 void Storage::RegisterReplica(io::network::Endpoint endpoint) {
+  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_state_.load(std::memory_order_acquire) ==
         ReplicationState::MAIN)
-      << "Only a main instance can register a replica!";
-
-  auto *replication_clients = std::get_if<ReplicationClientList>(&rpc_context_);
-  CHECK(replication_clients)
-      << "Main instance does not have set replication clients!";
-  replication_clients->emplace_back(&name_id_mapper_, config_.items,
-                                    std::move(endpoint), false);
+      << "Only main instance can register a replica!";
+  auto &replication_clients = GetRpcContext<ReplicationClientList>();
+  replication_clients.WithLock([&](auto &clients) {
+    clients.emplace_back(&name_id_mapper_, config_.items, std::move(endpoint),
+                         false);
+  });
 }
 #endif
 

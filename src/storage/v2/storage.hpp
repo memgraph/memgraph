@@ -542,8 +542,17 @@ class Storage final {
     }
   };
 
-  using ReplicationClientList = std::list<replication::ReplicationClient>;
+  using ReplicationClientList =
+      utils::Synchronized<std::list<replication::ReplicationClient>,
+                          utils::SpinLock>;
   std::variant<std::monostate, RPCServer, ReplicationClientList> rpc_context_;
+
+  template <typename TRpcContext>
+  TRpcContext &GetRpcContext() {
+    auto *context = std::get_if<TRpcContext>(&rpc_context_);
+    CHECK(context) << "Wrong type set for the current replication state!";
+    return *context;
+  }
 
   std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
 #endif
