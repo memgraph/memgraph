@@ -125,16 +125,21 @@ Review](#sending-changes-on-a-review).
 
 ### Code Integration Cheat Sheet
 
+Diagram below shows which git operation should be performed if a piece of code
+has to be integrated from one branch to another. E.g., if a code from a
+main_branch (master, dev, etc.) has to be integrated into an epic_branch`,
+rebase has to be used (the epic_branch has to be rebased on the main_branch).
+
 ```
-    |----------->|------------->|
-    |   rebase   |    merge     |
-    |<-----------|<-------------|
-    |   merge    | squash merge |
-    |                           |
-  main      epic_branch    task_branch
-    |                           |
-    |-------------------------->|
-    |          merge            |
-    |<--------------------------|
-    |       squash merge        |
+      |----------->|------------->|
+      |   rebase   |    merge     |
+      |<-----------|<-------------|
+      |   merge    | squash merge |
+      |                           |
+ main_branch  epic_branch    task_branch
+      |                           |
+      |-------------------------->|
+      |          merge            |
+      |<--------------------------|
+      |       squash merge        |
 ```
