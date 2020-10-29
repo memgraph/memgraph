@@ -1659,11 +1659,10 @@ void Storage::AppendToWal(const Transaction &transaction,
   if (replication_state_.load() == ReplicationState::MAIN) {
     auto &replication_clients = GetRpcContext<ReplicationClientList>();
     try {
-      replication_clients.WithLock([&](auto &clients) {
-        std::transform(
-            clients.begin(), clients.end(), std::back_inserter(streams),
-            [](auto &client) { return client.ReplicateTransaction(); });
-      });
+      std::transform(replication_clients.begin(), replication_clients.end(),
+                     std::back_inserter(streams), [](auto &client) {
+                       return client.ReplicateTransaction();
+                     });
     } catch (const rpc::RpcFailedException &) {
       LOG(FATAL) << "Couldn't replicate data!";
     }
@@ -1849,18 +1848,16 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_state_.load() == ReplicationState::MAIN) {
     auto &replication_clients = GetRpcContext<ReplicationClientList>();
-    replication_clients.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        auto stream = client.ReplicateTransaction();
-        try {
-          stream.AppendOperation(operation, label, properties,
-                                 final_commit_timestamp);
-          stream.Finalize();
-        } catch (const rpc::RpcFailedException &) {
-          LOG(FATAL) << "Couldn't replicate data!";
-        }
+    for (auto &client : replication_clients) {
+      auto stream = client.ReplicateTransaction();
+      try {
+        stream.AppendOperation(operation, label, properties,
+                               final_commit_timestamp);
+        stream.Finalize();
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
       }
-    });
+    }
   }
   replication_guard.unlock();
 #endif
@@ -2259,34 +2256,33 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
 void Storage::RegisterReplica(std::string name,
                               io::network::Endpoint endpoint) {
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_state_.load(std::memory_order_acquire) ==
         ReplicationState::MAIN)
       << "Only main instance can register a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
 
-  replication_clients.WithLock([&](auto &clients) {
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &client) { return client.Name() == name; })) {
-      throw utils::BasicException("Replica with a same name already exists!");
-    }
-  });
-  replication_clients.WithLock([&](auto &clients) {
-    clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
-                         endpoint, false);
-  });
+  // TODO (antonio2368): Check if it's okay to aquire first the shared lock
+  // and later on aquire the write lock only if it's necessary
+  // because here we wait for the write lock even though there exists
+  // a replica with a same name
+  if (std::any_of(replication_clients.begin(), replication_clients.end(),
+                  [&](auto &client) { return client.Name() == name; })) {
+    throw utils::BasicException("Replica with a same name already exists!");
+  }
+
+  replication_clients.emplace_back(std::move(name), &name_id_mapper_,
+                                   config_.items, endpoint, false);
 }
 
 void Storage::UnregisterReplica(const std::string &name) {
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_state_.load(std::memory_order_acquire) ==
         ReplicationState::MAIN)
       << "Only main instance can unregister a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
-  replication_clients.WithLock([&](auto &clients) {
-    clients.remove_if(
-        [&](const auto &client) { return client.Name() == name; });
-  });
+  replication_clients.remove_if(
+      [&](const auto &client) { return client.Name() == name; });
 }
 #endif
 
