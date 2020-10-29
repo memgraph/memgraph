@@ -73,6 +73,40 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
   return snapshot_files;
 }
 
+void RecoverIndicesAndConstraints(
+    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
+    Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+  // Recover label indices.
+  for (const auto &item : indices_constraints.indices.label) {
+    if (!indices->label_index.CreateIndex(item, vertices->access()))
+      throw RecoveryFailure("The label index must be created here!");
+  }
+
+  // Recover label+property indices.
+  for (const auto &item : indices_constraints.indices.label_property) {
+    if (!indices->label_property_index.CreateIndex(item.first, item.second,
+                                                   vertices->access()))
+      throw RecoveryFailure("The label+property index must be created here!");
+  }
+
+  // Recover existence constraints.
+  for (const auto &item : indices_constraints.constraints.existence) {
+    auto ret = CreateExistenceConstraint(constraints, item.first, item.second,
+                                         vertices->access());
+    if (ret.HasError() || !ret.GetValue())
+      throw RecoveryFailure("The existence constraint must be created here!");
+  }
+
+  // Recover unique constraints.
+  for (const auto &item : indices_constraints.constraints.unique) {
+    auto ret = constraints->unique_constraints.CreateConstraint(
+        item.first, item.second, vertices->access());
+    if (ret.HasError() ||
+        ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+      throw RecoveryFailure("The unique constraint must be created here!");
+  }
+}
+
 std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
@@ -87,38 +121,6 @@ std::optional<RecoveryInfo> RecoverData(
   // indices and constraints must be recovered after the data recovery is done
   // to ensure that the indices and constraints are consistent at the end of the
   // recovery process.
-  auto recover_indices_and_constraints = [&](const auto &indices_constraints) {
-    // Recover label indices.
-    for (const auto &item : indices_constraints.indices.label) {
-      if (!indices->label_index.CreateIndex(item, vertices->access()))
-        throw RecoveryFailure("The label index must be created here!");
-    }
-
-    // Recover label+property indices.
-    for (const auto &item : indices_constraints.indices.label_property) {
-      if (!indices->label_property_index.CreateIndex(item.first, item.second,
-                                                     vertices->access()))
-        throw RecoveryFailure("The label+property index must be created here!");
-    }
-
-    // Recover existence constraints.
-    for (const auto &item : indices_constraints.constraints.existence) {
-      auto ret = CreateExistenceConstraint(constraints, item.first, item.second,
-                                           vertices->access());
-      if (ret.HasError() || !ret.GetValue())
-        throw RecoveryFailure("The existence constraint must be created here!");
-    }
-
-    // Recover unique constraints.
-    for (const auto &item : indices_constraints.constraints.unique) {
-      auto ret = constraints->unique_constraints.CreateConstraint(
-          item.first, item.second, vertices->access());
-      if (ret.HasError() ||
-          ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
-        throw RecoveryFailure("The unique constraint must be created here!");
-    }
-  };
-
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
   RecoveryInfo recovery_info;
@@ -157,7 +159,8 @@ std::optional<RecoveryInfo> RecoverData(
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     if (!utils::DirExists(wal_directory)) {
-      recover_indices_and_constraints(indices_constraints);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
+                                   vertices);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -260,7 +263,8 @@ std::optional<RecoveryInfo> RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
   }
 
-  recover_indices_and_constraints(indices_constraints);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
+                               vertices);
   return recovery_info;
 }
 

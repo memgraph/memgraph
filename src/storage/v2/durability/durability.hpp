@@ -27,6 +27,15 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
 std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory);
 
+// Helper function used to recover all discovered indices and constraints. The
+// indices and constraints must be recovered after the data recovery is done
+// to ensure that the indices and constraints are consistent at the end of the
+// recovery process.
+/// @throw RecoveryFailure
+void RecoverIndicesAndConstraints(
+    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
+    Constraints *constraints, utils::SkipList<Vertex> *vertices);
+
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
 /// @throw std::bad_alloc

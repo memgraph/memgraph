@@ -13,6 +13,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
@@ -2261,9 +2262,14 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         replication::Decoder decoder(req_reader);
 
         // TODO (antonio2368): Change the name so the
-        // file isn't overwritten
+        // file isn't overwritten (timestamp vs counter)
+        std::string timestamp_string =
+            utils::Timestamp::Now().ToString(durability::kTimestampFormat);
         std::filesystem::path snapshot_temp_file{
-            std::filesystem::temp_directory_path() / "replication_snapshot"};
+            std::filesystem::temp_directory_path() /
+            (timestamp_string + "_replication_snapshot")};
+        utils::OnScopeExit snapshot_temp_cleaner(
+            [&]() { std::filesystem::remove_all(snapshot_temp_file); });
         DLOG(INFO) << "Saving the snapshot file to " << snapshot_temp_file;
         decoder.ReadFile(snapshot_temp_file);
 
@@ -2273,6 +2279,13 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         // Clear the database
         vertices_.clear();
         edges_.clear();
+
+        constraints_ = Constraints();
+        // TODO (antonio2368): Check if there's a less hacky way
+        indices_.label_index =
+            LabelIndex(&indices_, &constraints_, config_.items);
+        indices_.label_property_index =
+            LabelPropertyIndex(&indices_, &constraints_, config_.items);
         try {
           DLOG(INFO) << "Loading snapshot";
           auto recovered_snapshot = durability::LoadSnapshot(
@@ -2283,6 +2296,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           vertex_id_ = recovery_info.next_vertex_id;
           edge_id_ = recovery_info.next_edge_id;
           timestamp_ = recovery_info.next_timestamp;
+
+          durability::RecoverIndicesAndConstraints(
+              recovered_snapshot.indices_constraints, &indices_, &constraints_,
+              &vertices_);
         } catch (const durability::RecoveryFailure &e) {
           // TODO (antonio2368): What to do if the sent snapshot is invalid
           LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
