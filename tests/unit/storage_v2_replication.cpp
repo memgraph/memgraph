@@ -350,3 +350,56 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_FALSE(acc.Commit().HasError());
   }
 }
+
+TEST_F(ReplicationTest, SnapshotLoading) {
+  std::optional<storage::Gid> vertex_gid;
+  // Force the creation of snapshot
+  {
+    storage::Storage main_store(
+        {.durability = {
+             .storage_directory = storage_directory,
+             .recover_on_startup = true,
+             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+                 PERIODIC_SNAPSHOT_WITH_WAL,
+             .snapshot_on_exit = true,
+         }});
+    auto acc = main_store.Access(); 
+    auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  storage::Storage main_store(
+      {.durability = {
+           .storage_directory = storage_directory,
+           .recover_on_startup = true,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  storage::Storage replica_store;
+  replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10000});
+
+  main_store.RegisterReplica("REPLICA1",
+                             io::network::Endpoint{"127.0.0.1", 10000});
+  const auto *vertex_label = "vertex_label";
+  {
+    auto acc = main_store.Access();
+    auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_TRUE(v->AddLabel(main_store.NameToLabel(vertex_label)).HasValue());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = replica_store.Access();
+    auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    const auto labels = v->Labels(storage::View::OLD);
+    ASSERT_TRUE(labels.HasValue());
+    ASSERT_THAT(*labels,
+                UnorderedElementsAre(replica_store.NameToLabel(vertex_label)));
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  std::filesystem::remove_all(storage_directory);
+}
