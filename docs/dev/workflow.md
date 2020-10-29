@@ -131,15 +131,17 @@ main_branch (master, dev, etc.) has to be integrated into an epic_branch`,
 rebase has to be used (the epic_branch has to be rebased on the main_branch).
 
 ```
-      |----------->|------------->|
-      |   rebase   |    merge     |
-      |<-----------|<-------------|
-      |   merge    | squash merge |
-      |                           |
- main_branch  epic_branch    task_branch
-      |                           |
-      |-------------------------->|
-      |          merge            |
-      |<--------------------------|
-      |       squash merge        |
+      |<---------------------------|
+      |       squash merge         |
+      |--------------------------->|
+      |          merge             |
+      |                            |
+      |<-----------|<--------------|
+      |   merge    | squash merge  |
+      |            |               |
+      |----------->|-------------->|
+      |   rebase   |     merge     |
+      |            | rebase --onto |
+      |            |               |
+ main_branch  epic_branch     task_branch
 ```
