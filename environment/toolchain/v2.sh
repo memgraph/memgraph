@@ -7,7 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 
-source "$DIR/util.sh"
+source "$DIR/../util.sh"
 DISTRO="$(operating_system)"
 
 # toolchain version
@@ -17,8 +17,8 @@ TOOLCHAIN_VERSION=2
 GCC_VERSION=10.2.0
 BINUTILS_VERSION=2.35.1
 case "$DISTRO" in
-    centos-7) # because of readline.
-        GDB_VERSION=9.2
+    centos-7) # because GDB >= 9 does NOT compile with readline6.
+        GDB_VERSION=8.3
     ;;
     *)
         GDB_VERSION=10.1
@@ -29,53 +29,31 @@ CPPCHECK_VERSION=2.2
 LLVM_VERSION=11.0.0
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
-function print_help () {
-    echo "Usage: $0 [--skip-verification]"
-}
-
-skip_verification=0
-if [[ $# -gt 1 ]]; then
-    print_help
-    exit 1
-elif  [[ $# -eq 1 ]]; then
-    case "$1" in
-        --skip-verification)
-        skip_verification=1
-        ;;
-        *)
-        print_help
-        exit 1
-        ;;
-    esac
-fi
-
 # check for installed dependencies
 case "$DISTRO" in
-    # Toolchain build does NOT pass because GDB 10.1 does NOT compile with
-    # readline 6.2 (it requires a newer one), on centos-7 use toolchain-v1.
-    # centos-7)
-    #     DEPS_MANAGER=yum
-    #     DEPS_COMPILE=(
-    #         coreutils gcc gcc-c++ make # generic build tools
-    #         wget # used for archive download
-    #         gnupg2 # used for archive signature verification
-    #         tar gzip bzip2 xz unzip # used for archive unpacking
-    #         zlib-devel # zlib library used for all builds
-    #         expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel texinfo # for gdb
-    #         libcurl-devel # for cmake
-    #         readline-devel # for cmake and llvm
-    #         libffi-devel libxml2-devel # for llvm
-    #         libedit-devel pcre-devel automake bison # for swig
-    #     )
-    #     DEPS_RUN=(
-    #         make # generic build tools
-    #         tar gzip bzip2 xz # used for archive unpacking
-    #         zlib # zlib library used for all builds
-    #         expat libipt libbabeltrace xz-libs python3 # for gdb
-    #         readline # for cmake and llvm
-    #         libffi libxml2 # for llvm
-    #     )
-    #     ;;
+    centos-7)
+        DEPS_MANAGER=yum
+        DEPS_COMPILE=(
+            coreutils gcc gcc-c++ make # generic build tools
+            wget # used for archive download
+            gnupg2 # used for archive signature verification
+            tar gzip bzip2 xz unzip # used for archive unpacking
+            zlib-devel # zlib library used for all builds
+            expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel texinfo # for gdb
+            libcurl-devel # for cmake
+            readline-devel # for cmake and llvm
+            libffi-devel libxml2-devel perl-Digest-MD5 # for llvm
+            libedit-devel pcre-devel automake bison # for swig
+        )
+        DEPS_RUN=(
+            make # generic build tools
+            tar gzip bzip2 xz # used for archive unpacking
+            zlib # zlib library used for all builds
+            expat libipt libbabeltrace xz-libs python3 # for gdb
+            readline # for cmake and llvm
+            libffi libxml2 # for llvm
+        )
+        ;;
 
     centos-8)
         DEPS_MANAGER=yum
@@ -296,57 +274,55 @@ fi
 # haven't added commands to download all developer GnuPG keys because the
 # download is very slow. If the verification fails for you, figure out who has
 # signed the archive and download their public key instead.
-if [ $skip_verification == 0 ]; then
-    GPG="gpg --homedir .gnupg"
-    KEYSERVER="hkp://keyserver.ubuntu.com"
-    mkdir -p .gnupg
-    chmod 700 .gnupg
-    # verify gcc
-    if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
-        wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
-    fi
-    # list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
-    $GPG --keyserver $KEYSERVER --recv-keys 0xA328C3A2C3C45C06
-    $GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
-    # verify binutils
-    if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
-        wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz.sig
-    fi
-    $GPG --keyserver $KEYSERVER --recv-keys 0xDD9E3C4F
-    $GPG --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
-    # verify gdb
-    if [ ! -f gdb-$GDB_VERSION.tar.gz.sig ]; then
-        wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz.sig
-    fi
-    $GPG --keyserver $KEYSERVER --recv-keys 0xFF325CF3
-    $GPG --verify gdb-$GDB_VERSION.tar.gz.sig gdb-$GDB_VERSION.tar.gz
-    # verify cmake
-    if [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt ] || [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt.asc ]; then
-        wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt
-        wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt.asc
-        # Because CentOS 7 doesn't have the `--ignore-missing` flag for `sha256sum`
-        # we filter out the missing files from the sums here manually.
-        cat cmake-$CMAKE_VERSION-SHA-256.txt | grep "cmake-$CMAKE_VERSION.tar.gz" > cmake-$CMAKE_VERSION-SHA-256-filtered.txt
-    fi
-    $GPG --keyserver $KEYSERVER --recv-keys 0xC6C265324BBEBDC350B513D02D2CEF1034921684
-    sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
-    $GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
-    # verify llvm, cfe, lld, clang-tools-extra
-    if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
-        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
-        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz.sig
-        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
-        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
-        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
-    fi
-    # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
-    $GPG --keyserver $KEYSERVER --recv-keys 0x345AD05D
-    $GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
-    $GPG --verify clang-$LLVM_VERSION.src.tar.xz.sig clang-$LLVM_VERSION.src.tar.xz
-    $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
-    $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
-    $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
+GPG="gpg --homedir .gnupg"
+KEYSERVER="hkp://keyserver.ubuntu.com"
+mkdir -p .gnupg
+chmod 700 .gnupg
+# verify gcc
+if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
+    wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
 fi
+# list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
+$GPG --keyserver $KEYSERVER --recv-keys 0x3AB00996FC26A641
+$GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
+# verify binutils
+if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
+    wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xDD9E3C4F
+$GPG --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
+# verify gdb
+if [ ! -f gdb-$GDB_VERSION.tar.gz.sig ]; then
+    wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xFF325CF3
+$GPG --verify gdb-$GDB_VERSION.tar.gz.sig gdb-$GDB_VERSION.tar.gz
+# verify cmake
+if [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt ] || [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt.asc ]; then
+    wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt
+    wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt.asc
+    # Because CentOS 7 doesn't have the `--ignore-missing` flag for `sha256sum`
+    # we filter out the missing files from the sums here manually.
+    cat cmake-$CMAKE_VERSION-SHA-256.txt | grep "cmake-$CMAKE_VERSION.tar.gz" > cmake-$CMAKE_VERSION-SHA-256-filtered.txt
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xC6C265324BBEBDC350B513D02D2CEF1034921684
+sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
+$GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
+# verify llvm, cfe, lld, clang-tools-extra
+if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
+fi
+# list of valid llvm gnupg keys: https://releases.llvm.org/download.html
+$GPG --keyserver $KEYSERVER --recv-keys 0x345AD05D
+$GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
+$GPG --verify clang-$LLVM_VERSION.src.tar.xz.sig clang-$LLVM_VERSION.src.tar.xz
+$GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
+$GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
+$GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 popd
 
 # create build directory
@@ -614,9 +590,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DLLVM_ENABLE_FFI=ON \
         -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
         -DLLVM_USE_PERF=yes
-        #-DGCC_INSTALL_PREFIX=$PREFIX \
-        #-DLIBCLANG_LIBRARY_VERSION=1 \
-        #-DCLANG_ENABLE_BOOTSTRAP=ON \
     make -j$CPUS
     make -j$CPUS check-clang # run clang test suite
     make -j$CPUS check-lld # run lld test suite
