@@ -10,6 +10,8 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
+#include "utils/file_locker.hpp"
+
 namespace storage::durability {
 
 // Snapshot format:
@@ -582,7 +584,8 @@ void CreateSnapshot(Transaction *transaction,
                     utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints,
-                    Config::Items items, const std::string &uuid) {
+                    Config::Items items, const std::string &uuid,
+                    utils::FileLockerManager *file_locker) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -921,9 +924,7 @@ void CreateSnapshot(Transaction *transaction,
       for (uint64_t i = 0; i < *pos; ++i) {
         const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
             wal_files[i];
-        if (!utils::DeleteFile(wal_path)) {
-          LOG(WARNING) << "Couldn't delete WAL file " << wal_path << "!";
-        }
+        file_locker->DeleteFile(wal_path);
       }
     }
   }

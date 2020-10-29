@@ -12,6 +12,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace storage::durability {
@@ -60,6 +61,7 @@ void CreateSnapshot(Transaction *transaction,
                     utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints,
-                    Config::Items items, const std::string &uuid);
+                    Config::Items items, const std::string &uuid,
+                    utils::FileLockerManager *locker_manager);
 
 }  // namespace storage::durability
