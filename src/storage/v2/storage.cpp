@@ -2273,8 +2273,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         DLOG(INFO) << "Saving the snapshot file to " << snapshot_temp_file;
         decoder.ReadFile(snapshot_temp_file);
 
-        // TODO (antonio2368): Do we want to clear the database before loading
-        // a snapshot?
         std::unique_lock<utils::RWLock> storage_guard(main_lock_);
         // Clear the database
         vertices_.clear();
@@ -2292,6 +2290,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
               snapshot_temp_file, &vertices_, &edges_, &name_id_mapper_,
               &edge_count_, config_.items);
           DLOG(INFO) << "Snapshot loaded successfully";
+          // TODO (antonio2368): How to handle WAL uuids? How do we know
+          // if the WAL received is the extension of a snapshot or the
+          // first recovery file
+          uuid_ = recovered_snapshot.snapshot_info.uuid;
           const auto &recovery_info = recovered_snapshot.recovery_info;
           vertex_id_ = recovery_info.next_vertex_id;
           edge_id_ = recovery_info.next_edge_id;
