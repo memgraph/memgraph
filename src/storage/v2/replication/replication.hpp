@@ -10,6 +10,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/file.hpp"
 
 namespace storage::replication {
 
@@ -24,12 +25,22 @@ class ReplicationClient {
         rpc_context_(use_ssl),
         rpc_client_(endpoint, &rpc_context_) {}
 
+  template <typename RpcType>
   class Handler {
-   private:
+   protected:
     friend class ReplicationClient;
-
     /// @throw rpc::RpcFailedException
     explicit Handler(ReplicationClient *self)
+        : self_(self), stream_(self_->rpc_client_.Stream<RpcType>()) {}
+
+    ReplicationClient *self_;
+    rpc::Client::StreamHandler<RpcType> stream_;
+  };
+
+  class TransactionHandler {
+   private:
+    friend class ReplicationClient;
+    explicit TransactionHandler(ReplicationClient *self)
         : self_(self), stream_(self_->rpc_client_.Stream<AppendDeltasRpc>()) {}
 
    public:
@@ -72,7 +83,26 @@ class ReplicationClient {
     rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
   };
 
-  Handler ReplicateTransaction() { return Handler(this); }
+  class SnapshotHandler {
+   private:
+    friend class ReplicationClient;
+    explicit SnapshotHandler(ReplicationClient *self)
+        : self_(self), stream_(self_->rpc_client_.Stream<SnapshotRpc>()) {}
+
+   public:
+    void StreamSnapshot(const std::filesystem::path &path) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteFile(path);
+      stream_.AwaitResponse();
+    }
+
+   private:
+    ReplicationClient *self_;
+    rpc::Client::StreamHandler<SnapshotRpc> stream_;
+  };
+
+  TransactionHandler ReplicateTransaction() { return TransactionHandler(this); }
+  SnapshotHandler TransferSnapshot() { return SnapshotHandler(this); }
 
   const auto &Name() const { return name_; }
 

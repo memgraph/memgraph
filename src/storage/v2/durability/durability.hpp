@@ -23,6 +23,10 @@ namespace storage::durability {
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     const std::filesystem::path &storage_directory);
 
+/// Get list of snapshot files with their UUID
+std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+    const std::filesystem::path &snapshot_directory);
+
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
 /// @throw std::bad_alloc

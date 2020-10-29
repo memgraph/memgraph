@@ -14,6 +14,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -1655,7 +1656,7 @@ void Storage::AppendToWal(const Transaction &transaction,
   // We need to keep this lock because handler takes a pointer to the client
   // from which it was created
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  std::list<replication::ReplicationClient::Handler> streams;
+  std::list<replication::ReplicationClient::TransactionHandler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
     auto &replication_clients = GetRpcContext<ReplicationClientList>();
     try {
@@ -2251,6 +2252,46 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
     AppendDeltasRes res;
     slk::Save(res, res_builder);
   });
+  replication_server.rpc_server->Register<SnapshotRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received SnapshotRpc";
+        SnapshotReq req;
+        slk::Load(&req, req_reader);
+
+        replication::Decoder decoder(req_reader);
+
+        // TODO (antonio2368): Change the name so the
+        // file isn't overwritten
+        std::filesystem::path snapshot_temp_file{
+            std::filesystem::temp_directory_path() / "replication_snapshot"};
+        DLOG(INFO) << "Saving the snapshot file to " << snapshot_temp_file;
+        decoder.ReadFile(snapshot_temp_file);
+
+        // TODO (antonio2368): Do we want to clear the database before loading
+        // a snapshot?
+        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+        // Clear the database
+        vertices_.clear();
+        edges_.clear();
+        try {
+          DLOG(INFO) << "Loading snapshot";
+          auto recovered_snapshot = durability::LoadSnapshot(
+              snapshot_temp_file, &vertices_, &edges_, &name_id_mapper_,
+              &edge_count_, config_.items);
+          DLOG(INFO) << "Snapshot loaded successfully";
+          const auto &recovery_info = recovered_snapshot.recovery_info;
+          vertex_id_ = recovery_info.next_vertex_id;
+          edge_id_ = recovery_info.next_edge_id;
+          timestamp_ = recovery_info.next_timestamp;
+        } catch (const durability::RecoveryFailure &e) {
+          // TODO (antonio2368): What to do if the sent snapshot is invalid
+          LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
+        }
+        storage_guard.unlock();
+
+        SnapshotRes res;
+        slk::Save(res, res_builder);
+      });
   replication_server.rpc_server->Start();
 }
 
@@ -2272,6 +2313,25 @@ void Storage::RegisterReplica(std::string name,
 
   replication_clients.emplace_back(std::move(name), &name_id_mapper_,
                                    config_.items, endpoint, false);
+
+  // Now we need shared lock again
+  {
+    auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
+    if (!snapshot_files.empty()) {
+      std::sort(snapshot_files.begin(), snapshot_files.end());
+      // TODO (antonio2368): Send the last snapshot for now
+      // check if additional logic is necessary
+      // Also, prevent the deletion of the snapshot file and the required
+      // WALs
+      const auto &latest_snapshot_file = snapshot_files.back().first;
+
+      DLOG(INFO) << "Sending the latest snapshot file: "
+                 << latest_snapshot_file;
+      auto &client = replication_clients.back();
+      auto stream = client.TransferSnapshot();
+      stream.StreamSnapshot(latest_snapshot_file);
+    }
+  }
 }
 
 void Storage::UnregisterReplica(const std::string &name) {

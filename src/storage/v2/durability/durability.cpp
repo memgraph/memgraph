@@ -50,6 +50,29 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
       << ". Please start the process as user " << user_directory << "!";
 }
 
+// Return array of all discovered snapshots
+std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+    const std::filesystem::path &snapshot_directory) {
+  std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
+  std::error_code error_code;
+  if (utils::DirExists(snapshot_directory)) {
+    for (const auto &item :
+         std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+      if (!item.is_regular_file()) continue;
+      try {
+        auto info = ReadSnapshotInfo(item.path());
+        snapshot_files.emplace_back(item.path(), info.uuid);
+      } catch (const RecoveryFailure &) {
+        continue;
+      }
+    }
+    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                       << error_code.message() << "!";
+  }
+
+  return snapshot_files;
+}
+
 std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
@@ -96,28 +119,13 @@ std::optional<RecoveryInfo> RecoverData(
     }
   };
 
-  // Array of all discovered snapshots, ordered by name.
-  std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
-  std::error_code error_code;
-  if (utils::DirExists(snapshot_directory)) {
-    for (const auto &item :
-         std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      try {
-        auto info = ReadSnapshotInfo(item.path());
-        snapshot_files.emplace_back(item.path(), info.uuid);
-      } catch (const RecoveryFailure &) {
-        continue;
-      }
-    }
-    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                       << error_code.message() << "!";
-  }
+  auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
+    // Order the files by name
     std::sort(snapshot_files.begin(), snapshot_files.end());
     // UUID used for durability is the UUID of the last snapshot file.
     *uuid = snapshot_files.back().second;
@@ -156,6 +164,7 @@ std::optional<RecoveryInfo> RecoverData(
     if (!utils::DirExists(wal_directory)) return std::nullopt;
     // Array of all discovered WAL files, ordered by name.
     std::vector<std::pair<std::filesystem::path, std::string>> wal_files;
+    std::error_code error_code;
     for (const auto &item :
          std::filesystem::directory_iterator(wal_directory, error_code)) {
       if (!item.is_regular_file()) continue;
@@ -177,6 +186,7 @@ std::optional<RecoveryInfo> RecoverData(
   // Array of all discovered WAL files, ordered by sequence number.
   std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
       wal_files;
+  std::error_code error_code;
   for (const auto &item :
        std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
