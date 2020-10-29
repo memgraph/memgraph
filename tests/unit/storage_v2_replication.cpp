@@ -11,11 +11,23 @@
 
 using testing::UnorderedElementsAre;
 
-TEST(ReplicationTest, BasicSynchronousReplicationTest) {
+class ReplicationTest : public ::testing::Test {
+ protected:
   std::filesystem::path storage_directory{
       std::filesystem::temp_directory_path() /
       "MG_test_unit_storage_v2_replication"};
+  void SetUp() override { Clear(); }
 
+  void TearDown() override { Clear(); }
+
+ private:
+  void Clear() {
+    if (!std::filesystem::exists(storage_directory)) return;
+    std::filesystem::remove_all(storage_directory);
+  }
+};
+
+TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   storage::Storage main_store(
       {.items = {.properties_on_edges = true},
        .durability = {
@@ -254,11 +266,7 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
   }
 }
 
-TEST(ReplicationTest, MultipleSynchronousReplicationTest) {
-  std::filesystem::path storage_directory{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_storage_v2_replication"};
-
+TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   storage::Storage main_store(
       {.durability = {
            .storage_directory = storage_directory,
