@@ -406,8 +406,7 @@ Storage::Storage(Config config)
           durability::CreateSnapshot(
               &transaction, snapshot_directory_, wal_directory_,
               config_.durability.snapshot_retention_count, &vertices_, &edges_,
-              &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_,
-              &locker_manager_);
+              &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
 
           // Finalize snapshot transaction.
           commit_log_.MarkFinished(transaction.start_timestamp);
@@ -456,8 +455,7 @@ Storage::~Storage() {
     durability::CreateSnapshot(
         &transaction, snapshot_directory_, wal_directory_,
         config_.durability.snapshot_retention_count, &vertices_, &edges_,
-        &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_,
-        &locker_manager_);
+        &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
 
     // Finalize snapshot transaction.
     commit_log_.MarkFinished(transaction.start_timestamp);
