@@ -408,7 +408,7 @@ class Storage final {
 #ifdef MG_ENTERPRISE
   template <ReplicationState state, typename... Args>
   void SetReplicationState(Args &&... args) {
-    if (replication_state_.load(std::memory_order_acquire) == state) {
+    if (replication_state_.load() == state) {
       return;
     }
 
@@ -421,7 +421,7 @@ class Storage final {
       rpc_context_.emplace<ReplicationClientList>();
     }
 
-    replication_state_.store(state, std::memory_order_release);
+    replication_state_.store(state);
   }
 
   void RegisterReplica(std::string name, io::network::Endpoint endpoint);

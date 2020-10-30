@@ -2257,8 +2257,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 void Storage::RegisterReplica(std::string name,
                               io::network::Endpoint endpoint) {
   std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-  CHECK(replication_state_.load(std::memory_order_acquire) ==
-        ReplicationState::MAIN)
+  CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can register a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
 
@@ -2277,8 +2276,7 @@ void Storage::RegisterReplica(std::string name,
 
 void Storage::UnregisterReplica(const std::string &name) {
   std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-  CHECK(replication_state_.load(std::memory_order_acquire) ==
-        ReplicationState::MAIN)
+  CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can unregister a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
   replication_clients.remove_if(
