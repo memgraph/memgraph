@@ -14,12 +14,30 @@ namespace utils {
 // Class used for delaying the delation of files
 class FileLockerManager {
  public:
+  struct FileLockerAccess;
+
+  struct FileLocker {
+    friend FileLockerManager;
+    ~FileLocker() {
+      std::lock_guard guard(locker_manager_->lock_);
+      locker_manager_->lockers_.erase(locker_id_);
+      locker_manager_->DeleteFromQueue();
+    }
+
+    FileLockerAccess Access() {
+      return FileLockerAccess{locker_manager_, locker_id_};
+    }
+
+   private:
+    explicit FileLocker(FileLockerManager *manager, size_t locker_id) : locker_manager_{manager}, locker_id_{locker_id}
+    {}
+
+    FileLockerManager *locker_manager_;
+    size_t locker_id_;
+  };
+
   struct FileLockerAccess {
-    explicit FileLockerAccess(FileLockerManager *manager, size_t locker_id,
-                              std::unique_lock<std::mutex> lock)
-        : locker_manager_{manager},
-          locker_id_{locker_id},
-          lock_{std::move(lock)} {}
+    friend FileLocker;
 
     bool AddFile(const std::filesystem::path &path) {
       // TODO (antonio2368): Maybe return error with explanation here
@@ -33,15 +51,21 @@ class FileLockerManager {
     FileLockerAccess(FileLockerAccess &&) = default;
     FileLockerAccess &operator=(const FileLockerAccess &) = delete;
     FileLockerAccess &operator=(FileLockerAccess &&) = default;
-
-    size_t LockerId() const { return locker_id_; }
-
-    ~FileLockerAccess() {
-      lock_.unlock();
-      locker_manager_->DeleteFromQueue();
+    
+    size_t LockerId() const {
+      return locker_id_;
     }
 
+    ~FileLockerAccess() { 
+      lock_.unlock(); 
+      locker_manager_->DeleteFromQueue();
+    }
    private:
+    explicit FileLockerAccess(FileLockerManager *manager, size_t locker_id)
+        : locker_manager_{manager}, locker_id_{locker_id}, lock_{manager->lock_}
+    {}
+
+
     FileLockerManager *locker_manager_;
     size_t locker_id_;
     std::unique_lock<std::mutex> lock_;
@@ -56,19 +80,13 @@ class FileLockerManager {
     lock_.unlock();
   }
 
-  FileLockerAccess AddLocker() {
+  FileLocker AddLocker() {
     // If you call this in the same thread that has a locker, deadlock can occur
     std::unique_lock guard(lock_);
     const size_t current_locker_id = next_locker_id_;
     lockers_.emplace(current_locker_id, std::set<std::filesystem::path>{});
     ++next_locker_id_;
-    return FileLockerAccess{this, current_locker_id, std::move(guard)};
-  }
-
-  void DeleteLocker(size_t locker_id) {
-    std::lock_guard guard(lock_);
-    lockers_.erase(locker_id);
-    DeleteFromQueue();
+    return FileLocker{this, current_locker_id};
   }
 
   explicit FileLockerManager() = default;
@@ -80,7 +98,8 @@ class FileLockerManager {
 
   ~FileLockerManager() {
     // Clean the queue
-    CHECK(files_for_deletion->size() == 0) << "Files weren't properly deleted";
+    CHECK(files_for_deletion->empty())
+      << "Files weren't properly deleted";
   }
 
  private:
