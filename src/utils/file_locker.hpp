@@ -20,8 +20,9 @@ class FileLockerManager {
     friend FileLockerManager;
     ~FileLocker() {
       std::lock_guard guard(locker_manager_->lock_);
-      locker_manager_->lockers_.erase(locker_id_);
-      locker_manager_->DeleteFromQueue();
+      locker_manager_->lockers_.WithLock(
+          [this](auto &lockers) { lockers.erase(locker_id_); });
+      locker_manager_->CleanQueue();
     }
 
     FileLockerAccess Access() {
@@ -29,8 +30,8 @@ class FileLockerManager {
     }
 
    private:
-    explicit FileLocker(FileLockerManager *manager, size_t locker_id) : locker_manager_{manager}, locker_id_{locker_id}
-    {}
+    explicit FileLocker(FileLockerManager *manager, size_t locker_id)
+        : locker_manager_{manager}, locker_id_{locker_id} {}
 
     FileLockerManager *locker_manager_;
     size_t locker_id_;
@@ -42,7 +43,8 @@ class FileLockerManager {
     bool AddFile(const std::filesystem::path &path) {
       // TODO (antonio2368): Maybe return error with explanation here
       if (!std::filesystem::exists(path)) return false;
-      locker_manager_->lockers_[locker_id_].emplace(path);
+      locker_manager_->lockers_.WithLock(
+          [&](auto &lockers) { lockers[locker_id_].emplace(path); });
       return true;
     }
 
@@ -51,20 +53,16 @@ class FileLockerManager {
     FileLockerAccess(FileLockerAccess &&) = default;
     FileLockerAccess &operator=(const FileLockerAccess &) = delete;
     FileLockerAccess &operator=(FileLockerAccess &&) = default;
-    
-    size_t LockerId() const {
-      return locker_id_;
-    }
 
-    ~FileLockerAccess() { 
-      lock_.unlock(); 
-      locker_manager_->DeleteFromQueue();
-    }
+    size_t LockerId() const { return locker_id_; }
+
+    ~FileLockerAccess() { locker_manager_->CleanQueue(); }
+
    private:
     explicit FileLockerAccess(FileLockerManager *manager, size_t locker_id)
-        : locker_manager_{manager}, locker_id_{locker_id}, lock_{manager->lock_}
-    {}
-
+        : locker_manager_{manager},
+          locker_id_{locker_id},
+          lock_{manager->lock_} {}
 
     FileLockerManager *locker_manager_;
     size_t locker_id_;
@@ -81,11 +79,13 @@ class FileLockerManager {
   }
 
   FileLocker AddLocker() {
-    // If you call this in the same thread that has a locker, deadlock can occur
     std::unique_lock guard(lock_);
     const size_t current_locker_id = next_locker_id_;
-    lockers_.emplace(current_locker_id, std::set<std::filesystem::path>{});
+    lockers_.WithLock([&](auto &lockers) {
+      lockers.emplace(current_locker_id, std::set<std::filesystem::path>{});
+    });
     ++next_locker_id_;
+    lock_.unlock();
     return FileLocker{this, current_locker_id};
   }
 
@@ -98,8 +98,7 @@ class FileLockerManager {
 
   ~FileLockerManager() {
     // Clean the queue
-    CHECK(files_for_deletion->empty())
-      << "Files weren't properly deleted";
+    CHECK(files_for_deletion->empty()) << "Files weren't properly deleted";
   }
 
  private:
@@ -110,12 +109,14 @@ class FileLockerManager {
   }
 
   [[nodiscard]] bool FileLocked(const std::filesystem::path &path) {
-    for (const auto &[_, paths] : lockers_) {
-      if (paths.count(path)) {
-        return true;
+    return lockers_.WithLock([&](auto &lockers) {
+      for (const auto &[_, paths] : lockers) {
+        if (paths.count(path)) {
+          return true;
+        }
       }
-    }
-    return false;
+      return false;
+    });
   }
 
   void DeleteOrAddToQueue(const std::filesystem::path &path) {
@@ -126,10 +127,9 @@ class FileLockerManager {
     }
   }
 
-  void DeleteFromQueue() {
-    DLOG(INFO) << "Cleaning the queue";
+  void CleanQueue() {
     files_for_deletion.WithLock([&](auto &files) {
-      for (auto it = files.cbegin(); it != files.cend(); ++it) {
+      for (auto it = files.cbegin(); it != files.cend();) {
         if (!FileLocked(*it)) {
           DeleteFromSystem(*it);
           it = files.erase(it);
@@ -142,7 +142,9 @@ class FileLockerManager {
 
   std::mutex lock_;
   size_t next_locker_id_{0};
-  std::map<size_t, std::set<std::filesystem::path>> lockers_;
+  utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
+                      utils::SpinLock>
+      lockers_;
 
   utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock>
       files_for_deletion;
