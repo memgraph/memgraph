@@ -36,7 +36,8 @@ for export in data["data"]:
         for segment in cfile["segments"]:
             filename = cfile["filename"]
             if not filename in args.files: continue
-            line, col, count, has_count, is_region_entry = segment
+            line, col, count, has_count, is_region_entry, is_gap_region = \
+                segment
             sources[filename][line] += count
     for function in export["functions"]:
         for region in function["regions"]:
