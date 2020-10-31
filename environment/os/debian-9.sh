@@ -40,7 +40,6 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    php-cli # for user technical documentation generators
     mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
 )
 list() {

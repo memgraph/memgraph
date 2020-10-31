@@ -43,7 +43,6 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    php-cli # for user technical documentation generators
     mono-complete nodejs zip unzip java-1.8.0-openjdk-devel # for driver tests
 )
 list() {

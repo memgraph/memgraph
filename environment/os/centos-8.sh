@@ -41,7 +41,6 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    php-cli # for user technical documentation generators
     mono-complete nodejs zip unzip java-1.8.0-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
 )
