@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
+
 import argparse
 import json
-import os
-import sys
 from collections import defaultdict
+
 
 def lines2phabricator(filename, lines):
     ret = ""
@@ -12,10 +12,14 @@ def lines2phabricator(filename, lines):
         for row in f:
             numlines += 1
     for i in range(1, numlines + 1):
-        if not i in lines: ret += "N"
-        elif lines[i] == 0: ret += "U"
-        else: ret += "C"
+        if i not in lines:
+            ret += "N"
+        elif lines[i] == 0:
+            ret += "U"
+        else:
+            ret += "C"
     return ret
+
 
 parser = argparse.ArgumentParser(description='Parse llvm-cov export data.')
 parser.add_argument('input', help='input file')
@@ -35,16 +39,18 @@ for export in data["data"]:
     for cfile in export["files"]:
         for segment in cfile["segments"]:
             filename = cfile["filename"]
-            if not filename in args.files: continue
+            if filename not in args.files:
+                continue
             line, col, count, has_count, is_region_entry, is_gap_region = \
                 segment
             sources[filename][line] += count
     for function in export["functions"]:
         for region in function["regions"]:
             line_start, column_start, line_end, column_end, execution_count, \
-                    file_id, expanded_file_id, kind = region
+                file_id, expanded_file_id, kind = region
             filename = function["filenames"][file_id]
-            if filename not in args.files: continue
+            if filename not in args.files:
+                continue
             for i in range(line_start, line_end + 1):
                 sources[filename][i] += execution_count
     for total, values in export["totals"].items():
@@ -59,8 +65,8 @@ for filename, lines in sources.items():
 with open(args.coverage, "w") as f:
     json.dump(coverage, f)
 
-summary = """==== Code coverage: ====
-
+summary = """<!DOCTYPE html>
+<h1>Code coverage</h1>
 <table>
 <tr><th>Coverage</th><th>Total</th></tr>
 """
