@@ -2,27 +2,56 @@
 
 set -Eeuo pipefail
 
-function print_help () {
-    echo "Usage: $0 [--include-toolchain-deps]"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+source "$DIR/../util.sh"
+
+TOOLCHAIN_BUILD_DEPS=(
+    coreutils gcc g++ build-essential make # generic build tools
+    wget # used for archive download
+    gnupg # used for archive signature verification
+    tar gzip bzip2 xz-utils unzip # used for archive unpacking
+    zlib1g-dev # zlib library used for all builds
+    libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+    libcurl4-openssl-dev # for cmake
+    libreadline-dev # for cmake and llvm
+    libffi-dev libxml2-dev # for llvm
+    libedit-dev libpcre3-dev automake bison # for swig
+)
+TOOLCHAIN_RUN_DEPS=(
+    make # generic build tools
+    tar gzip bzip2 xz-utils # used for archive unpacking
+    zlib1g # zlib library used for all builds
+    libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
+    libcurl4 # for cmake
+    libreadline7 # for cmake and llvm
+    libffi6 libxml2 # for llvm
+)
+MEMGRAPH_BUILD_DEPS=(
+    git # source code control
+    make pkg-config # build system
+    curl wget # for downloading libs
+    uuid-dev default-jre-headless # required by antlr
+    libreadline-dev # for memgraph console
+    libpython3-dev python3-dev # for query modules
+    libssl-dev
+    libseccomp-dev
+    python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3-yaml # for the configuration generator
+    libcurl4-openssl-dev # mg-requests
+    sbcl # for custom Lisp C++ preprocessing
+    doxygen graphviz # source documentation generators
+    php-cli # for user technical documentation generators
+    mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
+    nodejs npm
+)
+list() {
+    echo "$1"
 }
-
-include_toolchain_deps=0
-if [[ $# -gt 1 ]]; then
-    print_help
-    exit 1
-elif  [[ $# -eq 1 ]]; then
-    case "$1" in
-        --include-toolchain-deps)
-        include_toolchain_deps=1
-        ;;
-        *)
-        print_help
-        exit 1
-        ;;
-    esac
-fi
-
-cat >/etc/apt/sources.list <<EOF
+check() {
+    check_all_dpkg "$1"
+}
+install() {
+    cat >/etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian/ buster main non-free contrib
 deb-src http://deb.debian.org/debian/ buster main non-free contrib
 deb http://deb.debian.org/debian/ buster-updates main contrib non-free
@@ -30,54 +59,24 @@ deb-src http://deb.debian.org/debian/ buster-updates main contrib non-free
 deb http://security.debian.org/debian-security buster/updates main contrib non-free
 deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
 EOF
-apt update
-
-# Install all basic system utils.
-apt install -y \
-    openssh-server \
-    wget \
-    git \
-    tmux \
-    tree \
-    htop
-
-# Install all required for the toolchain build.
-if [ $include_toolchain_deps == 1 ]; then
-    apt install -y \
-        bison \
-        automake \
-        libpcre3-dev \
-        libedit-dev \
-        libxml2-dev \
-        libffi-dev \
-        libreadline-dev \
-        libcurl4-openssl-dev \
-        texinfo \
-        python3-dev \
-        liblzma-dev \
-        libbabeltrace-dev \
-        libipt-dev \
-        libexpat1-dev \
-        zlib1g-dev \
-        unzip \
-        gnupg \
-        make \
-        build-essential \
-        g++ \
-        gcc
-fi
-
-# Install all required to build and test memgraph.
-
-# TODO(gitbuda): Install init deps.
-
-wget -nv https://golang.org/dl/go1.15.2.linux-amd64.tar.gz -O go1.15.2.linux-amd64.tar.gz
-tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz
-sed -i '${s/$/:\/usr\/local\/go\/bin/}' /home/gh/actions-runner/.path
-
-apt install -y npm
-
-wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-dpkg -i packages-microsoft-prod.deb
-apt-get update
-apt-get install -y apt-transport-https dotnet-sdk-3.1
+    apt update
+    apt install -y openssh-server wget git tmux tree htop
+    for pkg in $1; do
+        apt install -y "$pkg"
+    done
+    if [ ! -f /usr/local/go/bin/go ]; then
+        wget -nv https://golang.org/dl/go1.15.2.linux-amd64.tar.gz -O go1.15.2.linux-amd64.tar.gz
+        tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz
+    fi
+    if [ -d "/home/gh/actions-runner" ]; then
+        sed -i '${s/$/:\/usr\/local\/go\/bin/}' /home/gh/actions-runner/.path
+    fi
+    if ! which dotnet >/dev/null; then
+        wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+        dpkg -i packages-microsoft-prod.deb
+        apt-get update
+        apt-get install -y apt-transport-https dotnet-sdk-3.1
+    fi
+}
+deps=$2"[*]"
+"$1" "${!deps}"
