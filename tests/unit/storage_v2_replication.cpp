@@ -11,11 +11,23 @@
 
 using testing::UnorderedElementsAre;
 
-TEST(ReplicationTest, BasicSynchronousReplicationTest) {
+class ReplicationTest : public ::testing::Test {
+ protected:
   std::filesystem::path storage_directory{
       std::filesystem::temp_directory_path() /
       "MG_test_unit_storage_v2_replication"};
+  void SetUp() override { Clear(); }
 
+  void TearDown() override { Clear(); }
+
+ private:
+  void Clear() {
+    if (!std::filesystem::exists(storage_directory)) return;
+    std::filesystem::remove_all(storage_directory);
+  }
+};
+
+TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   storage::Storage main_store(
       {.items = {.properties_on_edges = true},
        .durability = {
@@ -23,7 +35,6 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  main_store.SetReplicationState(storage::ReplicationState::MAIN);
 
   storage::Storage replica_store(
       {.items = {.properties_on_edges = true},
@@ -32,7 +43,11 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store.SetReplicationState(storage::ReplicationState::REPLICA);
+  replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10000});
+
+  main_store.RegisterReplica("REPLICA",
+                             io::network::Endpoint{"127.0.0.1", 10000});
 
   // vertex create
   // vertex add label
@@ -248,5 +263,90 @@ TEST(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto constraints = replica_store.ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
+  }
+}
+
+TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
+  storage::Storage main_store(
+      {.durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  storage::Storage replica_store1(
+      {.durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+  replica_store1.SetReplicationState<storage::ReplicationState::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10000});
+
+  storage::Storage replica_store2(
+      {.durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+  replica_store2.SetReplicationState<storage::ReplicationState::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 20000});
+
+  main_store.RegisterReplica("REPLICA1",
+                             io::network::Endpoint{"127.0.0.1", 10000});
+  main_store.RegisterReplica("REPLICA2",
+                             io::network::Endpoint{"127.0.0.1", 20000});
+
+  const auto *vertex_label = "label";
+  const auto *vertex_property = "property";
+  const auto *vertex_property_value = "property_value";
+  std::optional<storage::Gid> vertex_gid;
+  {
+    auto acc = main_store.Access();
+    auto v = acc.CreateVertex();
+    ASSERT_TRUE(v.AddLabel(main_store.NameToLabel(vertex_label)).HasValue());
+    ASSERT_TRUE(v.SetProperty(main_store.NameToProperty(vertex_property),
+                              storage::PropertyValue(vertex_property_value))
+                    .HasValue());
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  const auto check_replica = [&](storage::Storage *replica_store) {
+    auto acc = replica_store->Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    const auto labels = v->Labels(storage::View::OLD);
+    ASSERT_TRUE(labels.HasValue());
+    ASSERT_THAT(*labels,
+                UnorderedElementsAre(replica_store->NameToLabel(vertex_label)));
+    ASSERT_FALSE(acc.Commit().HasError());
+  };
+
+  check_replica(&replica_store1);
+  check_replica(&replica_store2);
+
+  main_store.UnregisterReplica("REPLICA2");
+  {
+    auto acc = main_store.Access();
+    auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // REPLICA1 should contain the new vertex
+  {
+    auto acc = replica_store1.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // REPLICA2 should not contain the new vertex
+  {
+    auto acc = replica_store2.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_FALSE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
   }
 }
