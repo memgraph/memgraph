@@ -1,14 +1,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <csignal>
-
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <iostream>
 #include <thread>
@@ -1606,12 +1604,14 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                        .snapshot_interval = std::chrono::minutes(20),
-                        .wal_file_flush_every_n_tx = kFlushWalEvery,
-                        .wal_file_size_kibibytes = 100000}});
+         .durability = {
+             .storage_directory = storage_directory,
+             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+                 PERIODIC_SNAPSHOT_WITH_WAL,
+             .snapshot_interval = std::chrono::minutes(20),
+             .wal_file_size_kibibytes = 100000,
+             .wal_file_flush_every_n_tx = kFlushWalEvery,
+         }});
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
@@ -1841,12 +1841,14 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                        .snapshot_interval = std::chrono::minutes(20),
-                        .wal_file_flush_every_n_tx = kFlushWalEvery,
-                        .recover_on_startup = true}});
+         .durability = {
+             .storage_directory = storage_directory,
+             .recover_on_startup = true,
+             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+                 PERIODIC_SNAPSHOT_WITH_WAL,
+             .snapshot_interval = std::chrono::minutes(20),
+             .wal_file_flush_every_n_tx = kFlushWalEvery,
+         }});
     {
       auto acc = store.Access();
       auto iterable = acc.Vertices(storage::View::OLD);

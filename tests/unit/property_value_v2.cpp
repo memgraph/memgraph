@@ -695,8 +695,8 @@ TEST(PropertyValue, Equal) {
       storage::PropertyValue(123),       storage::PropertyValue(123.5),
       storage::PropertyValue("nandare"), storage::PropertyValue(vec),
       storage::PropertyValue(map)};
-  for (const auto item1 : data) {
-    for (const auto item2 : data) {
+  for (const auto &item1 : data) {
+    for (const auto &item2 : data) {
       if (item1.type() == item2.type()) {
         ASSERT_TRUE(item1 == item2);
       } else {
