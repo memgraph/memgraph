@@ -15,9 +15,11 @@ namespace storage::replication {
 
 class ReplicationClient {
  public:
-  ReplicationClient(NameIdMapper *name_id_mapper, Config::Items items,
-                    const io::network::Endpoint &endpoint, bool use_ssl)
-      : name_id_mapper_(name_id_mapper),
+  ReplicationClient(std::string name, NameIdMapper *name_id_mapper,
+                    Config::Items items, const io::network::Endpoint &endpoint,
+                    bool use_ssl)
+      : name_(std::move(name)),
+        name_id_mapper_(name_id_mapper),
         items_(items),
         rpc_context_(use_ssl),
         rpc_client_(endpoint, &rpc_context_) {}
@@ -72,7 +74,10 @@ class ReplicationClient {
 
   Handler ReplicateTransaction() { return Handler(this); }
 
+  const auto &Name() const { return name_; }
+
  private:
+  std::string name_;
   NameIdMapper *name_id_mapper_;
   Config::Items items_;
   communication::ClientContext rpc_context_;
