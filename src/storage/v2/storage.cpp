@@ -4,10 +4,12 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <variant>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -419,9 +421,10 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    SetReplicationState(ReplicationState::MAIN);
+    SetReplicationState<ReplicationState::MAIN>();
   } else if (FLAGS_replica) {
-    SetReplicationState(ReplicationState::REPLICA);
+    SetReplicationState<ReplicationState::REPLICA>(
+        io::network::Endpoint{"127.0.0.1", 1000});
   }
 #endif
 }
@@ -431,9 +434,9 @@ Storage::~Storage() {
     gc_runner_.Stop();
   }
 #ifdef MG_ENTERPRISE
-  if (replication_server_) {
-    replication_server_->Shutdown();
-    replication_server_->AwaitShutdown();
+  {
+    std::lock_guard<utils::RWLock> replication_guard(replication_lock_);
+    rpc_context_.emplace<std::monostate>();
   }
 #endif
   wal_file_ = std::nullopt;
@@ -1649,16 +1652,21 @@ void Storage::AppendToWal(const Transaction &transaction,
       transaction.commit_timestamp->load(std::memory_order_acquire);
 
 #ifdef MG_ENTERPRISE
+  // We need to keep this lock because handler takes a pointer to the client
+  // from which it was created
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  std::optional<replication::ReplicationClient::Handler> stream;
-  if (replication_client_) {
+  std::list<replication::ReplicationClient::Handler> streams;
+  if (replication_state_.load() == ReplicationState::MAIN) {
+    auto &replication_clients = GetRpcContext<ReplicationClientList>();
     try {
-      stream.emplace(replication_client_->ReplicateTransaction());
+      std::transform(replication_clients.begin(), replication_clients.end(),
+                     std::back_inserter(streams), [](auto &client) {
+                       return client.ReplicateTransaction();
+                     });
     } catch (const rpc::RpcFailedException &) {
       LOG(FATAL) << "Couldn't replicate data!";
     }
   }
-  replication_guard.unlock();
 #endif
 
   // Helper lambda that traverses the delta chain on order to find the first
@@ -1677,12 +1685,12 @@ void Storage::AppendToWal(const Transaction &transaction,
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
 #ifdef MG_ENTERPRISE
-        if (stream) {
-          try {
-            stream->AppendDelta(*delta, parent, final_commit_timestamp);
-          } catch (const rpc::RpcFailedException &) {
-            LOG(FATAL) << "Couldn't replicate data!";
+        try {
+          for (auto &stream : streams) {
+            stream.AppendDelta(*delta, parent, final_commit_timestamp);
           }
+        } catch (const rpc::RpcFailedException &) {
+          LOG(FATAL) << "Couldn't replicate data!";
         }
 #endif
       }
@@ -1819,13 +1827,13 @@ void Storage::AppendToWal(const Transaction &transaction,
   FinalizeWalFile();
 
 #ifdef MG_ENTERPRISE
-  if (stream) {
-    try {
-      stream->AppendTransactionEnd(final_commit_timestamp);
-      stream->Finalize();
-    } catch (const rpc::RpcFailedException &) {
-      LOG(FATAL) << "Couldn't replicate data!";
+  try {
+    for (auto &stream : streams) {
+      stream.AppendTransactionEnd(final_commit_timestamp);
+      stream.Finalize();
     }
+  } catch (const rpc::RpcFailedException &) {
+    LOG(FATAL) << "Couldn't replicate data!";
   }
 #endif
 }
@@ -1838,14 +1846,17 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
                              final_commit_timestamp);
 #ifdef MG_ENTERPRISE
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  if (replication_client_) {
-    auto stream = replication_client_->ReplicateTransaction();
-    try {
-      stream.AppendOperation(operation, label, properties,
-                             final_commit_timestamp);
-      stream.Finalize();
-    } catch (const rpc::RpcFailedException &) {
-      LOG(FATAL) << "Couldn't replicate data!";
+  if (replication_state_.load() == ReplicationState::MAIN) {
+    auto &replication_clients = GetRpcContext<ReplicationClientList>();
+    for (auto &client : replication_clients) {
+      auto stream = client.ReplicateTransaction();
+      try {
+        stream.AppendOperation(operation, label, properties,
+                               final_commit_timestamp);
+        stream.Finalize();
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
+      }
     }
   }
   replication_guard.unlock();
@@ -1854,20 +1865,25 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 }
 
 #ifdef MG_ENTERPRISE
-void Storage::ConfigureReplica() {
+void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
+  rpc_context_.emplace<ReplicationServer>();
+
+  auto &replication_server = GetRpcContext<ReplicationServer>();
+
   // Create RPC server.
   // TODO(mferencevic): Add support for SSL.
-  replication_server_context_.emplace();
+  replication_server.rpc_server_context.emplace();
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
   // simplifies the rest of the implementation.
   // TODO(mferencevic): Make endpoint configurable.
-  replication_server_.emplace(io::network::Endpoint{"127.0.0.1", 10000},
-                              &*replication_server_context_,
-                              /* workers_count = */ 1);
-  replication_server_->Register<AppendDeltasRpc>([this](auto *req_reader,
-                                                        auto *res_builder) {
+  replication_server.rpc_server.emplace(endpoint,
+                                        &*replication_server.rpc_server_context,
+                                        /* workers_count = */ 1);
+  replication_server.rpc_server->Register<
+      AppendDeltasRpc>([this, endpoint = std::move(endpoint)](
+                           auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     slk::Load(&req, req_reader);
 
@@ -2235,38 +2251,36 @@ void Storage::ConfigureReplica() {
     AppendDeltasRes res;
     slk::Save(res, res_builder);
   });
-  replication_server_->Start();
+  replication_server.rpc_server->Start();
 }
 
-void Storage::ConfigureMain() {
-  replication_client_.emplace(&name_id_mapper_, config_.items,
-                              io::network::Endpoint{"127.0.0.1", 10000}, false);
-}
-
-void Storage::SetReplicationState(const ReplicationState state) {
-  if (replication_state_.load(std::memory_order_acquire) == state) {
-    return;
-  }
-
+void Storage::RegisterReplica(std::string name,
+                              io::network::Endpoint endpoint) {
   std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+  CHECK(replication_state_.load() == ReplicationState::MAIN)
+      << "Only main instance can register a replica!";
+  auto &replication_clients = GetRpcContext<ReplicationClientList>();
 
-  replication_server_.reset();
-  replication_server_context_.reset();
-  replication_client_.reset();
-
-  switch (state) {
-    case ReplicationState::MAIN:
-      ConfigureMain();
-      break;
-    case ReplicationState::REPLICA:
-      ConfigureReplica();
-      break;
-    case ReplicationState::NONE:
-    default:
-      break;
+  // TODO (antonio2368): Check if it's okay to aquire first the shared lock
+  // and later on aquire the write lock only if it's necessary
+  // because here we wait for the write lock even though there exists
+  // a replica with a same name
+  if (std::any_of(replication_clients.begin(), replication_clients.end(),
+                  [&](auto &client) { return client.Name() == name; })) {
+    throw utils::BasicException("Replica with a same name already exists!");
   }
 
-  replication_state_.store(state, std::memory_order_release);
+  replication_clients.emplace_back(std::move(name), &name_id_mapper_,
+                                   config_.items, endpoint, false);
+}
+
+void Storage::UnregisterReplica(const std::string &name) {
+  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+  CHECK(replication_state_.load() == ReplicationState::MAIN)
+      << "Only main instance can unregister a replica!";
+  auto &replication_clients = GetRpcContext<ReplicationClientList>();
+  replication_clients.remove_if(
+      [&](const auto &client) { return client.Name() == name; });
 }
 #endif
 
