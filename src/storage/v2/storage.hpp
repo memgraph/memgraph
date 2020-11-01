@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <variant>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -168,7 +169,7 @@ struct StorageInfo {
 };
 
 #ifdef MG_ENTERPRISE
-enum class ReplicationState : uint8_t { NONE, MAIN, REPLICA };
+enum class ReplicationState : uint8_t { MAIN, REPLICA };
 #endif
 
 class Storage final {
@@ -405,7 +406,26 @@ class Storage final {
   StorageInfo GetInfo() const;
 
 #ifdef MG_ENTERPRISE
-  void SetReplicationState(ReplicationState state);
+  template <ReplicationState state, typename... Args>
+  void SetReplicationState(Args &&... args) {
+    if (replication_state_.load() == state) {
+      return;
+    }
+
+    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+    rpc_context_.emplace<std::monostate>();
+
+    if constexpr (state == ReplicationState::REPLICA) {
+      ConfigureReplica(std::forward<Args>(args)...);
+    } else if (state == ReplicationState::MAIN) {
+      rpc_context_.emplace<ReplicationClientList>();
+    }
+
+    replication_state_.store(state);
+  }
+
+  void RegisterReplica(std::string name, io::network::Endpoint endpoint);
+  void UnregisterReplica(const std::string &name);
 #endif
 
  private:
@@ -425,8 +445,7 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
 #ifdef MG_ENTERPRISE
-  void ConfigureReplica();
-  void ConfigureMain();
+  void ConfigureReplica(io::network::Endpoint endpoint);
 #endif
 
   // Main storage lock.
@@ -505,11 +524,39 @@ class Storage final {
   // Replication
 #ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
-  std::optional<communication::ServerContext> replication_server_context_;
-  std::optional<rpc::Server> replication_server_;
-  // TODO(mferencevic): Add support for multiple clients.
-  std::optional<replication::ReplicationClient> replication_client_;
-  std::atomic<ReplicationState> replication_state_{ReplicationState::NONE};
+
+  struct ReplicationServer {
+    std::optional<communication::ServerContext> rpc_server_context;
+    std::optional<rpc::Server> rpc_server;
+
+    explicit ReplicationServer() = default;
+    ReplicationServer(const ReplicationServer &) = delete;
+    ReplicationServer(ReplicationServer &&) = delete;
+    ReplicationServer &operator=(const ReplicationServer &) = delete;
+    ReplicationServer &operator=(ReplicationServer &&) = delete;
+
+    ~ReplicationServer() {
+      if (rpc_server) {
+        rpc_server->Shutdown();
+        rpc_server->AwaitShutdown();
+      }
+    }
+  };
+
+  using ReplicationClientList = std::list<replication::ReplicationClient>;
+  // Monostate is used for explicitly calling the destructor of the current
+  // type
+  std::variant<ReplicationClientList, ReplicationServer, std::monostate>
+      rpc_context_;
+
+  template <typename TRpcContext>
+  TRpcContext &GetRpcContext() {
+    auto *context = std::get_if<TRpcContext>(&rpc_context_);
+    CHECK(context) << "Wrong type set for the current replication state!";
+    return *context;
+  }
+
+  std::atomic<ReplicationState> replication_state_{ReplicationState::MAIN};
 #endif
 };
 
