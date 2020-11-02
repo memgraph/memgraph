@@ -1,4 +1,5 @@
 #include "utils/file_locker.hpp"
+#include <atomic>
 
 namespace utils {
 
@@ -12,12 +13,16 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
-  if (!main_lock_.try_lock()) {
-    files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
+  if (spin_lock_.test_and_set(std::memory_order_acquire)) {
+    AddToQueue(path);
     return;
   }
-  DeleteOrAddToQueue(path);
-  main_lock_.unlock();
+  if (active_locker_accessors_.load(std::memory_order_acquire)) {
+    AddToQueue(path);
+  } else {
+    DeleteOrAddToQueue(path);
+  }
+  Unlock();
 }
 
 FileRetainer::FileLocker FileRetainer::AddLocker() {
@@ -43,15 +48,20 @@ FileRetainer::~FileRetainer() {
   });
 }
 
+void FileRetainer::AddToQueue(const std::filesystem::path &path) {
+  files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
+}
+
 void FileRetainer::DeleteOrAddToQueue(const std::filesystem::path &path) {
   if (FileLocked(path)) {
-    files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
+    AddToQueue(path);
   } else {
     DeleteFromSystem(path);
   }
 }
 
 void FileRetainer::CleanQueue() {
+  LockForDelete();
   files_for_deletion.WithLock([&](auto &files) {
     for (auto it = files.cbegin(); it != files.cend();) {
       if (!FileLocked(*it)) {
@@ -62,13 +72,13 @@ void FileRetainer::CleanQueue() {
       }
     }
   });
+  Unlock();
 }
 
 ////// FileLocker //////
 FileRetainer::FileLocker::~FileLocker() {
   file_retainer_->lockers_.WithLock(
       [this](auto &lockers) { lockers.erase(locker_id_); });
-  std::unique_lock guard(file_retainer_->main_lock_);
   file_retainer_->CleanQueue();
 }
 
@@ -77,6 +87,15 @@ FileRetainer::FileLockerAccessor FileRetainer::FileLocker::Access() {
 }
 
 ////// FileLockerAccessor //////
+FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer,
+                                                     size_t locker_id)
+    : file_retainer_{retainer}, locker_id_{locker_id} {
+  file_retainer_->Lock();
+  file_retainer_->active_locker_accessors_.fetch_add(1,
+                                                     std::memory_order_acquire);
+  file_retainer_->Unlock();
+}
+
 bool FileRetainer::FileLockerAccessor::AddFile(
     const std::filesystem::path &path) {
   // TODO (antonio2368): Maybe return error with explanation here
@@ -87,8 +106,8 @@ bool FileRetainer::FileLockerAccessor::AddFile(
 }
 
 FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
-  retainer_guard_.unlock();
-  std::unique_lock unique_retainer_guard(file_retainer_->main_lock_);
+  file_retainer_->active_locker_accessors_.fetch_sub(1,
+                                                     std::memory_order_acquire);
   file_retainer_->CleanQueue();
 }
 
