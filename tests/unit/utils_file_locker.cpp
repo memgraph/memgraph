@@ -58,3 +58,69 @@ TEST_F(FileLockerTest, DeleteWhileLocking) {
   t2.join();
   ASSERT_FALSE(std::filesystem::exists(file));
 }
+
+TEST_F(FileLockerTest, DeleteWhileInLocker) {
+  utils::FileLockerManager manager;
+  const auto file = testing_directory / "1";
+  auto t1 = std::thread([&]() {
+    auto locker = manager.AddLocker();
+    {
+      auto acc = locker.Access();
+      acc.AddFile(file);
+    }
+    std::this_thread::sleep_for(100ms);
+  });
+
+  auto t2 = std::thread([&]() {
+    std::this_thread::sleep_for(50ms);
+    manager.DeleteFile(file);
+    ASSERT_TRUE(std::filesystem::exists(file));
+  });
+
+  t1.join();
+  t2.join();
+  ASSERT_FALSE(std::filesystem::exists(file));
+}
+
+TEST_F(FileLockerTest, MultipleLockers) {
+  utils::FileLockerManager manager;
+  const auto file1 = testing_directory / "1";
+  const auto file2 = testing_directory / "2";
+  const auto common_file = testing_directory / "3";
+
+  auto t1 = std::thread([&]() {
+    auto locker = manager.AddLocker();
+    {
+      auto acc = locker.Access();
+      acc.AddFile(file1);
+      acc.AddFile(common_file);
+    }
+  });
+
+  auto t2 = std::thread([&]() {
+    auto locker = manager.AddLocker();
+    {
+      auto acc = locker.Access();
+      acc.AddFile(file2);
+      acc.AddFile(common_file);
+    }
+    std::this_thread::sleep_for(200ms);
+  });
+
+  auto t3 = std::thread([&]() {
+    std::this_thread::sleep_for(50ms);
+    manager.DeleteFile(file1);
+    manager.DeleteFile(file2);
+    manager.DeleteFile(common_file);
+    ASSERT_FALSE(std::filesystem::exists(file1));
+    ASSERT_TRUE(std::filesystem::exists(file2));
+    ASSERT_TRUE(std::filesystem::exists(common_file));
+  });
+
+  t1.join();
+  t2.join();
+  t3.join();
+  ASSERT_FALSE(std::filesystem::exists(file1));
+  ASSERT_FALSE(std::filesystem::exists(file2));
+  ASSERT_FALSE(std::filesystem::exists(common_file));
+}
