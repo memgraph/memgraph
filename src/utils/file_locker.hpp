@@ -5,8 +5,10 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 
 #include "utils/file.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -86,10 +88,10 @@ class FileRetainer {
     FileLocker &operator=(FileLocker &&) = default;
 
    private:
-    explicit FileLocker(FileRetainer *manager, size_t locker_id)
-        : locker_manager_{manager}, locker_id_{locker_id} {}
+    explicit FileLocker(FileRetainer *retainer, size_t locker_id)
+        : file_retainer_{retainer}, locker_id_{locker_id} {}
 
-    FileRetainer *locker_manager_;
+    FileRetainer *file_retainer_;
     size_t locker_id_;
   };
 
@@ -114,14 +116,14 @@ class FileRetainer {
     ~FileLockerAccessor();
 
    private:
-    explicit FileLockerAccessor(FileRetainer *manager, size_t locker_id)
-        : locker_manager_{manager},
-          locker_id_{locker_id},
-          lock_{manager->main_lock_} {}
+    explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id)
+        : file_retainer_{retainer},
+          retainer_guard_{retainer->main_lock_},
+          locker_id_{locker_id} {}
 
-    FileRetainer *locker_manager_;
+    FileRetainer *file_retainer_;
+    std::shared_lock<utils::RWLock> retainer_guard_;
     size_t locker_id_;
-    std::unique_lock<utils::SpinLock> lock_;
   };
 
   /**
@@ -150,7 +152,8 @@ class FileRetainer {
   void DeleteOrAddToQueue(const std::filesystem::path &path);
   void CleanQueue();
 
-  utils::SpinLock main_lock_;
+  utils::RWLock main_lock_{RWLock::Priority::WRITE};
+
   std::atomic<size_t> next_locker_id_{0};
   utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
                       utils::SpinLock>

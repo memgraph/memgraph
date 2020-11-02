@@ -65,15 +65,15 @@ void FileRetainer::CleanQueue() {
 }
 
 ////// FileLocker //////
-FileRetainer::FileLockerAccessor FileRetainer::FileLocker::Access() {
-  return FileLockerAccessor{locker_manager_, locker_id_};
+FileRetainer::FileLocker::~FileLocker() {
+  file_retainer_->lockers_.WithLock(
+      [this](auto &lockers) { lockers.erase(locker_id_); });
+  std::unique_lock guard(file_retainer_->main_lock_);
+  file_retainer_->CleanQueue();
 }
 
-FileRetainer::FileLocker::~FileLocker() {
-  std::lock_guard guard(locker_manager_->main_lock_);
-  locker_manager_->lockers_.WithLock(
-      [this](auto &lockers) { lockers.erase(locker_id_); });
-  locker_manager_->CleanQueue();
+FileRetainer::FileLockerAccessor FileRetainer::FileLocker::Access() {
+  return FileLockerAccessor{file_retainer_, locker_id_};
 }
 
 ////// FileLockerAccessor //////
@@ -81,13 +81,15 @@ bool FileRetainer::FileLockerAccessor::AddFile(
     const std::filesystem::path &path) {
   // TODO (antonio2368): Maybe return error with explanation here
   if (!std::filesystem::exists(path)) return false;
-  locker_manager_->lockers_.WithLock(
+  file_retainer_->lockers_.WithLock(
       [&](auto &lockers) { lockers[locker_id_].emplace(path); });
   return true;
 }
 
 FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
-  locker_manager_->CleanQueue();
+  retainer_guard_.unlock();
+  std::unique_lock unique_retainer_guard(file_retainer_->main_lock_);
+  file_retainer_->CleanQueue();
 }
 
 }  // namespace utils
