@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <map>
@@ -19,7 +20,7 @@ class FileLockerManager {
   struct FileLocker {
     friend FileLockerManager;
     ~FileLocker() {
-      std::lock_guard guard(locker_manager_->lock_);
+      std::lock_guard guard(locker_manager_->main_lock_);
       locker_manager_->lockers_.WithLock(
           [this](auto &lockers) { lockers.erase(locker_id_); });
       locker_manager_->CleanQueue();
@@ -54,38 +55,33 @@ class FileLockerManager {
     FileLockerAccess &operator=(const FileLockerAccess &) = delete;
     FileLockerAccess &operator=(FileLockerAccess &&) = default;
 
-    size_t LockerId() const { return locker_id_; }
-
     ~FileLockerAccess() { locker_manager_->CleanQueue(); }
 
    private:
     explicit FileLockerAccess(FileLockerManager *manager, size_t locker_id)
         : locker_manager_{manager},
           locker_id_{locker_id},
-          lock_{manager->lock_} {}
+          lock_{manager->main_lock_} {}
 
     FileLockerManager *locker_manager_;
     size_t locker_id_;
-    std::unique_lock<std::mutex> lock_;
+    std::unique_lock<utils::SpinLock> lock_;
   };
 
   void DeleteFile(const std::filesystem::path &path) {
-    if (!lock_.try_lock()) {
+    if (!main_lock_.try_lock()) {
       files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
       return;
     }
     DeleteOrAddToQueue(path);
-    lock_.unlock();
+    main_lock_.unlock();
   }
 
   FileLocker AddLocker() {
-    std::unique_lock guard(lock_);
-    const size_t current_locker_id = next_locker_id_;
+    const size_t current_locker_id = next_locker_id_.fetch_add(1);
     lockers_.WithLock([&](auto &lockers) {
       lockers.emplace(current_locker_id, std::set<std::filesystem::path>{});
     });
-    ++next_locker_id_;
-    lock_.unlock();
     return FileLocker{this, current_locker_id};
   }
 
@@ -140,8 +136,8 @@ class FileLockerManager {
     });
   }
 
-  std::mutex lock_;
-  size_t next_locker_id_{0};
+  utils::SpinLock main_lock_;
+  std::atomic<size_t> next_locker_id_{0};
   utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
                       utils::SpinLock>
       lockers_;
