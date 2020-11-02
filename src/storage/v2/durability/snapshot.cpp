@@ -10,8 +10,6 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
-#include "utils/file_locker.hpp"
-
 namespace storage::durability {
 
 // Snapshot format:
@@ -924,8 +922,7 @@ void CreateSnapshot(Transaction *transaction,
         const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
             wal_files[i];
         if (!utils::DeleteFile(wal_path)) {
-          LOG(WARNING) << "Couldn't delete wal file " << wal_path 
-                       << "!";
+          LOG(WARNING) << "Couldn't delete WAL file " << wal_path << "!";
         }
       }
     }
