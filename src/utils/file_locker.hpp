@@ -12,11 +12,65 @@
 
 namespace utils {
 
-// Class used for delaying the delation of files
+/**
+ * Helper class used for safer modifying and reading of files
+ * by preventing a deletion of a file until the file is not used in any of
+ * currently running threads.
+ * Also, while a single thread modyifies it's list of locked files, the deletion
+ * of ALL the files is delayed.
+ *
+ * Basic usage of FileRetainer consists of following parts:
+ * - Defining a global FileRetainer object which is used for locking and
+ *   deleting of the files.
+ * - Each thread that wants to lock a single or multiple files first creates a
+ *   FileLocker object.
+ * - Modifying a FileLocker is only possible through the FileLockerAccessor.
+ * - FileLockerAccessor prevents deletion of any file, so you can safely add
+ *   multiple files to the locker with no risk of having files deleted during
+ *   the process.
+ * - After a FileLocker or FileLockerAccessor is destroyed, FileRetainer scans
+ *   the list of the files that wait to be deleted, and deletes all the files
+ *   that are not inside any of currently present lockers.
+ *
+ * e.g.
+ * FileRetainer file_retainer;
+ * std::filesystem::path file1;
+ * std::filesystem::path file2;
+ *
+ * void Foo() {
+ *   // I want to lock a list of files
+ *   // Create a locker
+ *   auto locker = file_retainer.AddLocker();
+ *   {
+ *     // Create accessor to the locker so you can
+ *     // add the files which need to be locked.
+ *     // Accesor prevents deletion of any files
+ *     // so you safely add multiple files in atomic way
+ *     auto accessor = locker.Access();
+ *     accessor.AddFile(file1);
+ *     accessor.AddFile(file2);
+ *   }
+ *   // DO SOMETHING WITH THE FILES
+ * }
+ *
+ * void Bar() {
+ *   // I want to delete file1.
+ *   file_retiner.DeleteFile(file1);
+ * }
+ *
+ * int main() {
+ * // Run Foo() and Bar() in different threads.
+ * }
+ *
+ */
 class FileRetainer {
  public:
-  struct FileLockerAccess;
+  struct FileLockerAccessor;
 
+  /**
+   * A single locker inside the FileRetainer that contains a list
+   * of files that are guarded from deletion.
+   */
   struct FileLocker {
     friend FileRetainer;
     ~FileLocker() {
@@ -26,8 +80,11 @@ class FileRetainer {
       locker_manager_->CleanQueue();
     }
 
-    FileLockerAccess Access() {
-      return FileLockerAccess{locker_manager_, locker_id_};
+    /**
+     * Access the FileLocker so you can modify it.
+     */
+    FileLockerAccessor Access() {
+      return FileLockerAccessor{locker_manager_, locker_id_};
     }
 
     FileLocker(const FileLocker &) = delete;
@@ -43,9 +100,17 @@ class FileRetainer {
     size_t locker_id_;
   };
 
-  struct FileLockerAccess {
+  /**
+   * Accessor to the FileLocker.
+   * All the modification to the FileLocker are done
+   * using this struct.
+   */
+  struct FileLockerAccessor {
     friend FileLocker;
 
+    /**
+     * Add a single file to the current locker.
+     */
     bool AddFile(const std::filesystem::path &path) {
       // TODO (antonio2368): Maybe return error with explanation here
       if (!std::filesystem::exists(path)) return false;
@@ -54,16 +119,15 @@ class FileRetainer {
       return true;
     }
 
-    // define copy and move constructor
-    FileLockerAccess(const FileLockerAccess &) = delete;
-    FileLockerAccess(FileLockerAccess &&) = default;
-    FileLockerAccess &operator=(const FileLockerAccess &) = delete;
-    FileLockerAccess &operator=(FileLockerAccess &&) = default;
+    FileLockerAccessor(const FileLockerAccessor &) = delete;
+    FileLockerAccessor(FileLockerAccessor &&) = default;
+    FileLockerAccessor &operator=(const FileLockerAccessor &) = delete;
+    FileLockerAccessor &operator=(FileLockerAccessor &&) = default;
 
-    ~FileLockerAccess() { locker_manager_->CleanQueue(); }
+    ~FileLockerAccessor() { locker_manager_->CleanQueue(); }
 
    private:
-    explicit FileLockerAccess(FileRetainer *manager, size_t locker_id)
+    explicit FileLockerAccessor(FileRetainer *manager, size_t locker_id)
         : locker_manager_{manager},
           locker_id_{locker_id},
           lock_{manager->main_lock_} {}
@@ -73,6 +137,12 @@ class FileRetainer {
     std::unique_lock<utils::SpinLock> lock_;
   };
 
+  /**
+   * Delete a file.
+   * If the file is inside any of the lockers or some thread is modifying
+   * any of the lockers, the file will be deleted after all the locks are
+   * lifted.
+   */
   void DeleteFile(const std::filesystem::path &path) {
     if (!main_lock_.try_lock()) {
       files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
@@ -82,6 +152,9 @@ class FileRetainer {
     main_lock_.unlock();
   }
 
+  /**
+   * Create and return a new locker.
+   */
   FileLocker AddLocker() {
     const size_t current_locker_id = next_locker_id_.fetch_add(1);
     lockers_.WithLock([&](auto &lockers) {
@@ -91,14 +164,12 @@ class FileRetainer {
   }
 
   explicit FileRetainer() = default;
-  // define copy move as deleted
   FileRetainer(const FileRetainer &) = delete;
   FileRetainer(FileRetainer &&) = delete;
   FileRetainer &operator=(const FileRetainer &) = delete;
   FileRetainer &operator=(FileRetainer &&) = delete;
 
   ~FileRetainer() {
-    // Clean the queue
     CHECK(files_for_deletion->empty()) << "Files weren't properly deleted";
   }
 
