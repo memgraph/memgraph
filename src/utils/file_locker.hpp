@@ -13,12 +13,12 @@
 namespace utils {
 
 // Class used for delaying the delation of files
-class FileLockerManager {
+class FileRetainer {
  public:
   struct FileLockerAccess;
 
   struct FileLocker {
-    friend FileLockerManager;
+    friend FileRetainer;
     ~FileLocker() {
       std::lock_guard guard(locker_manager_->main_lock_);
       locker_manager_->lockers_.WithLock(
@@ -30,11 +30,16 @@ class FileLockerManager {
       return FileLockerAccess{locker_manager_, locker_id_};
     }
 
+    FileLocker(const FileLocker &) = delete;
+    FileLocker(FileLocker &&) = default;
+    FileLocker &operator=(const FileLocker &) = delete;
+    FileLocker &operator=(FileLocker &&) = default;
+
    private:
-    explicit FileLocker(FileLockerManager *manager, size_t locker_id)
+    explicit FileLocker(FileRetainer *manager, size_t locker_id)
         : locker_manager_{manager}, locker_id_{locker_id} {}
 
-    FileLockerManager *locker_manager_;
+    FileRetainer *locker_manager_;
     size_t locker_id_;
   };
 
@@ -58,12 +63,12 @@ class FileLockerManager {
     ~FileLockerAccess() { locker_manager_->CleanQueue(); }
 
    private:
-    explicit FileLockerAccess(FileLockerManager *manager, size_t locker_id)
+    explicit FileLockerAccess(FileRetainer *manager, size_t locker_id)
         : locker_manager_{manager},
           locker_id_{locker_id},
           lock_{manager->main_lock_} {}
 
-    FileLockerManager *locker_manager_;
+    FileRetainer *locker_manager_;
     size_t locker_id_;
     std::unique_lock<utils::SpinLock> lock_;
   };
@@ -85,14 +90,14 @@ class FileLockerManager {
     return FileLocker{this, current_locker_id};
   }
 
-  explicit FileLockerManager() = default;
+  explicit FileRetainer() = default;
   // define copy move as deleted
-  FileLockerManager(const FileLockerManager &) = delete;
-  FileLockerManager(FileLockerManager &&) = delete;
-  FileLockerManager &operator=(const FileLockerManager &) = delete;
-  FileLockerManager &operator=(FileLockerManager &&) = delete;
+  FileRetainer(const FileRetainer &) = delete;
+  FileRetainer(FileRetainer &&) = delete;
+  FileRetainer &operator=(const FileRetainer &) = delete;
+  FileRetainer &operator=(FileRetainer &&) = delete;
 
-  ~FileLockerManager() {
+  ~FileRetainer() {
     // Clean the queue
     CHECK(files_for_deletion->empty()) << "Files weren't properly deleted";
   }

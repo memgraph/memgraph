@@ -39,9 +39,9 @@ class FileLockerTest : public ::testing::Test {
 };
 
 TEST_F(FileLockerTest, DeleteWhileLocking) {
-  utils::FileLockerManager manager;
+  utils::FileRetainer file_retainer;
   auto t1 = std::thread([&]() {
-    auto locker = manager.AddLocker();
+    auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
       std::this_thread::sleep_for(100ms);
@@ -50,7 +50,7 @@ TEST_F(FileLockerTest, DeleteWhileLocking) {
   const auto file = testing_directory / "1";
   auto t2 = std::thread([&]() {
     std::this_thread::sleep_for(50ms);
-    manager.DeleteFile(file);
+    file_retainer.DeleteFile(file);
     ASSERT_TRUE(std::filesystem::exists(file));
   });
 
@@ -60,10 +60,10 @@ TEST_F(FileLockerTest, DeleteWhileLocking) {
 }
 
 TEST_F(FileLockerTest, DeleteWhileInLocker) {
-  utils::FileLockerManager manager;
+  utils::FileRetainer file_retainer;
   const auto file = testing_directory / "1";
   auto t1 = std::thread([&]() {
-    auto locker = manager.AddLocker();
+    auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
       acc.AddFile(file);
@@ -73,7 +73,7 @@ TEST_F(FileLockerTest, DeleteWhileInLocker) {
 
   auto t2 = std::thread([&]() {
     std::this_thread::sleep_for(50ms);
-    manager.DeleteFile(file);
+    file_retainer.DeleteFile(file);
     ASSERT_TRUE(std::filesystem::exists(file));
   });
 
@@ -83,13 +83,13 @@ TEST_F(FileLockerTest, DeleteWhileInLocker) {
 }
 
 TEST_F(FileLockerTest, MultipleLockers) {
-  utils::FileLockerManager manager;
+  utils::FileRetainer file_retainer;
   const auto file1 = testing_directory / "1";
   const auto file2 = testing_directory / "2";
   const auto common_file = testing_directory / "3";
 
   auto t1 = std::thread([&]() {
-    auto locker = manager.AddLocker();
+    auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
       acc.AddFile(file1);
@@ -98,7 +98,7 @@ TEST_F(FileLockerTest, MultipleLockers) {
   });
 
   auto t2 = std::thread([&]() {
-    auto locker = manager.AddLocker();
+    auto locker = file_retainer.AddLocker();
     {
       auto acc = locker.Access();
       acc.AddFile(file2);
@@ -109,9 +109,9 @@ TEST_F(FileLockerTest, MultipleLockers) {
 
   auto t3 = std::thread([&]() {
     std::this_thread::sleep_for(50ms);
-    manager.DeleteFile(file1);
-    manager.DeleteFile(file2);
-    manager.DeleteFile(common_file);
+    file_retainer.DeleteFile(file1);
+    file_retainer.DeleteFile(file2);
+    file_retainer.DeleteFile(common_file);
     ASSERT_FALSE(std::filesystem::exists(file1));
     ASSERT_TRUE(std::filesystem::exists(file2));
     ASSERT_TRUE(std::filesystem::exists(common_file));
