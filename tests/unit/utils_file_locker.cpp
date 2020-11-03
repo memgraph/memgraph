@@ -1,6 +1,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <thread>
 
 #include <fmt/format.h>
@@ -14,7 +15,8 @@ class FileLockerTest : public ::testing::Test {
  protected:
   std::filesystem::path testing_directory{
       std::filesystem::temp_directory_path() /
-      "MG_test_unit_utils_file_lcoker"};
+      "MG_test_unit_utils_file_locker"};
+  size_t files_number = 1000;
 
   void SetUp() override {
     Clear();
@@ -22,7 +24,7 @@ class FileLockerTest : public ::testing::Test {
     std::filesystem::create_directory(testing_directory);
     std::filesystem::current_path(testing_directory);
 
-    for (auto i = 0; i < 100; ++i) {
+    for (auto i = 0; i < files_number; ++i) {
       std::ofstream file(fmt::format("{}", i));
     }
 
@@ -123,4 +125,78 @@ TEST_F(FileLockerTest, MultipleLockers) {
   ASSERT_FALSE(std::filesystem::exists(file1));
   ASSERT_FALSE(std::filesystem::exists(file2));
   ASSERT_FALSE(std::filesystem::exists(common_file));
+}
+
+TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
+  // setup random number generator
+  std::random_device r;
+
+  std::default_random_engine engine(r());
+  std::uniform_int_distribution<int> random_short_wait(1, 10);
+  std::uniform_int_distribution<int> random_wait(1, 100);
+  std::uniform_int_distribution<int> file_distribution(0, files_number - 1);
+
+  const auto sleep_for = [&](int milliseconds) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+  };
+
+  const auto random_file = [&]() {
+    return testing_directory / fmt::format("{}", file_distribution(engine));
+  };
+
+  utils::FileRetainer file_retainer;
+
+  size_t thread_num = 8;
+
+  std::vector<std::thread> accessor_threads;
+  accessor_threads.reserve(thread_num);
+  for (auto i = 0; i < thread_num - 1; ++i) {
+    accessor_threads.emplace_back([&]() {
+      sleep_for(random_wait(engine));
+
+      std::vector<std::filesystem::path> locked_files;
+      auto locker = file_retainer.AddLocker();
+      {
+        auto acc = locker.Access();
+        // read random 10 files
+        for (int i = 0; i < 400; ++i) {
+          auto file = random_file();
+          if (acc.AddFile(file)) {
+            ASSERT_TRUE(std::filesystem::exists(file));
+            locked_files.emplace_back(std::move(file));
+          } else {
+            ASSERT_FALSE(std::filesystem::exists(file));
+          }
+          sleep_for(random_short_wait(engine));
+        }
+      }
+      sleep_for(random_wait(engine));
+      for (const auto &file : locked_files) {
+        ASSERT_TRUE(std::filesystem::exists(file));
+      }
+    });
+  }
+
+  std::vector<std::filesystem::path> deleted_files;
+  auto deleter = std::thread([&]() {
+    sleep_for(random_short_wait(engine));
+    for (int i = 0; i < 500; ++i) {
+      auto file = random_file();
+      if (std::filesystem::exists(file)) {
+        file_retainer.DeleteFile(file);
+        deleted_files.emplace_back(std::move(file));
+      }
+      sleep_for(random_short_wait(engine));
+    }
+  });
+
+  for (auto &thread : accessor_threads) {
+    thread.join();
+  }
+
+  deleter.join();
+
+  for (const auto &file : deleted_files) {
+    ASSERT_FALSE(std::filesystem::exists(file));
+  }
 }
