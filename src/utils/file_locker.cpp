@@ -13,7 +13,7 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
   if (!main_lock_.try_lock()) {
-    files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
+    files_for_deletion_.WithLock([&](auto &files) { files.emplace(path); });
     return;
   }
   DeleteOrAddToQueue(path);
@@ -29,7 +29,7 @@ FileRetainer::FileLocker FileRetainer::AddLocker() {
 }
 
 FileRetainer::~FileRetainer() {
-  CHECK(files_for_deletion->empty()) << "Files weren't properly deleted";
+  CHECK(files_for_deletion_->empty()) << "Files weren't properly deleted";
 }
 
 [[nodiscard]] bool FileRetainer::FileLocked(const std::filesystem::path &path) {
@@ -45,14 +45,14 @@ FileRetainer::~FileRetainer() {
 
 void FileRetainer::DeleteOrAddToQueue(const std::filesystem::path &path) {
   if (FileLocked(path)) {
-    files_for_deletion.WithLock([&](auto &files) { files.emplace(path); });
+    files_for_deletion_.WithLock([&](auto &files) { files.emplace(path); });
   } else {
     DeleteFromSystem(path);
   }
 }
 
 void FileRetainer::CleanQueue() {
-  files_for_deletion.WithLock([&](auto &files) {
+  files_for_deletion_.WithLock([&](auto &files) {
     for (auto it = files.cbegin(); it != files.cend();) {
       if (!FileLocked(*it)) {
         DeleteFromSystem(*it);
@@ -84,12 +84,6 @@ bool FileRetainer::FileLockerAccessor::AddFile(
   file_retainer_->lockers_.WithLock(
       [&](auto &lockers) { lockers[locker_id_].emplace(path); });
   return true;
-}
-
-FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
-  retainer_guard_.unlock();
-  std::unique_lock unique_retainer_guard(file_retainer_->main_lock_);
-  file_retainer_->CleanQueue();
 }
 
 }  // namespace utils

@@ -113,7 +113,7 @@ class FileRetainer {
     FileLockerAccessor &operator=(const FileLockerAccessor &) = delete;
     FileLockerAccessor &operator=(FileLockerAccessor &&) = default;
 
-    ~FileLockerAccessor();
+    ~FileLockerAccessor() = default;
 
    private:
     explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id)
@@ -160,7 +160,7 @@ class FileRetainer {
       lockers_;
 
   utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock>
-      files_for_deletion;
+      files_for_deletion_;
 };
 
 }  // namespace utils
