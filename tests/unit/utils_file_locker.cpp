@@ -16,7 +16,7 @@ class FileLockerTest : public ::testing::Test {
   std::filesystem::path testing_directory{
       std::filesystem::temp_directory_path() /
       "MG_test_unit_utils_file_locker"};
-  size_t files_number = 1000;
+  size_t files_number = 2000;
 
   void SetUp() override {
     Clear();
@@ -158,8 +158,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
       auto locker = file_retainer.AddLocker();
       {
         auto acc = locker.Access();
-        // read random 10 files
-        for (int i = 0; i < 400; ++i) {
+        for (int i = 0; i < 800; ++i) {
           auto file = random_file();
           if (acc.AddFile(file)) {
             ASSERT_TRUE(std::filesystem::exists(file));
@@ -180,7 +179,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   std::vector<std::filesystem::path> deleted_files;
   auto deleter = std::thread([&]() {
     sleep_for(random_short_wait(engine));
-    for (int i = 0; i < 500; ++i) {
+    for (int i = 0; i < 1000; ++i) {
       auto file = random_file();
       if (std::filesystem::exists(file)) {
         file_retainer.DeleteFile(file);

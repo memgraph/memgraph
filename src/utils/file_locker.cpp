@@ -87,12 +87,12 @@ FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer,
 
 bool FileRetainer::FileLockerAccessor::AddFile(
     const std::filesystem::path &path) {
-  // TODO (antonio2368): Maybe return error with explanation here
   if (!std::filesystem::exists(path)) return false;
   file_retainer_->lockers_.WithLock(
       [&](auto &lockers) { lockers[locker_id_].emplace(path); });
   return true;
 }
+
 FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
   file_retainer_->active_accessors_.fetch_sub(1);
 }
