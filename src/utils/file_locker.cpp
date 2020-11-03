@@ -12,11 +12,11 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
-  std::unique_lock guard(main_lock_, std::defer_lock);
-  if (!guard.try_lock()) {
+  if (active_accessors_.load()) {
     files_for_deletion_.WithLock([&](auto &files) { files.emplace(path); });
     return;
   }
+  std::unique_lock guard(main_lock_);
   DeleteOrAddToQueue(path);
 }
 
@@ -77,6 +77,14 @@ FileRetainer::FileLockerAccessor FileRetainer::FileLocker::Access() {
 }
 
 ////// FileLockerAccessor //////
+FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer,
+                                                     size_t locker_id)
+    : file_retainer_{retainer},
+      retainer_guard_{retainer->main_lock_},
+      locker_id_{locker_id} {
+  file_retainer_->active_accessors_.fetch_add(1);
+}
+
 bool FileRetainer::FileLockerAccessor::AddFile(
     const std::filesystem::path &path) {
   // TODO (antonio2368): Maybe return error with explanation here
@@ -84,6 +92,9 @@ bool FileRetainer::FileLockerAccessor::AddFile(
   file_retainer_->lockers_.WithLock(
       [&](auto &lockers) { lockers[locker_id_].emplace(path); });
   return true;
+}
+FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
+  file_retainer_->active_accessors_.fetch_sub(1);
 }
 
 }  // namespace utils

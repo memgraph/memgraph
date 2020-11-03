@@ -113,13 +113,10 @@ class FileRetainer {
     FileLockerAccessor &operator=(const FileLockerAccessor &) = delete;
     FileLockerAccessor &operator=(FileLockerAccessor &&) = default;
 
-    ~FileLockerAccessor() = default;
+    ~FileLockerAccessor();
 
    private:
-    explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id)
-        : file_retainer_{retainer},
-          retainer_guard_{retainer->main_lock_},
-          locker_id_{locker_id} {}
+    explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id);
 
     FileRetainer *file_retainer_;
     std::shared_lock<utils::RWLock> retainer_guard_;
@@ -154,6 +151,7 @@ class FileRetainer {
 
   utils::RWLock main_lock_{RWLock::Priority::WRITE};
 
+  std::atomic<size_t> active_accessors_{0};
   std::atomic<size_t> next_locker_id_{0};
   utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
                       utils::SpinLock>
