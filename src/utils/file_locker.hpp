@@ -116,9 +116,13 @@ class FileRetainer {
     ~FileLockerAccessor();
 
    private:
-    explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id);
+    explicit FileLockerAccessor(FileRetainer *retainer, size_t locker_id)
+        : file_retainer_{retainer},
+          retainer_guard_{retainer->main_lock_},
+          locker_id_{locker_id} {}
 
     FileRetainer *file_retainer_;
+    std::shared_lock<utils::RWLock> retainer_guard_;
     size_t locker_id_;
   };
 
@@ -145,29 +149,10 @@ class FileRetainer {
 
  private:
   [[nodiscard]] bool FileLocked(const std::filesystem::path &path);
-  void AddToQueue(const std::filesystem::path &path);
   void DeleteOrAddToQueue(const std::filesystem::path &path);
   void CleanQueue();
 
-  void Lock() {
-    while (spin_lock_.test_and_set(std::memory_order_acquire))
-      ;
-  }
-
-  void Unlock() { spin_lock_.clear(std::memory_order_release); }
-
-  void WaitForActiveLockerAccessors() {
-    while (active_locker_accessors_.load(std::memory_order_acquire) > 0)
-      ;
-  }
-
-  void LockForDelete() {
-    Lock();
-    WaitForActiveLockerAccessors();
-  }
-
-  std::atomic_flag spin_lock_ = ATOMIC_FLAG_INIT;
-  std::atomic<size_t> active_locker_accessors_;
+  utils::RWLock main_lock_{RWLock::Priority::WRITE};
 
   std::atomic<size_t> next_locker_id_{0};
   utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
