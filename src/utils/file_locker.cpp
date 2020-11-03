@@ -12,12 +12,12 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
-  if (!main_lock_.try_lock()) {
+  std::unique_lock guard(main_lock_, std::defer_lock);
+  if (!guard.try_lock()) {
     files_for_deletion_.WithLock([&](auto &files) { files.emplace(path); });
     return;
   }
   DeleteOrAddToQueue(path);
-  main_lock_.unlock();
 }
 
 FileRetainer::FileLocker FileRetainer::AddLocker() {
