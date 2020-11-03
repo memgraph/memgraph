@@ -16,22 +16,22 @@ class FileLockerTest : public ::testing::Test {
   std::filesystem::path testing_directory{
       std::filesystem::temp_directory_path() /
       "MG_test_unit_utils_file_locker"};
-  size_t files_number = 2000;
 
-  void SetUp() override {
-    Clear();
-    auto save_path = std::filesystem::current_path();
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  void CreateFiles(const size_t files_number) {
+    const auto save_path = std::filesystem::current_path();
     std::filesystem::create_directory(testing_directory);
     std::filesystem::current_path(testing_directory);
 
-    for (auto i = 0; i < files_number; ++i) {
+    for (auto i = 1; i <= files_number; ++i) {
       std::ofstream file(fmt::format("{}", i));
     }
 
     std::filesystem::current_path(save_path);
   }
-
-  void TearDown() override { Clear(); }
 
  private:
   void Clear() {
@@ -41,6 +41,7 @@ class FileLockerTest : public ::testing::Test {
 };
 
 TEST_F(FileLockerTest, DeleteWhileLocking) {
+  CreateFiles(1);
   utils::FileRetainer file_retainer;
   auto t1 = std::thread([&]() {
     auto locker = file_retainer.AddLocker();
@@ -62,6 +63,7 @@ TEST_F(FileLockerTest, DeleteWhileLocking) {
 }
 
 TEST_F(FileLockerTest, DeleteWhileInLocker) {
+  CreateFiles(1);
   utils::FileRetainer file_retainer;
   const auto file = testing_directory / "1";
   auto t1 = std::thread([&]() {
@@ -85,6 +87,7 @@ TEST_F(FileLockerTest, DeleteWhileInLocker) {
 }
 
 TEST_F(FileLockerTest, MultipleLockers) {
+  CreateFiles(3);
   utils::FileRetainer file_retainer;
   const auto file1 = testing_directory / "1";
   const auto file2 = testing_directory / "2";
@@ -128,6 +131,9 @@ TEST_F(FileLockerTest, MultipleLockers) {
 }
 
 TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
+  constexpr size_t files_number = 2000;
+
+  CreateFiles(files_number);
   // setup random number generator
   std::random_device r;
 
@@ -146,7 +152,9 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
 
   utils::FileRetainer file_retainer;
 
-  size_t thread_num = 8;
+  constexpr size_t thread_num = 8;
+  constexpr size_t file_access_num = 800;
+  constexpr size_t file_delete_num = 1000;
 
   std::vector<std::thread> accessor_threads;
   accessor_threads.reserve(thread_num);
@@ -158,7 +166,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
       auto locker = file_retainer.AddLocker();
       {
         auto acc = locker.Access();
-        for (int i = 0; i < 800; ++i) {
+        for (auto i = 0; i < file_access_num; ++i) {
           auto file = random_file();
           if (acc.AddFile(file)) {
             ASSERT_TRUE(std::filesystem::exists(file));
@@ -179,7 +187,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   std::vector<std::filesystem::path> deleted_files;
   auto deleter = std::thread([&]() {
     sleep_for(random_short_wait(engine));
-    for (int i = 0; i < 1000; ++i) {
+    for (auto i = 0; i < file_delete_num; ++i) {
       auto file = random_file();
       if (std::filesystem::exists(file)) {
         file_retainer.DeleteFile(file);
