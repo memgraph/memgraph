@@ -146,14 +146,24 @@ class Decoder final : public durability::BaseDecoder {
     std::string filename;
     slk::Load(&filename, reader_);
     auto path = directory / filename;
-    file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+
+    // Check if the file already exists so we don't overwrite it
+    const bool file_exists = std::filesystem::exists(path);
+
+    // TODO (antonio2368): Maybe append filename with custom suffix so we have
+    // both copies?
+    if (!file_exists) {
+      file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    }
     size_t file_size;
     slk::Load(&file_size, reader_);
     uint8_t buffer[utils::kFileBufferSize];
     while (file_size > 0) {
       const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
       reader_->Load(buffer, chunk_size);
-      file.Write(buffer, chunk_size);
+      if (!file_exists) {
+        file.Write(buffer, chunk_size);
+      }
       file_size -= chunk_size;
     }
     file.Close();

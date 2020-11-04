@@ -73,6 +73,10 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
   return snapshot_files;
 }
 
+// Function used to recover all discovered indices and constraints. The
+// indices and constraints must be recovered after the data recovery is done
+// to ensure that the indices and constraints are consistent at the end of the
+// recovery process.
 void RecoverIndicesAndConstraints(
     const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
     Constraints *constraints, utils::SkipList<Vertex> *vertices) {
@@ -117,10 +121,6 @@ std::optional<RecoveryInfo> RecoverData(
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory))
     return std::nullopt;
 
-  // Helper lambda used to recover all discovered indices and constraints. The
-  // indices and constraints must be recovered after the data recovery is done
-  // to ensure that the indices and constraints are consistent at the end of the
-  // recovery process.
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
   RecoveryInfo recovery_info;
