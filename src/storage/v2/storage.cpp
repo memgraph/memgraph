@@ -1842,6 +1842,31 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   FinalizeWalFile();
 }
 
+void Storage::CreateSnapshot() {
+#ifdef MG_ENTERPRISE
+  if (replication_state_.load() != ReplicationState::MAIN) {
+    LOG(WARNING) << "Snapshots are disabled for replicas!";
+    return;
+  }
+#endif
+
+  // Take master RW lock (for reading).
+  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+
+  // Create the transaction used to create the snapshot.
+  auto transaction = CreateTransaction();
+
+  // Create snapshot.
+  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+                             config_.durability.snapshot_retention_count,
+                             &vertices_, &edges_, &name_id_mapper_, &indices_,
+                             &constraints_, config_.items, uuid_,
+                             &file_retainer_);
+
+  // Finalize snapshot transaction.
+  commit_log_.MarkFinished(transaction.start_timestamp);
+}
+
 #ifdef MG_ENTERPRISE
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_.emplace();
@@ -2280,28 +2305,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         slk::Save(res, res_builder);
       });
   replication_server_->rpc_server->Start();
-}
-
-void Storage::CreateSnapshot() {
-  if (replication_state_.load() != ReplicationState::MAIN) {
-    LOG(WARNING) << "Snapshots are disabled for replicas!";
-    return;
-  }
-  // Take master RW lock (for reading).
-  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
-
-  // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction();
-
-  // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count,
-                             &vertices_, &edges_, &name_id_mapper_, &indices_,
-                             &constraints_, config_.items, uuid_,
-                             &file_retainer_);
-
-  // Finalize snapshot transaction.
-  commit_log_.MarkFinished(transaction.start_timestamp);
 }
 
 void Storage::RegisterReplica(std::string name,
