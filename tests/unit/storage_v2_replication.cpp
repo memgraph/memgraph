@@ -363,7 +363,8 @@ TEST_F(ReplicationTest, SnapshotLoading) {
                  PERIODIC_SNAPSHOT_WITH_WAL,
              .snapshot_on_exit = true,
          }});
-    auto acc = main_store.Access(); 
+    auto acc = main_store.Access();
+    // Create the vertex before registering a replica
     auto v = acc.CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc.Commit().HasError());

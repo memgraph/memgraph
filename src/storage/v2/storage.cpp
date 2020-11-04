@@ -2316,7 +2316,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
 void Storage::RegisterReplica(std::string name,
                               io::network::Endpoint endpoint) {
-  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+  replication_lock_.lock();
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can register a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
@@ -2333,8 +2333,16 @@ void Storage::RegisterReplica(std::string name,
   replication_clients.emplace_back(std::move(name), &name_id_mapper_,
                                    config_.items, endpoint, false);
 
-  // Now we need shared lock again
+  // We need to get reference to the last replication client before we
+  // release the lock because some other thread could add a new client
+  // while we're waiting for the shared lock
+  auto &client = replication_clients.back();
+  replication_lock_.unlock();
+
+  // Recovery
   {
+    // For now we assume we need to send the latest snapshot
+    std::shared_lock guard(replication_lock_);
     auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
     if (!snapshot_files.empty()) {
       std::sort(snapshot_files.begin(), snapshot_files.end());
@@ -2346,7 +2354,6 @@ void Storage::RegisterReplica(std::string name,
 
       DLOG(INFO) << "Sending the latest snapshot file: "
                  << latest_snapshot_file;
-      auto &client = replication_clients.back();
       auto stream = client.TransferSnapshot();
       stream.StreamSnapshot(latest_snapshot_file);
     }
