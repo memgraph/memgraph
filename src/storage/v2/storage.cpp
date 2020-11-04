@@ -1660,14 +1660,15 @@ void Storage::AppendToWal(const Transaction &transaction,
   std::list<replication::ReplicationClient::TransactionHandler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
     auto &replication_clients = GetRpcContext<ReplicationClientList>();
-    try {
-      std::transform(replication_clients.begin(), replication_clients.end(),
-                     std::back_inserter(streams), [](auto &client) {
-                       return client.ReplicateTransaction();
-                     });
-    } catch (const rpc::RpcFailedException &) {
-      LOG(FATAL) << "Couldn't replicate data!";
-    }
+    replication_clients.WithLock([&](auto &clients) {
+      try {
+        std::transform(
+            clients.begin(), clients.end(), std::back_inserter(streams),
+            [](auto &client) { return client.ReplicateTransaction(); });
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
+      }
+    });
   }
 #endif
 
@@ -1847,21 +1848,24 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   wal_file_->AppendOperation(operation, label, properties,
                              final_commit_timestamp);
 #ifdef MG_ENTERPRISE
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  if (replication_state_.load() == ReplicationState::MAIN) {
-    auto &replication_clients = GetRpcContext<ReplicationClientList>();
-    for (auto &client : replication_clients) {
-      auto stream = client.ReplicateTransaction();
-      try {
-        stream.AppendOperation(operation, label, properties,
-                               final_commit_timestamp);
-        stream.Finalize();
-      } catch (const rpc::RpcFailedException &) {
-        LOG(FATAL) << "Couldn't replicate data!";
-      }
+  {
+    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+    if (replication_state_.load() == ReplicationState::MAIN) {
+      auto &replication_clients = GetRpcContext<ReplicationClientList>();
+      replication_clients.WithLock([&](auto &clients) {
+        for (auto &client : clients) {
+          auto stream = client.ReplicateTransaction();
+          try {
+            stream.AppendOperation(operation, label, properties,
+                                   final_commit_timestamp);
+            stream.Finalize();
+          } catch (const rpc::RpcFailedException &) {
+            LOG(FATAL) << "Couldn't replicate data!";
+          }
+        }
+      });
     }
   }
-  replication_guard.unlock();
 #endif
   FinalizeWalFile();
 }
@@ -2316,7 +2320,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
 void Storage::RegisterReplica(std::string name,
                               io::network::Endpoint endpoint) {
-  replication_lock_.lock();
+  std::shared_lock guard(replication_lock_);
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can register a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
@@ -2325,24 +2329,22 @@ void Storage::RegisterReplica(std::string name,
   // and later on aquire the write lock only if it's necessary
   // because here we wait for the write lock even though there exists
   // a replica with a same name
-  if (std::any_of(replication_clients.begin(), replication_clients.end(),
-                  [&](auto &client) { return client.Name() == name; })) {
-    throw utils::BasicException("Replica with a same name already exists!");
-  }
 
-  replication_clients.emplace_back(std::move(name), &name_id_mapper_,
-                                   config_.items, endpoint, false);
-
-  // We need to get reference to the last replication client before we
-  // release the lock because some other thread could add a new client
-  // while we're waiting for the shared lock
-  auto &client = replication_clients.back();
-  replication_lock_.unlock();
+  // We can safely add new elements to the list because it doesn't validate
+  // existing references/iteratos
+  auto &client = replication_clients.WithLock([&](auto &clients) -> auto & {
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&](auto &client) { return client.Name() == name; })) {
+      throw utils::BasicException("Replica with a same name already exists!");
+    }
+    clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
+                         endpoint, false);
+    return clients.back();
+  });
 
   // Recovery
   {
     // For now we assume we need to send the latest snapshot
-    std::shared_lock guard(replication_lock_);
     auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
     if (!snapshot_files.empty()) {
       std::sort(snapshot_files.begin(), snapshot_files.end());
@@ -2365,8 +2367,10 @@ void Storage::UnregisterReplica(const std::string &name) {
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can unregister a replica!";
   auto &replication_clients = GetRpcContext<ReplicationClientList>();
-  replication_clients.remove_if(
-      [&](const auto &client) { return client.Name() == name; });
+  replication_clients.WithLock([&](auto &clients) {
+    clients.remove_if(
+        [&](const auto &client) { return client.Name() == name; });
+  });
 }
 #endif
 

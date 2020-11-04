@@ -543,7 +543,9 @@ class Storage final {
     }
   };
 
-  using ReplicationClientList = std::list<replication::ReplicationClient>;
+  using ReplicationClientList =
+      utils::Synchronized<std::list<replication::ReplicationClient>,
+                          utils::SpinLock>;
   // Monostate is used for explicitly calling the destructor of the current
   // type
   std::variant<ReplicationClientList, ReplicationServer, std::monostate>
