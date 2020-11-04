@@ -29,19 +29,21 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkgconf-pkg-config # build system
     curl wget # for downloading libs
-    libuuid-devel java-1.8.0-openjdk # required by antlr
+    libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
     python36-devel # for query modules
     openssl-devel
     libseccomp-devel
     python36 python3-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
-    # NOTE: python3-yaml does NOT exist on CentOS
+    #
+    # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
+    #
     PyYAML # Package name here does not correspond to the yum package!
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    mono-complete nodejs zip unzip java-1.8.0-openjdk-devel # for driver tests
+    which mono-complete dotnet-sdk-3.1 nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
 )
 list() {
@@ -51,8 +53,9 @@ check() {
     local missing=""
     for pkg in $1; do
         if [ "$pkg" == "PyYAML" ]; then
-            echo "TODO(gitbuda): Implement PyYAML check."
-            exit 1
+            if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
+                missing="$pkg $missing"
+            fi
         fi
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
@@ -64,10 +67,26 @@ check() {
     fi
 }
 install() {
+    cd "$DIR"
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run as root."
+        exit 1
+    fi
+    if [ "$SUDO_USER" == "" ]; then
+        echo "Please run as sudo."
+        exit 1
+    fi
+    # If GitHub Actions runner is installed, append LANG to the environment.
+    # Python related tests doesn't work the LANG export.
+    if [ -d "/home/gh/actions-runner" ]; then
+        echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
+    else
+        echo "NOTE: export LANG=en_US.utf8"
+    fi
     dnf install -y epel-release
     dnf config-manager --set-enabled PowerTools # Required to install texinfo.
     dnf update -y
-    dnf install -y openssh-server wget git tmux tree htop
+    dnf install -y wget git python36 python3-pip
     for pkg in $1; do
         if [ "$pkg" == libipt ]; then
             if ! dnf list installed libipt >/dev/null 2>/dev/null; then
@@ -90,7 +109,7 @@ install() {
             fi
         fi
         if [ "$pkg" == PyYAML ]; then
-            pip3 install PyYAML
+            sudo -H -u $SUDO_USER bash -c "pip3 install --user PyYAML"
         fi
         dnf install -y "$pkg"
     done
@@ -104,24 +123,11 @@ install() {
     if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
         dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
     fi
-    if [ ! -f /usr/local/go/bin/go ]; then
-        wget -nv https://golang.org/dl/go1.15.2.linux-amd64.tar.gz -O go1.15.2.linux-amd64.tar.gz
-        tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz
-    fi
-    if [ -d "/home/gh/actions-runner" ]; then
-        sed -i '${s/$/:\/usr\/local\/go\/bin/}' /home/gh/actions-runner/.path
-    fi
-    if ! which node >/dev/null; then
-        curl -sL https://rpm.nodesource.com/setup_12.x | bash -
-        yum update
-        yum remove -y npm nodejs
-        yum install -y nodejs
-    fi
-    if ! which dotnet >/dev/null; then
+    if ! dnf list installed dotnet-sdk-3.1 >/dev/null 2>/dev/null; then
         wget -nv https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm -O packages-microsoft-prod.rpm
         rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
-        yum update -y
-        yum install -y dotnet-sdk-3.1
+        dnf update -y
+        dnf install -y dotnet-sdk-3.1
     fi
 }
 deps=$2"[*]"
