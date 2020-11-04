@@ -18,6 +18,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -521,6 +522,8 @@ class Storage final {
 
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+  utils::FileRetainer file_retainer_;
 
   // Replication
 #ifdef MG_ENTERPRISE

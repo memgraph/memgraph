@@ -397,7 +397,7 @@ Storage::Storage(Config config)
   if (config_.durability.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
-                         [this] { CreateSnapshot(); });
+                         [this] { this->CreateSnapshot(); });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval,
@@ -2297,7 +2297,8 @@ void Storage::CreateSnapshot() {
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count,
                              &vertices_, &edges_, &name_id_mapper_, &indices_,
-                             &constraints_, config_.items, uuid_);
+                             &constraints_, config_.items, uuid_,
+                             &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_.MarkFinished(transaction.start_timestamp);
@@ -2322,7 +2323,10 @@ void Storage::RegisterReplica(std::string name,
   });
 
   // Recovery
+  auto locker = file_retainer_.AddLocker();
+  std::optional<std::filesystem::path> snapshot_file;
   {
+    auto acc = locker.Access();
     // For now we assume we need to send the latest snapshot
     auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
     if (!snapshot_files.empty()) {
@@ -2331,12 +2335,14 @@ void Storage::RegisterReplica(std::string name,
       // check if additional logic is necessary
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
-      const auto &latest_snapshot_file = snapshot_files.back().first;
+      snapshot_file.emplace(std::move(snapshot_files.back().first));
+      acc.AddFile(*snapshot_file);
+    }
 
-      DLOG(INFO) << "Sending the latest snapshot file: "
-                 << latest_snapshot_file;
+    if (snapshot_file) {
+      DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
       auto stream = client.TransferSnapshot();
-      stream.StreamSnapshot(latest_snapshot_file);
+      stream.StreamSnapshot(*snapshot_file);
     }
   }
 }
