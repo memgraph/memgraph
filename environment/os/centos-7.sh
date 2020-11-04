@@ -92,20 +92,26 @@ install() {
             if ! yum list installed libipt >/dev/null 2>/dev/null; then
                 yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
             fi
+            continue
         fi
         if [ "$pkg" == libipt-devel ]; then
             if ! yum list installed libipt-devel >/dev/null 2>/dev/null; then
                 yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
             fi
+            continue
         fi
-        if ! yum list installed dotnet-sdk-3.1 >/dev/null 2>/dev/null; then
-            wget -nv https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm -O packages-microsoft-prod.rpm
-            rpm -Uvh https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm
-            yum update -y
-            yum install -y dotnet-sdk-3.1
+        if [ "$pkg" == dotnet-sdk-3.1 ]; then
+            if ! yum list installed dotnet-sdk-3.1 >/dev/null 2>/dev/null; then
+                wget -nv https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm -O packages-microsoft-prod.rpm
+                rpm -Uvh https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm
+                yum update -y
+                yum install -y dotnet-sdk-3.1
+            fi
+            continue
         fi
         if [ "$pkg" == PyYAML ]; then
-            sudo -H -u $SUDO_USER bash -c "pip3 install --user PyYAML"
+            sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            continue
         fi
         yum install -y "$pkg"
     done

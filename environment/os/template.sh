@@ -25,5 +25,6 @@ install() {
     echo "TODO: Implement ${FUNCNAME[0]}."
     exit 1
 }
+# http://ahmed.amayem.com/bash-indirect-expansion-exploration
 deps=$2"[*]"
 "$1" "${!deps}"

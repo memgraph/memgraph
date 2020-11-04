@@ -36,7 +36,7 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    python3 python3-virtualenv python3-pip # qa, macro bench and stress tests
+    python3 virtualenv python3-virtualenv python3-pip # qa, macro bench and stress tests
     python3-yaml # the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # custom Lisp C++ preprocessing

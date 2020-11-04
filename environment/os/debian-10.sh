@@ -35,13 +35,14 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    netcat # tests are using nc to wait for memgraph
+    python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
-    nodejs npm
+    dotnet-sdk-3.1 golang nodejs npm
 )
 list() {
     echo "$1"
@@ -58,24 +59,28 @@ deb-src http://deb.debian.org/debian/ buster-updates main contrib non-free
 deb http://security.debian.org/debian-security buster/updates main contrib non-free
 deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
 EOF
+    cd "$DIR"
     apt update
-    apt install -y openssh-server wget git tmux tree htop
+    # If GitHub Actions runner is installed, append LANG to the environment.
+    # Python related tests doesn't work the LANG export.
+    if [ -d "/home/gh/actions-runner" ]; then
+        echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
+    else
+        echo "NOTE: export LANG=en_US.utf8"
+    fi
+    apt install -y wget
     for pkg in $1; do
+        if [ "$pkg" == dotnet-sdk-3.1 ]; then
+            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
+                wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                dpkg -i packages-microsoft-prod.deb
+                apt-get update
+                apt-get install -y apt-transport-https dotnet-sdk-3.1
+            fi
+            continue
+        fi
         apt install -y "$pkg"
     done
-    if [ ! -f /usr/local/go/bin/go ]; then
-        wget -nv https://golang.org/dl/go1.15.2.linux-amd64.tar.gz -O go1.15.2.linux-amd64.tar.gz
-        tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz
-    fi
-    if [ -d "/home/gh/actions-runner" ]; then
-        sed -i '${s/$/:\/usr\/local\/go\/bin/}' /home/gh/actions-runner/.path
-    fi
-    if ! which dotnet >/dev/null; then
-        wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-        dpkg -i packages-microsoft-prod.deb
-        apt-get update
-        apt-get install -y apt-transport-https dotnet-sdk-3.1
-    fi
 }
 deps=$2"[*]"
 "$1" "${!deps}"

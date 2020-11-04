@@ -92,11 +92,13 @@ install() {
             if ! dnf list installed libipt >/dev/null 2>/dev/null; then
                 dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
             fi
+            continue
         fi
         if [ "$pkg" == libipt-devel ]; then
             if ! yum list installed libipt-devel >/dev/null 2>/dev/null; then
                 dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
             fi
+            continue
         fi
         # Install GDB dependencies not present in the standard repos.
         # https://bugs.centos.org/view.php?id=17068
@@ -107,28 +109,35 @@ install() {
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
                 dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libbabeltrace-devel-1.5.4-2.el8.x86_64.rpm
             fi
+            continue
+        fi
+        if [ "$pkg" == sbcl ]; then
+            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                dnf install -y 	https://pkgs.dyn.su/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
+            fi
+            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
+            fi
+            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == dotnet-sdk-3.1 ]; then
+            if ! dnf list installed dotnet-sdk-3.1 >/dev/null 2>/dev/null; then
+                wget -nv https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm -O packages-microsoft-prod.rpm
+                rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
+                dnf update -y
+                dnf install -y dotnet-sdk-3.1
+            fi
+            continue
         fi
         if [ "$pkg" == PyYAML ]; then
-            sudo -H -u $SUDO_USER bash -c "pip3 install --user PyYAML"
+            sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            continue
         fi
         dnf install -y "$pkg"
     done
-
-    if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-        dnf install -y 	https://pkgs.dyn.su/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
-    fi
-    if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-        dnf install -y https://pkgs.dyn.su/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
-    fi
-    if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-        dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
-    fi
-    if ! dnf list installed dotnet-sdk-3.1 >/dev/null 2>/dev/null; then
-        wget -nv https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm -O packages-microsoft-prod.rpm
-        rpm -Uvh https://packages.microsoft.com/config/centos/8/packages-microsoft-prod.rpm
-        dnf update -y
-        dnf install -y dotnet-sdk-3.1
-    fi
 }
 deps=$2"[*]"
 "$1" "${!deps}"
