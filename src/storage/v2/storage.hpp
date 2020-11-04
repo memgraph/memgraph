@@ -444,6 +444,8 @@ class Storage final {
                    const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
 
+  void CreateSnapshot();
+
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
 #endif
