@@ -1,5 +1,7 @@
 #pragma once
 
+#include <filesystem>
+
 #include "slk/streams.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/replication/slk.hpp"
@@ -43,8 +45,9 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteFile(const std::filesystem::path &path) {
     utils::InputFile file;
-    CHECK(file.Open(path))
-      << "Failed to open snapshot file!";
+    CHECK(file.Open(path)) << "Failed to open snapshot file!";
+    CHECK(path.has_filename()) << "Path does not have a filename!";
+    slk::Save(path.filename(), builder_);
     auto file_size = file.GetSize();
     slk::Save(file_size, builder_);
     uint8_t buffer[utils::kFileBufferSize];
@@ -56,6 +59,7 @@ class Encoder final : public durability::BaseEncoder {
     }
     file.Close();
   }
+
  private:
   slk::Builder *builder_;
 };
@@ -133,8 +137,15 @@ class Decoder final : public durability::BaseDecoder {
     return true;
   }
 
-  bool ReadFile(const std::filesystem::path &path) {
+  std::optional<std::filesystem::path> ReadFile(
+      const std::filesystem::path &directory) {
+    CHECK(std::filesystem::exists(directory) &&
+          std::filesystem::is_directory(directory))
+        << "Sent path for streamed files should be a valid directory!";
     utils::OutputFile file;
+    std::string filename;
+    slk::Load(&filename, reader_);
+    auto path = directory / filename;
     file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
     size_t file_size;
     slk::Load(&file_size, reader_);
@@ -146,7 +157,7 @@ class Decoder final : public durability::BaseDecoder {
       file_size -= chunk_size;
     }
     file.Close();
-    return true;
+    return std::move(path);
   }
 
  private:
