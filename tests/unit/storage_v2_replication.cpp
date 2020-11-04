@@ -378,7 +378,14 @@ TEST_F(ReplicationTest, SnapshotLoading) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  storage::Storage replica_store;
+  std::filesystem::path replica_storage_directory{
+      std::filesystem::temp_directory_path() /
+      "MG_test_unit_storage_v2_replication_replica"};
+  utils::OnScopeExit replica_directory_cleaner(
+      [&]() { std::filesystem::remove_all(replica_storage_directory); });
+  storage::Storage replica_store(
+      {.durability = {.storage_directory = replica_storage_directory}});
+
   replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
 

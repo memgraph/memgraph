@@ -2265,17 +2265,11 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
         replication::Decoder decoder(req_reader);
 
-        // TODO (antonio2368): Change the name so the
-        // file isn't overwritten (timestamp vs counter)
-        std::string timestamp_string =
-            utils::Timestamp::Now().ToString(durability::kTimestampFormat);
-        std::filesystem::path snapshot_temp_file{
-            std::filesystem::temp_directory_path() /
-            (timestamp_string + "_replication_snapshot")};
-        utils::OnScopeExit snapshot_temp_cleaner(
-            [&]() { std::filesystem::remove_all(snapshot_temp_file); });
-        DLOG(INFO) << "Saving the snapshot file to " << snapshot_temp_file;
-        decoder.ReadFile(snapshot_temp_file);
+        utils::EnsureDirOrDie(snapshot_directory_);
+
+        const auto maybe_snapshot_path = decoder.ReadFile(snapshot_directory_);
+        CHECK(maybe_snapshot_path) << "Failed to load snapshot!";
+        DLOG(INFO) << "Received snapshot saved to " << *maybe_snapshot_path;
 
         std::unique_lock<utils::RWLock> storage_guard(main_lock_);
         // Clear the database
@@ -2291,7 +2285,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         try {
           DLOG(INFO) << "Loading snapshot";
           auto recovered_snapshot = durability::LoadSnapshot(
-              snapshot_temp_file, &vertices_, &edges_, &name_id_mapper_,
+              *maybe_snapshot_path, &vertices_, &edges_, &name_id_mapper_,
               &edge_count_, config_.items);
           DLOG(INFO) << "Snapshot loaded successfully";
           // TODO (antonio2368): How to handle WAL uuids? How do we know
