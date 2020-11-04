@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
-#include <variant>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -413,12 +412,12 @@ class Storage final {
     }
 
     std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-    rpc_context_.emplace<std::monostate>();
 
     if constexpr (state == ReplicationState::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
     } else if (state == ReplicationState::MAIN) {
-      rpc_context_.emplace<ReplicationClientList>();
+      // Main instance does not need replication server
+      replication_server_.reset();
     }
 
     replication_state_.store(state);
@@ -548,17 +547,9 @@ class Storage final {
   using ReplicationClientList =
       utils::Synchronized<std::list<replication::ReplicationClient>,
                           utils::SpinLock>;
-  // Monostate is used for explicitly calling the destructor of the current
-  // type
-  std::variant<ReplicationClientList, ReplicationServer, std::monostate>
-      rpc_context_;
 
-  template <typename TRpcContext>
-  TRpcContext &GetRpcContext() {
-    auto *context = std::get_if<TRpcContext>(&rpc_context_);
-    CHECK(context) << "Wrong type set for the current replication state!";
-    return *context;
-  }
+  std::optional<ReplicationServer> replication_server_;
+  ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationState> replication_state_{ReplicationState::MAIN};
 #endif
