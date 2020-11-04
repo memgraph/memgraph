@@ -1,5 +1,6 @@
 set(utils_src_files
     file.cpp
+    file_locker.cpp
     memory.cpp
     signals.cpp
     thread.cpp
