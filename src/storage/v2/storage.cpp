@@ -1872,13 +1872,12 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_.emplace();
 
   // Create RPC server.
-  // TODO(mferencevic): Add support for SSL.
+  // TODO (antonio2368): Add support for SSL.
   replication_server_->rpc_server_context.emplace();
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
   // simplifies the rest of the implementation.
-  // TODO(mferencevic): Make endpoint configurable.
   replication_server_->rpc_server.emplace(
       endpoint, &*replication_server_->rpc_server_context,
       /* workers_count = */ 1);
