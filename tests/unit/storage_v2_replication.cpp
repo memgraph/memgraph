@@ -373,24 +373,21 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   }
 
   {
+    // Create second WAL
     storage::Storage main_store(
-        {.durability = {
-             .storage_directory = storage_directory,
-             .recover_on_startup = true,
-             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
-                 PERIODIC_SNAPSHOT_WITH_WAL,
-             .wal_file_flush_every_n_tx = 1,
-         }});
+        {.durability = {.storage_directory = storage_directory,
+                        .recover_on_startup = true,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}});
+    // Create vertices in 2 different transactions
     {
       auto acc = main_store.Access();
-      // Create vertex for first WAL file
       auto v = acc.CreateVertex();
       vertex_gids.emplace_back(v.Gid());
       ASSERT_FALSE(acc.Commit().HasError());
     }
     {
       auto acc = main_store.Access();
-      // Create vertex for second WAL file
       auto v = acc.CreateVertex();
       vertex_gids.emplace_back(v.Gid());
       ASSERT_FALSE(acc.Commit().HasError());
@@ -421,35 +418,56 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       "MG_test_unit_storage_v2_replication_replica"};
   utils::OnScopeExit replica_directory_cleaner(
       [&]() { std::filesystem::remove_all(replica_storage_directory); });
-  storage::Storage replica_store(
-      {.durability = {.storage_directory = replica_storage_directory}});
-
-  replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10000});
-
-  main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000});
-  const auto *vertex_label = "vertex_label";
   {
-    auto acc = main_store.Access();
-    for (const auto &vertex_gid : vertex_gids) {
-      auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
-      ASSERT_TRUE(v);
-      ASSERT_TRUE(v->AddLabel(main_store.NameToLabel(vertex_label)).HasValue());
+    storage::Storage replica_store(
+        {.durability = {.storage_directory = replica_storage_directory}});
+
+    replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
+        io::network::Endpoint{"127.0.0.1", 10000});
+
+    main_store.RegisterReplica("REPLICA1",
+                               io::network::Endpoint{"127.0.0.1", 10000});
+    constexpr const auto *vertex_label = "vertex_label";
+    {
+      auto acc = main_store.Access();
+      for (const auto &vertex_gid : vertex_gids) {
+        auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
+        ASSERT_TRUE(v);
+        ASSERT_TRUE(
+            v->AddLabel(main_store.NameToLabel(vertex_label)).HasValue());
+      }
+      ASSERT_FALSE(acc.Commit().HasError());
     }
-    ASSERT_FALSE(acc.Commit().HasError());
+    {
+      auto acc = replica_store.Access();
+      for (const auto &vertex_gid : vertex_gids) {
+        auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
+        ASSERT_TRUE(v);
+        const auto labels = v->Labels(storage::View::OLD);
+        ASSERT_TRUE(labels.HasValue());
+        ASSERT_THAT(*labels, UnorderedElementsAre(
+                                 replica_store.NameToLabel(vertex_label)));
+      }
+      ASSERT_FALSE(acc.Commit().HasError());
+    }
   }
+  // Test recovery of the replica with the files received from Main
   {
-    auto acc = replica_store.Access();
-    for (const auto &vertex_gid : vertex_gids) {
-      auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
-      ASSERT_TRUE(v);
-      const auto labels = v->Labels(storage::View::OLD);
-      ASSERT_TRUE(labels.HasValue());
-      ASSERT_THAT(*labels, UnorderedElementsAre(
-                               replica_store.NameToLabel(vertex_label)));
+    storage::Storage replica_store(
+        {.durability = {.storage_directory = replica_storage_directory,
+                        .recover_on_startup = true}});
+    {
+      auto acc = replica_store.Access();
+      for (const auto &vertex_gid : vertex_gids) {
+        auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
+        ASSERT_TRUE(v);
+        const auto labels = v->Labels(storage::View::OLD);
+        ASSERT_TRUE(labels.HasValue());
+        // Labels are received with AppendDeltasRpc so they are not saved on
+        // disk
+        ASSERT_EQ(labels->size(), 0);
+      }
+      ASSERT_FALSE(acc.Commit().HasError());
     }
-    ASSERT_FALSE(acc.Commit().HasError());
   }
-  std::filesystem::remove_all(storage_directory);
 }
