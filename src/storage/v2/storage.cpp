@@ -11,6 +11,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/indices.hpp"
@@ -2289,7 +2290,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           const auto &recovery_info = recovered_snapshot.recovery_info;
           vertex_id_ = recovery_info.next_vertex_id;
           edge_id_ = recovery_info.next_edge_id;
-          timestamp_ = recovery_info.next_timestamp;
+          timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
 
           durability::RecoverIndicesAndConstraints(
               recovered_snapshot.indices_constraints, &indices_, &constraints_,
@@ -2301,6 +2302,51 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         storage_guard.unlock();
 
         SnapshotRes res;
+        slk::Save(res, res_builder);
+      });
+  replication_server_->rpc_server->Register<WalFilesRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received WalFilesRpc";
+        WalFilesReq req;
+        slk::Load(&req, req_reader);
+
+        replication::Decoder decoder(req_reader);
+
+        utils::EnsureDirOrDie(wal_directory_);
+
+        const auto maybe_wal_file_number = decoder.ReadUint();
+        CHECK(maybe_wal_file_number)
+            << "Failed to read number of received WAL files!";
+        const auto wal_file_number = *maybe_wal_file_number;
+
+        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+        durability::RecoveredIndicesAndConstraints indices_constraints;
+        for (auto i = 0; i < wal_file_number; ++i) {
+          const auto maybe_wal_path = decoder.ReadFile(wal_directory_);
+          CHECK(maybe_wal_path) << "Failed to load WAL!";
+          DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
+          // TODO (antonio2368): Use timestamp_ for now, but the timestamp_ can
+          // increase by running read queries so define variable that will keep
+          // last received timestamp
+          try {
+            auto info = durability::LoadWal(
+                *maybe_wal_path, &indices_constraints, timestamp_, &vertices_,
+                &edges_, &name_id_mapper_, &edge_count_, config_.items);
+            vertex_id_ = std::max(vertex_id_.load(), info.next_vertex_id);
+            edge_id_ = std::max(edge_id_.load(), info.next_edge_id);
+            timestamp_ = std::max(timestamp_, info.next_timestamp);
+            DLOG(INFO) << *maybe_wal_path << " loaded successfully";
+          } catch (const durability::RecoveryFailure &e) {
+            // TODO (antonio2368): What to do if the sent WAL is invalid
+            LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
+                       << " because of: " << e.what();
+          }
+        }
+        durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
+                                                 &constraints_, &vertices_);
+        storage_guard.unlock();
+
+        WalFilesRes res;
         slk::Save(res, res_builder);
       });
   replication_server_->rpc_server->Start();
@@ -2327,7 +2373,10 @@ void Storage::RegisterReplica(std::string name,
   // Recovery
   auto locker = file_retainer_.AddLocker();
   std::optional<std::filesystem::path> snapshot_file;
+  std::vector<std::filesystem::path> wal_files;
   {
+    std::string uuid;
+
     auto acc = locker.Access();
     // For now we assume we need to send the latest snapshot
     auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
@@ -2338,14 +2387,44 @@ void Storage::RegisterReplica(std::string name,
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
       snapshot_file.emplace(std::move(snapshot_files.back().first));
+      uuid = std::move(snapshot_files.back().second);
       acc.AddFile(*snapshot_file);
+    } else {
+      auto maybe_wal_files = durability::GetWalFiles(wal_directory_);
+      if (!maybe_wal_files || maybe_wal_files->empty()) {
+        DLOG(INFO) << "No files to recover";
+        return;
+      }
+      uuid = std::move(maybe_wal_files->back().second);
     }
 
-    if (snapshot_file) {
-      DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
-      auto stream = client.TransferSnapshot();
-      stream.StreamSnapshot(*snapshot_file);
+    auto maybe_wal_files = durability::GetWalFiles<true>(wal_directory_, &uuid);
+    CHECK(maybe_wal_files) << "Failed to find WAL files";
+    auto &wal_files_with_seq = *maybe_wal_files;
+
+    std::optional<uint64_t> previous_seq_num;
+    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+         wal_files_with_seq) {
+      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+        LOG(FATAL) << "You are missing a WAL file with the sequence number "
+                   << *previous_seq_num + 1 << "!";
+      }
+      previous_seq_num = seq_num;
+      wal_files.push_back(path);
+      acc.AddFile(path);
     }
+  }
+
+  if (snapshot_file) {
+    DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
+    auto stream = client.TransferSnapshot();
+    stream.StreamSnapshot(*snapshot_file);
+  }
+
+  if (!wal_files.empty()) {
+    DLOG(INFO) << "Sending the latest wal files";
+    auto stream = client.TransferWalFiles();
+    stream.StreamWalFiles(wal_files);
   }
 }
 

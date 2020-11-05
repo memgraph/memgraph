@@ -164,46 +164,21 @@ std::optional<RecoveryInfo> RecoverData(
       return recovered_snapshot->recovery_info;
     }
   } else {
-    if (!utils::DirExists(wal_directory)) return std::nullopt;
-    // Array of all discovered WAL files, ordered by name.
-    std::vector<std::pair<std::filesystem::path, std::string>> wal_files;
-    std::error_code error_code;
-    for (const auto &item :
-         std::filesystem::directory_iterator(wal_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      try {
-        auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), info.uuid);
-      } catch (const RecoveryFailure &e) {
-        continue;
-      }
-    }
-    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                       << error_code.message() << "!";
+    const auto maybe_wal_files = GetWalFiles(wal_directory);
+    if (!maybe_wal_files) return std::nullopt;
+
+    const auto &wal_files = *maybe_wal_files;
     if (wal_files.empty()) return std::nullopt;
-    std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     *uuid = wal_files.back().second;
   }
 
+  auto maybe_wal_files = GetWalFiles<true>(wal_directory, uuid);
+  if (!maybe_wal_files) return std::nullopt;
+
   // Array of all discovered WAL files, ordered by sequence number.
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
-      wal_files;
-  std::error_code error_code;
-  for (const auto &item :
-       std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!item.is_regular_file()) continue;
-    try {
-      auto info = ReadWalInfo(item.path());
-      if (info.uuid != *uuid) continue;
-      wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                             info.to_timestamp, item.path());
-    } catch (const RecoveryFailure &e) {
-      continue;
-    }
-  }
-  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                     << error_code.message() << "!";
+  auto &wal_files = *maybe_wal_files;
+
   // By this point we should have recovered from a snapshot, or we should have
   // found some WAL files to recover from in the above `else`. This is just a
   // sanity check to circumvent the following case: The database didn't recover
