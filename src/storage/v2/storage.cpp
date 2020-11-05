@@ -2417,14 +2417,12 @@ void Storage::RegisterReplica(std::string name,
 
   if (snapshot_file) {
     DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
-    auto stream = client.TransferSnapshot();
-    stream.StreamSnapshot(*snapshot_file);
+    client.TransferSnapshot(*snapshot_file);
   }
 
   if (!wal_files.empty()) {
     DLOG(INFO) << "Sending the latest wal files";
-    auto stream = client.TransferWalFiles();
-    stream.StreamWalFiles(wal_files);
+    client.TransferWalFiles(wal_files);
   }
 }
 

@@ -71,50 +71,26 @@ class ReplicationClient {
     rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
   };
 
-  class SnapshotHandler {
-   private:
-    friend class ReplicationClient;
-    explicit SnapshotHandler(ReplicationClient *self)
-        : self_(self), stream_(self_->rpc_client_.Stream<SnapshotRpc>()) {}
-
-   public:
-    void StreamSnapshot(const std::filesystem::path &path) {
-      Encoder encoder(stream_.GetBuilder());
-      encoder.WriteFile(path);
-      stream_.AwaitResponse();
-    }
-
-   private:
-    ReplicationClient *self_;
-    rpc::Client::StreamHandler<SnapshotRpc> stream_;
-  };
-
-  class WalHandler {
-   private:
-    friend class ReplicationClient;
-    explicit WalHandler(ReplicationClient *self)
-        : self_(self), stream_(self_->rpc_client_.Stream<WalFilesRpc>()) {}
-
-   public:
-    void StreamWalFiles(const std::vector<std::filesystem::path> &wal_files) {
-      CHECK(!wal_files.empty()) << "Wal files list is empty!";
-      Encoder encoder(stream_.GetBuilder());
-      encoder.WriteUint(wal_files.size());
-      for (const auto &wal : wal_files) {
-        encoder.WriteFile(wal);
-      }
-
-      stream_.AwaitResponse();
-    }
-
-   private:
-    ReplicationClient *self_;
-    rpc::Client::StreamHandler<WalFilesRpc> stream_;
-  };
-
   TransactionHandler ReplicateTransaction() { return TransactionHandler(this); }
-  SnapshotHandler TransferSnapshot() { return SnapshotHandler(this); }
-  WalHandler TransferWalFiles() { return WalHandler(this); };
+
+  void TransferSnapshot(const std::filesystem::path &path) {
+    auto stream{rpc_client_.Stream<SnapshotRpc>()};
+    Encoder encoder(stream.GetBuilder());
+    encoder.WriteFile(path);
+    stream.AwaitResponse();
+  }
+
+  void TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
+    CHECK(!wal_files.empty()) << "Wal files list is empty!";
+    auto stream{rpc_client_.Stream<WalFilesRpc>()};
+    Encoder encoder(stream.GetBuilder());
+    encoder.WriteUint(wal_files.size());
+    for (const auto &wal : wal_files) {
+      encoder.WriteFile(wal);
+    }
+
+    stream.AwaitResponse();
+  }
 
   const auto &Name() const { return name_; }
 
