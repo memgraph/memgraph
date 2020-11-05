@@ -26,11 +26,12 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
 
 /// Get list of snapshot files with their UUID
 std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
-    const std::filesystem::path &snapshot_directory);
+    const std::filesystem::path &snapshot_directory,
+    std::string_view uuid = "");
 
 template <bool order_by_sequence = false>
 auto GetWalFiles(const std::filesystem::path &wal_directory,
-                 const std::string *uuid = nullptr) {
+                 const std::string_view uuid = "") {
   using ReturnType = std::conditional_t<
       order_by_sequence,
       std::vector<
@@ -45,7 +46,7 @@ auto GetWalFiles(const std::filesystem::path &wal_directory,
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if (uuid && info.uuid != *uuid) continue;
+      if (!uuid.empty() && info.uuid != uuid) continue;
       if constexpr (order_by_sequence) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
                                info.to_timestamp, item.path());

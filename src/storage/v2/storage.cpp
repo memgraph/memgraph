@@ -2375,11 +2375,10 @@ void Storage::RegisterReplica(std::string name,
   std::optional<std::filesystem::path> snapshot_file;
   std::vector<std::filesystem::path> wal_files;
   {
-    std::string uuid;
-
     auto acc = locker.Access();
     // For now we assume we need to send the latest snapshot
-    auto snapshot_files = durability::GetSnapshotFiles(snapshot_directory_);
+    auto snapshot_files =
+        durability::GetSnapshotFiles(snapshot_directory_, uuid_);
     if (!snapshot_files.empty()) {
       std::sort(snapshot_files.begin(), snapshot_files.end());
       // TODO (antonio2368): Send the last snapshot for now
@@ -2387,18 +2386,10 @@ void Storage::RegisterReplica(std::string name,
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
       snapshot_file.emplace(std::move(snapshot_files.back().first));
-      uuid = std::move(snapshot_files.back().second);
       acc.AddFile(*snapshot_file);
-    } else {
-      auto maybe_wal_files = durability::GetWalFiles(wal_directory_);
-      if (!maybe_wal_files || maybe_wal_files->empty()) {
-        DLOG(INFO) << "No files to recover";
-        return;
-      }
-      uuid = std::move(maybe_wal_files->back().second);
     }
 
-    auto maybe_wal_files = durability::GetWalFiles<true>(wal_directory_, &uuid);
+    auto maybe_wal_files = durability::GetWalFiles<true>(wal_directory_, uuid_);
     CHECK(maybe_wal_files) << "Failed to find WAL files";
     auto &wal_files_with_seq = *maybe_wal_files;
 

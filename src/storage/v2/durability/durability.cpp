@@ -52,7 +52,8 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
 
 // Return array of all discovered snapshots
 std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
-    const std::filesystem::path &snapshot_directory) {
+    const std::filesystem::path &snapshot_directory,
+    const std::string_view uuid) {
   std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
   std::error_code error_code;
   if (utils::DirExists(snapshot_directory)) {
@@ -61,7 +62,9 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
       if (!item.is_regular_file()) continue;
       try {
         auto info = ReadSnapshotInfo(item.path());
-        snapshot_files.emplace_back(item.path(), info.uuid);
+        if (uuid.empty() || info.uuid == uuid) {
+          snapshot_files.emplace_back(item.path(), info.uuid);
+        }
       } catch (const RecoveryFailure &) {
         continue;
       }
@@ -173,7 +176,7 @@ std::optional<RecoveryInfo> RecoverData(
     *uuid = wal_files.back().second;
   }
 
-  auto maybe_wal_files = GetWalFiles<true>(wal_directory, uuid);
+  auto maybe_wal_files = GetWalFiles<true>(wal_directory, *uuid);
   if (!maybe_wal_files) return std::nullopt;
 
   // Array of all discovered WAL files, ordered by sequence number.
