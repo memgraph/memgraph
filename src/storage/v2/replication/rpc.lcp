@@ -34,4 +34,10 @@ cpp<#
     ((success :bool)
      (term :uint64_t))))
 
+(lcp:define-rpc wal-files
+  (:request ())
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
 (lcp:pop-namespace) ;; storage
