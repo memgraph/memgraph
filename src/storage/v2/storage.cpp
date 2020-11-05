@@ -2393,6 +2393,15 @@ void Storage::RegisterReplica(std::string name,
     CHECK(maybe_wal_files) << "Failed to find WAL files";
     auto &wal_files_with_seq = *maybe_wal_files;
 
+    std::optional<uint64_t> latest_seq_num;
+    {
+      // So the wal_file_ isn't overwritten
+      std::unique_lock engine_guard(engine_lock_);
+      if (wal_file_) {
+        latest_seq_num = wal_file_->SequenceNumber();
+      }
+    }
+
     std::optional<uint64_t> previous_seq_num;
     for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
          wal_files_with_seq) {
@@ -2400,9 +2409,12 @@ void Storage::RegisterReplica(std::string name,
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
                    << *previous_seq_num + 1 << "!";
       }
-      previous_seq_num = seq_num;
-      wal_files.push_back(path);
-      acc.AddFile(path);
+      // Only consider finalized WAL files we found until this point
+      if (!latest_seq_num || seq_num < latest_seq_num) {
+        previous_seq_num = seq_num;
+        wal_files.push_back(path);
+        acc.AddFile(path);
+      }
     }
   }
 

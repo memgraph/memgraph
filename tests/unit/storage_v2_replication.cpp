@@ -405,6 +405,17 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
+  {
+    // Force the creation of _current WAL file
+    auto acc = main_store.Access();
+    auto v = acc.FindVertex(vertex_gids[0], storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_TRUE(v->SetProperty(main_store.NameToProperty("test"),
+                               storage::PropertyValue(1))
+                    .HasValue());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
   std::filesystem::path replica_storage_directory{
       std::filesystem::temp_directory_path() /
       "MG_test_unit_storage_v2_replication_replica"};

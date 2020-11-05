@@ -181,6 +181,8 @@ class WalFile {
 
   uint64_t GetSize();
 
+  uint64_t SequenceNumber() const;
+
  private:
   void UpdateStats(uint64_t timestamp);
 
@@ -191,6 +193,7 @@ class WalFile {
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
+  uint64_t seq_num_;
 };
 
 }  // namespace storage::durability
