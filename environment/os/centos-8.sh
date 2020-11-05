@@ -56,6 +56,7 @@ check() {
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
             fi
+            continue
         fi
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"

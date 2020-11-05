@@ -53,10 +53,17 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == git ]; then
+            if ! which "git" >/dev/null; then
+                missing="git $missing"
+            fi
+            continue
+        fi
         if [ "$pkg" == "PyYAML" ]; then
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
             fi
+            continue
         fi
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
