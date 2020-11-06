@@ -2398,7 +2398,8 @@ void Storage::RegisterReplica(std::string name,
       }
     }
 
-    auto maybe_wal_files = durability::GetWalFiles(wal_directory_, uuid_);
+    auto maybe_wal_files =
+        durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
     CHECK(maybe_wal_files) << "Failed to find WAL files";
     auto &wal_files_with_seq = *maybe_wal_files;
 

@@ -33,7 +33,8 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
 std::optional<std::vector<
     std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
 GetWalFiles(const std::filesystem::path &wal_directory,
-            std::string_view uuid = "");
+            std::string_view uuid = "",
+            std::optional<size_t> current_seq_num = {});
 
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done

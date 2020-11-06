@@ -79,7 +79,8 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
 std::optional<std::vector<
     std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
 GetWalFiles(const std::filesystem::path &wal_directory,
-            const std::string_view uuid) {
+            const std::string_view uuid,
+            const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
   std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
@@ -90,7 +91,9 @@ GetWalFiles(const std::filesystem::path &wal_directory,
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if (!uuid.empty() && info.uuid != uuid) continue;
+      if ((!uuid.empty() && info.uuid != uuid) ||
+          (current_seq_num && info.seq_num >= current_seq_num))
+        continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp,
                              info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
