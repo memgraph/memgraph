@@ -29,39 +29,11 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     std::string_view uuid = "");
 
-template <bool order_by_sequence = false>
-auto GetWalFiles(const std::filesystem::path &wal_directory,
-                 const std::string_view uuid = "") {
-  using ReturnType = std::conditional_t<
-      order_by_sequence,
-      std::vector<
-          std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>,
-      std::vector<std::pair<std::filesystem::path, std::string>>>;
-  if (!utils::DirExists(wal_directory)) return std::optional<ReturnType>{};
-
-  ReturnType wal_files;
-  std::error_code error_code;
-  for (const auto &item :
-       std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!item.is_regular_file()) continue;
-    try {
-      auto info = ReadWalInfo(item.path());
-      if (!uuid.empty() && info.uuid != uuid) continue;
-      if constexpr (order_by_sequence) {
-        wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                               info.to_timestamp, item.path());
-      } else {
-        wal_files.emplace_back(item.path(), info.uuid);
-      }
-    } catch (const RecoveryFailure &e) {
-      continue;
-    }
-  }
-  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                     << error_code.message() << "!";
-  std::sort(wal_files.begin(), wal_files.end());
-  return std::optional<ReturnType>{std::move(wal_files)};
-}
+/// Get list of WAL files ordered by the sequence number
+std::optional<std::vector<
+    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
+GetWalFiles(const std::filesystem::path &wal_directory,
+            std::string_view uuid = "");
 
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done

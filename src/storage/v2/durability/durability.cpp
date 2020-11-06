@@ -76,6 +76,33 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
   return snapshot_files;
 }
 
+std::optional<std::vector<
+    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
+GetWalFiles(const std::filesystem::path &wal_directory,
+            const std::string_view uuid) {
+  if (!utils::DirExists(wal_directory)) return std::nullopt;
+
+  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
+      wal_files;
+  std::error_code error_code;
+  for (const auto &item :
+       std::filesystem::directory_iterator(wal_directory, error_code)) {
+    if (!item.is_regular_file()) continue;
+    try {
+      auto info = ReadWalInfo(item.path());
+      if (!uuid.empty() && info.uuid != uuid) continue;
+      wal_files.emplace_back(info.seq_num, info.from_timestamp,
+                             info.to_timestamp, item.path());
+    } catch (const RecoveryFailure &e) {
+      continue;
+    }
+  }
+  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                     << error_code.message() << "!";
+  std::sort(wal_files.begin(), wal_files.end());
+  return std::move(wal_files);
+}
+
 // Function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
@@ -167,16 +194,29 @@ std::optional<RecoveryInfo> RecoverData(
       return recovered_snapshot->recovery_info;
     }
   } else {
-    const auto maybe_wal_files = GetWalFiles(wal_directory);
-    if (!maybe_wal_files) return std::nullopt;
-
-    const auto &wal_files = *maybe_wal_files;
+    std::error_code error_code;
+    if (!utils::DirExists(wal_directory)) return std::nullopt;
+    // Array of all discovered WAL files, ordered by name.
+    std::vector<std::pair<std::filesystem::path, std::string>> wal_files;
+    for (const auto &item :
+         std::filesystem::directory_iterator(wal_directory, error_code)) {
+      if (!item.is_regular_file()) continue;
+      try {
+        auto info = ReadWalInfo(item.path());
+        wal_files.emplace_back(item.path(), info.uuid);
+      } catch (const RecoveryFailure &e) {
+        continue;
+      }
+    }
+    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                       << error_code.message() << "!";
     if (wal_files.empty()) return std::nullopt;
+    std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     *uuid = wal_files.back().second;
   }
 
-  auto maybe_wal_files = GetWalFiles<true>(wal_directory, *uuid);
+  auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
   if (!maybe_wal_files) return std::nullopt;
 
   // Array of all discovered WAL files, ordered by sequence number.

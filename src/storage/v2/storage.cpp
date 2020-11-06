@@ -2389,10 +2389,6 @@ void Storage::RegisterReplica(std::string name,
       acc.AddFile(*snapshot_file);
     }
 
-    auto maybe_wal_files = durability::GetWalFiles<true>(wal_directory_, uuid_);
-    CHECK(maybe_wal_files) << "Failed to find WAL files";
-    auto &wal_files_with_seq = *maybe_wal_files;
-
     std::optional<uint64_t> latest_seq_num;
     {
       // So the wal_file_ isn't overwritten
@@ -2401,6 +2397,10 @@ void Storage::RegisterReplica(std::string name,
         latest_seq_num = wal_file_->SequenceNumber();
       }
     }
+
+    auto maybe_wal_files = durability::GetWalFiles(wal_directory_, uuid_);
+    CHECK(maybe_wal_files) << "Failed to find WAL files";
+    auto &wal_files_with_seq = *maybe_wal_files;
 
     std::optional<uint64_t> previous_seq_num;
     for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
