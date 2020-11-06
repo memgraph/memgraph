@@ -187,6 +187,8 @@ class WalFile {
   void EnableFlushing();
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
+  const auto &Path() const { return path_; }
+
  private:
   void UpdateStats(uint64_t timestamp);
 

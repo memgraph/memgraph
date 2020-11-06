@@ -2319,6 +2319,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             << "Failed to read number of received WAL files!";
         const auto wal_file_number = *maybe_wal_file_number;
 
+        DLOG(INFO) << "Received WAL files: " << wal_file_number;
+
         std::unique_lock<utils::RWLock> storage_guard(main_lock_);
         durability::RecoveredIndicesAndConstraints indices_constraints;
         for (auto i = 0; i < wal_file_number; ++i) {
@@ -2374,6 +2376,7 @@ void Storage::RegisterReplica(std::string name,
   auto locker = file_retainer_.AddLocker();
   std::optional<std::filesystem::path> snapshot_file;
   std::vector<std::filesystem::path> wal_files;
+  std::optional<uint64_t> latest_seq_num;
   {
     auto acc = locker.Access();
     // For now we assume we need to send the latest snapshot
@@ -2389,11 +2392,12 @@ void Storage::RegisterReplica(std::string name,
       acc.AddFile(*snapshot_file);
     }
 
-    std::optional<uint64_t> latest_seq_num;
     {
       // So the wal_file_ isn't overwritten
       std::unique_lock engine_guard(engine_lock_);
       if (wal_file_) {
+        // For now let's disable flushing until we send the current WAL
+        wal_file_->DisableFlushing();
         latest_seq_num = wal_file_->SequenceNumber();
       }
     }
@@ -2410,12 +2414,9 @@ void Storage::RegisterReplica(std::string name,
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
                    << *previous_seq_num + 1 << "!";
       }
-      // Only consider finalized WAL files we found until this point
-      if (!latest_seq_num || seq_num < latest_seq_num) {
-        previous_seq_num = seq_num;
-        wal_files.push_back(path);
-        acc.AddFile(path);
-      }
+      previous_seq_num = seq_num;
+      wal_files.push_back(path);
+      acc.AddFile(path);
     }
   }
 
@@ -2427,6 +2428,23 @@ void Storage::RegisterReplica(std::string name,
   if (!wal_files.empty()) {
     DLOG(INFO) << "Sending the latest wal files";
     client.TransferWalFiles(wal_files);
+  }
+
+  // We have a current WAL
+  if (latest_seq_num) {
+    DLOG(INFO) << "Current WAL present";
+    auto stream = client.TransferCurrentWalFile();
+    // TODO (antonio2368): Maybe rename the file to the finalized form
+    stream.AppendFilename(wal_file_->Path().filename());
+    utils::InputFile file;
+    CHECK(file.Open(wal_file_->Path())) << "Failed to open current WAL file!";
+    const auto [buffer, buffer_size] = wal_file_->CurrentFileBuffer();
+    stream.AppendSize(file.GetSize() + buffer_size);
+    DLOG(INFO) << "Buffer size: " << buffer_size;
+    stream.AppendFileData(&file);
+    stream.AppendBufferData(buffer, buffer_size);
+    stream.Finalize();
+    wal_file_->EnableFlushing();
   }
 }
 

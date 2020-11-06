@@ -504,7 +504,6 @@ void OutputFile::FlushBuffer(bool force_flush) {
   if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
-  ;
 
   CHECK(buffer_position_ <= kFileBufferSize)
       << "While trying to write to " << path_

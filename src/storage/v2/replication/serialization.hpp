@@ -43,20 +43,30 @@ class Encoder final : public durability::BaseEncoder {
     slk::Save(value, builder_);
   }
 
-  void WriteFile(const std::filesystem::path &path) {
-    utils::InputFile file;
-    CHECK(file.Open(path)) << "Failed to open snapshot file!";
-    CHECK(path.has_filename()) << "Path does not have a filename!";
-    slk::Save(path.filename(), builder_);
-    auto file_size = file.GetSize();
-    slk::Save(file_size, builder_);
+  void WriteBuffer(const uint8_t *buffer, const size_t buffer_size) {
+    builder_->Save(buffer, buffer_size);
+  }
+
+  void WriteFileData(utils::InputFile *file) {
+    auto file_size = file->GetSize();
     uint8_t buffer[utils::kFileBufferSize];
     while (file_size > 0) {
       const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
-      file.Read(buffer, chunk_size);
-      builder_->Save(buffer, chunk_size);
+      file->Read(buffer, chunk_size);
+      WriteBuffer(buffer, chunk_size);
       file_size -= chunk_size;
     }
+  }
+
+  void WriteFile(const std::filesystem::path &path) {
+    utils::InputFile file;
+    CHECK(file.Open(path)) << "Failed to open file " << path;
+    CHECK(path.has_filename()) << "Path does not have a filename!";
+    const auto &filename = path.filename().generic_string();
+    WriteString(filename);
+    auto file_size = file.GetSize();
+    WriteUint(file_size);
+    WriteFileData(&file);
     file.Close();
   }
 
@@ -143,8 +153,9 @@ class Decoder final : public durability::BaseDecoder {
           std::filesystem::is_directory(directory))
         << "Sent path for streamed files should be a valid directory!";
     utils::OutputFile file;
-    std::string filename;
-    slk::Load(&filename, reader_);
+    const auto maybe_filename = ReadString();
+    CHECK(maybe_filename) << "Filename missing for the file";
+    const auto &filename = *maybe_filename;
     auto path = directory / filename;
 
     // Check if the file already exists so we don't overwrite it
@@ -155,8 +166,9 @@ class Decoder final : public durability::BaseDecoder {
     if (!file_exists) {
       file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
     }
-    size_t file_size;
-    slk::Load(&file_size, reader_);
+    std::optional<size_t> maybe_file_size = ReadUint();
+    CHECK(maybe_file_size) << "File size missing";
+    auto file_size = *maybe_file_size;
     uint8_t buffer[utils::kFileBufferSize];
     while (file_size > 0) {
       const auto chunk_size = std::min(file_size, utils::kFileBufferSize);

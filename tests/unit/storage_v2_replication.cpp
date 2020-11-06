@@ -402,14 +402,18 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
+  constexpr const auto *property_name = "property_name";
+  constexpr const auto property_value = 1;
   {
-    // Force the creation of _current WAL file
+    // Force the creation of current WAL file
     auto acc = main_store.Access();
-    auto v = acc.FindVertex(vertex_gids[0], storage::View::OLD);
-    ASSERT_TRUE(v);
-    ASSERT_TRUE(v->SetProperty(main_store.NameToProperty("test"),
-                               storage::PropertyValue(1))
-                    .HasValue());
+    for (const auto &vertex_gid : vertex_gids) {
+      auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
+      ASSERT_TRUE(v);
+      ASSERT_TRUE(v->SetProperty(main_store.NameToProperty(property_name),
+                                 storage::PropertyValue(property_value))
+                      .HasValue());
+    }
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -447,6 +451,12 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         ASSERT_TRUE(labels.HasValue());
         ASSERT_THAT(*labels, UnorderedElementsAre(
                                  replica_store.NameToLabel(vertex_label)));
+        const auto properties = v->Properties(storage::View::OLD);
+        ASSERT_TRUE(properties.HasValue());
+        ASSERT_THAT(*properties,
+                    UnorderedElementsAre(std::make_pair(
+                        replica_store.NameToProperty(property_name),
+                        storage::PropertyValue(property_value))));
       }
       ASSERT_FALSE(acc.Commit().HasError());
     }

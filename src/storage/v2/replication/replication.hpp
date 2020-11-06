@@ -80,6 +80,46 @@ class ReplicationClient {
     stream.AwaitResponse();
   }
 
+  class CurrentWalHandler {
+   private:
+    friend class ReplicationClient;
+    explicit CurrentWalHandler(ReplicationClient *self)
+        : self_(self), stream_(self_->rpc_client_.Stream<WalFilesRpc>()) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteUint(1);
+    }
+
+   public:
+    void AppendFilename(const std::string &filename) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteString(filename);
+    }
+
+    void AppendSize(const size_t size) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteUint(size);
+    }
+
+    void AppendFileData(utils::InputFile *file) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteFileData(file);
+    }
+
+    void AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
+      Encoder encoder(stream_.GetBuilder());
+      encoder.WriteBuffer(buffer, buffer_size);
+    }
+
+    /// @throw rpc::RpcFailedException
+    void Finalize() { stream_.AwaitResponse(); }
+
+   private:
+    ReplicationClient *self_;
+    rpc::Client::StreamHandler<WalFilesRpc> stream_;
+  };
+
+  CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
+
   void TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
     CHECK(!wal_files.empty()) << "Wal files list is empty!";
     auto stream{rpc_client_.Stream<WalFilesRpc>()};
