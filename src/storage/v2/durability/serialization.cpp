@@ -119,6 +119,14 @@ void Encoder::Finalize() {
   file_.Close();
 }
 
+void Encoder::DisableFlushing() { file_.DisableFlushing(); }
+
+void Encoder::EnableFlushing() { file_.EnableFlushing(); }
+
+std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const {
+  return file_.CurrentBuffer();
+}
+
 //////////////////////////
 // Decoder implementation.
 //////////////////////////

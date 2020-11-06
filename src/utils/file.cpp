@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <type_traits>
 
 #include <glog/logging.h>
@@ -289,9 +290,10 @@ OutputFile::~OutputFile() {
 OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_),
       written_since_last_sync_(other.written_since_last_sync_),
-      path_(std::move(other.path_)),
-      buffer_position_(other.buffer_position_) {
+      path_(std::move(other.path_)) {
   memcpy(buffer_, other.buffer_, kFileBufferSize);
+  // TODO (antonio2368): Memory ordering
+  buffer_position_.store(other.buffer_position_.load());
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
   other.buffer_position_ = 0;
@@ -303,7 +305,8 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   fd_ = other.fd_;
   written_since_last_sync_ = other.written_since_last_sync_;
   path_ = std::move(other.path_);
-  buffer_position_ = other.buffer_position_;
+  // TODO (antonio2368): Memory ordering
+  buffer_position_ = other.buffer_position_.load();
   memcpy(buffer_, other.buffer_, kFileBufferSize);
 
   other.fd_ = -1;
@@ -350,12 +353,13 @@ const std::filesystem::path &OutputFile::path() const { return path_; }
 void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     FlushBuffer(false);
-    auto buffer_left = kFileBufferSize - buffer_position_;
+    const size_t buffer_position = buffer_position_.load();
+    auto buffer_left = kFileBufferSize - buffer_position;
     auto to_write = size < buffer_left ? size : buffer_left;
-    memcpy(buffer_ + buffer_position_, data, to_write);
+    memcpy(buffer_ + buffer_position, data, to_write);
     size -= to_write;
     data += to_write;
-    buffer_position_ += to_write;
+    buffer_position_.fetch_add(to_write);
     written_since_last_sync_ += to_write;
   }
 }
@@ -497,7 +501,10 @@ void OutputFile::Close() noexcept {
 void OutputFile::FlushBuffer(bool force_flush) {
   CHECK(IsOpen());
 
-  if (!force_flush && buffer_position_ < kFileBufferSize) return;
+  if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
+
+  std::unique_lock flush_guard(flush_lock_);
+  ;
 
   CHECK(buffer_position_ <= kFileBufferSize)
       << "While trying to write to " << path_
@@ -520,6 +527,14 @@ void OutputFile::FlushBuffer(bool force_flush) {
     buffer_position_ -= written;
     buffer += written;
   }
+}
+
+void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
+
+void OutputFile::EnableFlushing() { flush_lock_.unlock_shared(); }
+
+std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
+  return {buffer_, buffer_position_.load()};
 }
 
 }  // namespace utils

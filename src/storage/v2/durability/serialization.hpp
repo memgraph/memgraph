@@ -51,6 +51,10 @@ class Encoder final : public BaseEncoder {
 
   void Finalize();
 
+  void DisableFlushing();
+  void EnableFlushing();
+  std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
+
  private:
   utils::OutputFile file_;
 };

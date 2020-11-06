@@ -183,6 +183,10 @@ class WalFile {
 
   uint64_t SequenceNumber() const;
 
+  void DisableFlushing();
+  void EnableFlushing();
+  std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
+
  private:
   void UpdateStats(uint64_t timestamp);
 

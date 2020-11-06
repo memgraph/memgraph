@@ -1066,4 +1066,12 @@ void WalFile::UpdateStats(uint64_t timestamp) {
   count_ += 1;
 }
 
+void WalFile::DisableFlushing() { wal_.DisableFlushing(); }
+
+void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
+
+std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const {
+  return wal_.CurrentFileBuffer();
+}
+
 }  // namespace storage::durability

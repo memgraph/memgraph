@@ -6,11 +6,14 @@
  */
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "utils/rw_lock.hpp"
 
 namespace utils {
 
@@ -220,6 +223,12 @@ class OutputFile {
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
 
+  void DisableFlushing();
+
+  void EnableFlushing();
+
+  std::pair<const uint8_t *, size_t> CurrentBuffer() const;
+
  private:
   void FlushBuffer(bool force_flush);
 
@@ -227,7 +236,10 @@ class OutputFile {
   size_t written_since_last_sync_{0};
   std::filesystem::path path_;
   uint8_t buffer_[kFileBufferSize];
-  size_t buffer_position_{0};
+  std::atomic<size_t> buffer_position_{0};
+
+  // Flushing buffer should be a higher priority
+  utils::RWLock flush_lock_{RWLock::Priority::WRITE};
 };
 
 }  // namespace utils
