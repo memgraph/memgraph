@@ -1617,6 +1617,8 @@ void Storage::FinalizeWalFile() {
       config_.durability.wal_file_size_kibibytes) {
     wal_file_ = std::nullopt;
     wal_unsynced_transactions_ = 0;
+  } else {
+    wal_file_->TryFlushing();
   }
 }
 

@@ -1056,7 +1056,7 @@ void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
 
 void WalFile::Sync() { wal_.Sync(); }
 
-uint64_t WalFile::GetSize() { return wal_.GetPosition(); }
+uint64_t WalFile::GetSize() { return wal_.GetSize(); }
 
 uint64_t WalFile::SequenceNumber() const { return seq_num_; }
 
@@ -1069,6 +1069,8 @@ void WalFile::UpdateStats(uint64_t timestamp) {
 void WalFile::DisableFlushing() { wal_.DisableFlushing(); }
 
 void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
+
+void WalFile::TryFlushing() { wal_.TryFlushing(); }
 
 std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const {
   return wal_.CurrentFileBuffer();

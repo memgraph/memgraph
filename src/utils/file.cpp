@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <shared_mutex>
 #include <type_traits>
 
 #include <glog/logging.h>
@@ -353,14 +354,19 @@ const std::filesystem::path &OutputFile::path() const { return path_; }
 void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     FlushBuffer(false);
-    const size_t buffer_position = buffer_position_.load();
-    auto buffer_left = kFileBufferSize - buffer_position;
-    auto to_write = size < buffer_left ? size : buffer_left;
-    memcpy(buffer_ + buffer_position, data, to_write);
-    size -= to_write;
-    data += to_write;
-    buffer_position_.fetch_add(to_write);
-    written_since_last_sync_ += to_write;
+    {
+      // Reading thread can call DisableFlushing which triggers
+      // TryFlushing
+      std::shared_lock flush_guard(flush_lock_);
+      const size_t buffer_position = buffer_position_.load();
+      auto buffer_left = kFileBufferSize - buffer_position;
+      auto to_write = size < buffer_left ? size : buffer_left;
+      memcpy(buffer_ + buffer_position, data, to_write);
+      size -= to_write;
+      data += to_write;
+      buffer_position_.fetch_add(to_write);
+      written_since_last_sync_ += to_write;
+    }
   }
 }
 
@@ -504,13 +510,18 @@ void OutputFile::FlushBuffer(bool force_flush) {
   if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
+  FlushBuffer();
+}
 
+void OutputFile::FlushBuffer() {
   CHECK(buffer_position_ <= kFileBufferSize)
       << "While trying to write to " << path_
       << " more file was written to the buffer than the buffer has space!";
 
   auto *buffer = buffer_;
-  while (buffer_position_ > 0) {
+  auto buffer_position = buffer_position_.load();
+  // TODO (antonio2368): This can overflow
+  while (buffer_position > 0) {
     auto written = write(fd_, buffer, buffer_position_);
     if (written == -1 && errno == EINTR) {
       continue;
@@ -523,17 +534,35 @@ void OutputFile::FlushBuffer(bool force_flush) {
         << " bytes of data were lost from this call and possibly "
         << written_since_last_sync_ << " bytes were lost from previous calls.";
 
-    buffer_position_ -= written;
+    buffer_position -= written;
     buffer += written;
   }
+
+  buffer_position_.store(buffer_position);
 }
 
-void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
+void OutputFile::DisableFlushing() {
+  flush_lock_.lock_shared();
+  TryFlushing();
+}
 
 void OutputFile::EnableFlushing() { flush_lock_.unlock_shared(); }
 
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
   return {buffer_, buffer_position_.load()};
+}
+
+size_t OutputFile::GetSize() const {
+  struct stat st;
+  fstat(fd_, &st);
+  return st.st_size + buffer_position_.load();
+}
+
+void OutputFile::TryFlushing() {
+  if (std::unique_lock guard(flush_lock_, std::try_to_lock);
+      guard.owns_lock()) {
+    FlushBuffer();
+  }
 }
 
 }  // namespace utils

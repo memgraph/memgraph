@@ -227,10 +227,15 @@ class OutputFile {
 
   void EnableFlushing();
 
+  void TryFlushing();
+
   std::pair<const uint8_t *, size_t> CurrentBuffer() const;
+
+  size_t GetSize() const;
 
  private:
   void FlushBuffer(bool force_flush);
+  void FlushBuffer();
 
   int fd_{-1};
   size_t written_since_last_sync_{0};

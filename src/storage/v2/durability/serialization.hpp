@@ -53,7 +53,10 @@ class Encoder final : public BaseEncoder {
 
   void DisableFlushing();
   void EnableFlushing();
+  void TryFlushing();
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
+
+  size_t GetSize() const;
 
  private:
   utils::OutputFile file_;
