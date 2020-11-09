@@ -1,6 +1,8 @@
+#include <chrono>
 #include <fstream>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -282,4 +284,67 @@ TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
     handle.Open(storage / "existing_dir_777" / "existing_file_777",
                 utils::OutputFile::Mode::APPEND_TO_EXISTING);
   }
+}
+
+TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
+  utils::OutputFile handle;
+  handle.Open(storage / "existing_dir_777" / "existing_file_777",
+              utils::OutputFile::Mode::OVERWRITE_EXISTING);
+
+  std::thread writer_thread([&] {
+    constexpr size_t number_of_writes = 1'000'000;
+    uint8_t current_number = 0;
+    for (size_t i = 0; i < number_of_writes; ++i) {
+      handle.Write(&current_number, 1);
+      ++current_number;
+      handle.TryFlushing();
+    }
+  });
+
+  constexpr size_t reader_threads_num = 7;
+  std::vector<std::thread> reader_threads(reader_threads_num);
+  for (size_t i = 0; i < reader_threads_num; ++i) {
+    reader_threads.emplace_back([&] {
+      constexpr size_t number_of_reads = 200;
+      for (size_t i = 0; i < number_of_reads; ++i) {
+        handle.DisableFlushing();
+
+        auto [buffer, buffer_size] = handle.CurrentBuffer();
+        utils::InputFile input_handle;
+        // Read the file
+        std::optional<uint8_t> previous_number;
+        uint8_t current_number;
+        while (input_handle.Read(&current_number, 1)) {
+          if (previous_number) {
+            const uint8_t expected_next = *previous_number + 1;
+            ASSERT_TRUE(*buffer == expected_next);
+          }
+          previous_number = current_number;
+        }
+        // Read the buffer
+        while (buffer_size > 0) {
+          if (previous_number) {
+            const uint8_t expected_next = *previous_number + 1;
+            ASSERT_TRUE(*buffer == expected_next);
+          }
+          previous_number = *buffer;
+          ++buffer;
+          --buffer_size;
+        }
+        handle.EnableFlushing();
+        input_handle.Close();
+      }
+    });
+  }
+
+  if (writer_thread.joinable()) {
+    writer_thread.join();
+  }
+  for (auto &reader_thread : reader_threads) {
+    if (reader_thread.joinable()) {
+      reader_thread.join();
+    }
+  }
+
+  handle.Close();
 }
