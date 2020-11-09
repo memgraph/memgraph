@@ -4,6 +4,8 @@ set(storage_v2_src_files
     durability/serialization.cpp
     durability/snapshot.cpp
     durability/wal.cpp
+    replication/replication.cpp
+    replication/serialization.cpp
     edge_accessor.cpp
     indices.cpp
     property_store.cpp

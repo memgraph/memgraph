@@ -355,8 +355,10 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     FlushBuffer(false);
     {
-      // Reading thread can call DisableFlushing which triggers
-      // TryFlushing
+      // Reading thread can call EnableFlushing which triggers
+      // TryFlushing.
+      // We can't use a single shared lock for the entire Write
+      // because FlushBuffer acquires the unique_lock.
       std::shared_lock flush_guard(flush_lock_);
       const size_t buffer_position = buffer_position_.load();
       auto buffer_left = kFileBufferSize - buffer_position;
@@ -510,10 +512,10 @@ void OutputFile::FlushBuffer(bool force_flush) {
   if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
-  FlushBuffer();
+  FlushBufferInternal();
 }
 
-void OutputFile::FlushBuffer() {
+void OutputFile::FlushBufferInternal() {
   CHECK(buffer_position_ <= kFileBufferSize)
       << "While trying to write to " << path_
       << " more file was written to the buffer than the buffer has space!";
@@ -541,12 +543,12 @@ void OutputFile::FlushBuffer() {
   buffer_position_.store(buffer_position);
 }
 
-void OutputFile::DisableFlushing() {
-  flush_lock_.lock_shared();
+void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
+
+void OutputFile::EnableFlushing() {
+  flush_lock_.unlock_shared();
   TryFlushing();
 }
-
-void OutputFile::EnableFlushing() { flush_lock_.unlock_shared(); }
 
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
   return {buffer_, buffer_position_.load()};
@@ -561,7 +563,7 @@ size_t OutputFile::GetSize() const {
 void OutputFile::TryFlushing() {
   if (std::unique_lock guard(flush_lock_, std::try_to_lock);
       guard.owns_lock()) {
-    FlushBuffer();
+    FlushBufferInternal();
   }
 }
 

@@ -50,7 +50,6 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
       << ". Please start the process as user " << user_directory << "!";
 }
 
-// Return array of all discovered snapshots
 std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     const std::string_view uuid) {
@@ -91,11 +90,10 @@ GetWalFiles(const std::filesystem::path &wal_directory,
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if ((!uuid.empty() && info.uuid != uuid) ||
-          (current_seq_num && info.seq_num >= current_seq_num))
-        continue;
-      wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                             info.to_timestamp, item.path());
+      if ((uuid.empty() || info.uuid == uuid) &&
+          (!current_seq_num || info.seq_num < current_seq_num))
+        wal_files.emplace_back(info.seq_num, info.from_timestamp,
+                               info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       continue;
     }

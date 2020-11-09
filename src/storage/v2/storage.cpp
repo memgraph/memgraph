@@ -14,6 +14,7 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/file.hpp"
@@ -1618,6 +1619,10 @@ void Storage::FinalizeWalFile() {
     wal_file_ = std::nullopt;
     wal_unsynced_transactions_ = 0;
   } else {
+    // Try writing the internal buffer if possible, if not
+    // the data should be written as soon as it's possible
+    // (triggered by the new transaction commit, or some
+    // reading thread EnabledFlushing)
     wal_file_->TryFlushing();
   }
 }
@@ -2285,9 +2290,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
               *maybe_snapshot_path, &vertices_, &edges_, &name_id_mapper_,
               &edge_count_, config_.items);
           DLOG(INFO) << "Snapshot loaded successfully";
-          // TODO (antonio2368): How to handle WAL uuids? How do we know
-          // if the WAL received is the extension of a snapshot or the
-          // first recovery file
+          // If this step is present it should always be the first step of
+          // the recovery so we use the UUID we read from snasphost
           uuid_ = recovered_snapshot.snapshot_info.uuid;
           const auto &recovery_info = recovered_snapshot.recovery_info;
           vertex_id_ = recovery_info.next_vertex_id;
@@ -2333,6 +2337,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           // increase by running read queries so define variable that will keep
           // last received timestamp
           try {
+            auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
+            if (wal_info.seq_num == 0) {
+              uuid_ = wal_info.uuid;
+            }
             auto info = durability::LoadWal(
                 *maybe_wal_path, &indices_constraints, timestamp_, &vertices_,
                 &edges_, &name_id_mapper_, &edge_count_, config_.items);
@@ -2341,7 +2349,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             timestamp_ = std::max(timestamp_, info.next_timestamp);
             DLOG(INFO) << *maybe_wal_path << " loaded successfully";
           } catch (const durability::RecoveryFailure &e) {
-            // TODO (antonio2368): What to do if the sent WAL is invalid
             LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
                        << " because of: " << e.what();
           }
@@ -2375,12 +2382,12 @@ void Storage::RegisterReplica(std::string name,
   });
 
   // Recovery
-  auto locker = file_retainer_.AddLocker();
+  auto recovery_locker = file_retainer_.AddLocker();
   std::optional<std::filesystem::path> snapshot_file;
   std::vector<std::filesystem::path> wal_files;
   std::optional<uint64_t> latest_seq_num;
   {
-    auto acc = locker.Access();
+    auto recovery_locker_acc = recovery_locker.Access();
     // For now we assume we need to send the latest snapshot
     auto snapshot_files =
         durability::GetSnapshotFiles(snapshot_directory_, uuid_);
@@ -2391,7 +2398,7 @@ void Storage::RegisterReplica(std::string name,
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
       snapshot_file.emplace(std::move(snapshot_files.back().first));
-      acc.AddFile(*snapshot_file);
+      recovery_locker_acc.AddFile(*snapshot_file);
     }
 
     {
@@ -2418,7 +2425,7 @@ void Storage::RegisterReplica(std::string name,
       }
       previous_seq_num = seq_num;
       wal_files.push_back(path);
-      acc.AddFile(path);
+      recovery_locker_acc.AddFile(path);
     }
   }
 
@@ -2434,15 +2441,12 @@ void Storage::RegisterReplica(std::string name,
 
   // We have a current WAL
   if (latest_seq_num) {
-    DLOG(INFO) << "Current WAL present";
     auto stream = client.TransferCurrentWalFile();
-    // TODO (antonio2368): Maybe rename the file to the finalized form
     stream.AppendFilename(wal_file_->Path().filename());
     utils::InputFile file;
     CHECK(file.Open(wal_file_->Path())) << "Failed to open current WAL file!";
     const auto [buffer, buffer_size] = wal_file_->CurrentFileBuffer();
     stream.AppendSize(file.GetSize() + buffer_size);
-    DLOG(INFO) << "Buffer size: " << buffer_size;
     stream.AppendFileData(&file);
     stream.AppendBufferData(buffer, buffer_size);
     stream.Finalize();

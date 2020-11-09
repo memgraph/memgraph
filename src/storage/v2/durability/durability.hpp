@@ -24,12 +24,26 @@ namespace storage::durability {
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     const std::filesystem::path &storage_directory);
 
-/// Get list of snapshot files with their UUID
+/// Get list of snapshot files with their UUID.
+/// @param snapshot_directory Directory containing the Snapshot files.
+/// @param uuid UUID of the Snapshot files. If not empty, fetch only Snapshot
+/// file with the specified UUID. Otherwise, fetch only Snapshot files in the
+/// snapshot_directory.
+/// @return List of snapshot files defined with its path and UUID.
 std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     std::string_view uuid = "");
 
 /// Get list of WAL files ordered by the sequence number
+/// @param wal_directory Directory containing the WAL files.
+/// @param uuid UUID of the WAL files. If not empty, fetch only WAL files
+/// with the specified UUID. Otherwise, fetch all WAL files in the
+/// wal_directory.
+/// @param current_seq_num Sequence number of the WAL file which is currently
+/// being written. If specified, load only finalized WAL files, i.e. WAL files
+/// with seq_num < current_seq_num.
+/// @return List of WAL files. Each WAL file is defined with its sequence
+/// number, from timestamp, to timestamp and path.
 std::optional<std::vector<
     std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
 GetWalFiles(const std::filesystem::path &wal_directory,

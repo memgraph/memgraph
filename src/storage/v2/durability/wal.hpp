@@ -183,11 +183,16 @@ class WalFile {
 
   uint64_t SequenceNumber() const;
 
+  // Disable flushing of the internal buffer.
   void DisableFlushing();
+  // Enable flushing of the internal buffer.
   void EnableFlushing();
+  // Try flushing the internal buffer.
   void TryFlushing();
+  // Get the internal buffer with its size.
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
+  // Get the path of the current WAL file.
   const auto &Path() const { return path_; }
 
  private:

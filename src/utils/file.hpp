@@ -155,7 +155,11 @@ class InputFile {
 /// written to permanent storage.
 ///
 /// This class *isn't* thread safe. It is implemented as a wrapper around low
-/// level system calls used for file manipulation.
+/// level system calls used for file manipulation. It allows concurrent
+/// READING of the file that is being written. To read the file, disable the
+/// flushing of the internal buffer using `DisableFlushing`. Don't forget to
+/// enable flushing again after you're done with reading using the
+/// 'EnableFlushing' method!
 class OutputFile {
  public:
   enum class Mode {
@@ -223,19 +227,26 @@ class OutputFile {
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
 
+  /// Disable flushing of the internal buffer.
   void DisableFlushing();
 
+  /// Enable flushing of the internal buffer.
+  /// Before the flushing is enabled, the internal buffer
+  /// is flushed.
   void EnableFlushing();
 
+  /// Try flushing the internal buffer.
   void TryFlushing();
 
+  /// Get the internal buffer with its current size.
   std::pair<const uint8_t *, size_t> CurrentBuffer() const;
 
+  /// Get the size of the file.
   size_t GetSize() const;
 
  private:
   void FlushBuffer(bool force_flush);
-  void FlushBuffer();
+  void FlushBufferInternal();
 
   int fd_{-1};
   size_t written_since_last_sync_{0};
