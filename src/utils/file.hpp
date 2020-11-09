@@ -242,11 +242,13 @@ class OutputFile {
   std::pair<const uint8_t *, size_t> CurrentBuffer() const;
 
   /// Get the size of the file.
-  size_t GetSize() const;
+  size_t GetSize();
 
  private:
   void FlushBuffer(bool force_flush);
   void FlushBufferInternal();
+
+  size_t SeekFile(Position position, ssize_t offset);
 
   int fd_{-1};
   size_t written_since_last_sync_{0};

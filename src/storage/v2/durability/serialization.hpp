@@ -61,7 +61,7 @@ class Encoder final : public BaseEncoder {
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
   // Get the total size of the current file.
-  size_t GetSize() const;
+  size_t GetSize();
 
  private:
   utils::OutputFile file_;

@@ -379,13 +379,7 @@ void OutputFile::Write(const std::string_view &data) {
   Write(data.data(), data.size());
 }
 
-size_t OutputFile::GetPosition() {
-  return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
-}
-
-size_t OutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer(true);
-
+size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence;
   switch (position) {
     case Position::SET:
@@ -408,6 +402,15 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
                     << errno << ").";
     return pos;
   }
+}
+
+size_t OutputFile::GetPosition() {
+  return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
+}
+
+size_t OutputFile::SetPosition(Position position, ssize_t offset) {
+  FlushBuffer(true);
+  return SeekFile(position, offset);
 }
 
 bool OutputFile::AcquireLock() {
@@ -554,10 +557,13 @@ std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
   return {buffer_, buffer_position_.load()};
 }
 
-size_t OutputFile::GetSize() const {
-  struct stat st;
-  fstat(fd_, &st);
-  return st.st_size + buffer_position_.load();
+size_t OutputFile::GetSize() {
+  // There's an alternative way of fetching the files size using fstat.
+  // lseek should be faster for smaller number of clients while fstat
+  // should have an advantage for high number of clients.
+  // For now, lseek should be good enough. If at any point this proves to
+  // be a bottleneck, fstat should be considered.
+  return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_.load();
 }
 
 void OutputFile::TryFlushing() {

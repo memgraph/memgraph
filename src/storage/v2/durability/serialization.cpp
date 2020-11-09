@@ -129,7 +129,7 @@ std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const {
   return file_.CurrentBuffer();
 }
 
-size_t Encoder::GetSize() const { return file_.GetSize(); }
+size_t Encoder::GetSize() { return file_.GetSize(); }
 
 //////////////////////////
 // Decoder implementation.
