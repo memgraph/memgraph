@@ -293,9 +293,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   utils::OutputFile handle;
   handle.Open(file_path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
-  std::random_device r;
-
-  std::default_random_engine engine(r());
+  std::default_random_engine engine(586478780);
   std::uniform_int_distribution<int> random_short_wait(1, 10);
 
   const auto sleep_for = [&](int milliseconds) {
@@ -309,7 +307,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
       handle.Write(&current_number, 1);
       ++current_number;
       handle.TryFlushing();
-      sleep_for(random_short_wait(r));
+      sleep_for(random_short_wait(engine));
     }
   });
 
@@ -356,7 +354,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
             read_counts.push_back(total_read_count);
           });
         }
-        sleep_for(random_short_wait(r));
+        sleep_for(random_short_wait(engine));
       }
     });
   }
