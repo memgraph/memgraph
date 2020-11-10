@@ -95,6 +95,7 @@ GetWalFiles(const std::filesystem::path &wal_directory,
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
                                info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
+      DLOG(WARNING) << "Failed to read " << item.path();
       continue;
     }
   }

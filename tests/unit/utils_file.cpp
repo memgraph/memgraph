@@ -9,7 +9,9 @@
 #include <gtest/gtest.h>
 
 #include "utils/file.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 
 namespace fs = std::filesystem;
 
@@ -287,39 +289,52 @@ TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
 }
 
 TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
+  const auto file_path = storage / "existing_dir_777" / "existing_file_777";
   utils::OutputFile handle;
-  handle.Open(storage / "existing_dir_777" / "existing_file_777",
-              utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  handle.Open(file_path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
+  std::random_device r;
+
+  std::default_random_engine engine(r());
+  std::uniform_int_distribution<int> random_short_wait(1, 10);
+
+  const auto sleep_for = [&](int milliseconds) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+  };
+
+  constexpr size_t number_of_writes = 500;
   std::thread writer_thread([&] {
-    constexpr size_t number_of_writes = 1'000'000;
     uint8_t current_number = 0;
     for (size_t i = 0; i < number_of_writes; ++i) {
       handle.Write(&current_number, 1);
       ++current_number;
       handle.TryFlushing();
+      sleep_for(random_short_wait(r));
     }
   });
 
   constexpr size_t reader_threads_num = 7;
   std::vector<std::thread> reader_threads(reader_threads_num);
+  utils::Synchronized<std::vector<size_t>, utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&] {
-      constexpr size_t number_of_reads = 200;
+      constexpr size_t number_of_reads = 500;
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
-
         auto [buffer, buffer_size] = handle.CurrentBuffer();
         utils::InputFile input_handle;
-        // Read the file
+        input_handle.Open(file_path);
         std::optional<uint8_t> previous_number;
+        size_t total_read_count = 0;
         uint8_t current_number;
+        // Read the file
         while (input_handle.Read(&current_number, 1)) {
           if (previous_number) {
             const uint8_t expected_next = *previous_number + 1;
-            ASSERT_TRUE(*buffer == expected_next);
+            ASSERT_TRUE(current_number == expected_next);
           }
           previous_number = current_number;
+          ++total_read_count;
         }
         // Read the buffer
         while (buffer_size > 0) {
@@ -330,9 +345,18 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
           previous_number = *buffer;
           ++buffer;
           --buffer_size;
+          ++total_read_count;
         }
         handle.EnableFlushing();
         input_handle.Close();
+        // Last read will always have the highest amount of
+        // bytes read.
+        if (i == number_of_reads - 1) {
+          max_read_counts.WithLock([&](auto &read_counts) {
+            read_counts.push_back(total_read_count);
+          });
+        }
+        sleep_for(random_short_wait(r));
       }
     });
   }
@@ -347,4 +371,10 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   }
 
   handle.Close();
+  // Check if any of the threads read the entire data.
+  ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
+    return std::any_of(
+        read_counts.cbegin(), read_counts.cend(),
+        [](const auto read_count) { return read_count == number_of_writes; });
+  }));
 }

@@ -293,7 +293,6 @@ OutputFile::OutputFile(OutputFile &&other) noexcept
       written_since_last_sync_(other.written_since_last_sync_),
       path_(std::move(other.path_)) {
   memcpy(buffer_, other.buffer_, kFileBufferSize);
-  // TODO (antonio2368): Memory ordering
   buffer_position_.store(other.buffer_position_.load());
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
@@ -306,7 +305,6 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   fd_ = other.fd_;
   written_since_last_sync_ = other.written_since_last_sync_;
   path_ = std::move(other.path_);
-  // TODO (antonio2368): Memory ordering
   buffer_position_ = other.buffer_position_.load();
   memcpy(buffer_, other.buffer_, kFileBufferSize);
 
