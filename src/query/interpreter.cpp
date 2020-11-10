@@ -1162,11 +1162,13 @@ void Interpreter::BeginTransaction() {
 void Interpreter::CommitTransaction() {
   const auto prepared_query = PrepareTransactionQuery("COMMIT");
   prepared_query.query_handler(nullptr, {});
+  query_executions_.clear();
 }
 
 void Interpreter::RollbackTransaction() {
   const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
   prepared_query.query_handler(nullptr, {});
+  query_executions_.clear();
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(

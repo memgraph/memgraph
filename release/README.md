@@ -23,12 +23,12 @@ scenarios:
 
 To release a new major.minor release of Memgraph you should execute the
 following steps:
-  1. Land all diffs that must be in the new release
-  2. Document all changes in `CHANGELOG.md` and land them
+  1. Merge all PRs that must be in the new release
+  2. Document all changes in `CHANGELOG.md` and merge them
   3. From the `master` branch, create a branch named `release/X.Y` and push it
      to `origin`
-  4. Create the release packages triggering a `mg-master-release-branch-test`
-     using branch `release/X.Y` on Apollo
+  4. Create the release packages triggering a `Release {{Operating System}}`
+     workflow using branch `release/X.Y` on Github Actions
   5. Enjoy
 
 To release a new patch release in an existing major.minor series you should
@@ -38,6 +38,6 @@ execute the following steps:
   3. Document all changes in `CHANGELOG.md` and commit them
   4. Edit the root `CMakeLists.txt` and set `MEMGRAPH_OVERRIDE_VERSION` to
      `X.Y.patch` and commit the change
-  5. Create the release packages triggering a `mg-master-release-branch-test`
-     using branch `release/X.Y` on Apollo
+  5. Create the release packages triggering a `Release {{Operating System}}`
+     workflow using branch `release/X.Y` on Github Actions
   6. Enjoy

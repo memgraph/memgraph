@@ -34,10 +34,11 @@ class Client {
             res_load)
         : self_(self),
           guard_(std::move(guard)),
-          req_builder_([&](const uint8_t *data, size_t size, bool have_more) {
-            if (!self_->client_->Write(data, size, have_more))
-              throw RpcFailedException(self_->endpoint_);
-          }),
+          req_builder_(
+              [self](const uint8_t *data, size_t size, bool have_more) {
+                if (!self->client_->Write(data, size, have_more))
+                  throw RpcFailedException(self->endpoint_);
+              }),
           res_load_(res_load) {}
 
    public:
