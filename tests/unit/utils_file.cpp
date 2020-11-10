@@ -316,7 +316,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   utils::Synchronized<std::vector<size_t>, utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&] {
-      constexpr size_t number_of_reads = 500;
+      constexpr size_t number_of_reads = 550;
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
         auto [buffer, buffer_size] = handle.CurrentBuffer();
