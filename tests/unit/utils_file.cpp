@@ -312,11 +312,14 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   });
 
   constexpr size_t reader_threads_num = 7;
+  // number_of_reads needs to be higher than number_of_writes
+  // so we maximize the chance of having at least one reading
+  // thread that will read all of the data.
+  constexpr size_t number_of_reads = 550;
   std::vector<std::thread> reader_threads(reader_threads_num);
   utils::Synchronized<std::vector<size_t>, utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&] {
-      constexpr size_t number_of_reads = 550;
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
         auto [buffer, buffer_size] = handle.CurrentBuffer();

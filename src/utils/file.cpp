@@ -523,7 +523,6 @@ void OutputFile::FlushBufferInternal() {
 
   auto *buffer = buffer_;
   auto buffer_position = buffer_position_.load();
-  // TODO (antonio2368): This can overflow
   while (buffer_position > 0) {
     auto written = write(fd_, buffer, buffer_position_);
     if (written == -1 && errno == EINTR) {
@@ -559,6 +558,8 @@ size_t OutputFile::GetSize() {
   // There's an alternative way of fetching the files size using fstat.
   // lseek should be faster for smaller number of clients while fstat
   // should have an advantage for high number of clients.
+  // The reason for this is the way those functions implement the
+  // support for multi-threading. While lseek uses locks, fstat is lockfree.
   // For now, lseek should be good enough. If at any point this proves to
   // be a bottleneck, fstat should be considered.
   return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_.load();
