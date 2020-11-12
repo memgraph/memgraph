@@ -52,13 +52,13 @@ Examples on how to create branches follow:
 
 ```
 git checkout master
-git checkout -b T0025-MG_fix-a-problem
+git checkout -b T0025-MG-fix-a-problem
 ...
 git checkout master
-git checkout -b E025-MG_huge-feature
+git checkout -b E025-MG-huge-feature
 ...
 git checkout E025-MG_huge-feature
-git checkout -b T0123-MG_add-feature-part
+git checkout -b T0123-MG-add-feature-part
 ```
 
 Note that a branch is created from the currently selected branch. So, if you
