@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -17,9 +18,7 @@ Graph::Graph(uint32_t n_nodes) : n_nodes_(n_nodes), total_w_(0) {
   std::iota(community_.begin(), community_.end(), 0);
 }
 
-uint32_t Graph::Size() const {
-  return n_nodes_;
-}
+uint32_t Graph::Size() const { return n_nodes_; }
 
 uint32_t Graph::Community(uint32_t node) const { return community_.at(node); }
 
@@ -63,20 +62,15 @@ uint32_t Graph::Degree(uint32_t node) const {
   return static_cast<uint32_t>(adj_list_.at(node).size());
 }
 
-double Graph::IncidentWeight(uint32_t node) const {
-  return inc_w_.at(node);
-}
+double Graph::IncidentWeight(uint32_t node) const { return inc_w_.at(node); }
 
-double Graph::TotalWeight() const {
-  return total_w_;
-}
+double Graph::TotalWeight() const { return total_w_; }
 
 double Graph::Modularity() const {
   double ret = 0;
   // Since all weights should be positive, this implies that our graph has
   // no edges.
-  if (total_w_ == 0)
-    return 0;
+  if (total_w_ == 0) return 0;
 
   std::unordered_map<uint32_t, double> weight_c;
   std::unordered_map<uint32_t, double> degree_c;
@@ -102,4 +96,4 @@ const std::vector<Neighbour> &Graph::Neighbours(uint32_t node) const {
   return adj_list_.at(node);
 }
 
-} // namespace comdata
+}  // namespace comdata
