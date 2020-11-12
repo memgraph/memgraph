@@ -13,10 +13,12 @@
 * [Ubuntu 20.04](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v2/toolchain-v2-binaries-ubuntu-20.04.tar.gz)
 
 2) Check and install required toolchain runtime dependencies by executing
-   (e.g., on Debian 10):
+   (e.g., on *Debian 10*):
 
-    ./environment/os/debian-10.sh check TOOLCHAIN_RUN_DEPS
-    ./environment/os/debian-10.sh install TOOLCHAIN_RUN_DEPS
+```bash
+./environment/os/debian-10.sh check TOOLCHAIN_RUN_DEPS
+./environment/os/debian-10.sh install TOOLCHAIN_RUN_DEPS
+```
 
 ## Toolchain Upgrade Procedure
 

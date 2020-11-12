@@ -10,9 +10,7 @@ on your machine before you can download the source code.
 On Debian systems, you can do it inside a terminal with the following
 command:
 
-    sudo apt-get install git
-
-On ArchLinux or Gentoo, you probably already know what to do.
+    apt install git
 
 After installing `git`, you are now ready to fetch your own copy of Memgraph
 source code. Run the following command:
@@ -39,7 +37,7 @@ Dependencies that are required by the codebase should be checked by running the
 
 If the script fails, dependencies installation scripts could be found under
 `environment/os/`. The directory contains dependencies management script for
-each supported operating system. E.g. if your system is Debian 10, run the
+each supported operating system. E.g. if your system is *Debian 10*, run the
 following to install all required build packages:
 
     ./environment/os/debian-10.sh install MEMGRAPH_BUILD_DEPS
