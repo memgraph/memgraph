@@ -10,6 +10,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/file.hpp"
 
 namespace storage::replication {
 
@@ -17,62 +18,73 @@ class ReplicationClient {
  public:
   ReplicationClient(std::string name, NameIdMapper *name_id_mapper,
                     Config::Items items, const io::network::Endpoint &endpoint,
-                    bool use_ssl)
-      : name_(std::move(name)),
-        name_id_mapper_(name_id_mapper),
-        items_(items),
-        rpc_context_(use_ssl),
-        rpc_client_(endpoint, &rpc_context_) {}
+                    bool use_ssl);
 
-  class Handler {
+  // Handler used for transfering the current transaction.
+  class TransactionHandler {
    private:
     friend class ReplicationClient;
-
-    /// @throw rpc::RpcFailedException
-    explicit Handler(ReplicationClient *self)
-        : self_(self), stream_(self_->rpc_client_.Stream<AppendDeltasRpc>()) {}
+    explicit TransactionHandler(ReplicationClient *self);
 
    public:
     /// @throw rpc::RpcFailedException
     void AppendDelta(const Delta &delta, const Vertex &vertex,
-                     uint64_t final_commit_timestamp) {
-      Encoder encoder(stream_.GetBuilder());
-      EncodeDelta(&encoder, self_->name_id_mapper_, self_->items_, delta,
-                  vertex, final_commit_timestamp);
-    }
+                     uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
     void AppendDelta(const Delta &delta, const Edge &edge,
-                     uint64_t final_commit_timestamp) {
-      Encoder encoder(stream_.GetBuilder());
-      EncodeDelta(&encoder, self_->name_id_mapper_, delta, edge,
-                  final_commit_timestamp);
-    }
+                     uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
-    void AppendTransactionEnd(uint64_t final_commit_timestamp) {
-      Encoder encoder(stream_.GetBuilder());
-      EncodeTransactionEnd(&encoder, final_commit_timestamp);
-    }
+    void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
     void AppendOperation(durability::StorageGlobalOperation operation,
                          LabelId label, const std::set<PropertyId> &properties,
-                         uint64_t timestamp) {
-      Encoder encoder(stream_.GetBuilder());
-      EncodeOperation(&encoder, self_->name_id_mapper_, operation, label,
-                      properties, timestamp);
-    }
+                         uint64_t timestamp);
 
     /// @throw rpc::RpcFailedException
-    void Finalize() { stream_.AwaitResponse(); }
+    void Finalize();
 
    private:
     ReplicationClient *self_;
     rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
   };
 
-  Handler ReplicateTransaction() { return Handler(this); }
+  TransactionHandler ReplicateTransaction() { return TransactionHandler(this); }
+
+  // Transfer the snapshot file.
+  // @param path Path of the snapshot file.
+  void TransferSnapshot(const std::filesystem::path &path);
+
+  // Handler for transfering the current WAL file whose data is
+  // contained in the internal buffer and the file.
+  class CurrentWalHandler {
+   private:
+    friend class ReplicationClient;
+    explicit CurrentWalHandler(ReplicationClient *self);
+
+   public:
+    void AppendFilename(const std::string &filename);
+
+    void AppendSize(size_t size);
+
+    void AppendFileData(utils::InputFile *file);
+
+    void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
+
+    /// @throw rpc::RpcFailedException
+    void Finalize();
+
+   private:
+    ReplicationClient *self_;
+    rpc::Client::StreamHandler<WalFilesRpc> stream_;
+  };
+
+  CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
+
+  // Transfer the WAL files
+  void TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 
   const auto &Name() const { return name_; }
 

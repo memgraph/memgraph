@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
-#include <variant>
 
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -19,6 +18,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -413,12 +413,12 @@ class Storage final {
     }
 
     std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-    rpc_context_.emplace<std::monostate>();
 
     if constexpr (state == ReplicationState::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
     } else if (state == ReplicationState::MAIN) {
-      rpc_context_.emplace<ReplicationClientList>();
+      // Main instance does not need replication server
+      replication_server_.reset();
     }
 
     replication_state_.store(state);
@@ -443,6 +443,8 @@ class Storage final {
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
                    const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
+
+  void CreateSnapshot();
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
@@ -521,6 +523,8 @@ class Storage final {
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
+  utils::FileRetainer file_retainer_;
+
   // Replication
 #ifdef MG_ENTERPRISE
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
@@ -543,18 +547,12 @@ class Storage final {
     }
   };
 
-  using ReplicationClientList = std::list<replication::ReplicationClient>;
-  // Monostate is used for explicitly calling the destructor of the current
-  // type
-  std::variant<ReplicationClientList, ReplicationServer, std::monostate>
-      rpc_context_;
+  using ReplicationClientList =
+      utils::Synchronized<std::list<replication::ReplicationClient>,
+                          utils::SpinLock>;
 
-  template <typename TRpcContext>
-  TRpcContext &GetRpcContext() {
-    auto *context = std::get_if<TRpcContext>(&rpc_context_);
-    CHECK(context) << "Wrong type set for the current replication state!";
-    return *context;
-  }
+  std::optional<ReplicationServer> replication_server_;
+  ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationState> replication_state_{ReplicationState::MAIN};
 #endif
