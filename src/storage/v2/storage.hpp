@@ -424,7 +424,9 @@ class Storage final {
     replication_state_.store(state);
   }
 
-  void RegisterReplica(std::string name, io::network::Endpoint endpoint);
+  void RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                       replication::ReplicationMode replication_mode =
+                           replication::ReplicationMode::SYNC);
   void UnregisterReplica(const std::string &name);
 #endif
 

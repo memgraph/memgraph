@@ -425,7 +425,6 @@ Storage::~Storage() {
 #ifdef MG_ENTERPRISE
   {
     // Clear replication data
-    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
     replication_server_.reset();
     replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
   }
@@ -1639,15 +1638,14 @@ void Storage::AppendToWal(const Transaction &transaction,
   // We need to keep this lock because handler takes a pointer to the client
   // from which it was created
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  std::list<replication::ReplicationClient::TransactionHandler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
-      try {
-        std::transform(
-            clients.begin(), clients.end(), std::back_inserter(streams),
-            [](auto &client) { return client.ReplicateTransaction(); });
-      } catch (const rpc::RpcFailedException &) {
-        LOG(FATAL) << "Couldn't replicate data!";
+      for (auto &client : clients) {
+        try {
+          client.StartTransactionReplication();
+        } catch (const rpc::RpcFailedException &) {
+          LOG(FATAL) << "Couldn't replicate data!";
+        }
       }
     });
   }
@@ -1670,9 +1668,13 @@ void Storage::AppendToWal(const Transaction &transaction,
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
 #ifdef MG_ENTERPRISE
         try {
-          for (auto &stream : streams) {
-            stream.AppendDelta(*delta, parent, final_commit_timestamp);
-          }
+          replication_clients_.WithLock([&](auto &clients) {
+            for (auto &client : clients) {
+              client.IfStreamingTransaction([&](auto &stream) {
+                stream.AppendDelta(*delta, parent, final_commit_timestamp);
+              });
+            }
+          });
         } catch (const rpc::RpcFailedException &) {
           LOG(FATAL) << "Couldn't replicate data!";
         }
@@ -1812,10 +1814,14 @@ void Storage::AppendToWal(const Transaction &transaction,
 
 #ifdef MG_ENTERPRISE
   try {
-    for (auto &stream : streams) {
-      stream.AppendTransactionEnd(final_commit_timestamp);
-      stream.Finalize();
-    }
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &client : clients) {
+        client.IfStreamingTransaction([&](auto &stream) {
+          stream.AppendTransactionEnd(final_commit_timestamp);
+        });
+        client.FinalizeTransactionReplication();
+      }
+    });
   } catch (const rpc::RpcFailedException &) {
     LOG(FATAL) << "Couldn't replicate data!";
   }
@@ -1832,18 +1838,20 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   {
     std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
     if (replication_state_.load() == ReplicationState::MAIN) {
-      replication_clients_.WithLock([&](auto &clients) {
-        for (auto &client : clients) {
-          auto stream = client.ReplicateTransaction();
-          try {
-            stream.AppendOperation(operation, label, properties,
-                                   final_commit_timestamp);
-            stream.Finalize();
-          } catch (const rpc::RpcFailedException &) {
-            LOG(FATAL) << "Couldn't replicate data!";
+      try {
+        replication_clients_.WithLock([&](auto &clients) {
+          for (auto &client : clients) {
+            client.StartTransactionReplication();
+            client.IfStreamingTransaction([&](auto &stream) {
+              stream.AppendOperation(operation, label, properties,
+                                     final_commit_timestamp);
+            });
+            client.FinalizeTransactionReplication();
           }
-        }
-      });
+        });
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
+      }
     }
   }
 #endif
@@ -2363,8 +2371,9 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_->rpc_server->Start();
 }
 
-void Storage::RegisterReplica(std::string name,
-                              io::network::Endpoint endpoint) {
+void Storage::RegisterReplica(
+    std::string name, io::network::Endpoint endpoint,
+    const replication::ReplicationMode replication_mode) {
   std::shared_lock guard(replication_lock_);
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can register a replica!";
@@ -2377,7 +2386,7 @@ void Storage::RegisterReplica(std::string name,
       throw utils::BasicException("Replica with a same name already exists!");
     }
     clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
-                         endpoint, false);
+                         endpoint, false, replication_mode);
     return clients.back();
   });
 

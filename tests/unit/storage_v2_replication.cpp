@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <storage/v2/property_value.hpp>
+#include <storage/v2/replication/replication.hpp>
 #include <storage/v2/storage.hpp>
 
 using testing::UnorderedElementsAre;
@@ -480,4 +481,58 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_FALSE(acc.Commit().HasError());
     }
   }
+}
+
+TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
+  storage::Storage main_store(
+      {.items = {.properties_on_edges = true},
+       .durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  storage::Storage replica_store_async(
+      {.items = {.properties_on_edges = true},
+       .durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  replica_store_async.SetReplicationState<storage::ReplicationState::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 20000});
+
+  main_store.RegisterReplica("REPLICA_ASYNC",
+                             io::network::Endpoint{"127.0.0.1", 20000},
+                             storage::replication::ReplicationMode::ASYNC);
+
+  constexpr size_t vertices_create_num = 10;
+  std::vector<storage::Gid> created_vertices;
+  for (size_t i = 0; i < vertices_create_num; ++i) {
+    auto acc = main_store.Access();
+    auto v = acc.CreateVertex();
+    created_vertices.push_back(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // Replica should have at least the first vertex
+  {
+    auto acc = replica_store_async.Access();
+    auto v = acc.FindVertex(created_vertices[0], storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  // Most of the later vertices should be skipped because
+  // asyn replica cannot keep up
+  ASSERT_FALSE(std::all_of(created_vertices.begin() + 1, created_vertices.end(),
+                           [&](const auto vertex_gid) {
+                             auto acc = replica_store_async.Access();
+                             auto v =
+                                 acc.FindVertex(vertex_gid, storage::View::OLD);
+                             const bool exists = v.has_value();
+                             EXPECT_FALSE(acc.Commit().HasError());
+                             return exists;
+                           }));
 }

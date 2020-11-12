@@ -7,12 +7,13 @@ ReplicationClient::ReplicationClient(std::string name,
                                      NameIdMapper *name_id_mapper,
                                      Config::Items items,
                                      const io::network::Endpoint &endpoint,
-                                     bool use_ssl)
+                                     bool use_ssl, const ReplicationMode mode)
     : name_(std::move(name)),
       name_id_mapper_(name_id_mapper),
       items_(items),
       rpc_context_(use_ssl),
-      rpc_client_(endpoint, &rpc_context_) {}
+      rpc_client_(endpoint, &rpc_context_),
+      mode_(mode) {}
 
 void ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
   auto stream{rpc_client_.Stream<SnapshotRpc>()};
@@ -32,6 +33,38 @@ void ReplicationClient::TransferWalFiles(
   }
 
   stream.AwaitResponse();
+}
+
+bool ReplicationClient::StartTransactionReplication() {
+  if (recovery_.load()) {
+    DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
+    return false;
+  }
+
+  if (in_progress_.test_and_set()) {
+    recovery_.store(true);
+    return false;
+  }
+
+  CHECK(!stream_);
+  stream_.emplace(TransactionHandler{this});
+  return true;
+}
+
+void ReplicationClient::IfStreamingTransaction(
+    const std::function<void(TransactionHandler &handler)> &callback) {
+  if (stream_) {
+    callback(*stream_);
+  }
+}
+
+void ReplicationClient::FinalizeTransactionReplication() {
+  if (mode_ == ReplicationMode::ASYNC) {
+    thread_pool_.AddTask(
+        [this] { this->FinalizeTransactionReplicationInternal(); });
+  } else {
+    FinalizeTransactionReplicationInternal();
+  }
 }
 
 ////// TransactionHandler //////
