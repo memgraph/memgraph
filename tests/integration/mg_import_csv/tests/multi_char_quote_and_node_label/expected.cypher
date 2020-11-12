@@ -1,9 +1,9 @@
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
-CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 0, `content`: "yes", `browser`: "Chrome", `id`: "0", `country`: "Croatia"});
-CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 1, `content`: "thanks", `browser`: "Chrome", `id`: "1", `country`: "United Kingdom"});
-CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 2, `content`: "LOL", `id`: "2", `country`: "Germany"});
-CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 3, `content`: "I see", `browser`: "Firefox", `id`: "3", `country`: "France"});
-CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 4, `content`: "fine", `browser`: "Internet Explorer", `id`: "4", `country`: "Italy"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 0, `content`: "yes", `browser`: "Chrome", `country`: "Croatia", `id`: "0"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 1, `content`: "thanks", `browser`: "Chrome", `country`: "United Kingdom", `id`: "1"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 2, `content`: "LOL", `country`: "Germany", `id`: "2"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 3, `content`: "I see", `browser`: "Firefox", `country`: "France", `id`: "3"});
+CREATE (:__mg_vertex__:`Message`:`Comment`:`First`:`Second` {__mg_id__: 4, `content`: "fine", `browser`: "Internet Explorer", `country`: "Italy", `id`: "4"});
 CREATE (:__mg_vertex__:`Forum`:`First`:`Second` {__mg_id__: 5, `title`: "General", `id`: "0"});
 CREATE (:__mg_vertex__:`Forum`:`First`:`Second` {__mg_id__: 6, `title`: "Support", `id`: "1"});
 CREATE (:__mg_vertex__:`Forum`:`First`:`Second` {__mg_id__: 7, `title`: "Music", `id`: "2"});

@@ -1,6 +1,7 @@
 #include "mg_procedure.h"
 
 #include <exception>
+#include <string>
 #include <unordered_map>
 
 #include "algorithms/algorithms.hpp"
@@ -109,7 +110,7 @@ std::optional<comdata::Graph> RunLouvain(
 }
 
 void communities(const mgp_list *args, const mgp_graph *graph,
-                        mgp_result *result, mgp_memory *memory) {
+                 mgp_result *result, mgp_memory *memory) {
   try {
     // Normalize vertex ids
     auto mem_to_louv_id = NormalizeVertexIds(graph, result, memory);
@@ -161,7 +162,7 @@ void communities(const mgp_list *args, const mgp_graph *graph,
 }
 
 void modularity(const mgp_list *args, const mgp_graph *graph,
-                       mgp_result *result, mgp_memory *memory) {
+                mgp_result *result, mgp_memory *memory) {
   try {
     // Normalize vertex ids
     auto mem_to_louv_id = NormalizeVertexIds(graph, result, memory);
@@ -172,7 +173,8 @@ void modularity(const mgp_list *args, const mgp_graph *graph,
     if (!louvain_graph) return;
 
     // Return graph modularity after Louvain
-    // TODO(ipaljak) - consider allowing the user to specify seed communities and
+    // TODO(ipaljak) - consider allowing the user to specify seed communities
+    // and
     //                 yield modularity values both before and after running
     //                 louvain.
     mgp_result_record *record = mgp_result_new_record(result);
@@ -203,7 +205,7 @@ void modularity(const mgp_list *args, const mgp_graph *graph,
   }
 }
 
-} // namespace
+}  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module,
                                struct mgp_memory *memory) {
@@ -215,7 +217,7 @@ extern "C" int mgp_init_module(struct mgp_module *module,
     return 1;
 
   struct mgp_proc *modularity_proc =
-    mgp_module_add_read_procedure(module, "modularity", modularity);
+      mgp_module_add_read_procedure(module, "modularity", modularity);
   if (!modularity_proc) return 1;
   if (!mgp_proc_add_result(modularity_proc, "modularity", mgp_type_float()))
     return 1;
@@ -223,6 +225,4 @@ extern "C" int mgp_init_module(struct mgp_module *module,
   return 0;
 }
 
-extern "C" int mgp_shutdown_module() {
-  return 0;
-}
+extern "C" int mgp_shutdown_module() { return 0; }
