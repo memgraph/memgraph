@@ -1,15 +1,14 @@
 #>cpp
 #pragma once
 
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 cpp<#
-
-;; TODO(mferencevic): Change namespace to `storage::replication` once LCP is
+;; TODO(antonio2368): Change namespace to `storage::replication` once LCP is
 ;; updated to support such namespaces.
 (lcp:namespace storage)
 
@@ -25,6 +24,18 @@ cpp<#
   (:request
     ((leader-id :uint16_t)
      (term :uint64_t)))
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
+(lcp:define-rpc snapshot
+  (:request ())
+  (:response
+    ((success :bool)
+     (term :uint64_t))))
+
+(lcp:define-rpc wal-files
+  (:request ())
   (:response
     ((success :bool)
      (term :uint64_t))))
