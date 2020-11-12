@@ -79,7 +79,7 @@ class Synchronized {
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
-  auto WithLock(TCallable &&callable) {
+  decltype(auto) WithLock(TCallable &&callable) {
     return callable(*Lock());
   }
 

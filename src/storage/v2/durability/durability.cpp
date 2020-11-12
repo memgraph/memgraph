@@ -50,6 +50,99 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
       << ". Please start the process as user " << user_directory << "!";
 }
 
+std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+    const std::filesystem::path &snapshot_directory,
+    const std::string_view uuid) {
+  std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
+  std::error_code error_code;
+  if (utils::DirExists(snapshot_directory)) {
+    for (const auto &item :
+         std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+      if (!item.is_regular_file()) continue;
+      try {
+        auto info = ReadSnapshotInfo(item.path());
+        if (uuid.empty() || info.uuid == uuid) {
+          snapshot_files.emplace_back(item.path(), info.uuid);
+        }
+      } catch (const RecoveryFailure &) {
+        continue;
+      }
+    }
+    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                       << error_code.message() << "!";
+  }
+
+  return snapshot_files;
+}
+
+std::optional<std::vector<
+    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
+GetWalFiles(const std::filesystem::path &wal_directory,
+            const std::string_view uuid,
+            const std::optional<size_t> current_seq_num) {
+  if (!utils::DirExists(wal_directory)) return std::nullopt;
+
+  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
+      wal_files;
+  std::error_code error_code;
+  for (const auto &item :
+       std::filesystem::directory_iterator(wal_directory, error_code)) {
+    if (!item.is_regular_file()) continue;
+    try {
+      auto info = ReadWalInfo(item.path());
+      if ((uuid.empty() || info.uuid == uuid) &&
+          (!current_seq_num || info.seq_num < current_seq_num))
+        wal_files.emplace_back(info.seq_num, info.from_timestamp,
+                               info.to_timestamp, item.path());
+    } catch (const RecoveryFailure &e) {
+      DLOG(WARNING) << "Failed to read " << item.path();
+      continue;
+    }
+  }
+  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
+                     << error_code.message() << "!";
+  std::sort(wal_files.begin(), wal_files.end());
+  return std::move(wal_files);
+}
+
+// Function used to recover all discovered indices and constraints. The
+// indices and constraints must be recovered after the data recovery is done
+// to ensure that the indices and constraints are consistent at the end of the
+// recovery process.
+void RecoverIndicesAndConstraints(
+    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
+    Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+  // Recover label indices.
+  for (const auto &item : indices_constraints.indices.label) {
+    if (!indices->label_index.CreateIndex(item, vertices->access()))
+      throw RecoveryFailure("The label index must be created here!");
+  }
+
+  // Recover label+property indices.
+  for (const auto &item : indices_constraints.indices.label_property) {
+    if (!indices->label_property_index.CreateIndex(item.first, item.second,
+                                                   vertices->access()))
+      throw RecoveryFailure("The label+property index must be created here!");
+  }
+
+  // Recover existence constraints.
+  for (const auto &item : indices_constraints.constraints.existence) {
+    auto ret = CreateExistenceConstraint(constraints, item.first, item.second,
+                                         vertices->access());
+    if (ret.HasError() || !ret.GetValue())
+      throw RecoveryFailure("The existence constraint must be created here!");
+  }
+
+  // Recover unique constraints.
+  for (const auto &item : indices_constraints.constraints.unique) {
+    auto ret = constraints->unique_constraints.CreateConstraint(
+        item.first, item.second, vertices->access());
+    if (ret.HasError() ||
+        ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+      throw RecoveryFailure("The unique constraint must be created here!");
+  }
+}
+
 std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
@@ -60,64 +153,13 @@ std::optional<RecoveryInfo> RecoverData(
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory))
     return std::nullopt;
 
-  // Helper lambda used to recover all discovered indices and constraints. The
-  // indices and constraints must be recovered after the data recovery is done
-  // to ensure that the indices and constraints are consistent at the end of the
-  // recovery process.
-  auto recover_indices_and_constraints = [&](const auto &indices_constraints) {
-    // Recover label indices.
-    for (const auto &item : indices_constraints.indices.label) {
-      if (!indices->label_index.CreateIndex(item, vertices->access()))
-        throw RecoveryFailure("The label index must be created here!");
-    }
-
-    // Recover label+property indices.
-    for (const auto &item : indices_constraints.indices.label_property) {
-      if (!indices->label_property_index.CreateIndex(item.first, item.second,
-                                                     vertices->access()))
-        throw RecoveryFailure("The label+property index must be created here!");
-    }
-
-    // Recover existence constraints.
-    for (const auto &item : indices_constraints.constraints.existence) {
-      auto ret = CreateExistenceConstraint(constraints, item.first, item.second,
-                                           vertices->access());
-      if (ret.HasError() || !ret.GetValue())
-        throw RecoveryFailure("The existence constraint must be created here!");
-    }
-
-    // Recover unique constraints.
-    for (const auto &item : indices_constraints.constraints.unique) {
-      auto ret = constraints->unique_constraints.CreateConstraint(
-          item.first, item.second, vertices->access());
-      if (ret.HasError() ||
-          ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
-        throw RecoveryFailure("The unique constraint must be created here!");
-    }
-  };
-
-  // Array of all discovered snapshots, ordered by name.
-  std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
-  std::error_code error_code;
-  if (utils::DirExists(snapshot_directory)) {
-    for (const auto &item :
-         std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      try {
-        auto info = ReadSnapshotInfo(item.path());
-        snapshot_files.emplace_back(item.path(), info.uuid);
-      } catch (const RecoveryFailure &) {
-        continue;
-      }
-    }
-    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                       << error_code.message() << "!";
-  }
+  auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
+    // Order the files by name
     std::sort(snapshot_files.begin(), snapshot_files.end());
     // UUID used for durability is the UUID of the last snapshot file.
     *uuid = snapshot_files.back().second;
@@ -149,10 +191,12 @@ std::optional<RecoveryInfo> RecoverData(
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     if (!utils::DirExists(wal_directory)) {
-      recover_indices_and_constraints(indices_constraints);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
+                                   vertices);
       return recovered_snapshot->recovery_info;
     }
   } else {
+    std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
     // Array of all discovered WAL files, ordered by name.
     std::vector<std::pair<std::filesystem::path, std::string>> wal_files;
@@ -174,23 +218,12 @@ std::optional<RecoveryInfo> RecoverData(
     *uuid = wal_files.back().second;
   }
 
+  auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
+  if (!maybe_wal_files) return std::nullopt;
+
   // Array of all discovered WAL files, ordered by sequence number.
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
-      wal_files;
-  for (const auto &item :
-       std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!item.is_regular_file()) continue;
-    try {
-      auto info = ReadWalInfo(item.path());
-      if (info.uuid != *uuid) continue;
-      wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                             info.to_timestamp, item.path());
-    } catch (const RecoveryFailure &e) {
-      continue;
-    }
-  }
-  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                     << error_code.message() << "!";
+  auto &wal_files = *maybe_wal_files;
+
   // By this point we should have recovered from a snapshot, or we should have
   // found some WAL files to recover from in the above `else`. This is just a
   // sanity check to circumvent the following case: The database didn't recover
@@ -250,7 +283,8 @@ std::optional<RecoveryInfo> RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
   }
 
-  recover_indices_and_constraints(indices_constraints);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
+                               vertices);
   return recovery_info;
 }
 

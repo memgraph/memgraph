@@ -9,6 +9,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/file_locker.hpp"
 
 namespace storage::durability {
 
@@ -582,7 +583,8 @@ void CreateSnapshot(Transaction *transaction,
                     utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints,
-                    Config::Items items, const std::string &uuid) {
+                    Config::Items items, const std::string &uuid,
+                    utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -865,10 +867,7 @@ void CreateSnapshot(Transaction *transaction,
           old_snapshot_files.size() - (snapshot_retention_count - 1);
       for (size_t i = 0; i < num_to_erase; ++i) {
         const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
-        if (!utils::DeleteFile(snapshot_path)) {
-          LOG(WARNING) << "Couldn't delete snapshot file " << snapshot_path
-                       << "!";
-        }
+        file_retainer->DeleteFile(snapshot_path);
       }
       old_snapshot_files.erase(old_snapshot_files.begin(),
                                old_snapshot_files.begin() + num_to_erase);
