@@ -12,12 +12,24 @@
 * [Ubuntu 18.04](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v2/toolchain-v2-binaries-ubuntu-18.04.tar.gz)
 * [Ubuntu 20.04](https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v2/toolchain-v2-binaries-ubuntu-20.04.tar.gz)
 
-2) Check and install required toolchain runtime dependencies by executing
+2) Extract the toolchain with the following command:
+
+```bash
+tar xzvf {{toolchain-archive}}.tar.gz -C /opt
+```
+
+3) Check and install required toolchain runtime dependencies by executing
    (e.g., on **Debian 10**):
 
 ```bash
 ./environment/os/debian-10.sh check TOOLCHAIN_RUN_DEPS
 ./environment/os/debian-10.sh install TOOLCHAIN_RUN_DEPS
+```
+
+4) Activate the toolchain:
+
+```bash
+source /opt/toolchain-v2/activate
 ```
 
 ## Toolchain Upgrade Procedure
