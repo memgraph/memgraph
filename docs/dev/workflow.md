@@ -45,10 +45,10 @@ concurrency issues, which are the hardest to track down). Each commit on the
 master or epic branch should be a compilable and well-documented set of
 changes. Task branches should be created when a smaller work unit has to be
 integrated into the codebase. The task branch could be branched out of the
-master or an epic branch. We manage tasks on the project management tool called
-[Airtable](https://airtable.com/tblTUqycq8sHTTkBF). Each epic is prefixed by
-`Exyz-MG`; on the other hand, each task has `Tabcd-MG` prefix. Examples on how
-to create branches follow:
+master or an epic branch. We manage epics and tasks on the project management
+tool called [Airtable](https://airtable.com/tblTUqycq8sHTTkBF). Each epic is
+prefixed by `Exyz-MG`, on the other hand, each task has `Tabcd-MG` prefix.
+Examples on how to create branches follow:
 
 ```
 git checkout master
