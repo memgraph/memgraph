@@ -37,7 +37,7 @@ Dependencies that are required by the codebase should be checked by running the
 
 If the script fails, dependencies installation scripts could be found under
 `environment/os/`. The directory contains dependencies management script for
-each supported operating system. E.g. if your system is *Debian 10*, run the
+each supported operating system. E.g. if your system is **Debian 10**, run the
 following to install all required build packages:
 
     ./environment/os/debian-10.sh install MEMGRAPH_BUILD_DEPS
@@ -62,7 +62,7 @@ When you want to compile Memgraph you should activate the toolchain using the
 prepared toolchain activation script that is also described in the toolchain
 `README`.
 
-NOTE: You *must* activate the toolchain every time you want to compile
+NOTE: You **must** activate the toolchain every time you want to compile
 Memgraph!
 
 You should now activate the toolchain in your console.
