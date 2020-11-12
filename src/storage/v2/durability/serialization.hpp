@@ -51,6 +51,18 @@ class Encoder final : public BaseEncoder {
 
   void Finalize();
 
+  // Disable flushing of the internal buffer.
+  void DisableFlushing();
+  // Enable flushing of the internal buffer.
+  void EnableFlushing();
+  // Try flushing the internal buffer.
+  void TryFlushing();
+  // Get the current internal buffer with its size.
+  std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
+
+  // Get the total size of the current file.
+  size_t GetSize();
+
  private:
   utils::OutputFile file_;
 };

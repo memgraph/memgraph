@@ -11,9 +11,13 @@
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -394,23 +398,8 @@ Storage::Storage(Config config)
   }
   if (config_.durability.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run(
-        "Snapshot", config_.durability.snapshot_interval, [this] {
-          // Take master RW lock (for reading).
-          std::shared_lock<utils::RWLock> storage_guard(main_lock_);
-
-          // Create the transaction used to create the snapshot.
-          auto transaction = CreateTransaction();
-
-          // Create snapshot.
-          durability::CreateSnapshot(
-              &transaction, snapshot_directory_, wal_directory_,
-              config_.durability.snapshot_retention_count, &vertices_, &edges_,
-              &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
-
-          // Finalize snapshot transaction.
-          commit_log_.MarkFinished(transaction.start_timestamp);
-        });
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                         [this] { this->CreateSnapshot(); });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval,
@@ -435,8 +424,10 @@ Storage::~Storage() {
   }
 #ifdef MG_ENTERPRISE
   {
-    std::lock_guard<utils::RWLock> replication_guard(replication_lock_);
-    rpc_context_.emplace<std::monostate>();
+    // Clear replication data
+    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+    replication_server_.reset();
+    replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
   }
 #endif
   wal_file_ = std::nullopt;
@@ -445,20 +436,7 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    // Take master RW lock (for reading).
-    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
-
-    // Create the transaction used to create the snapshot.
-    auto transaction = CreateTransaction();
-
-    // Create snapshot.
-    durability::CreateSnapshot(
-        &transaction, snapshot_directory_, wal_directory_,
-        config_.durability.snapshot_retention_count, &vertices_, &edges_,
-        &name_id_mapper_, &indices_, &constraints_, config_.items, uuid_);
-
-    // Finalize snapshot transaction.
-    commit_log_.MarkFinished(transaction.start_timestamp);
+    CreateSnapshot();
   }
 }
 
@@ -1640,6 +1618,12 @@ void Storage::FinalizeWalFile() {
       config_.durability.wal_file_size_kibibytes) {
     wal_file_ = std::nullopt;
     wal_unsynced_transactions_ = 0;
+  } else {
+    // Try writing the internal buffer if possible, if not
+    // the data should be written as soon as it's possible
+    // (triggered by the new transaction commit, or some
+    // reading thread EnabledFlushing)
+    wal_file_->TryFlushing();
   }
 }
 
@@ -1655,17 +1639,17 @@ void Storage::AppendToWal(const Transaction &transaction,
   // We need to keep this lock because handler takes a pointer to the client
   // from which it was created
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  std::list<replication::ReplicationClient::Handler> streams;
+  std::list<replication::ReplicationClient::TransactionHandler> streams;
   if (replication_state_.load() == ReplicationState::MAIN) {
-    auto &replication_clients = GetRpcContext<ReplicationClientList>();
-    try {
-      std::transform(replication_clients.begin(), replication_clients.end(),
-                     std::back_inserter(streams), [](auto &client) {
-                       return client.ReplicateTransaction();
-                     });
-    } catch (const rpc::RpcFailedException &) {
-      LOG(FATAL) << "Couldn't replicate data!";
-    }
+    replication_clients_.WithLock([&](auto &clients) {
+      try {
+        std::transform(
+            clients.begin(), clients.end(), std::back_inserter(streams),
+            [](auto &client) { return client.ReplicateTransaction(); });
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
+      }
+    });
   }
 #endif
 
@@ -1845,43 +1829,67 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   wal_file_->AppendOperation(operation, label, properties,
                              final_commit_timestamp);
 #ifdef MG_ENTERPRISE
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  if (replication_state_.load() == ReplicationState::MAIN) {
-    auto &replication_clients = GetRpcContext<ReplicationClientList>();
-    for (auto &client : replication_clients) {
-      auto stream = client.ReplicateTransaction();
-      try {
-        stream.AppendOperation(operation, label, properties,
-                               final_commit_timestamp);
-        stream.Finalize();
-      } catch (const rpc::RpcFailedException &) {
-        LOG(FATAL) << "Couldn't replicate data!";
-      }
+  {
+    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+    if (replication_state_.load() == ReplicationState::MAIN) {
+      replication_clients_.WithLock([&](auto &clients) {
+        for (auto &client : clients) {
+          auto stream = client.ReplicateTransaction();
+          try {
+            stream.AppendOperation(operation, label, properties,
+                                   final_commit_timestamp);
+            stream.Finalize();
+          } catch (const rpc::RpcFailedException &) {
+            LOG(FATAL) << "Couldn't replicate data!";
+          }
+        }
+      });
     }
   }
-  replication_guard.unlock();
 #endif
   FinalizeWalFile();
 }
 
+void Storage::CreateSnapshot() {
+#ifdef MG_ENTERPRISE
+  if (replication_state_.load() != ReplicationState::MAIN) {
+    LOG(WARNING) << "Snapshots are disabled for replicas!";
+    return;
+  }
+#endif
+
+  // Take master RW lock (for reading).
+  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+
+  // Create the transaction used to create the snapshot.
+  auto transaction = CreateTransaction();
+
+  // Create snapshot.
+  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+                             config_.durability.snapshot_retention_count,
+                             &vertices_, &edges_, &name_id_mapper_, &indices_,
+                             &constraints_, config_.items, uuid_,
+                             &file_retainer_);
+
+  // Finalize snapshot transaction.
+  commit_log_.MarkFinished(transaction.start_timestamp);
+}
+
 #ifdef MG_ENTERPRISE
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
-  rpc_context_.emplace<ReplicationServer>();
-
-  auto &replication_server = GetRpcContext<ReplicationServer>();
+  replication_server_.emplace();
 
   // Create RPC server.
-  // TODO(mferencevic): Add support for SSL.
-  replication_server.rpc_server_context.emplace();
+  // TODO (antonio2368): Add support for SSL.
+  replication_server_->rpc_server_context.emplace();
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
   // simplifies the rest of the implementation.
-  // TODO(mferencevic): Make endpoint configurable.
-  replication_server.rpc_server.emplace(endpoint,
-                                        &*replication_server.rpc_server_context,
-                                        /* workers_count = */ 1);
-  replication_server.rpc_server->Register<
+  replication_server_->rpc_server.emplace(
+      endpoint, &*replication_server_->rpc_server_context,
+      /* workers_count = */ 1);
+  replication_server_->rpc_server->Register<
       AppendDeltasRpc>([this, endpoint = std::move(endpoint)](
                            auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
@@ -2251,36 +2259,209 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
     AppendDeltasRes res;
     slk::Save(res, res_builder);
   });
-  replication_server.rpc_server->Start();
+  replication_server_->rpc_server->Register<SnapshotRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received SnapshotRpc";
+        SnapshotReq req;
+        slk::Load(&req, req_reader);
+
+        replication::Decoder decoder(req_reader);
+
+        utils::EnsureDirOrDie(snapshot_directory_);
+
+        const auto maybe_snapshot_path = decoder.ReadFile(snapshot_directory_);
+        CHECK(maybe_snapshot_path) << "Failed to load snapshot!";
+        DLOG(INFO) << "Received snapshot saved to " << *maybe_snapshot_path;
+
+        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+        // Clear the database
+        vertices_.clear();
+        edges_.clear();
+
+        constraints_ = Constraints();
+        // TODO (antonio2368): Check if there's a less hacky way
+        indices_.label_index =
+            LabelIndex(&indices_, &constraints_, config_.items);
+        indices_.label_property_index =
+            LabelPropertyIndex(&indices_, &constraints_, config_.items);
+        try {
+          DLOG(INFO) << "Loading snapshot";
+          auto recovered_snapshot = durability::LoadSnapshot(
+              *maybe_snapshot_path, &vertices_, &edges_, &name_id_mapper_,
+              &edge_count_, config_.items);
+          DLOG(INFO) << "Snapshot loaded successfully";
+          // If this step is present it should always be the first step of
+          // the recovery so we use the UUID we read from snasphost
+          uuid_ = recovered_snapshot.snapshot_info.uuid;
+          const auto &recovery_info = recovered_snapshot.recovery_info;
+          vertex_id_ = recovery_info.next_vertex_id;
+          edge_id_ = recovery_info.next_edge_id;
+          timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+
+          durability::RecoverIndicesAndConstraints(
+              recovered_snapshot.indices_constraints, &indices_, &constraints_,
+              &vertices_);
+        } catch (const durability::RecoveryFailure &e) {
+          // TODO (antonio2368): What to do if the sent snapshot is invalid
+          LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
+        }
+        storage_guard.unlock();
+
+        SnapshotRes res;
+        slk::Save(res, res_builder);
+      });
+  replication_server_->rpc_server->Register<WalFilesRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received WalFilesRpc";
+        WalFilesReq req;
+        slk::Load(&req, req_reader);
+
+        replication::Decoder decoder(req_reader);
+
+        utils::EnsureDirOrDie(wal_directory_);
+
+        const auto maybe_wal_file_number = decoder.ReadUint();
+        CHECK(maybe_wal_file_number)
+            << "Failed to read number of received WAL files!";
+        const auto wal_file_number = *maybe_wal_file_number;
+
+        DLOG(INFO) << "Received WAL files: " << wal_file_number;
+
+        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+        durability::RecoveredIndicesAndConstraints indices_constraints;
+        for (auto i = 0; i < wal_file_number; ++i) {
+          const auto maybe_wal_path = decoder.ReadFile(wal_directory_);
+          CHECK(maybe_wal_path) << "Failed to load WAL!";
+          DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
+          // TODO (antonio2368): Use timestamp_ for now, but the timestamp_ can
+          // increase by running read queries so define variable that will keep
+          // last received timestamp
+          try {
+            auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
+            if (wal_info.seq_num == 0) {
+              uuid_ = wal_info.uuid;
+            }
+            auto info = durability::LoadWal(
+                *maybe_wal_path, &indices_constraints, timestamp_, &vertices_,
+                &edges_, &name_id_mapper_, &edge_count_, config_.items);
+            vertex_id_ = std::max(vertex_id_.load(), info.next_vertex_id);
+            edge_id_ = std::max(edge_id_.load(), info.next_edge_id);
+            timestamp_ = std::max(timestamp_, info.next_timestamp);
+            DLOG(INFO) << *maybe_wal_path << " loaded successfully";
+          } catch (const durability::RecoveryFailure &e) {
+            LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
+                       << " because of: " << e.what();
+          }
+        }
+        durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
+                                                 &constraints_, &vertices_);
+        storage_guard.unlock();
+
+        WalFilesRes res;
+        slk::Save(res, res_builder);
+      });
+  replication_server_->rpc_server->Start();
 }
 
 void Storage::RegisterReplica(std::string name,
                               io::network::Endpoint endpoint) {
-  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+  std::shared_lock guard(replication_lock_);
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can register a replica!";
-  auto &replication_clients = GetRpcContext<ReplicationClientList>();
 
-  // TODO (antonio2368): Check if it's okay to aquire first the shared lock
-  // and later on aquire the write lock only if it's necessary
-  // because here we wait for the write lock even though there exists
-  // a replica with a same name
-  if (std::any_of(replication_clients.begin(), replication_clients.end(),
-                  [&](auto &client) { return client.Name() == name; })) {
-    throw utils::BasicException("Replica with a same name already exists!");
+  // We can safely add new elements to the list because it doesn't validate
+  // existing references/iteratos
+  auto &client = replication_clients_.WithLock([&](auto &clients) -> auto & {
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&](auto &client) { return client.Name() == name; })) {
+      throw utils::BasicException("Replica with a same name already exists!");
+    }
+    clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
+                         endpoint, false);
+    return clients.back();
+  });
+
+  // Recovery
+  auto recovery_locker = file_retainer_.AddLocker();
+  std::optional<std::filesystem::path> snapshot_file;
+  std::vector<std::filesystem::path> wal_files;
+  std::optional<uint64_t> latest_seq_num;
+  {
+    auto recovery_locker_acc = recovery_locker.Access();
+    // For now we assume we need to send the latest snapshot
+    auto snapshot_files =
+        durability::GetSnapshotFiles(snapshot_directory_, uuid_);
+    if (!snapshot_files.empty()) {
+      std::sort(snapshot_files.begin(), snapshot_files.end());
+      // TODO (antonio2368): Send the last snapshot for now
+      // check if additional logic is necessary
+      // Also, prevent the deletion of the snapshot file and the required
+      // WALs
+      snapshot_file.emplace(std::move(snapshot_files.back().first));
+      recovery_locker_acc.AddFile(*snapshot_file);
+    }
+
+    {
+      // So the wal_file_ isn't overwritten
+      std::unique_lock engine_guard(engine_lock_);
+      if (wal_file_) {
+        // For now let's disable flushing until we send the current WAL
+        wal_file_->DisableFlushing();
+        latest_seq_num = wal_file_->SequenceNumber();
+      }
+    }
+
+    auto maybe_wal_files =
+        durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
+    CHECK(maybe_wal_files) << "Failed to find WAL files";
+    auto &wal_files_with_seq = *maybe_wal_files;
+
+    std::optional<uint64_t> previous_seq_num;
+    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+         wal_files_with_seq) {
+      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+        LOG(FATAL) << "You are missing a WAL file with the sequence number "
+                   << *previous_seq_num + 1 << "!";
+      }
+      previous_seq_num = seq_num;
+      wal_files.push_back(path);
+      recovery_locker_acc.AddFile(path);
+    }
   }
 
-  replication_clients.emplace_back(std::move(name), &name_id_mapper_,
-                                   config_.items, endpoint, false);
+  if (snapshot_file) {
+    DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
+    client.TransferSnapshot(*snapshot_file);
+  }
+
+  if (!wal_files.empty()) {
+    DLOG(INFO) << "Sending the latest wal files";
+    client.TransferWalFiles(wal_files);
+  }
+
+  // We have a current WAL
+  if (latest_seq_num) {
+    auto stream = client.TransferCurrentWalFile();
+    stream.AppendFilename(wal_file_->Path().filename());
+    utils::InputFile file;
+    CHECK(file.Open(wal_file_->Path())) << "Failed to open current WAL file!";
+    const auto [buffer, buffer_size] = wal_file_->CurrentFileBuffer();
+    stream.AppendSize(file.GetSize() + buffer_size);
+    stream.AppendFileData(&file);
+    stream.AppendBufferData(buffer, buffer_size);
+    stream.Finalize();
+    wal_file_->EnableFlushing();
+  }
 }
 
 void Storage::UnregisterReplica(const std::string &name) {
   std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_state_.load() == ReplicationState::MAIN)
       << "Only main instance can unregister a replica!";
-  auto &replication_clients = GetRpcContext<ReplicationClientList>();
-  replication_clients.remove_if(
-      [&](const auto &client) { return client.Name() == name; });
+  replication_clients_.WithLock([&](auto &clients) {
+    clients.remove_if(
+        [&](const auto &client) { return client.Name() == name; });
+  });
 }
 #endif
 

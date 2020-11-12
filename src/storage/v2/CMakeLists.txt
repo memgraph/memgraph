@@ -19,6 +19,8 @@ if(MG_ENTERPRISE)
 
     set(storage_v2_src_files
         ${storage_v2_src_files}
+        replication/replication.cpp
+        replication/serialization.cpp
         replication/slk.cpp
         ${lcp_storage_cpp_files})
 endif()

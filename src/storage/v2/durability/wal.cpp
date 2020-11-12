@@ -976,7 +976,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory,
       path_(wal_directory / MakeWalName()),
       from_timestamp_(0),
       to_timestamp_(0),
-      count_(0) {
+      count_(0),
+      seq_num_(seq_num) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
 
@@ -1055,12 +1056,24 @@ void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
 
 void WalFile::Sync() { wal_.Sync(); }
 
-uint64_t WalFile::GetSize() { return wal_.GetPosition(); }
+uint64_t WalFile::GetSize() { return wal_.GetSize(); }
+
+uint64_t WalFile::SequenceNumber() const { return seq_num_; }
 
 void WalFile::UpdateStats(uint64_t timestamp) {
   if (count_ == 0) from_timestamp_ = timestamp;
   to_timestamp_ = timestamp;
   count_ += 1;
+}
+
+void WalFile::DisableFlushing() { wal_.DisableFlushing(); }
+
+void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
+
+void WalFile::TryFlushing() { wal_.TryFlushing(); }
+
+std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const {
+  return wal_.CurrentFileBuffer();
 }
 
 }  // namespace storage::durability
