@@ -53,8 +53,10 @@ to create branches follow:
 ```
 git checkout master
 git checkout -b T0025-MG_fix-a-problem
+...
+git checkout master
 git checkout -b E025-MG_huge-feature
-
+...
 git checkout E025-MG_huge-feature
 git checkout -b T0123-MG_add-feature-part
 ```
@@ -113,7 +115,8 @@ To push your changes, usually run the following:
 
 Sometimes, things could get a little bit more complicated. Diagram below shows
 which git operation should be performed if a piece of code has to be integrated
-from one branch to another. Note, `main_branch` is the master branch.
+from one branch to another. Note, `main_branch` is the **master** branch in our
+case.
 
 ```
       |<---------------------------|
