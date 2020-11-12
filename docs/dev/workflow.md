@@ -57,7 +57,7 @@ git checkout -b T0025-MG-fix-a-problem
 git checkout master
 git checkout -b E025-MG-huge-feature
 ...
-git checkout E025-MG_huge-feature
+git checkout E025-MG-huge-feature
 git checkout -b T0123-MG-add-feature-part
 ```
 
