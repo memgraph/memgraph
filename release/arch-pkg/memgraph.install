@@ -8,13 +8,9 @@ post_install() {
   chmod 750 /var/lib/memgraph || exit 1
   chown memgraph:adm /var/log/memgraph || exit 1
   chmod 750 /var/log/memgraph || exit 1
-  # Make examples directory immutable (optional)
-  chattr +i -R /usr/share/memgraph/examples || true
   echo "Enable and start 'memgraph.service' to use Memgraph" || exit 1
 }
 
 pre_remove() {
-  # Remove optional immutability from examples directory to allow removal
-  chattr -i -R /usr/share/memgraph/examples || true
   systemctl disable memgraph.service
 }
