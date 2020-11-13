@@ -59,14 +59,18 @@ void ThreadPool::ThreadLoop() {
     }
 
     std::unique_lock guard(pool_lock_);
+    idle_thread_num_.fetch_add(1);
     queue_cv_.wait(guard, [&] {
       task = PopTask();
       return task || terminate_pool_.load();
     });
+    idle_thread_num_.fetch_sub(1);
     if (terminate_pool_.load()) {
       return;
     }
   }
 }
+
+size_t ThreadPool::IdleThreadNum() const { return idle_thread_num_.load(); }
 
 }  // namespace utils

@@ -29,6 +29,8 @@ class ThreadPool {
   ThreadPool &operator=(const ThreadPool &) = delete;
   ThreadPool &operator=(ThreadPool &&) = delete;
 
+  size_t IdleThreadNum() const;
+
  private:
   std::unique_ptr<TaskSignature> PopTask();
 
@@ -36,6 +38,7 @@ class ThreadPool {
 
   std::vector<std::thread> thread_pool_;
 
+  std::atomic<size_t> idle_thread_num_{0};
   std::atomic<bool> terminate_pool_{false};
   std::atomic<bool> stopped_{false};
   utils::Synchronized<std::queue<std::unique_ptr<TaskSignature>>,
