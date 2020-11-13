@@ -32,10 +32,10 @@ class ReplicationClient {
                     bool use_ssl, ReplicationMode mode);
 
   // Handler used for transfering the current transaction.
-  class TransactionHandler {
+  class ReplicaStream {
    private:
     friend class ReplicationClient;
-    explicit TransactionHandler(ReplicationClient *self);
+    explicit ReplicaStream(ReplicationClient *self);
 
    public:
     /// @throw rpc::RpcFailedException
@@ -94,7 +94,7 @@ class ReplicationClient {
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(
-      const std::function<void(TransactionHandler &handler)> &callback);
+      const std::function<void(ReplicaStream &handler)> &callback);
 
   void FinalizeTransactionReplication();
 
@@ -121,7 +121,7 @@ class ReplicationClient {
   rpc::Client rpc_client_;
 
   // TODO (antonio2368): Give a better name.
-  std::optional<TransactionHandler> stream_;
+  std::optional<ReplicaStream> replica_stream_;
   ReplicationMode mode_{ReplicationMode::SYNC};
 
   utils::SpinLock client_lock_;

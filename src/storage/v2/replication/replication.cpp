@@ -46,17 +46,17 @@ bool ReplicationClient::StartTransactionReplication() {
       replica_state_.store(ReplicaState::RECOVERY);
       return false;
     case ReplicaState::READY:
-      CHECK(!stream_);
-      stream_.emplace(TransactionHandler{this});
+      CHECK(!replica_stream_);
+      replica_stream_.emplace(ReplicaStream{this});
       replica_state_.store(ReplicaState::REPLICATING);
       return true;
   }
 }
 
 void ReplicationClient::IfStreamingTransaction(
-    const std::function<void(TransactionHandler &handler)> &callback) {
-  if (stream_) {
-    callback(*stream_);
+    const std::function<void(ReplicaStream &handler)> &callback) {
+  if (replica_stream_) {
+    callback(*replica_stream_);
   }
 }
 
@@ -70,9 +70,9 @@ void ReplicationClient::FinalizeTransactionReplication() {
 }
 
 void ReplicationClient::FinalizeTransactionReplicationInternal() {
-  if (stream_) {
-    stream_->Finalize();
-    stream_.reset();
+  if (replica_stream_) {
+    replica_stream_->Finalize();
+    replica_stream_.reset();
   }
 
   std::unique_lock guard(client_lock_);
@@ -80,32 +80,31 @@ void ReplicationClient::FinalizeTransactionReplicationInternal() {
     replica_state_.store(ReplicaState::READY);
   }
 }
-////// TransactionHandler //////
-ReplicationClient::TransactionHandler::TransactionHandler(
-    ReplicationClient *self)
+////// ReplicaStream //////
+ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self)
     : self_(self), stream_(self_->rpc_client_.Stream<AppendDeltasRpc>()) {}
 
-void ReplicationClient::TransactionHandler::AppendDelta(
+void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->name_id_mapper_, self_->items_, delta, vertex,
               final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendDelta(
+void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->name_id_mapper_, delta, edge,
               final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendTransactionEnd(
+void ReplicationClient::ReplicaStream::AppendTransactionEnd(
     uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendOperation(
+void ReplicationClient::ReplicaStream::AppendOperation(
     durability::StorageGlobalOperation operation, LabelId label,
     const std::set<PropertyId> &properties, uint64_t timestamp) {
   Encoder encoder(stream_.GetBuilder());
@@ -113,9 +112,7 @@ void ReplicationClient::TransactionHandler::AppendOperation(
                   properties, timestamp);
 }
 
-void ReplicationClient::TransactionHandler::Finalize() {
-  stream_.AwaitResponse();
-}
+void ReplicationClient::ReplicaStream::Finalize() { stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
 ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
