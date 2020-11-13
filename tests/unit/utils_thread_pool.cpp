@@ -1,29 +1,26 @@
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <thread>
+
 #include <utils/thread_pool.hpp>
-#include <utils/timer.hpp>
 
 using namespace std::chrono_literals;
 
-TEST(ThreadPool, Simple) {
+TEST(ThreadPool, Basic) {
   constexpr size_t adder_count = 100'000;
   constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
 
   for (const auto pool_size : pool_sizes) {
-    {
-      utils::Timer timer;
-      utils::ThreadPool pool{pool_size};
+    utils::ThreadPool pool{pool_size};
 
-      std::atomic<int> count{0};
-      for (size_t i = 0; i < adder_count; ++i) {
-        pool.AddTask([&] { count.fetch_add(1); });
-      }
-
-      std::this_thread::sleep_for(50ms);
-      ASSERT_EQ(count.load(), adder_count);
+    std::atomic<int> count{0};
+    for (size_t i = 0; i < adder_count; ++i) {
+      pool.AddTask([&] { count.fetch_add(1); });
     }
+
+    std::this_thread::sleep_for(50ms);
+    ASSERT_EQ(count.load(), adder_count);
   }
 }
