@@ -36,19 +36,21 @@ void ReplicationClient::TransferWalFiles(
 }
 
 bool ReplicationClient::StartTransactionReplication() {
-  if (recovery_.load()) {
-    DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
-    return false;
+  std::unique_lock guard(client_lock_);
+  const auto status = replica_state_.load();
+  switch (status) {
+    case ReplicaState::RECOVERY:
+      DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
+      return false;
+    case ReplicaState::REPLICATING:
+      replica_state_.store(ReplicaState::RECOVERY);
+      return false;
+    case ReplicaState::READY:
+      CHECK(!stream_);
+      stream_.emplace(TransactionHandler{this});
+      replica_state_.store(ReplicaState::REPLICATING);
+      return true;
   }
-
-  if (in_progress_.test_and_set()) {
-    recovery_.store(true);
-    return false;
-  }
-
-  CHECK(!stream_);
-  stream_.emplace(TransactionHandler{this});
-  return true;
 }
 
 void ReplicationClient::IfStreamingTransaction(
@@ -67,6 +69,17 @@ void ReplicationClient::FinalizeTransactionReplication() {
   }
 }
 
+void ReplicationClient::FinalizeTransactionReplicationInternal() {
+  if (stream_) {
+    stream_->Finalize();
+    stream_.reset();
+  }
+
+  std::unique_lock guard(client_lock_);
+  if (replica_state_.load() == ReplicaState::REPLICATING) {
+    replica_state_.store(ReplicaState::READY);
+  }
+}
 ////// TransactionHandler //////
 ReplicationClient::TransactionHandler::TransactionHandler(
     ReplicationClient *self)

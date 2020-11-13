@@ -44,7 +44,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
+  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
 
   main_store.RegisterReplica("REPLICA",
@@ -281,7 +281,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store1.SetReplicationState<storage::ReplicationState::REPLICA>(
+  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
 
   storage::Storage replica_store2(
@@ -290,7 +290,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store2.SetReplicationState<storage::ReplicationState::REPLICA>(
+  replica_store2.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 20000});
 
   main_store.RegisterReplica("REPLICA1",
@@ -427,7 +427,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     storage::Storage replica_store(
         {.durability = {.storage_directory = replica_storage_directory}});
 
-    replica_store.SetReplicationState<storage::ReplicationState::REPLICA>(
+    replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
         io::network::Endpoint{"127.0.0.1", 10000});
 
     main_store.RegisterReplica("REPLICA1",
@@ -500,7 +500,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store_async.SetReplicationState<storage::ReplicationState::REPLICA>(
+  replica_store_async.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 20000});
 
   main_store.RegisterReplica("REPLICA_ASYNC",
@@ -514,8 +514,20 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     auto v = acc.CreateVertex();
     created_vertices.push_back(v.Gid());
     ASSERT_FALSE(acc.Commit().HasError());
+
+    if (i == 0) {
+      ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
+                storage::replication::ReplicaState::REPLICATING);
+    } else {
+      ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
+                storage::replication::ReplicaState::RECOVERY);
+    }
   }
 
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+  ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
+            storage::replication::ReplicaState::RECOVERY);
   // Replica should have at least the first vertex
   {
     auto acc = replica_store_async.Access();

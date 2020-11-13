@@ -169,7 +169,7 @@ struct StorageInfo {
 };
 
 #ifdef MG_ENTERPRISE
-enum class ReplicationState : uint8_t { MAIN, REPLICA };
+enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 #endif
 
 class Storage final {
@@ -406,28 +406,30 @@ class Storage final {
   StorageInfo GetInfo() const;
 
 #ifdef MG_ENTERPRISE
-  template <ReplicationState state, typename... Args>
-  void SetReplicationState(Args &&... args) {
-    if (replication_state_.load() == state) {
+  template <ReplicationRole role, typename... Args>
+  void SetReplicationRole(Args &&... args) {
+    if (replication_role_.load() == role) {
       return;
     }
 
     std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
 
-    if constexpr (state == ReplicationState::REPLICA) {
+    if constexpr (role == ReplicationRole::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
-    } else if (state == ReplicationState::MAIN) {
+    } else if (role == ReplicationRole::MAIN) {
       // Main instance does not need replication server
       replication_server_.reset();
     }
 
-    replication_state_.store(state);
+    replication_role_.store(role);
   }
 
   void RegisterReplica(std::string name, io::network::Endpoint endpoint,
                        replication::ReplicationMode replication_mode =
                            replication::ReplicationMode::SYNC);
-  void UnregisterReplica(const std::string &name);
+  void UnregisterReplica(std::string_view name);
+
+  std::optional<replication::ReplicaState> ReplicaState(std::string_view name);
 #endif
 
  private:
@@ -556,7 +558,7 @@ class Storage final {
   std::optional<ReplicationServer> replication_server_;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationState> replication_state_{ReplicationState::MAIN};
+  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 #endif
 };
 

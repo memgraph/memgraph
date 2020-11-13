@@ -23,6 +23,8 @@ namespace storage::replication {
 
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
+enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY };
+
 class ReplicationClient {
  public:
   ReplicationClient(std::string name, NameIdMapper *name_id_mapper,
@@ -107,14 +109,10 @@ class ReplicationClient {
 
   const auto &Name() const { return name_; }
 
+  auto State() const { return replica_state_.load(); }
+
  private:
-  void FinalizeTransactionReplicationInternal() {
-    if (stream_) {
-      stream_->Finalize();
-      stream_.reset();
-      in_progress_.clear();
-    }
-  }
+  void FinalizeTransactionReplicationInternal();
 
   std::string name_;
   NameIdMapper *name_id_mapper_;
@@ -126,10 +124,9 @@ class ReplicationClient {
   std::optional<TransactionHandler> stream_;
   ReplicationMode mode_{ReplicationMode::SYNC};
 
-  std::mutex client_lock_;
+  utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};
-  std::atomic_flag in_progress_ = ATOMIC_FLAG_INIT;
-  std::atomic<bool> recovery_{false};
+  std::atomic<ReplicaState> replica_state_{ReplicaState::READY};
 };
 
 }  // namespace storage::replication

@@ -410,9 +410,9 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    SetReplicationState<ReplicationState::MAIN>();
+    SetReplicationRole<ReplicationRole::MAIN>();
   } else if (FLAGS_replica) {
-    SetReplicationState<ReplicationState::REPLICA>(
+    SetReplicationRole<ReplicationRole::REPLICA>(
         io::network::Endpoint{"127.0.0.1", 1000});
   }
 #endif
@@ -1353,7 +1353,7 @@ Transaction Storage::CreateTransaction() {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
 #ifdef MG_ENTERPRISE
-    if (replication_state_.load() != ReplicationState::REPLICA) {
+    if (replication_role_.load() != ReplicationRole::REPLICA) {
       start_timestamp = timestamp_++;
     } else {
       start_timestamp = timestamp_;
@@ -1638,7 +1638,7 @@ void Storage::AppendToWal(const Transaction &transaction,
   // We need to keep this lock because handler takes a pointer to the client
   // from which it was created
   std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-  if (replication_state_.load() == ReplicationState::MAIN) {
+  if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         try {
@@ -1837,7 +1837,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 #ifdef MG_ENTERPRISE
   {
     std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-    if (replication_state_.load() == ReplicationState::MAIN) {
+    if (replication_role_.load() == ReplicationRole::MAIN) {
       try {
         replication_clients_.WithLock([&](auto &clients) {
           for (auto &client : clients) {
@@ -1860,7 +1860,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 
 void Storage::CreateSnapshot() {
 #ifdef MG_ENTERPRISE
-  if (replication_state_.load() != ReplicationState::MAIN) {
+  if (replication_role_.load() != ReplicationRole::MAIN) {
     LOG(WARNING) << "Snapshots are disabled for replicas!";
     return;
   }
@@ -2375,7 +2375,8 @@ void Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
     const replication::ReplicationMode replication_mode) {
   std::shared_lock guard(replication_lock_);
-  CHECK(replication_state_.load() == ReplicationState::MAIN)
+  // TODO (antonio2368): This shouldn't stop the main instance
+  CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
 
   // We can safely add new elements to the list because it doesn't validate
@@ -2463,14 +2464,28 @@ void Storage::RegisterReplica(
   }
 }
 
-void Storage::UnregisterReplica(const std::string &name) {
+void Storage::UnregisterReplica(const std::string_view name) {
   std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-  CHECK(replication_state_.load() == ReplicationState::MAIN)
+  CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
   replication_clients_.WithLock([&](auto &clients) {
     clients.remove_if(
         [&](const auto &client) { return client.Name() == name; });
   });
+}
+
+std::optional<replication::ReplicaState> Storage::ReplicaState(
+    const std::string_view name) {
+  return replication_clients_.WithLock(
+      [&](auto &clients) -> std::optional<replication::ReplicaState> {
+        const auto client_it = std::find_if(
+            clients.cbegin(), clients.cend(),
+            [name](auto &client) { return client.Name() == name; });
+        if (client_it == clients.cend()) {
+          return std::nullopt;
+        }
+        return client_it->State();
+      });
 }
 #endif
 
