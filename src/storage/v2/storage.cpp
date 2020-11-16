@@ -361,6 +361,7 @@ Storage::Storage(Config config)
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
+      last_commit_timestamp_ = timestamp_ - 1;
     }
   } else if (config_.durability.snapshot_wal_mode !=
                  Config::Durability::SnapshotWalMode::DISABLED ||
@@ -962,6 +963,13 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
                   << "Invalid database state!";
               transaction_.commit_timestamp->store(commit_timestamp,
                                                    std::memory_order_release);
+#ifdef MG_ENTERPRISE
+              if (storage_->replication_role_ == ReplicationRole::MAIN ||
+                  desired_commit_timestamp.has_value()) {
+                // Update the last commit timestamp
+                storage_->last_commit_timestamp_.store(commit_timestamp);
+              }
+#endif
               // Release engine lock because we don't have to hold it anymore
               // and emplace back could take a long time.
               engine_guard.unlock();
@@ -1897,15 +1905,70 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_->rpc_server.emplace(
       endpoint, &*replication_server_->rpc_server_context,
       /* workers_count = */ 1);
+
+  replication_server_->rpc_server->Register<HeartbeatRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        HeartbeatReq req;
+        slk::Load(&req, req_reader);
+
+        DLOG(INFO) << "Received HeartbeatRpc:";
+
+        HeartbeatRes res{last_commit_timestamp_.load()};
+        slk::Save(res, res_builder);
+      });
   replication_server_->rpc_server->Register<
-      AppendDeltasRpc>([this, endpoint = std::move(endpoint)](
-                           auto *req_reader, auto *res_builder) {
+      AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     slk::Load(&req, req_reader);
 
     DLOG(INFO) << "Received AppendDeltasRpc:";
 
+    constexpr auto is_transaction_complete =
+        [](const durability::WalDeltaData::Type delta_type) {
+          switch (delta_type) {
+            case durability::WalDeltaData::Type::TRANSACTION_END:
+            case durability::WalDeltaData::Type::LABEL_INDEX_CREATE:
+            case durability::WalDeltaData::Type::LABEL_INDEX_DROP:
+            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+              return true;
+            default:
+              return false;
+          }
+        };
+
     replication::Decoder decoder(req_reader);
+    const auto read_delta =
+        [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
+      try {
+        auto timestamp = ReadWalDeltaHeader(&decoder);
+        DLOG(INFO) << "       Timestamp " << timestamp;
+        auto delta = ReadWalDeltaData(&decoder);
+        return {timestamp, delta};
+      } catch (const slk::SlkReaderException &) {
+        throw utils::BasicException("Missing data!");
+      } catch (const durability::RecoveryFailure &) {
+        throw utils::BasicException("Invalid data!");
+      }
+    };
+
+    if (req.previous_commit_timestamp != last_commit_timestamp_.load()) {
+      // Empty the stream
+      bool transaction_complete = false;
+      while (!transaction_complete) {
+        DLOG(INFO) << "Skipping delta";
+        const auto [timestamp, delta] = read_delta();
+        transaction_complete = is_transaction_complete(delta.type);
+      }
+
+      AppendDeltasRes res{false, last_commit_timestamp_.load()};
+      slk::Save(res, res_builder);
+      return;
+    }
 
     auto edge_acc = edges_.access();
     auto vertex_acc = vertices_.access();
@@ -1924,19 +1987,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
     bool transaction_complete = false;
     for (uint64_t i = 0; !transaction_complete; ++i) {
-      uint64_t timestamp;
-      durability::WalDeltaData delta;
-
-      try {
-        timestamp = ReadWalDeltaHeader(&decoder);
-        DLOG(INFO) << "   Delta " << i;
-        DLOG(INFO) << "       Timestamp " << timestamp;
-        delta = ReadWalDeltaData(&decoder);
-      } catch (const slk::SlkReaderException &) {
-        throw utils::BasicException("Missing data!");
-      } catch (const durability::RecoveryFailure &) {
-        throw utils::BasicException("Invalid data!");
-      }
+      DLOG(INFO) << "  Delta " << i;
+      const auto [timestamp, delta] = read_delta();
 
       switch (delta.type) {
         case durability::WalDeltaData::Type::VERTEX_CREATE: {
@@ -2142,7 +2194,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           if (ret.HasError())
             throw utils::BasicException("Invalid transaction!");
           commit_timestamp_and_accessor = std::nullopt;
-          transaction_complete = true;
           break;
         }
 
@@ -2153,7 +2204,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           if (!CreateIndex(NameToLabel(delta.operation_label.label)))
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
@@ -2163,7 +2213,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           if (!DropIndex(NameToLabel(delta.operation_label.label)))
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
@@ -2176,7 +2225,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                   NameToLabel(delta.operation_label_property.label),
                   NameToProperty(delta.operation_label_property.property)))
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
@@ -2189,7 +2237,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                   NameToLabel(delta.operation_label_property.label),
                   NameToProperty(delta.operation_label_property.property)))
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
@@ -2203,7 +2250,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
               NameToProperty(delta.operation_label_property.property));
           if (!ret.HasValue() || !ret.GetValue())
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
@@ -2216,7 +2262,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                   NameToLabel(delta.operation_label_property.label),
                   NameToProperty(delta.operation_label_property.property)))
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
@@ -2236,7 +2281,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           if (!ret.HasValue() ||
               ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
         case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
@@ -2255,16 +2299,16 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
               NameToLabel(delta.operation_label_properties.label), properties);
           if (ret != UniqueConstraints::DeletionStatus::SUCCESS)
             throw utils::BasicException("Invalid transaction!");
-          transaction_complete = true;
           break;
         }
       }
+      transaction_complete = is_transaction_complete(delta.type);
     }
 
     if (commit_timestamp_and_accessor)
       throw utils::BasicException("Invalid data!");
 
-    AppendDeltasRes res;
+    AppendDeltasRes res{true, last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
   });
   replication_server_->rpc_server->Register<SnapshotRpc>(
@@ -2313,9 +2357,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           // TODO (antonio2368): What to do if the sent snapshot is invalid
           LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
         }
+        last_commit_timestamp_ = timestamp_ - 1;
         storage_guard.unlock();
 
-        SnapshotRes res;
+        SnapshotRes res{true, last_commit_timestamp_.load()};
         slk::Save(res, res_builder);
       });
   replication_server_->rpc_server->Register<WalFilesRpc>(
@@ -2363,9 +2408,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         }
         durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
                                                  &constraints_, &vertices_);
+        last_commit_timestamp_ = timestamp_ - 1;
         storage_guard.unlock();
 
-        WalFilesRes res;
+        WalFilesRes res{true, last_commit_timestamp_.load()};
         slk::Save(res, res_builder);
       });
   replication_server_->rpc_server->Start();
@@ -2381,87 +2427,16 @@ void Storage::RegisterReplica(
 
   // We can safely add new elements to the list because it doesn't validate
   // existing references/iteratos
-  auto &client = replication_clients_.WithLock([&](auto &clients) -> auto & {
+  replication_clients_.WithLock([&](auto &clients) {
     if (std::any_of(clients.begin(), clients.end(),
                     [&](auto &client) { return client.Name() == name; })) {
       throw utils::BasicException("Replica with a same name already exists!");
     }
-    clients.emplace_back(std::move(name), &name_id_mapper_, config_.items,
-                         endpoint, false, replication_mode);
-    return clients.back();
+    clients.emplace_back(std::move(name), last_commit_timestamp_,
+                         &name_id_mapper_, config_.items, &file_retainer_,
+                         snapshot_directory_, wal_directory_, uuid_, &wal_file_,
+                         &engine_lock_, endpoint, false, replication_mode);
   });
-
-  // Recovery
-  auto recovery_locker = file_retainer_.AddLocker();
-  std::optional<std::filesystem::path> snapshot_file;
-  std::vector<std::filesystem::path> wal_files;
-  std::optional<uint64_t> latest_seq_num;
-  {
-    auto recovery_locker_acc = recovery_locker.Access();
-    // For now we assume we need to send the latest snapshot
-    auto snapshot_files =
-        durability::GetSnapshotFiles(snapshot_directory_, uuid_);
-    if (!snapshot_files.empty()) {
-      std::sort(snapshot_files.begin(), snapshot_files.end());
-      // TODO (antonio2368): Send the last snapshot for now
-      // check if additional logic is necessary
-      // Also, prevent the deletion of the snapshot file and the required
-      // WALs
-      snapshot_file.emplace(std::move(snapshot_files.back().first));
-      recovery_locker_acc.AddFile(*snapshot_file);
-    }
-
-    {
-      // So the wal_file_ isn't overwritten
-      std::unique_lock engine_guard(engine_lock_);
-      if (wal_file_) {
-        // For now let's disable flushing until we send the current WAL
-        wal_file_->DisableFlushing();
-        latest_seq_num = wal_file_->SequenceNumber();
-      }
-    }
-
-    auto maybe_wal_files =
-        durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
-    CHECK(maybe_wal_files) << "Failed to find WAL files";
-    auto &wal_files_with_seq = *maybe_wal_files;
-
-    std::optional<uint64_t> previous_seq_num;
-    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
-         wal_files_with_seq) {
-      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
-        LOG(FATAL) << "You are missing a WAL file with the sequence number "
-                   << *previous_seq_num + 1 << "!";
-      }
-      previous_seq_num = seq_num;
-      wal_files.push_back(path);
-      recovery_locker_acc.AddFile(path);
-    }
-  }
-
-  if (snapshot_file) {
-    DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
-    client.TransferSnapshot(*snapshot_file);
-  }
-
-  if (!wal_files.empty()) {
-    DLOG(INFO) << "Sending the latest wal files";
-    client.TransferWalFiles(wal_files);
-  }
-
-  // We have a current WAL
-  if (latest_seq_num) {
-    auto stream = client.TransferCurrentWalFile();
-    stream.AppendFilename(wal_file_->Path().filename());
-    utils::InputFile file;
-    CHECK(file.Open(wal_file_->Path())) << "Failed to open current WAL file!";
-    const auto [buffer, buffer_size] = wal_file_->CurrentFileBuffer();
-    stream.AppendSize(file.GetSize() + buffer_size);
-    stream.AppendFileData(&file);
-    stream.AppendBufferData(buffer, buffer_size);
-    stream.Finalize();
-    wal_file_->EnableFlushing();
-  }
 }
 
 void Storage::UnregisterReplica(const std::string_view name) {

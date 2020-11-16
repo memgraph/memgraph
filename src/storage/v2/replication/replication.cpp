@@ -1,28 +1,142 @@
 #include "storage/v2/replication/replication.hpp"
 
+#include "storage/v2/durability/durability.hpp"
+#include "utils/file_locker.hpp"
+
 namespace storage::replication {
 
 ////// ReplicationClient //////
-ReplicationClient::ReplicationClient(std::string name,
-                                     NameIdMapper *name_id_mapper,
-                                     Config::Items items,
-                                     const io::network::Endpoint &endpoint,
-                                     bool use_ssl, const ReplicationMode mode)
+ReplicationClient::ReplicationClient(
+    std::string name, const std::atomic<uint64_t> &last_commit_timestamp,
+    NameIdMapper *name_id_mapper, Config::Items items,
+    utils::FileRetainer *file_retainer,
+    const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, const std::string_view uuid,
+    std::optional<durability::WalFile> *wal_file_ptr,
+    utils::SpinLock *transaction_engine_lock,
+    const io::network::Endpoint &endpoint, bool use_ssl,
+    const ReplicationMode mode)
     : name_(std::move(name)),
+      last_commit_timestamp_{last_commit_timestamp},
       name_id_mapper_(name_id_mapper),
       items_(items),
+      file_retainer_(file_retainer),
+      snapshot_directory_(snapshot_directory),
+      wal_directory_(wal_directory),
+      uuid_(uuid),
+      wal_file_ptr_(wal_file_ptr),
+      transaction_engine_lock_(transaction_engine_lock),
       rpc_context_(use_ssl),
       rpc_client_(endpoint, &rpc_context_),
-      mode_(mode) {}
+      mode_(mode) {
+  uint64_t current_commit_timestamp{kTimestampInitialId};
+  {
+    auto stream{rpc_client_.Stream<HeartbeatRpc>()};
+    const auto response = stream.AwaitResponse();
+    current_commit_timestamp = response.current_commit_timestamp;
+  }
+  DLOG(INFO) << "CURRENT TIMESTAMP: " << current_commit_timestamp;
+  DLOG(INFO) << "CURRENT MAIN TIMESTAMP: " << last_commit_timestamp.load();
+  if (current_commit_timestamp == last_commit_timestamp.load()) {
+    DLOG(INFO) << "REPLICA UP TO DATE";
+    replica_state_.store(ReplicaState::READY);
+  } else {
+    DLOG(INFO) << "REPLICA IS BEHIND";
+    replica_state_.store(ReplicaState::RECOVERY);
 
-void ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
+    auto &wal_file = *wal_file_ptr_;
+
+    // Recovery
+    auto recovery_locker = file_retainer_->AddLocker();
+    std::optional<std::filesystem::path> snapshot_file;
+    std::vector<std::filesystem::path> wal_files;
+    std::optional<uint64_t> latest_seq_num;
+    {
+      auto recovery_locker_acc = recovery_locker.Access();
+      // For now we assume we need to send the latest snapshot
+      auto snapshot_files =
+          durability::GetSnapshotFiles(snapshot_directory_, uuid_);
+      if (!snapshot_files.empty()) {
+        std::sort(snapshot_files.begin(), snapshot_files.end());
+        // TODO (antonio2368): Send the last snapshot for now
+        // check if additional logic is necessary
+        // Also, prevent the deletion of the snapshot file and the required
+        // WALs
+        snapshot_file.emplace(std::move(snapshot_files.back().first));
+        recovery_locker_acc.AddFile(*snapshot_file);
+      }
+
+      {
+        // So the wal_file_ isn't overwritten
+        std::unique_lock engine_guard(*transaction_engine_lock_);
+        if (wal_file) {
+          // For now let's disable flushing until we send the current WAL
+          wal_file->DisableFlushing();
+          latest_seq_num = wal_file->SequenceNumber();
+        }
+      }
+
+      auto maybe_wal_files =
+          durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
+      CHECK(maybe_wal_files) << "Failed to find WAL files";
+      auto &wal_files_with_seq = *maybe_wal_files;
+
+      std::optional<uint64_t> previous_seq_num;
+      for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+           wal_files_with_seq) {
+        if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+          LOG(FATAL) << "You are missing a WAL file with the sequence number "
+                     << *previous_seq_num + 1 << "!";
+        }
+        previous_seq_num = seq_num;
+        wal_files.push_back(path);
+        recovery_locker_acc.AddFile(path);
+      }
+    }
+
+    if (snapshot_file) {
+      DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
+      auto response = TransferSnapshot(*snapshot_file);
+      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                 << response.current_commit_timestamp;
+    }
+
+    if (!wal_files.empty()) {
+      DLOG(INFO) << "Sending the latest wal files";
+      auto response = TransferWalFiles(wal_files);
+      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                 << response.current_commit_timestamp;
+    }
+
+    // We have a current WAL
+    if (latest_seq_num) {
+      auto stream = TransferCurrentWalFile();
+      stream.AppendFilename(wal_file->Path().filename());
+      utils::InputFile file;
+      CHECK(file.Open(wal_file->Path())) << "Failed to open current WAL file!";
+      const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
+      stream.AppendSize(file.GetSize() + buffer_size);
+      stream.AppendFileData(&file);
+      stream.AppendBufferData(buffer, buffer_size);
+      auto response = stream.Finalize();
+      wal_file->EnableFlushing();
+      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                 << response.current_commit_timestamp;
+    }
+
+    replica_state_.store(ReplicaState::READY);
+  }
+}
+
+SnapshotRes ReplicationClient::TransferSnapshot(
+    const std::filesystem::path &path) {
   auto stream{rpc_client_.Stream<SnapshotRpc>()};
   Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
-  stream.AwaitResponse();
+  return stream.AwaitResponse();
 }
 
-void ReplicationClient::TransferWalFiles(
+WalFilesRes ReplicationClient::TransferWalFiles(
     const std::vector<std::filesystem::path> &wal_files) {
   CHECK(!wal_files.empty()) << "Wal files list is empty!";
   auto stream{rpc_client_.Stream<WalFilesRpc>()};
@@ -32,7 +146,7 @@ void ReplicationClient::TransferWalFiles(
     encoder.WriteFile(wal);
   }
 
-  stream.AwaitResponse();
+  return stream.AwaitResponse();
 }
 
 bool ReplicationClient::StartTransactionReplication() {
@@ -43,11 +157,13 @@ bool ReplicationClient::StartTransactionReplication() {
       DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
       return false;
     case ReplicaState::REPLICATING:
+      DLOG(INFO) << "Replica missed a transaction, going to recovery";
       replica_state_.store(ReplicaState::RECOVERY);
       return false;
     case ReplicaState::READY:
       CHECK(!replica_stream_);
-      replica_stream_.emplace(ReplicaStream{this});
+      replica_stream_.emplace(
+          ReplicaStream{this, last_commit_timestamp_.load()});
       replica_state_.store(ReplicaState::REPLICATING);
       return true;
   }
@@ -81,8 +197,11 @@ void ReplicationClient::FinalizeTransactionReplicationInternal() {
   }
 }
 ////// ReplicaStream //////
-ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<AppendDeltasRpc>()) {}
+ReplicationClient::ReplicaStream::ReplicaStream(
+    ReplicationClient *self, const uint64_t previous_commit_timestamp)
+    : self_(self),
+      stream_(self_->rpc_client_.Stream<AppendDeltasRpc>(
+          previous_commit_timestamp)) {}
 
 void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
@@ -144,7 +263,7 @@ void ReplicationClient::CurrentWalHandler::AppendBufferData(
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-void ReplicationClient::CurrentWalHandler::Finalize() {
-  stream_.AwaitResponse();
+WalFilesRes ReplicationClient::CurrentWalHandler::Finalize() {
+  return stream_.AwaitResponse();
 }
 }  // namespace storage::replication

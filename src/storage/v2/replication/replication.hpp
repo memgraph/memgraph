@@ -15,6 +15,7 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/file.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
@@ -27,15 +28,24 @@ enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY };
 
 class ReplicationClient {
  public:
-  ReplicationClient(std::string name, NameIdMapper *name_id_mapper,
-                    Config::Items items, const io::network::Endpoint &endpoint,
-                    bool use_ssl, ReplicationMode mode);
+  ReplicationClient(std::string name,
+                    const std::atomic<uint64_t> &last_commit_timestamp,
+                    NameIdMapper *name_id_mapper, Config::Items items,
+                    utils::FileRetainer *file_retainer,
+                    const std::filesystem::path &snapshot_directory,
+                    const std::filesystem::path &wal_directory,
+                    std::string_view uuid,
+                    std::optional<durability::WalFile> *wal_file_ptr,
+                    utils::SpinLock *transaction_engine_lock,
+                    const io::network::Endpoint &endpoint, bool use_ssl,
+                    ReplicationMode mode);
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
    private:
     friend class ReplicationClient;
-    explicit ReplicaStream(ReplicationClient *self);
+    explicit ReplicaStream(ReplicationClient *self,
+                           uint64_t previous_commit_timestamp);
 
    public:
     /// @throw rpc::RpcFailedException
@@ -79,7 +89,7 @@ class ReplicationClient {
     void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
 
     /// @throw rpc::RpcFailedException
-    void Finalize();
+    WalFilesRes Finalize();
 
    private:
     ReplicationClient *self_;
@@ -100,12 +110,13 @@ class ReplicationClient {
 
   // Transfer the snapshot file.
   // @param path Path of the snapshot file.
-  void TransferSnapshot(const std::filesystem::path &path);
+  SnapshotRes TransferSnapshot(const std::filesystem::path &path);
 
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
-  void TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
+  WalFilesRes TransferWalFiles(
+      const std::vector<std::filesystem::path> &wal_files);
 
   const auto &Name() const { return name_; }
 
@@ -115,8 +126,17 @@ class ReplicationClient {
   void FinalizeTransactionReplicationInternal();
 
   std::string name_;
+  // storage info
+  const std::atomic<uint64_t> &last_commit_timestamp_;
   NameIdMapper *name_id_mapper_;
   Config::Items items_;
+  utils::FileRetainer *file_retainer_;
+  const std::filesystem::path &snapshot_directory_;
+  const std::filesystem::path &wal_directory_;
+  std::string_view uuid_;
+  std::optional<durability::WalFile> *wal_file_ptr_;
+  utils::SpinLock *transaction_engine_lock_;
+
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
 
@@ -125,7 +145,7 @@ class ReplicationClient {
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};
-  std::atomic<ReplicaState> replica_state_{ReplicaState::READY};
+  std::atomic<ReplicaState> replica_state_;
 };
 
 }  // namespace storage::replication

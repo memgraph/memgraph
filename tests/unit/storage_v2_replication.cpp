@@ -462,25 +462,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_FALSE(acc.Commit().HasError());
     }
   }
-  // Test recovery of the replica with the files received from Main
-  {
-    storage::Storage replica_store(
-        {.durability = {.storage_directory = replica_storage_directory,
-                        .recover_on_startup = true}});
-    {
-      auto acc = replica_store.Access();
-      for (const auto &vertex_gid : vertex_gids) {
-        auto v = acc.FindVertex(vertex_gid, storage::View::OLD);
-        ASSERT_TRUE(v);
-        const auto labels = v->Labels(storage::View::OLD);
-        ASSERT_TRUE(labels.HasValue());
-        // Labels are received with AppendDeltasRpc so they are not saved on
-        // disk
-        ASSERT_EQ(labels->size(), 0);
-      }
-      ASSERT_FALSE(acc.Commit().HasError());
-    }
-  }
 }
 
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
