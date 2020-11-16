@@ -1667,17 +1667,17 @@ void Storage::AppendToWal(const Transaction &transaction,
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
 #ifdef MG_ENTERPRISE
-        try {
-          replication_clients_.WithLock([&](auto &clients) {
-            for (auto &client : clients) {
+        replication_clients_.WithLock([&](auto &clients) {
+          for (auto &client : clients) {
+            try {
               client.IfStreamingTransaction([&](auto &stream) {
                 stream.AppendDelta(*delta, parent, final_commit_timestamp);
               });
+            } catch (const rpc::RpcFailedException &) {
+              LOG(FATAL) << "Couldn't replicate data!";
             }
-          });
-        } catch (const rpc::RpcFailedException &) {
-          LOG(FATAL) << "Couldn't replicate data!";
-        }
+          }
+        });
 #endif
       }
       auto prev = delta->prev.Get();
@@ -1813,18 +1813,18 @@ void Storage::AppendToWal(const Transaction &transaction,
   FinalizeWalFile();
 
 #ifdef MG_ENTERPRISE
-  try {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      try {
         client.IfStreamingTransaction([&](auto &stream) {
           stream.AppendTransactionEnd(final_commit_timestamp);
         });
         client.FinalizeTransactionReplication();
+      } catch (const rpc::RpcFailedException &) {
+        LOG(FATAL) << "Couldn't replicate data!";
       }
-    });
-  } catch (const rpc::RpcFailedException &) {
-    LOG(FATAL) << "Couldn't replicate data!";
-  }
+    }
+  });
 #endif
 }
 
@@ -1838,20 +1838,20 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
   {
     std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
     if (replication_role_.load() == ReplicationRole::MAIN) {
-      try {
-        replication_clients_.WithLock([&](auto &clients) {
-          for (auto &client : clients) {
+      replication_clients_.WithLock([&](auto &clients) {
+        for (auto &client : clients) {
+          try {
             client.StartTransactionReplication();
             client.IfStreamingTransaction([&](auto &stream) {
               stream.AppendOperation(operation, label, properties,
                                      final_commit_timestamp);
             });
             client.FinalizeTransactionReplication();
+          } catch (const rpc::RpcFailedException &) {
+            LOG(FATAL) << "Couldn't replicate data!";
           }
-        });
-      } catch (const rpc::RpcFailedException &) {
-        LOG(FATAL) << "Couldn't replicate data!";
-      }
+        }
+      });
     }
   }
 #endif
