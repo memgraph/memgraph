@@ -12,10 +12,13 @@ TEST(Module, InvalidProcedureRegistration) {
   mgp_module module(utils::NewDeleteResource());
   EXPECT_FALSE(mgp_module_add_read_procedure(&module, "dashes-not-supported",
                                              DummyCallback));
+  // as u8string this is u8"unicode\u22c6not\u2014supported"
   EXPECT_FALSE(mgp_module_add_read_procedure(
-      &module, u8"unicode\u22c6not\u2014supported", DummyCallback));
+      &module, "unicode\xE2\x8B\x86not\xE2\x80\x94supported", DummyCallback));
+  // as u8string this is u8"`backticks⋆\u22c6won't-save\u2014you`"
   EXPECT_FALSE(mgp_module_add_read_procedure(
-      &module, u8"`backticks⋆\u22c6won't-save\u2014you`", DummyCallback));
+      &module, "`backticks⋆\xE2\x8B\x86won't-save\xE2\x80\x94you`",
+      DummyCallback));
   EXPECT_FALSE(mgp_module_add_read_procedure(
       &module, "42_name_must_not_start_with_number", DummyCallback));
   EXPECT_FALSE(mgp_module_add_read_procedure(&module, "div/", DummyCallback));

@@ -5,6 +5,15 @@
 #include <unordered_map>
 #include <vector>
 
+//////////////////////////////////////////////////////
+// "json.hpp" should always come before "antrl4-runtime.h"
+// "json.hpp" uses libc's EOF macro while
+// "antrl4-runtime.h" contains a static variable of the
+// same name, EOF.
+// This hides the definition of the macro which causes
+// the compilation to fail.
+#include <json/json.hpp>
+//////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -456,8 +465,7 @@ TEST_P(CypherMainVisitorTest, NullLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(
-      return_clause->body_.named_expressions[0]->expression_, TypedValue(),
-      1);
+      return_clause->body_.named_expressions[0]->expression_, TypedValue(), 1);
 }
 
 TEST_P(CypherMainVisitorTest, ParenthesizedExpression) {
@@ -909,7 +917,11 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(
       return_clause->body_.named_expressions[0]->expression_,
-      u8"\u221daaa\u221daaa", 1);
+      "\xE2\x88\x9D"
+      "aaa"
+      "\xE2\x88\x9D"
+      "aaa",
+      1);  // u8"\u221daaa\u221daaa"
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
@@ -928,7 +940,11 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(
       return_clause->body_.named_expressions[0]->expression_,
-      u8"\U0001F600aaaa\U0001F600aaaaaaaa", 1);
+      "\xF0\x9F\x98\x80"
+      "aaaa"
+      "\xF0\x9F\x98\x80"
+      "aaaaaaaa",
+      1);  // u8"\U0001F600aaaa\U0001F600aaaaaaaa"
 }
 
 TEST_P(CypherMainVisitorTest, DoubleLiteral) {
