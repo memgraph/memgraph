@@ -359,7 +359,8 @@ TEST(MonotonicBufferResource, ResetGrowthFactor) {
   mem.Release();
   mem.Allocate(stack_data_size + 1);
   ASSERT_EQ(test_mem.allocated_sizes_.size(), 2);
-  ASSERT_EQ(test_mem.allocated_sizes_.front(), test_mem.allocated_sizes_.back());
+  ASSERT_EQ(test_mem.allocated_sizes_.front(),
+            test_mem.allocated_sizes_.back());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -423,8 +424,9 @@ TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
 
 TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
   {
-    std::vector<std::pair<ContainerWithAllocatorFirst, TypeParam>,
-                utils::Allocator<TypeParam>>
+    std::vector<
+        std::pair<ContainerWithAllocatorFirst, TypeParam>,
+        utils::Allocator<std::pair<ContainerWithAllocatorFirst, TypeParam>>>
         vec(utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
@@ -434,8 +436,9 @@ TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
     EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
   }
   {
-    std::vector<std::pair<ContainerWithAllocatorLast, TypeParam>,
-                utils::Allocator<TypeParam>>
+    std::vector<
+        std::pair<ContainerWithAllocatorLast, TypeParam>,
+        utils::Allocator<std::pair<ContainerWithAllocatorLast, TypeParam>>>
         vec(utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();

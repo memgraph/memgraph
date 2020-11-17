@@ -327,7 +327,7 @@ class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
                               1024U /* max_block_size */,
                               utils::NewDeleteResource()};
   std::map<uint64_t, uint64_t, std::less<>,
-           utils::Allocator<std::pair<uint64_t, uint64_t>>>
+           utils::Allocator<std::pair<const uint64_t, uint64_t>>>
       container{&memory_};
   utils::SpinLock lock;
 };
@@ -440,7 +440,7 @@ class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
                               1024U /* max_block_size */,
                               utils::NewDeleteResource()};
   std::map<uint64_t, uint64_t, std::less<>,
-           utils::Allocator<std::pair<uint64_t, uint64_t>>>
+           utils::Allocator<std::pair<const uint64_t, uint64_t>>>
       container{&memory_};
   utils::SpinLock lock;
 };
