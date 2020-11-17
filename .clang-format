@@ -6,4 +6,5 @@ UseTab:       Never
 DerivePointerAlignment: false
 PointerAlignment: Right
 ColumnLimit : 80
+IncludeBlocks: Preserve
 ...
