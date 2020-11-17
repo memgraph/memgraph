@@ -139,9 +139,8 @@ SnapshotRes ReplicationClient::TransferSnapshot(
 WalFilesRes ReplicationClient::TransferWalFiles(
     const std::vector<std::filesystem::path> &wal_files) {
   CHECK(!wal_files.empty()) << "Wal files list is empty!";
-  auto stream{rpc_client_.Stream<WalFilesRpc>()};
+  auto stream{rpc_client_.Stream<WalFilesRpc>(wal_files.size())};
   Encoder encoder(stream.GetBuilder());
-  encoder.WriteUint(wal_files.size());
   for (const auto &wal : wal_files) {
     encoder.WriteFile(wal);
   }
@@ -235,10 +234,7 @@ void ReplicationClient::ReplicaStream::Finalize() { stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
 ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<WalFilesRpc>()) {
-  Encoder encoder(stream_.GetBuilder());
-  encoder.WriteUint(1);
-}
+    : self_(self), stream_(self_->rpc_client_.Stream<WalFilesRpc>(1)) {}
 
 void ReplicationClient::CurrentWalHandler::AppendFilename(
     const std::string &filename) {

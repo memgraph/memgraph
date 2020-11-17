@@ -2369,16 +2369,12 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         WalFilesReq req;
         slk::Load(&req, req_reader);
 
+        const auto wal_file_number = req.file_number;
+        DLOG(INFO) << "Received WAL files: " << wal_file_number;
+
         replication::Decoder decoder(req_reader);
 
         utils::EnsureDirOrDie(wal_directory_);
-
-        const auto maybe_wal_file_number = decoder.ReadUint();
-        CHECK(maybe_wal_file_number)
-            << "Failed to read number of received WAL files!";
-        const auto wal_file_number = *maybe_wal_file_number;
-
-        DLOG(INFO) << "Received WAL files: " << wal_file_number;
 
         std::unique_lock<utils::RWLock> storage_guard(main_lock_);
         durability::RecoveredIndicesAndConstraints indices_constraints;
