@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <variant>
 #include <string>
 
 #include "storage/v2/config.hpp"
@@ -24,15 +25,70 @@ namespace storage::durability {
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     const std::filesystem::path &storage_directory);
 
+// Used to capture the snapshot's data related to durability 
+struct SnapshotDurabilityInfo {
+  SnapshotDurabilityInfo() = default;
+  SnapshotDurabilityInfo(const std::filesystem::path _path,
+                         const std::string _uuid,
+                         const uint64_t _start_timestamp)
+    : path(_path),
+      uuid(_uuid),
+      start_timestamp(_start_timestamp) {}
+
+  SnapshotDurabilityInfo(const SnapshotDurabilityInfo&) = delete;
+  SnapshotDurabilityInfo& operator=(const SnapshotDurabilityInfo&) = delete;
+
+  SnapshotDurabilityInfo(SnapshotDurabilityInfo&&) = default;
+  SnapshotDurabilityInfo& operator=(SnapshotDurabilityInfo&&) = default;
+
+  ~SnapshotDurabilityInfo() = default;
+
+  std::filesystem::path path;
+  std::string uuid; 
+  uint64_t start_timestamp;
+};
+
 /// Get list of snapshot files with their UUID.
 /// @param snapshot_directory Directory containing the Snapshot files.
 /// @param uuid UUID of the Snapshot files. If not empty, fetch only Snapshot
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
 /// @return List of snapshot files defined with its path and UUID.
-std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     std::string_view uuid = "");
+
+/// Used to capture a WAL's data related to durability
+struct WalDurabilityInfo {
+  WalDurabilityInfo() = default;
+  WalDurabilityInfo(const uint64_t _seq_num,
+                    const uint64_t _from_timestamp,
+                    const uint64_t _to_timestamp,
+                    const std::string &_uuid,
+                    const std::filesystem::path &_path)
+    : seq_num(_seq_num), 
+      from_timestamp(_from_timestamp),
+      to_timestamp(_to_timestamp),
+      uuid(_uuid),
+      path(_path) {}
+
+  WalDurabilityInfo(const WalDurabilityInfo&) = delete;
+  WalDurabilityInfo& operator=(const WalDurabilityInfo&) = delete;
+
+  WalDurabilityInfo(WalDurabilityInfo&&) = default;
+  WalDurabilityInfo& operator=(WalDurabilityInfo&&) = default;
+
+  ~WalDurabilityInfo() = default;
+
+  uint64_t seq_num;
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  std::string uuid;
+  std::filesystem::path path;
+};
+
+using RecoveryFileDurabilityInfo = std::variant<SnapshotDurabilityInfo,
+                                                WalDurabilityInfo>;
 
 /// Get list of WAL files ordered by the sequence number
 /// @param wal_directory Directory containing the WAL files.
@@ -44,8 +100,7 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<
-    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
+std::optional<std::vector<WalDurabilityInfo>>
 GetWalFiles(const std::filesystem::path &wal_directory,
             std::string_view uuid = "",
             std::optional<size_t> current_seq_num = {});

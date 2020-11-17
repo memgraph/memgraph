@@ -1,3 +1,5 @@
+#include <iterator>
+#include <list>
 #include "storage/v2/replication/replication.hpp"
 
 namespace storage::replication {
@@ -147,4 +149,63 @@ void ReplicationClient::CurrentWalHandler::AppendBufferData(
 void ReplicationClient::CurrentWalHandler::Finalize() {
   stream_.AwaitResponse();
 }
+
+ReplicationClient::RecoveryFiles GetOptimalRecoveryFiles(
+    const std::filesystem::path &currently_sent_file,
+    const uint64_t replicas_last_processed_timestamp,
+    const std::filesystem::path &snapshot_dir,
+    const std::filesystem::path &wal_dir,
+    const std::string_view uuid) {
+  auto snapshot_files = durability::GetSnapshotFiles(snapshot_dir, uuid); 
+  auto wal_files = durability::GetWalFiles(wal_dir, uuid); 
+  // Now we need to put snapshot files and wals in chronological order.
+
+  // ToDo(jseljan)
+  //    - too much Python - maybe make a RecoveryFiles class and 
+  //      turn lambdas into methods
+  auto get_timestamp =
+    [](durability::RecoveryFileDurabilityInfo& recovery_file) {
+      if (std::holds_alternative<durability::SnapshotDurabilityInfo>
+        (recovery_file)) {
+        return std::get<durability::SnapshotDurabilityInfo>
+            (recovery_file).start_timestamp; 
+      } 
+      else {
+        return std::get<durability::WalDurabilityInfo>
+            (recovery_file).from_timestamp; 
+      }
+    };
+
+  auto by_timestamp =
+    [get_timestamp](auto& recovery_file_a, auto& recovery_file_b) {
+      return get_timestamp(recovery_file_a) < get_timestamp(recovery_file_b);
+    };
+
+  auto to_timestamp_sorted_list =
+    [&snapshot_files, &wal_files, by_timestamp]() {
+      ReplicationClient::RecoveryFiles recovery_files;
+      if (!snapshot_files.empty()) {
+        for (auto& sf : snapshot_files) {
+          recovery_files.emplace_back(std::move(sf));
+        }
+      }
+      // wal_files is an instance of std::optional, and has to be "probed"
+      // before we can access its elements
+      if (wal_files) {
+        for (auto& wal : *wal_files) {
+          recovery_files.emplace_back(std::move(wal));
+        }
+      }
+      std::sort(recovery_files.begin(), recovery_files.end(), by_timestamp);
+      return recovery_files;
+    };
+
+  //
+  auto recovery_files = to_timestamp_sorted_list();
+  for (auto& rf : recovery_files) {
+     
+  }
+  return recovery_files;
+};
+
 }  // namespace storage::replication

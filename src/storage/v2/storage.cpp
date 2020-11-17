@@ -2401,13 +2401,16 @@ void Storage::RegisterReplica(
     // For now we assume we need to send the latest snapshot
     auto snapshot_files =
         durability::GetSnapshotFiles(snapshot_directory_, uuid_);
+    auto by_path = [](auto &snapshot_a, auto &snapshot_b) {
+                     return snapshot_a.path < snapshot_a.path;
+                   };
     if (!snapshot_files.empty()) {
-      std::sort(snapshot_files.begin(), snapshot_files.end());
+      std::sort(snapshot_files.begin(), snapshot_files.end(), by_path);
       // TODO (antonio2368): Send the last snapshot for now
       // check if additional logic is necessary
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
-      snapshot_file.emplace(std::move(snapshot_files.back().first));
+      snapshot_file.emplace(std::move(snapshot_files.back().path));
       recovery_locker_acc.AddFile(*snapshot_file);
     }
 
@@ -2427,7 +2430,7 @@ void Storage::RegisterReplica(
     auto &wal_files_with_seq = *maybe_wal_files;
 
     std::optional<uint64_t> previous_seq_num;
-    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+    for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
          wal_files_with_seq) {
       if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
         LOG(FATAL) << "You are missing a WAL file with the sequence number "

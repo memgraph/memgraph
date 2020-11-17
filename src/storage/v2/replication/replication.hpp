@@ -4,9 +4,13 @@
 #include <condition_variable>
 #include <thread>
 
+//#include <variant>
+#include "utils/file.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -111,6 +115,15 @@ class ReplicationClient {
 
   auto State() const { return replica_state_.load(); }
 
+  using RecoveryFiles = std::vector<durability::RecoveryFileDurabilityInfo>;
+  
+  RecoveryFiles GetOptimalRecoveryFiles(
+      const std::filesystem::path &currently_sent_file,
+      const uint64_t replicas_last_processed_timestamp,
+      const std::filesystem::path &snapshot_dir,
+      const std::filesystem::path &wal_dir,
+      const std::string_view &uuid);
+  
  private:
   void FinalizeTransactionReplicationInternal();
 
