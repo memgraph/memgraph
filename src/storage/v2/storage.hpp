@@ -8,6 +8,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -407,7 +408,7 @@ class Storage final {
 
 #ifdef MG_ENTERPRISE
   template <ReplicationRole role, typename... Args>
-  void SetReplicationRole(Args &&... args) {
+  void SetReplicationRole(Args &&...args) {
     if (replication_role_.load() == role) {
       return;
     }
@@ -452,6 +453,10 @@ class Storage final {
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
+
+  std::pair<durability::WalInfo, std::filesystem::path> LoadWal(
+      replication::Decoder *decoder,
+      durability::RecoveredIndicesAndConstraints *indices_constraints);
 #endif
 
   // Main storage lock.

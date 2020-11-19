@@ -12,7 +12,7 @@ ReplicationClient::ReplicationClient(
     utils::FileRetainer *file_retainer,
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, const std::string_view uuid,
-    std::optional<durability::WalFile> *wal_file_ptr,
+    std::optional<durability::WalFile> *wal_file_ptr, uint64_t *wal_seq_num,
     utils::SpinLock *transaction_engine_lock,
     const io::network::Endpoint &endpoint, bool use_ssl,
     const ReplicationMode mode)
@@ -25,6 +25,7 @@ ReplicationClient::ReplicationClient(
       wal_directory_(wal_directory),
       uuid_(uuid),
       wal_file_ptr_(wal_file_ptr),
+      wal_seq_num_(wal_seq_num),
       transaction_engine_lock_(transaction_engine_lock),
       rpc_context_(use_ssl),
       rpc_client_(endpoint, &rpc_context_),
@@ -142,6 +143,7 @@ WalFilesRes ReplicationClient::TransferWalFiles(
   auto stream{rpc_client_.Stream<WalFilesRpc>(wal_files.size())};
   Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
+    DLOG(INFO) << "Sending wal file: " << wal;
     encoder.WriteFile(wal);
   }
 
@@ -162,7 +164,7 @@ bool ReplicationClient::StartTransactionReplication() {
     case ReplicaState::READY:
       CHECK(!replica_stream_);
       replica_stream_.emplace(
-          ReplicaStream{this, last_commit_timestamp_.load()});
+          ReplicaStream{this, last_commit_timestamp_.load(), *wal_seq_num_});
       replica_state_.store(ReplicaState::REPLICATING);
       return true;
   }
@@ -197,10 +199,11 @@ void ReplicationClient::FinalizeTransactionReplicationInternal() {
 }
 ////// ReplicaStream //////
 ReplicationClient::ReplicaStream::ReplicaStream(
-    ReplicationClient *self, const uint64_t previous_commit_timestamp)
+    ReplicationClient *self, const uint64_t previous_commit_timestamp,
+    const uint64_t current_seq_num)
     : self_(self),
       stream_(self_->rpc_client_.Stream<AppendDeltasRpc>(
-          previous_commit_timestamp)) {}
+          previous_commit_timestamp, current_seq_num)) {}
 
 void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
@@ -234,7 +237,7 @@ void ReplicationClient::ReplicaStream::Finalize() { stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
 ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<WalFilesRpc>(1)) {}
+    : self_(self), stream_(self_->rpc_client_.Stream<CurrentWalRpc>()) {}
 
 void ReplicationClient::CurrentWalHandler::AppendFilename(
     const std::string &filename) {
@@ -259,7 +262,7 @@ void ReplicationClient::CurrentWalHandler::AppendBufferData(
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-WalFilesRes ReplicationClient::CurrentWalHandler::Finalize() {
+CurrentWalRes ReplicationClient::CurrentWalHandler::Finalize() {
   return stream_.AwaitResponse();
 }
 }  // namespace storage::replication

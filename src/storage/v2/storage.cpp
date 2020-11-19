@@ -430,6 +430,7 @@ Storage::~Storage() {
     replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
   }
 #endif
+  wal_file_->FinalizeWal();
   wal_file_ = std::nullopt;
   if (config_.durability.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {
@@ -950,7 +951,12 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
         // written before actually committing the transaction (before setting
         // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
-        storage_->AppendToWal(transaction_, commit_timestamp);
+#ifdef MG_ENTERPRISE
+              if (storage_->replication_role_ == ReplicationRole::MAIN ||
+                  desired_commit_timestamp.has_value()) {
+                storage_->AppendToWal(transaction_, commit_timestamp);
+              }
+#endif
 
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
@@ -1608,8 +1614,9 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
+    DLOG(WARNING) << "INITIALIZE " << wal_seq_num_;
     wal_file_.emplace(wal_directory_, uuid_, config_.items, &name_id_mapper_,
-                      wal_seq_num_++);
+                      wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1623,6 +1630,7 @@ void Storage::FinalizeWalFile() {
   }
   if (wal_file_->GetSize() / 1024 >=
       config_.durability.wal_file_size_kibibytes) {
+    wal_file_->FinalizeWal();
     wal_file_ = std::nullopt;
     wal_unsynced_transactions_ = 0;
   } else {
@@ -1892,6 +1900,31 @@ void Storage::CreateSnapshot() {
 }
 
 #ifdef MG_ENTERPRISE
+std::pair<durability::WalInfo, std::filesystem::path> Storage::LoadWal(
+    replication::Decoder *decoder,
+    durability::RecoveredIndicesAndConstraints *indices_constraints) {
+  auto maybe_wal_path = decoder->ReadFile(wal_directory_);
+  CHECK(maybe_wal_path) << "Failed to load WAL!";
+  DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
+  try {
+    auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
+    auto info = durability::LoadWal(
+        *maybe_wal_path, indices_constraints, last_commit_timestamp_,
+        &vertices_, &edges_, &name_id_mapper_, &edge_count_, config_.items);
+    vertex_id_ = std::max(vertex_id_.load(), info.next_vertex_id);
+    edge_id_ = std::max(edge_id_.load(), info.next_edge_id);
+    timestamp_ = std::max(timestamp_, info.next_timestamp);
+    if (info.next_timestamp != 0) {
+      last_commit_timestamp_ = info.next_timestamp - 1;
+    }
+    DLOG(INFO) << *maybe_wal_path << " loaded successfully";
+    return {std::move(wal_info), std::move(*maybe_wal_path)};
+  } catch (const durability::RecoveryFailure &e) {
+    LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
+               << " because of: " << e.what();
+  }
+}
+
 void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_.emplace();
 
@@ -1968,6 +2001,20 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
       AppendDeltasRes res{false, last_commit_timestamp_.load()};
       slk::Save(res, res_builder);
       return;
+    }
+
+    if (wal_file_) {
+      if (req.seq_num > wal_file_->SequenceNumber()) {
+        wal_file_->FinalizeWal();
+        wal_file_.reset();
+        wal_seq_num_ =req.seq_num;
+      } else {
+        CHECK(wal_file_->SequenceNumber() == req.seq_num)
+            << "Invalid sequence number of current wal file";
+        wal_seq_num_ = req.seq_num + 1;
+      }
+    } else {
+      wal_seq_num_ = req.seq_num;
     }
 
     auto edge_acc = edges_.access();
@@ -2362,6 +2409,25 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
         SnapshotRes res{true, last_commit_timestamp_.load()};
         slk::Save(res, res_builder);
+
+        // Delete other durability files
+        auto snapshot_files =
+            durability::GetSnapshotFiles(snapshot_directory_, uuid_);
+        for (const auto &[path, uuid] : snapshot_files) {
+          if (path != *maybe_snapshot_path) {
+            file_retainer_.DeleteFile(path);
+          }
+        }
+
+        auto wal_files = durability::GetWalFiles(wal_directory_, uuid_);
+        if (wal_files) {
+          for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+               *wal_files) {
+            file_retainer_.DeleteFile(path);
+          }
+
+          wal_file_.reset();
+        }
       });
   replication_server_->rpc_server->Register<WalFilesRpc>(
       [this](auto *req_reader, auto *res_builder) {
@@ -2378,36 +2444,66 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
         std::unique_lock<utils::RWLock> storage_guard(main_lock_);
         durability::RecoveredIndicesAndConstraints indices_constraints;
-        for (auto i = 0; i < wal_file_number; ++i) {
-          const auto maybe_wal_path = decoder.ReadFile(wal_directory_);
-          CHECK(maybe_wal_path) << "Failed to load WAL!";
-          DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
-          // TODO (antonio2368): Use timestamp_ for now, but the timestamp_ can
-          // increase by running read queries so define variable that will keep
-          // last received timestamp
-          try {
-            auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
-            if (wal_info.seq_num == 0) {
-              uuid_ = wal_info.uuid;
-            }
-            auto info = durability::LoadWal(
-                *maybe_wal_path, &indices_constraints, timestamp_, &vertices_,
-                &edges_, &name_id_mapper_, &edge_count_, config_.items);
-            vertex_id_ = std::max(vertex_id_.load(), info.next_vertex_id);
-            edge_id_ = std::max(edge_id_.load(), info.next_edge_id);
-            timestamp_ = std::max(timestamp_, info.next_timestamp);
-            DLOG(INFO) << *maybe_wal_path << " loaded successfully";
-          } catch (const durability::RecoveryFailure &e) {
-            LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
-                       << " because of: " << e.what();
-          }
+        auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
+        if (wal_info.seq_num == 0) {
+          uuid_ = wal_info.uuid;
         }
+        // Check the seq number of the first wal file to see if it's the
+        // finalized form of the current wal on replica
+        if (wal_file_) {
+          if (wal_file_->SequenceNumber() == wal_info.seq_num &&
+              wal_file_->Path() != path) {
+            wal_file_->DeleteWal();
+          }
+          wal_file_.reset();
+        }
+
+        for (auto i = 1; i < wal_file_number; ++i) {
+          LoadWal(&decoder, &indices_constraints);
+        }
+
         durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
                                                  &constraints_, &vertices_);
-        last_commit_timestamp_ = timestamp_ - 1;
         storage_guard.unlock();
 
         WalFilesRes res{true, last_commit_timestamp_.load()};
+        slk::Save(res, res_builder);
+      });
+  replication_server_->rpc_server->Register<CurrentWalRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received CurrentWalRpc";
+        CurrentWalReq req;
+        slk::Load(&req, req_reader);
+
+        replication::Decoder decoder(req_reader);
+
+        utils::EnsureDirOrDie(wal_directory_);
+
+        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+        durability::RecoveredIndicesAndConstraints indices_constraints;
+        auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
+        if (wal_info.seq_num == 0) {
+          uuid_ = wal_info.uuid;
+        }
+
+        if (wal_file_ && wal_file_->SequenceNumber() == wal_info.seq_num &&
+            wal_file_->Path() != path) {
+          // Delete the old wal file
+          file_retainer_.DeleteFile(wal_file_->Path());
+        }
+        CHECK(config_.durability.snapshot_wal_mode ==
+            Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
+        DLOG(WARNING) << wal_info.seq_num;
+        DLOG(WARNING) << path;
+        wal_file_.emplace(std::move(path), config_.items, &name_id_mapper_,
+                          wal_info.seq_num, wal_info.from_timestamp,
+                          wal_info.to_timestamp, wal_info.num_deltas,
+                          &file_retainer_);
+        durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
+                                                 &constraints_, &vertices_);
+        storage_guard.unlock();
+
+        CurrentWalRes res{true, last_commit_timestamp_.load()};
         slk::Save(res, res_builder);
       });
   replication_server_->rpc_server->Start();
@@ -2431,7 +2527,8 @@ void Storage::RegisterReplica(
     clients.emplace_back(std::move(name), last_commit_timestamp_,
                          &name_id_mapper_, config_.items, &file_retainer_,
                          snapshot_directory_, wal_directory_, uuid_, &wal_file_,
-                         &engine_lock_, endpoint, false, replication_mode);
+                         &wal_seq_num_, &engine_lock_, endpoint, false,
+                         replication_mode);
   });
 }
 

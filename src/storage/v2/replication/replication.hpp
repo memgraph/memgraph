@@ -36,6 +36,7 @@ class ReplicationClient {
                     const std::filesystem::path &wal_directory,
                     std::string_view uuid,
                     std::optional<durability::WalFile> *wal_file_ptr,
+                    uint64_t *wal_seq_num,
                     utils::SpinLock *transaction_engine_lock,
                     const io::network::Endpoint &endpoint, bool use_ssl,
                     ReplicationMode mode);
@@ -45,7 +46,8 @@ class ReplicationClient {
    private:
     friend class ReplicationClient;
     explicit ReplicaStream(ReplicationClient *self,
-                           uint64_t previous_commit_timestamp);
+                           uint64_t previous_commit_timestamp,
+                           uint64_t current_seq_num);
 
    public:
     /// @throw rpc::RpcFailedException
@@ -89,11 +91,11 @@ class ReplicationClient {
     void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
 
     /// @throw rpc::RpcFailedException
-    WalFilesRes Finalize();
+    CurrentWalRes Finalize();
 
    private:
     ReplicationClient *self_;
-    rpc::Client::StreamHandler<WalFilesRpc> stream_;
+    rpc::Client::StreamHandler<CurrentWalRpc> stream_;
   };
 
   bool StartTransactionReplication();
@@ -135,6 +137,7 @@ class ReplicationClient {
   const std::filesystem::path &wal_directory_;
   std::string_view uuid_;
   std::optional<durability::WalFile> *wal_file_ptr_;
+  uint64_t *wal_seq_num_;
   utils::SpinLock *transaction_engine_lock_;
 
   communication::ClientContext rpc_context_;

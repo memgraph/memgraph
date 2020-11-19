@@ -14,6 +14,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace storage::durability {
@@ -158,7 +159,12 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 class WalFile {
  public:
   WalFile(const std::filesystem::path &wal_directory, const std::string &uuid,
-          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num);
+          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+          utils::FileRetainer *file_retainer);
+  WalFile(std::filesystem::path current_wal_path, Config::Items items,
+          NameIdMapper *name_id_mapper, uint64_t seq_num,
+          uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
+          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -195,6 +201,9 @@ class WalFile {
   // Get the path of the current WAL file.
   const auto &Path() const { return path_; }
 
+  void FinalizeWal();
+  void DeleteWal();
+
  private:
   void UpdateStats(uint64_t timestamp);
 
@@ -206,6 +215,8 @@ class WalFile {
   uint64_t to_timestamp_;
   uint64_t count_;
   uint64_t seq_num_;
+
+  utils::FileRetainer *file_retainer_;
 };
 
 }  // namespace storage::durability

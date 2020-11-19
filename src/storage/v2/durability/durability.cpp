@@ -259,7 +259,8 @@ std::optional<RecoveryInfo> RecoverData(
     std::optional<uint64_t> previous_seq_num;
     for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
          wal_files) {
-      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+      if (previous_seq_num && *previous_seq_num + 1 != seq_num &&
+          *previous_seq_num != seq_num) {
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
                    << *previous_seq_num + 1 << "!";
       }
