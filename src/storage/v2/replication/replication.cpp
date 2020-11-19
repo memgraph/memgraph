@@ -7,12 +7,13 @@ ReplicationClient::ReplicationClient(std::string name,
                                      NameIdMapper *name_id_mapper,
                                      Config::Items items,
                                      const io::network::Endpoint &endpoint,
-                                     bool use_ssl)
+                                     bool use_ssl, const ReplicationMode mode)
     : name_(std::move(name)),
       name_id_mapper_(name_id_mapper),
       items_(items),
       rpc_context_(use_ssl),
-      rpc_client_(endpoint, &rpc_context_) {}
+      rpc_client_(endpoint, &rpc_context_),
+      mode_(mode) {}
 
 void ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
   auto stream{rpc_client_.Stream<SnapshotRpc>()};
@@ -34,32 +35,76 @@ void ReplicationClient::TransferWalFiles(
   stream.AwaitResponse();
 }
 
-////// TransactionHandler //////
-ReplicationClient::TransactionHandler::TransactionHandler(
-    ReplicationClient *self)
+bool ReplicationClient::StartTransactionReplication() {
+  std::unique_lock guard(client_lock_);
+  const auto status = replica_state_.load();
+  switch (status) {
+    case ReplicaState::RECOVERY:
+      DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
+      return false;
+    case ReplicaState::REPLICATING:
+      replica_state_.store(ReplicaState::RECOVERY);
+      return false;
+    case ReplicaState::READY:
+      CHECK(!replica_stream_);
+      replica_stream_.emplace(ReplicaStream{this});
+      replica_state_.store(ReplicaState::REPLICATING);
+      return true;
+  }
+}
+
+void ReplicationClient::IfStreamingTransaction(
+    const std::function<void(ReplicaStream &handler)> &callback) {
+  if (replica_stream_) {
+    callback(*replica_stream_);
+  }
+}
+
+void ReplicationClient::FinalizeTransactionReplication() {
+  if (mode_ == ReplicationMode::ASYNC) {
+    thread_pool_.AddTask(
+        [this] { this->FinalizeTransactionReplicationInternal(); });
+  } else {
+    FinalizeTransactionReplicationInternal();
+  }
+}
+
+void ReplicationClient::FinalizeTransactionReplicationInternal() {
+  if (replica_stream_) {
+    replica_stream_->Finalize();
+    replica_stream_.reset();
+  }
+
+  std::unique_lock guard(client_lock_);
+  if (replica_state_.load() == ReplicaState::REPLICATING) {
+    replica_state_.store(ReplicaState::READY);
+  }
+}
+////// ReplicaStream //////
+ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self)
     : self_(self), stream_(self_->rpc_client_.Stream<AppendDeltasRpc>()) {}
 
-void ReplicationClient::TransactionHandler::AppendDelta(
+void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->name_id_mapper_, self_->items_, delta, vertex,
               final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendDelta(
+void ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, self_->name_id_mapper_, delta, edge,
               final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendTransactionEnd(
+void ReplicationClient::ReplicaStream::AppendTransactionEnd(
     uint64_t final_commit_timestamp) {
   Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void ReplicationClient::TransactionHandler::AppendOperation(
+void ReplicationClient::ReplicaStream::AppendOperation(
     durability::StorageGlobalOperation operation, LabelId label,
     const std::set<PropertyId> &properties, uint64_t timestamp) {
   Encoder encoder(stream_.GetBuilder());
@@ -67,9 +112,7 @@ void ReplicationClient::TransactionHandler::AppendOperation(
                   properties, timestamp);
 }
 
-void ReplicationClient::TransactionHandler::Finalize() {
-  stream_.AwaitResponse();
-}
+void ReplicationClient::ReplicaStream::Finalize() { stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
 ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
