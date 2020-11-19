@@ -11,6 +11,7 @@ ThreadPool::ThreadPool(const size_t pool_size) {
 void ThreadPool::AddTask(std::function<void()> new_task) {
   task_queue_.WithLock([&](auto &queue) {
     queue.emplace(std::make_unique<TaskSignature>(std::move(new_task)));
+    unfinished_tasks_num_.fetch_add(1);
   });
   queue_cv_.notify_one();
 }
@@ -55,22 +56,23 @@ void ThreadPool::ThreadLoop() {
         return;
       }
       (*task)();
+      unfinished_tasks_num_.fetch_sub(1);
       task = PopTask();
     }
 
     std::unique_lock guard(pool_lock_);
-    idle_thread_num_.fetch_add(1);
     queue_cv_.wait(guard, [&] {
       task = PopTask();
       return task || terminate_pool_.load();
     });
-    idle_thread_num_.fetch_sub(1);
     if (terminate_pool_.load()) {
       return;
     }
   }
 }
 
-size_t ThreadPool::IdleThreadNum() const { return idle_thread_num_.load(); }
+size_t ThreadPool::UnfinishedTasksNum() const {
+  return unfinished_tasks_num_.load();
+}
 
 }  // namespace utils
