@@ -4,6 +4,7 @@ set(utils_src_files
     memory.cpp
     signals.cpp
     thread.cpp
+    thread_pool.cpp
     uuid.cpp)
 
 add_library(mg-utils STATIC ${utils_src_files})

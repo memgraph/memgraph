@@ -1,5 +1,9 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
+#include <thread>
+
 #include "rpc/client.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
@@ -11,20 +15,27 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/file.hpp"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
+#include "utils/thread_pool.hpp"
 
 namespace storage::replication {
+
+enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+
+enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY };
 
 class ReplicationClient {
  public:
   ReplicationClient(std::string name, NameIdMapper *name_id_mapper,
                     Config::Items items, const io::network::Endpoint &endpoint,
-                    bool use_ssl);
+                    bool use_ssl, ReplicationMode mode);
 
   // Handler used for transfering the current transaction.
-  class TransactionHandler {
+  class ReplicaStream {
    private:
     friend class ReplicationClient;
-    explicit TransactionHandler(ReplicationClient *self);
+    explicit ReplicaStream(ReplicationClient *self);
 
    public:
     /// @throw rpc::RpcFailedException
@@ -43,19 +54,13 @@ class ReplicationClient {
                          LabelId label, const std::set<PropertyId> &properties,
                          uint64_t timestamp);
 
+   private:
     /// @throw rpc::RpcFailedException
     void Finalize();
 
-   private:
     ReplicationClient *self_;
     rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
   };
-
-  TransactionHandler ReplicateTransaction() { return TransactionHandler(this); }
-
-  // Transfer the snapshot file.
-  // @param path Path of the snapshot file.
-  void TransferSnapshot(const std::filesystem::path &path);
 
   // Handler for transfering the current WAL file whose data is
   // contained in the internal buffer and the file.
@@ -81,6 +86,22 @@ class ReplicationClient {
     rpc::Client::StreamHandler<WalFilesRpc> stream_;
   };
 
+  bool StartTransactionReplication();
+
+  // Replication clients can be removed at any point
+  // so to avoid any complexity of checking if the client was removed whenever
+  // we want to send part of transaction and to avoid adding some GC logic this
+  // function will run a callback if, after previously callling
+  // StartTransactionReplication, stream is created.
+  void IfStreamingTransaction(
+      const std::function<void(ReplicaStream &handler)> &callback);
+
+  void FinalizeTransactionReplication();
+
+  // Transfer the snapshot file.
+  // @param path Path of the snapshot file.
+  void TransferSnapshot(const std::filesystem::path &path);
+
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
@@ -88,12 +109,23 @@ class ReplicationClient {
 
   const auto &Name() const { return name_; }
 
+  auto State() const { return replica_state_.load(); }
+
  private:
+  void FinalizeTransactionReplicationInternal();
+
   std::string name_;
   NameIdMapper *name_id_mapper_;
   Config::Items items_;
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
+
+  std::optional<ReplicaStream> replica_stream_;
+  ReplicationMode mode_{ReplicationMode::SYNC};
+
+  utils::SpinLock client_lock_;
+  utils::ThreadPool thread_pool_{1};
+  std::atomic<ReplicaState> replica_state_{ReplicaState::READY};
 };
 
 }  // namespace storage::replication
