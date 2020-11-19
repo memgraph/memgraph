@@ -198,6 +198,8 @@ target_link_libraries(${test_prefix}small_vector mg-utils)
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 
+add_unit_test(utils_thread_pool.cpp)
+target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
 # Test mg-storage-v2
 
