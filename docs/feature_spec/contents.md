@@ -7,10 +7,11 @@
 
 ## Draft
 
-* [Compile Filter Expressions](draft-compile-filter-expressions.md)
+* [A Star Variable-length Expand](draft-a-start-variable-length-expand.md)
 * [Database Triggers](draft-database-triggers.md)
 * [Date and Time Data Types](draft-date-and-time-data-types.md)
 * [Edge Create or Update Queries](draft-edge-create-or-update-queries.md)
+* [Extend and Compile Filter Expressions](draft-extend-and-compile-filter-expressions.md)
 * [Geospatial Data Types](draft-geospatial-data-types.md)
 * [Hybrid Storage Engine](draft-hybrid-storage-engine.md)
 * [Load Data Queries](draft-load-data-queries.md)
