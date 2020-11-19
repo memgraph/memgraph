@@ -20,8 +20,9 @@ TEST(ThreadPool, Basic) {
       pool.AddTask([&] { count.fetch_add(1); });
     }
 
-    while (pool.IdleThreadNum() != pool_size)
-      ;
+    while (pool.IdleThreadNum() != pool_size) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 
     ASSERT_EQ(count.load(), adder_count);
   }

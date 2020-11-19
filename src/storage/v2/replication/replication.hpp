@@ -120,7 +120,6 @@ class ReplicationClient {
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
 
-  // TODO (antonio2368): Give a better name.
   std::optional<ReplicaStream> replica_stream_;
   ReplicationMode mode_{ReplicationMode::SYNC};
 
