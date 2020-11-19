@@ -8,7 +8,7 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 cpp<#
-;; TODO(antonio2368): Change namespace to `storage::replication` once LCP is
+;; TODO(antonio2368) : Change namespace to `storage::replication` once LCP is
 ;; updated to support such namespaces.
 (lcp:namespace storage)
 
@@ -34,6 +34,12 @@ cpp<#
 
 (lcp:define-rpc wal-files
   (:request ((file-number :uint64_t)))
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
+(lcp:define-rpc current-wal
+  (:request ())
   (:response
     ((success :bool)
      (current-commit-timestamp :uint64_t))))
