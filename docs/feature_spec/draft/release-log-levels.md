@@ -12,3 +12,6 @@ Memgraph Enterprise has the audit log feature. The audit log provides
 additional info about each query (user, source, etc.), but it's only available
 in the Enterprise edition. Furthermore, the intention of audit logs isn't
 debugging.
+
+An important note is that the logged queries should be stripped out because, in
+the Memgraph cloud context, we shouldn't log sensitive data.
