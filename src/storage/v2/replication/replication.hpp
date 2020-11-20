@@ -127,6 +127,8 @@ class ReplicationClient {
  private:
   void FinalizeTransactionReplicationInternal();
 
+  void RecoverReplica();
+
   std::string name_;
   // storage info
   const std::atomic<uint64_t> &last_commit_timestamp_;

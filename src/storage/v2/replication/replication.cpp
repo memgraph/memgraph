@@ -45,87 +45,7 @@ ReplicationClient::ReplicationClient(
     DLOG(INFO) << "REPLICA IS BEHIND";
     replica_state_.store(ReplicaState::RECOVERY);
 
-    auto &wal_file = *wal_file_ptr_;
-
-    // Recovery
-    auto recovery_locker = file_retainer_->AddLocker();
-    std::optional<std::filesystem::path> snapshot_file;
-    std::vector<std::filesystem::path> wal_files;
-    std::optional<uint64_t> latest_seq_num;
-    {
-      auto recovery_locker_acc = recovery_locker.Access();
-      // For now we assume we need to send the latest snapshot
-      auto snapshot_files =
-          durability::GetSnapshotFiles(snapshot_directory_, uuid_);
-      if (!snapshot_files.empty()) {
-        std::sort(snapshot_files.begin(), snapshot_files.end());
-        // TODO (antonio2368): Send the last snapshot for now
-        // check if additional logic is necessary
-        // Also, prevent the deletion of the snapshot file and the required
-        // WALs
-        snapshot_file.emplace(std::move(snapshot_files.back().first));
-        recovery_locker_acc.AddFile(*snapshot_file);
-      }
-
-      {
-        // So the wal_file_ isn't overwritten
-        std::unique_lock engine_guard(*transaction_engine_lock_);
-        if (wal_file) {
-          // For now let's disable flushing until we send the current WAL
-          wal_file->DisableFlushing();
-          latest_seq_num = wal_file->SequenceNumber();
-        }
-      }
-
-      auto maybe_wal_files =
-          durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
-      CHECK(maybe_wal_files) << "Failed to find WAL files";
-      auto &wal_files_with_seq = *maybe_wal_files;
-
-      std::optional<uint64_t> previous_seq_num;
-      for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
-           wal_files_with_seq) {
-        if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
-          LOG(FATAL) << "You are missing a WAL file with the sequence number "
-                     << *previous_seq_num + 1 << "!";
-        }
-        previous_seq_num = seq_num;
-        wal_files.push_back(path);
-        recovery_locker_acc.AddFile(path);
-      }
-    }
-
-    if (snapshot_file) {
-      DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
-      auto response = TransferSnapshot(*snapshot_file);
-      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
-                 << response.current_commit_timestamp;
-    }
-
-    if (!wal_files.empty()) {
-      DLOG(INFO) << "Sending the latest wal files";
-      auto response = TransferWalFiles(wal_files);
-      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
-                 << response.current_commit_timestamp;
-    }
-
-    // We have a current WAL
-    if (latest_seq_num) {
-      auto stream = TransferCurrentWalFile();
-      stream.AppendFilename(wal_file->Path().filename());
-      utils::InputFile file;
-      CHECK(file.Open(wal_file->Path())) << "Failed to open current WAL file!";
-      const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
-      stream.AppendSize(file.GetSize() + buffer_size);
-      stream.AppendFileData(&file);
-      stream.AppendBufferData(buffer, buffer_size);
-      auto response = stream.Finalize();
-      wal_file->EnableFlushing();
-      DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
-                 << response.current_commit_timestamp;
-    }
-
-    replica_state_.store(ReplicaState::READY);
+    RecoverReplica();
   }
 }
 
@@ -197,6 +117,91 @@ void ReplicationClient::FinalizeTransactionReplicationInternal() {
     replica_state_.store(ReplicaState::READY);
   }
 }
+
+void ReplicationClient::RecoverReplica() {
+  auto &wal_file = *wal_file_ptr_;
+
+  // Recovery
+  auto recovery_locker = file_retainer_->AddLocker();
+  std::optional<std::filesystem::path> snapshot_file;
+  std::vector<std::filesystem::path> wal_files;
+  std::optional<uint64_t> latest_seq_num;
+  {
+    auto recovery_locker_acc = recovery_locker.Access();
+    // For now we assume we need to send the latest snapshot
+    auto snapshot_files =
+        durability::GetSnapshotFiles(snapshot_directory_, uuid_);
+    if (!snapshot_files.empty()) {
+      std::sort(snapshot_files.begin(), snapshot_files.end());
+      // TODO (antonio2368): Send the last snapshot for now
+      // check if additional logic is necessary
+      // Also, prevent the deletion of the snapshot file and the required
+      // WALs
+      snapshot_file.emplace(std::move(snapshot_files.back().first));
+      recovery_locker_acc.AddFile(*snapshot_file);
+    }
+
+    {
+      // So the wal_file_ isn't overwritten
+      std::unique_lock engine_guard(*transaction_engine_lock_);
+      if (wal_file) {
+        // For now let's disable flushing until we send the current WAL
+        wal_file->DisableFlushing();
+        latest_seq_num = wal_file->SequenceNumber();
+      }
+    }
+
+    auto maybe_wal_files =
+        durability::GetWalFiles(wal_directory_, uuid_, latest_seq_num);
+    CHECK(maybe_wal_files) << "Failed to find WAL files";
+    auto &wal_files_with_seq = *maybe_wal_files;
+
+    std::optional<uint64_t> previous_seq_num;
+    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+         wal_files_with_seq) {
+      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+        LOG(FATAL) << "You are missing a WAL file with the sequence number "
+                   << *previous_seq_num + 1 << "!";
+      }
+      previous_seq_num = seq_num;
+      wal_files.push_back(path);
+      recovery_locker_acc.AddFile(path);
+    }
+  }
+
+  if (snapshot_file) {
+    DLOG(INFO) << "Sending the latest snapshot file: " << *snapshot_file;
+    auto response = TransferSnapshot(*snapshot_file);
+    DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+               << response.current_commit_timestamp;
+  }
+
+  if (!wal_files.empty()) {
+    DLOG(INFO) << "Sending the latest wal files";
+    auto response = TransferWalFiles(wal_files);
+    DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+               << response.current_commit_timestamp;
+  }
+
+  // We have a current WAL
+  if (latest_seq_num) {
+    auto stream = TransferCurrentWalFile();
+    stream.AppendFilename(wal_file->Path().filename());
+    utils::InputFile file;
+    CHECK(file.Open(wal_file->Path())) << "Failed to open current WAL file!";
+    const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
+    stream.AppendSize(file.GetSize() + buffer_size);
+    stream.AppendFileData(&file);
+    stream.AppendBufferData(buffer, buffer_size);
+    auto response = stream.Finalize();
+    wal_file->EnableFlushing();
+    DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+               << response.current_commit_timestamp;
+  }
+
+  replica_state_.store(ReplicaState::READY);
+}
+
 ////// ReplicaStream //////
 ReplicationClient::ReplicaStream::ReplicaStream(
     ReplicationClient *self, const uint64_t previous_commit_timestamp,
