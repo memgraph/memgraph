@@ -537,7 +537,6 @@ class Storage final {
   // Replication
 #ifdef MG_ENTERPRISE
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
-
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
   struct ReplicationServer {

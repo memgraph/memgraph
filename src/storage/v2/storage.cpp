@@ -361,7 +361,9 @@ Storage::Storage(Config config)
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
+#if MG_ENTERPRISE
       last_commit_timestamp_ = timestamp_ - 1;
+#endif
     }
   } else if (config_.durability.snapshot_wal_mode !=
                  Config::Durability::SnapshotWalMode::DISABLED ||
@@ -954,10 +956,15 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
         // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
 #ifdef MG_ENTERPRISE
+        // Replica can log only the write transaction received from Main
+        // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN ||
             desired_commit_timestamp.has_value()) {
           storage_->AppendToWal(transaction_, commit_timestamp);
         }
+#else
+
+        storage_->AppendToWal(transaction_, commit_timestamp);
 #endif
 
         // Take committed_transactions lock while holding the engine lock to
@@ -972,6 +979,8 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
               transaction_.commit_timestamp->store(commit_timestamp,
                                                    std::memory_order_release);
 #ifdef MG_ENTERPRISE
+              // Replica can only update the last commit timestamp with
+              // the commits received from main.
               if (storage_->replication_role_ == ReplicationRole::MAIN ||
                   desired_commit_timestamp.has_value()) {
                 // Update the last commit timestamp
@@ -1502,7 +1511,7 @@ void Storage::CollectGarbage() {
             break;
           }
           case PreviousPtr::Type::DELTA: {
-            if (prev.delta->timestamp->load(std::memory_order_release) ==
+            if (prev.delta->timestamp->load(std::memory_order_acquire) ==
                 commit_timestamp) {
               // The delta that is newer than this one is also a delta from this
               // transaction. We skip the current delta and will remove it as a
