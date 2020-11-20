@@ -430,8 +430,10 @@ Storage::~Storage() {
     replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
   }
 #endif
-  wal_file_->FinalizeWal();
-  wal_file_ = std::nullopt;
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_ = std::nullopt;
+  }
   if (config_.durability.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
@@ -952,10 +954,10 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
         // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
 #ifdef MG_ENTERPRISE
-              if (storage_->replication_role_ == ReplicationRole::MAIN ||
-                  desired_commit_timestamp.has_value()) {
-                storage_->AppendToWal(transaction_, commit_timestamp);
-              }
+        if (storage_->replication_role_ == ReplicationRole::MAIN ||
+            desired_commit_timestamp.has_value()) {
+          storage_->AppendToWal(transaction_, commit_timestamp);
+        }
 #endif
 
         // Take committed_transactions lock while holding the engine lock to
@@ -1216,7 +1218,7 @@ bool Storage::CreateIndex(LabelId label) {
   // commit timestamps between non-transactional operations and transactional
   // operations.
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
-              timestamp_);
+              timestamp_++);
   return true;
 }
 
@@ -1228,7 +1230,7 @@ bool Storage::CreateIndex(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
-              label, {property}, timestamp_);
+              label, {property}, timestamp_++);
   return true;
 }
 
@@ -1238,7 +1240,7 @@ bool Storage::DropIndex(LabelId label) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
-              timestamp_);
+              timestamp_++);
   return true;
 }
 
@@ -1248,7 +1250,7 @@ bool Storage::DropIndex(LabelId label, PropertyId property) {
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
-              label, {property}, timestamp_);
+              label, {property}, timestamp_++);
   return true;
 }
 
@@ -1614,7 +1616,6 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    DLOG(WARNING) << "INITIALIZE " << wal_seq_num_;
     wal_file_.emplace(wal_directory_, uuid_, config_.items, &name_id_mapper_,
                       wal_seq_num_++, &file_retainer_);
   }
@@ -2007,7 +2008,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
       if (req.seq_num > wal_file_->SequenceNumber()) {
         wal_file_->FinalizeWal();
         wal_file_.reset();
-        wal_seq_num_ =req.seq_num;
+        wal_seq_num_ = req.seq_num;
       } else {
         CHECK(wal_file_->SequenceNumber() == req.seq_num)
             << "Invalid sequence number of current wal file";
@@ -2492,9 +2493,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           file_retainer_.DeleteFile(wal_file_->Path());
         }
         CHECK(config_.durability.snapshot_wal_mode ==
-            Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
-        DLOG(WARNING) << wal_info.seq_num;
-        DLOG(WARNING) << path;
+              Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
         wal_file_.emplace(std::move(path), config_.items, &name_id_mapper_,
                           wal_info.seq_num, wal_info.from_timestamp,
                           wal_info.to_timestamp, wal_info.num_deltas,

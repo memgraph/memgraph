@@ -665,7 +665,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
 
 RecoveryInfo LoadWal(const std::filesystem::path &path,
                      RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> snapshot_timestamp,
+                     const std::optional<uint64_t> last_loaded_timestamp,
                      utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                      std::atomic<uint64_t> *edge_count, Config::Items items) {
@@ -682,7 +682,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
   auto info = ReadWalInfo(path);
 
   // Check timestamp.
-  if (snapshot_timestamp && info.to_timestamp <= *snapshot_timestamp)
+  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp)
     return ret;
 
   // Recover deltas.
@@ -694,7 +694,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
     // Read WAL delta header to find out the delta timestamp.
     auto timestamp = ReadWalDeltaHeader(&wal);
 
-    if (!snapshot_timestamp || timestamp > *snapshot_timestamp) {
+    if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal);
       switch (delta.type) {

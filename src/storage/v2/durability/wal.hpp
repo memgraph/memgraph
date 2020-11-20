@@ -150,7 +150,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path,
                      RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> snapshot_timestamp,
+                     std::optional<uint64_t> last_loaded_timestamp,
                      utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                      std::atomic<uint64_t> *edge_count, Config::Items items);

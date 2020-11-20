@@ -257,6 +257,7 @@ std::optional<RecoveryInfo> RecoverData(
       }
     }
     std::optional<uint64_t> previous_seq_num;
+    auto last_loaded_timestamp = snapshot_timestamp;
     for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
          wal_files) {
       if (previous_seq_num && *previous_seq_num + 1 != seq_num &&
@@ -266,7 +267,7 @@ std::optional<RecoveryInfo> RecoverData(
       }
       previous_seq_num = seq_num;
       try {
-        auto info = LoadWal(path, &indices_constraints, snapshot_timestamp,
+        auto info = LoadWal(path, &indices_constraints, last_loaded_timestamp,
                             vertices, edges, name_id_mapper, edge_count, items);
         recovery_info.next_vertex_id =
             std::max(recovery_info.next_vertex_id, info.next_vertex_id);
@@ -274,6 +275,7 @@ std::optional<RecoveryInfo> RecoverData(
             std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp =
             std::max(recovery_info.next_timestamp, info.next_timestamp);
+        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       } catch (const RecoveryFailure &e) {
         LOG(FATAL) << "Couldn't recover WAL deltas from " << path
                    << " because of: " << e.what();
