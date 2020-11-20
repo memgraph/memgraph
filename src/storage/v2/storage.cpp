@@ -2423,7 +2423,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         // Delete other durability files
         auto snapshot_files =
             durability::GetSnapshotFiles(snapshot_directory_, uuid_);
-        for (const auto &[path, uuid] : snapshot_files) {
+        for (const auto &[path, uuid, _] : snapshot_files) {
           if (path != *maybe_snapshot_path) {
             file_retainer_.DeleteFile(path);
           }
@@ -2431,7 +2431,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
         auto wal_files = durability::GetWalFiles(wal_directory_, uuid_);
         if (wal_files) {
-          for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+          for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
                *wal_files) {
             file_retainer_.DeleteFile(path);
           }

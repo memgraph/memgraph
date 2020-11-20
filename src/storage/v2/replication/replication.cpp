@@ -137,7 +137,7 @@ void ReplicationClient::RecoverReplica() {
       // check if additional logic is necessary
       // Also, prevent the deletion of the snapshot file and the required
       // WALs
-      snapshot_file.emplace(std::move(snapshot_files.back().first));
+      snapshot_file.emplace(std::move(snapshot_files.back().path));
       recovery_locker_acc.AddFile(*snapshot_file);
     }
 
@@ -157,7 +157,7 @@ void ReplicationClient::RecoverReplica() {
     auto &wal_files_with_seq = *maybe_wal_files;
 
     std::optional<uint64_t> previous_seq_num;
-    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+    for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
          wal_files_with_seq) {
       if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
