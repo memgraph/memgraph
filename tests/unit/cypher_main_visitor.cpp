@@ -2472,11 +2472,11 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
-  std::string raw_query = "SHOW REPLICATION MODE";
+  std::string raw_query = "SHOW REPLICATION ROLE";
   auto *parsed_query =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
   EXPECT_EQ(parsed_query->action_,
-            ReplicationQuery::Action::SHOW_REPLICATION_MODE);
+            ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
@@ -2489,18 +2489,18 @@ TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   auto &ast_generator = *GetParam();
-  std::string missing_mode_query = "SET REPLICATION MODE";
+  std::string missing_mode_query = "SET REPLICATION ROLE";
   ASSERT_THROW(ast_generator.ParseQuery(missing_mode_query), SyntaxException);
 
-  std::string bad_mode_query = "SET REPLICATION MODE TO BUTTERY";
+  std::string bad_mode_query = "SET REPLICATION ROLE TO BUTTERY";
   ASSERT_THROW(ast_generator.ParseQuery(bad_mode_query), SyntaxException);
 
-  std::string full_query = "SET REPLICATION MODE TO MAIN";
+  std::string full_query = "SET REPLICATION ROLE TO MAIN";
   auto *parsed_full_query =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
   EXPECT_EQ(parsed_full_query->action_,
-            ReplicationQuery::Action::SET_REPLICATION_MODE);
-  EXPECT_EQ(parsed_full_query->mode_, ReplicationQuery::ReplicationMode::MAIN);
+            ReplicationQuery::Action::SET_REPLICATION_ROLE);
+  EXPECT_EQ(parsed_full_query->role_, ReplicationQuery::ReplicationRole::MAIN);
 }
 
 TEST_P(CypherMainVisitorTest, TestCreateReplicationQuery) {
