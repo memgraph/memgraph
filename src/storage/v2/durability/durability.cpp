@@ -240,7 +240,7 @@ std::optional<RecoveryInfo> RecoverData(
       << "The database didn't recover from a snapshot and didn't find any WAL "
          "files that match the last WAL file!";
 
-  if (wal_files.empty()) {
+  if (!wal_files.empty()) {
     auto by_seq_num = [](auto& wal_file_a, auto& wal_file_b) {
                         return wal_file_a.seq_num < wal_file_b.seq_num;
                       };

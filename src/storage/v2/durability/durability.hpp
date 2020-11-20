@@ -35,8 +35,8 @@ struct SnapshotDurabilityInfo {
       uuid(_uuid),
       start_timestamp(_start_timestamp) {}
 
-  SnapshotDurabilityInfo(const SnapshotDurabilityInfo&) = delete;
-  SnapshotDurabilityInfo& operator=(const SnapshotDurabilityInfo&) = delete;
+  SnapshotDurabilityInfo(const SnapshotDurabilityInfo &) = default;
+  SnapshotDurabilityInfo &operator=(const SnapshotDurabilityInfo &) = default;
 
   SnapshotDurabilityInfo(SnapshotDurabilityInfo&&) = default;
   SnapshotDurabilityInfo& operator=(SnapshotDurabilityInfo&&) = default;
@@ -72,8 +72,8 @@ struct WalDurabilityInfo {
       uuid(_uuid),
       path(_path) {}
 
-  WalDurabilityInfo(const WalDurabilityInfo&) = delete;
-  WalDurabilityInfo& operator=(const WalDurabilityInfo&) = delete;
+  WalDurabilityInfo(const WalDurabilityInfo &) = default;
+  WalDurabilityInfo &operator=(const WalDurabilityInfo &) = default;
 
   WalDurabilityInfo(WalDurabilityInfo&&) = default;
   WalDurabilityInfo& operator=(WalDurabilityInfo&&) = default;
