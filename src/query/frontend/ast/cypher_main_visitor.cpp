@@ -206,22 +206,22 @@ antlrcpp::Any CypherMainVisitor::visitReplicationQuery(
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitSetReplicationMode(
-    MemgraphCypher::SetReplicationModeContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(
+    MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_MODE;
+  replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
   if (ctx->MAIN()) {
-    replication_query->mode_ = ReplicationQuery::ReplicationMode::MAIN;
+    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
   } else if (ctx->REPLICA()) {
-    replication_query->mode_ = ReplicationQuery::ReplicationMode::REPLICA;
+    replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
   }
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowReplicationMode(
-    MemgraphCypher::ShowReplicationModeContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(
+    MemgraphCypher::ShowReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_MODE;
+  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_ROLE;
   return replication_query;
 }
 

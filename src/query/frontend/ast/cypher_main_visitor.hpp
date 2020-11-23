@@ -195,14 +195,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitSetReplicationMode(
-      MemgraphCypher::SetReplicationModeContext *ctx) override;
+  antlrcpp::Any visitSetReplicationRole(
+      MemgraphCypher::SetReplicationRoleContext *ctx) override;
 
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitShowReplicationMode(
-      MemgraphCypher::ShowReplicationModeContext *ctx) override;
+  antlrcpp::Any visitShowReplicationRole(
+      MemgraphCypher::ShowReplicationRoleContext *ctx) override;
 
   /**
    * @return ReplicationQuery*
