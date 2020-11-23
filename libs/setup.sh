@@ -65,7 +65,7 @@ fmt_cxx14_fix="b9aaa507fc49680d037fd84c043f747a395bce04"
 clone https://github.com/fmtlib/fmt.git fmt $fmt_tag $fmt_cxx14_fix
 
 # rapidcheck
-rapidcheck_tag="853e14f0f4313a9eb3c71e24848373e7b843dfd1" # Jun 23, 2017
+rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
 clone https://github.com/emil-e/rapidcheck.git rapidcheck $rapidcheck_tag
 
 # google benchmark
@@ -100,7 +100,7 @@ rm neo4j.tar.gz
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.
 mkdir -p json
 cd json
-wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
+wget "https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
 cd ..
 
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
@@ -111,10 +111,8 @@ clone https://github.com/madler/zlib.git zlib $zlib_tag
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMakeLists.txt
 
-rocksdb_tag="641fae60f63619ed5d0c9d9e4c4ea5a0ffa3e253" # v5.18.3 Feb 11, 2019
+rocksdb_tag="f3e33549c151f30ac4eb7c22356c6d0331f37652" # (2020-10-14)
 clone https://github.com/facebook/rocksdb.git rocksdb $rocksdb_tag
-# fix compilation flags to work with clang 8
-sed -i 's/-Wshadow/-Wno-defaulted-function-deleted/' rocksdb/CMakeLists.txt
 # remove shared library from install dependencies
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 

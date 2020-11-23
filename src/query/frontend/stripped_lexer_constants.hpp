@@ -16,9 +16,9 @@ namespace trie {
 // StrippedQuery is not degraded by the change. Also there are no tests that
 // directly test this class, but there are tests that test StrippedQuery.
 
-namespace {
-int Noop(int x) { return x; }
-};
+namespace detail {
+inline int Noop(int x) { return x; }
+};  // namespace detail
 
 class Trie {
  public:
@@ -47,7 +47,7 @@ class Trie {
     nodes_[node_id].finish = true;
   }
 
-  template <int (*Map)(int c) = Noop>
+  template <int (*Map)(int c) = detail::Noop>
   int Match(const char *s) const {
     int node_id = kRootIndex;
     int longest_found_len = 0;
@@ -72,7 +72,7 @@ class Trie {
   const static int kRootIndex = 0;
   std::vector<Node> nodes_{1};
 };
-}
+}  // namespace trie
 
 // All word constants should be lowercase in this file.
 
@@ -2759,14 +2759,52 @@ const std::bitset<kBitsetSize> kSpaceParts(std::string(
     "00000000000000000000000000000000000000000000000000000000000000000000000000"
     "0000000000000111110000000000000011111000000000"));
 
-const trie::Trie kSpecialTokens = {
-    ";",        ",",        "=",        "+=",       "*",        "(",
-    ")",        "[",        "]",        ":",        "|",        "..",
-    "+",        "-",        "/",        "%",        "^",        "=~",
-    "<>",       "!=",       "<",        ">",        "<=",       ">=",
-    ".",        "{",        "}",        "$",        u8"\u27e8", u8"\u3008",
-    u8"\ufe64", u8"\uff1c", u8"\u27e9", u8"\u3009", u8"\ufe65", u8"\uff1e",
-    u8"\u00ad", u8"\u2010", u8"\u2011", u8"\u2012", u8"\u2013", u8"\u2014",
-    u8"\u2015", u8"\u2212", u8"\ufe58", u8"\ufe63", u8"\uff0d"};
-}
-}
+const trie::Trie kSpecialTokens = {";",
+                                   ",",
+                                   "=",
+                                   "+=",
+                                   "*",
+                                   "(",
+                                   ")",
+                                   "[",
+                                   "]",
+                                   ":",
+                                   "|",
+                                   "..",
+                                   "+",
+                                   "-",
+                                   "/",
+                                   "%",
+                                   "^",
+                                   "=~",
+                                   "<>",
+                                   "!=",
+                                   "<",
+                                   ">",
+                                   "<=",
+                                   ">=",
+                                   ".",
+                                   "{",
+                                   "}",
+                                   "$",
+                                   "\xE2\x9F\xA8",   // u8"\u27e8"
+                                   "\xE3\x80\x88",   // u8"\u3008"
+                                   "\xEF\xB9\xA4",   // u8"\ufe64"
+                                   "\xEF\xBC\x9C",   // u8"\uff1c"
+                                   "\xE2\x9F\xA9",   // u8"\u27e9"
+                                   "\xE3\x80\x89",   // u8"\u3009"
+                                   "\xEF\xB9\xA5",   // u8"\ufe65"
+                                   "\xEF\xBC\x9E",   // u8"\uff1e"
+                                   "\xC2\xAD",       // u8"\u00ad"
+                                   "\xE2\x80\x90",   // u8"\u2010"
+                                   "\xE2\x80\x91",   // u8"\u2011"
+                                   "\xE2\x80\x92",   // u8"\u2012"
+                                   "\xE2\x80\x93",   // u8"\u2013"
+                                   "\xE2\x80\x94",   // u8"\u2014"
+                                   "\xE2\x80\x95",   // u8"\u2015"
+                                   "\xE2\x88\x92",   // u8"\u2212"
+                                   "\xEF\xB9\x98",   // u8"\ufe58"
+                                   "\xEF\xB9\xA3",   // u8"\ufe63"
+                                   "\xEF\xBC\x8D"};  // u8"\uff0d"
+}  // namespace lexer_constants
+}  // namespace query

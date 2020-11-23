@@ -3,12 +3,22 @@
 
 #include <benchmark/benchmark.h>
 
+//////////////////////////////////////////////////////
+// THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
+// OTHER INCLUDES
+// "planner.hpp" includes json.hpp which uses libc's
+// EOF macro while in the other includes
+// <antlr4-runtime.h> is included which contains a static
+// variable of the same name, EOF.
+// This hides the definition of the macro which causes
+// the compilation to fail.
+#include "query/plan/planner.hpp"
+//////////////////////////////////////////////////////
 #include "communication/result_stream_faker.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
-#include "query/plan/planner.hpp"
 #include "storage/v2/storage.hpp"
 
 // The following classes are wrappers for utils::MemoryResource, so that we can

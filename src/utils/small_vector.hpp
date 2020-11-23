@@ -20,6 +20,7 @@
 #include <initializer_list>
 #include <iterator>
 #include <memory>
+#include <type_traits>
 
 #include "utils/likely.hpp"
 
@@ -52,8 +53,8 @@ inline uint64_t NextPowerOf2(uint64_t a) {
   a |= (a >> 32);
   return a + 1;
 }
-}
-}
+}  // namespace detail
+}  // namespace utils
 
 namespace utils {
 
@@ -307,10 +308,8 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
   /// Copy the range [i, e) onto the uninitialized memory
   /// starting with "dest", constructing elements into it as needed.
   template <typename T1, typename T2>
-  static void UninitializedCopy(
-      T1 *i, T1 *e, T2 *dest,
-      typename std::enable_if<std::is_same<typename std::remove_const<T1>::type,
-                                           T2>::value>::type * = nullptr) {
+  requires std::is_same_v<std::remove_const_t<T1>, T2> static void
+  UninitializedCopy(T1 *i, T1 *e, T2 *dest) {
     // Use memcpy for PODs iterated by pointers (which includes SmallVector
     // iterators): std::uninitialized_copy optimizes to memmove, but we can
     // use memcpy here. Note that i and e are iterators and thus might be
@@ -334,12 +333,14 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
   void pop_back() { this->SetEnd(this->end() - 1); }
 };
 
+template <typename T>
+constexpr bool is_pod = std::is_standard_layout_v<T> &&std::is_trivial_v<T>;
+
 /// This class consists of common code factored out of the SmallVector class to
 /// reduce code duplication based on the SmallVector 'n' template parameter.
 template <typename T>
-class SmallVectorImpl
-    : public SmallVectorTemplateBase<T, std::is_pod<T>::value> {
-  typedef SmallVectorTemplateBase<T, std::is_pod<T>::value> SuperClass;
+class SmallVectorImpl : public SmallVectorTemplateBase<T, is_pod<T>> {
+  typedef SmallVectorTemplateBase<T, is_pod<T>> SuperClass;
 
   SmallVectorImpl(const SmallVectorImpl &) = delete;
 
@@ -351,7 +352,7 @@ class SmallVectorImpl
  protected:
   // Default ctor - Initialize to empty.
   explicit SmallVectorImpl(unsigned n)
-      : SmallVectorTemplateBase<T, std::is_pod<T>::value>(n * sizeof(T)) {}
+      : SmallVectorTemplateBase<T, is_pod<T>>(n * sizeof(T)) {}
 
  public:
   ~SmallVectorImpl() {
@@ -644,7 +645,7 @@ class SmallVectorImpl
   }
 
   template <typename... TArgTypes>
-  void emplace_back(TArgTypes &&... args) {
+  void emplace_back(TArgTypes &&...args) {
     if (UNLIKELY(this->end_x_ >= this->capacity_x_)) this->Grow();
     ::new ((void *)this->end()) T(std::forward<TArgTypes>(args)...);
     this->SetEnd(this->end() + 1);
@@ -906,7 +907,7 @@ static inline size_t capacity_in_bytes(const SmallVector<T, N> &x) {
   return x.capacity_in_bytes();
 }
 
-}  // End utils namespace
+}  // namespace utils
 
 namespace std {
 /// Implement std::swap in terms of SmallVector swap.
@@ -921,7 +922,7 @@ template <typename T, unsigned N>
 inline void swap(utils::SmallVector<T, N> &lhs, utils::SmallVector<T, N> &rhs) {
   lhs.swap(rhs);
 }
-}
+}  // namespace std
 
 namespace utils {
 /// GrowPod - This is an implementation of the Grow() method which only works
@@ -950,4 +951,4 @@ inline void SmallVectorBase::GrowPod(void *first_el, size_t min_size_in_bytes,
   this->begin_x_ = new_elts;
   this->capacity_x_ = (char *)this->begin_x_ + new_capacity_in_bytes;
 }
-}
+}  // namespace utils
