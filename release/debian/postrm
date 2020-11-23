@@ -30,12 +30,6 @@ case "$1" in
         if [ -d /etc/memgraph/ssl ]; then
             rm -rf /etc/memgraph/ssl
         fi
-        # Remove stored telemetry data
-        for i in /usr/share/memgraph/examples/*; do
-            if [ -d $i/telemetry ]; then
-                rm -rf $i/telemetry
-            fi
-        done
         # Don't remove the 'memgraph' user, since we cannot be sure whether it
         # existed before.
     ;;
@@ -69,6 +63,11 @@ if [ "$1" = "purge" ]; then
         deb-systemd-helper purge memgraph.service >/dev/null
         deb-systemd-helper unmask memgraph.service >/dev/null
     fi
+fi
+
+# Take a look at the preinst script for the detailed explanation.
+if dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+    dpkg-maintscript-helper rm_conffile /etc/logrotate.d/memgraph_audit 1.1.999 -- "$@"
 fi
 
 exit 0

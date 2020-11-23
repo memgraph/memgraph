@@ -5,6 +5,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+
 #include "query/exceptions.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
@@ -132,7 +133,8 @@ TEST(QueryStripper, StringLiteral3) {
 TEST(QueryStripper, StringLiteral4) {
   StrippedQuery stripped("RETURN '\\u1Aa4'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), u8"\u1Aa4");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(),
+            "\xE1\xAA\xA4");  // "u8"\u1Aa4
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
@@ -147,7 +149,8 @@ TEST(QueryStripper, LowSurrogateAlone) {
 TEST(QueryStripper, Surrogates) {
   StrippedQuery stripped("RETURN '\\ud83d\\udeeb'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), u8"\U0001f6eb");
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(),
+            "\xF0\x9F\x9B\xAB");  // u8"\U0001f6eb"
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedStringToken);
 }
 
@@ -211,9 +214,11 @@ TEST(QueryStripper, UnescapedName) {
 }
 
 TEST(QueryStripper, UnescapedName2) {
-  StrippedQuery stripped(u8"MATCH (n:\uffd5\u04c2\u04c2pero\u0078pe)");
+  // using u8string this string is u8"\uffd5\u04c2\u04c2pero\u0078pe"
+  StrippedQuery stripped("MATCH (n:\xEF\xBF\x95\xD3\x82\xD3\x82pero\x78pe)");
   EXPECT_EQ(stripped.literals().size(), 0);
-  EXPECT_EQ(stripped.query(), u8"MATCH ( n : \uffd5\u04c2\u04c2pero\u0078pe )");
+  EXPECT_EQ(stripped.query(),
+            "MATCH ( n : \xEF\xBF\x95\xD3\x82\xD3\x82pero\x78pe )");
 }
 
 TEST(QueryStripper, MixedCaseKeyword) {
@@ -268,7 +273,8 @@ TEST(QueryStripper, LineComment5) {
 }
 
 TEST(QueryStripper, Spaces) {
-  StrippedQuery stripped(u8"RETURN \r\n\u202f\t\u2007  NuLl");
+  // using u8string this string is u8"\u202f"
+  StrippedQuery stripped("RETURN \r\n\xE2\x80\xAF\t\xE2\x80\x87  NuLl");
   EXPECT_EQ(stripped.literals().size(), 0);
   EXPECT_EQ(stripped.query(), "RETURN NuLl");
 }

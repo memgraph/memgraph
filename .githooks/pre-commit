@@ -1,0 +1,43 @@
+#!/bin/sh
+
+project_folder=$(git rev-parse --show-toplevel)
+if git rev-parse --verify HEAD >/dev/null 2>&1
+then
+	against=HEAD
+else
+	# Initial commit: diff against an empty tree object
+	against=$(git hash-object -t tree /dev/null)
+fi
+
+# Redirect output to stderr.
+exec 1>&2
+
+tmpdir=$(mktemp -d repo-XXXXXXXX)
+trap "rm -rf $tmpdir" EXIT INT
+
+modified_files=$(git diff --cached --name-only --diff-filter=AM $against | sed -nE "/.*\.(cpp|cc|cxx|c|h|hpp|lcp)$/p")
+for file in $modified_files; do
+  echo "Checking $file..."
+
+  cp $project_folder/.clang-format $project_folder/.clang-tidy $tmpdir
+
+  git checkout-index --prefix="$tmpdir/" -- $file
+
+  echo "Running clang-format..."
+  $project_folder/tools/git-clang-format $tmpdir/$file
+  code=$?
+
+  if [ $code -ne 0 ]; then
+    break
+  fi
+
+  echo "Running clang-tidy..."
+  $project_folder/tools/git-clang-tidy $tmpdir/$file
+  code=$?
+
+  if [ $code -ne 0 ]; then
+   break
+  fi
+done;
+
+return $code

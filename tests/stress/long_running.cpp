@@ -415,7 +415,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
   CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";

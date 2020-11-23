@@ -6,6 +6,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/init.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
@@ -101,7 +102,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};

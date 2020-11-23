@@ -11,16 +11,6 @@ endif()
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
         DESTINATION /lib/systemd/system)
 
-# Install examples
-set(examples ${CMAKE_CURRENT_SOURCE_DIR}/examples)
-install(
-  CODE
-  "execute_process(COMMAND ${examples}/build_examples
-                   ${CMAKE_BINARY_DIR}/memgraph
-                   ${CMAKE_BINARY_DIR}/tools/src/mg_client
-                   WORKING_DIRECTORY ${examples})")
-install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
-
 # ---- Setup CPack --------
 
 # General setup
@@ -41,6 +31,7 @@ if (MG_ENTERPRISE)
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/conffiles;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/copyright;"
+      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
@@ -48,6 +39,7 @@ else()
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/conffiles;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/copyright;"
+      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
       "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")

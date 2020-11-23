@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // Initialize the communication stack.
-  communication::Init();
+  communication::SSLInit sslInit;
 
   // Initialize the server.
   EchoData echo_data;

@@ -44,6 +44,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kScanAllByLabel{1.1};
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
+    static constexpr double MakeScanAllByLabelProperty{1.1};
     static constexpr double kExpand{2.0};
     static constexpr double kExpandVariable{3.0};
     static constexpr double kFilter{1.5};
@@ -131,6 +132,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByLabelProperty &logical_op) override {
+    const auto factor =
+        db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
+    cardinality_ *= factor;
+    IncrementCost(CostParam::MakeScanAllByLabelProperty);
     return true;
   }
 

@@ -96,7 +96,7 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type { EQUAL, REGEX_MATCH, RANGE, IN };
+  enum class Type { EQUAL, REGEX_MATCH, RANGE, IN, IS_NOT_NULL };
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *,
@@ -104,6 +104,11 @@ class PropertyFilter {
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx,
                  const std::optional<Bound> &, const std::optional<Bound> &);
+  /// Construct a filter without an expression that produces a value.
+  /// Used for the "PROP IS NOT NULL" filter, and can be used for any
+  /// property filter that doesn't need to use an expression to produce
+  /// values that should be filtered further.
+  PropertyFilter(const Symbol &, PropertyIx, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;

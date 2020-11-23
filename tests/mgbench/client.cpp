@@ -15,6 +15,7 @@
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/init.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
@@ -90,6 +91,7 @@ communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
       }
       return {std::move(map)};
     }
+    case nlohmann::json::value_t::binary:
     case nlohmann::json::value_t::discarded:
       LOG(FATAL) << "Unexpected JSON type!";
   }
@@ -229,7 +231,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};

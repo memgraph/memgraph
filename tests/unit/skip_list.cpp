@@ -1,9 +1,8 @@
 #include <vector>
 
-#include <gtest/gtest.h>
-
 #include <fmt/format.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 
 #include "utils/math.hpp"
 #include "utils/skip_list.hpp"
@@ -199,6 +198,8 @@ struct OnlyCopyable {
   OnlyCopyable(const OnlyCopyable &) = default;
   OnlyCopyable &operator=(OnlyCopyable &&) = delete;
   OnlyCopyable &operator=(const OnlyCopyable &) = default;
+
+  OnlyCopyable(const uint64_t val) : value{val} {}
   uint64_t value;
 };
 

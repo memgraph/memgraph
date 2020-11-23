@@ -499,6 +499,28 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
 }
 
+ScanAllByLabelProperty::ScanAllByLabelProperty(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+    storage::LabelId label, storage::PropertyId property,
+    const std::string &property_name, storage::View view)
+    : ScanAll(input, output_symbol, view),
+      label_(label),
+      property_(property),
+      property_name_(property_name) {}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
+
+UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(
+    utils::MemoryResource *mem) const {
+  auto vertices = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Vertices(view_, label_, property_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
+}
+
+
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input,
                          Symbol output_symbol, Expression *expression,
                          storage::View view)

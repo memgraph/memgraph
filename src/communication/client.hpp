@@ -17,8 +17,8 @@ namespace communication {
  * It uses blocking sockets and provides an API that can be used to receive/send
  * data over the network connection.
  *
- * NOTE: If you use this client you **must** call `communication::Init()` from
- * the `main` function before using the client!
+ * NOTE: If you use this client you **must** create `communication::SSLInit`
+ * from the `main` function before using the client!
  */
 class Client final {
  public:

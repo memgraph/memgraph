@@ -149,20 +149,23 @@ add_custom_target(clean_all
 # is easier debugging of compilation and linker flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# c99-designator is disabled because of required mixture of designated and
+# non-designated initializers in Python Query Module code (`py_module.cpp`).
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-stack-address")
+    -Werror=return-stack-address \
+    -Wno-c99-designator")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
 # Statically link libgcc and libstdc++, the GCC allows this according to:
-# https://gcc.gnu.org/onlinedocs/gcc-8.3.0/libstdc++/manual/manual/license.html
+# https://gcc.gnu.org/onlinedocs/gcc-10.2.0/libstdc++/manual/manual/license.html
 # https://www.gnu.org/licenses/gcc-exception-faq.html
-# Last checked for gcc-8.3 which we are using on the build machines.
+# Last checked for gcc-10.2 which we are using on the build machines.
 # ** If we change versions, recheck this! **
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")

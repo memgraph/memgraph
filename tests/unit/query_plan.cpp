@@ -731,6 +731,61 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
             ExpectExpand(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = PROPERTY_PAIR("prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop.second, 1);
+  AstStorage storage;
+
+  {
+    // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL RETURN n
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop)))), RETURN("n")));
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    // We expect ScanAllByLabelProperty to come instead of ScanAll > Filter.
+    CheckPlan(planner.plan(), symbol_table,
+              ExpectScanAllByLabelProperty(label, prop), ExpectExpand(),
+              ExpectProduce());
+  }
+
+  {
+    // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL OR true RETURN n
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+        WHERE(OR(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), LITERAL(true))),
+        RETURN("n")));
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    // We expect ScanAllBy > Filter because of the "or true" condition.
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
+              ExpectExpand(), ExpectProduce());
+  }
+
+  {
+    // Test MATCH (n :label) -[r]- (m)
+    //      WHERE n.prop IS NOT NULL AND n.x = 2 RETURN n
+    auto prop_x = PROPERTY_PAIR("x");
+    auto *query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                     WHERE(AND(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))),
+                               EQ(PROPERTY_LOOKUP("n", prop_x), LITERAL(2)))),
+                     RETURN("n")));
+    auto symbol_table = query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    // We expect ScanAllByLabelProperty > Filter
+    // to come instead of ScanAll > Filter.
+    CheckPlan(planner.plan(), symbol_table,
+              ExpectScanAllByLabelProperty(label, prop), ExpectFilter(),
+              ExpectExpand(), ExpectProduce());
+  }
+}
+
+
+
 TYPED_TEST(TestPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
   FakeDbAccessor dba;

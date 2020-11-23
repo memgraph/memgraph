@@ -195,7 +195,9 @@ import_external_library(zlib STATIC
 import_external_library(rocksdb STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  CMAKE_ARGS -DUSE_RTTI=ON
+  DEPENDS gflags-proj
+  CMAKE_ARGS -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags
+             -DUSE_RTTI=ON
              -DWITH_TESTS=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true

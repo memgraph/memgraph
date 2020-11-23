@@ -1,5 +1,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+
 #include <json/json.hpp>
 
 #include "communication/bolt/client.hpp"
@@ -54,6 +55,8 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       ret = map;
       break;
     }
+    case nlohmann::json::value_t::binary:
+      LOG(FATAL) << "Unexpected 'binary' type in json value!";
     case nlohmann::json::value_t::discarded:
       LOG(FATAL) << "Unexpected 'discarded' type in json value!";
       break;
@@ -69,7 +72,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  communication::Init();
+  communication::SSLInit sslInit;
 
   io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
                                  FLAGS_port);

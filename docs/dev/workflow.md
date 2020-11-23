@@ -20,53 +20,50 @@ Finally, make git aware of your favourite editor:
 
     git config --global core.editor "vim"
 
-## Phabricator
+## Github
 
 All of the code in Memgraph needs to go through code review before it can be
-accepted in the codebase. This is done through
-[Phabricator](https://phacility.com/phabricator/). The command line tool for
-interfacing with Phabricator is
-[arcanist](https://phacility.com/phabricator/arcanist/). You should already
-have it installed if you followed the steps in [Quick Start](quick-start.md).
-
-The only required setup is to go in the root of Memgraph's project and run:
-
-    arc install-certificate
+accepted in the codebase. This is done through [Github](https://github.com/).
+You should already have it installed if you followed the steps in [Quick
+Start](quick-start.md).
 
 ## Working on Your Feature Branch
 
-Git has a concept of source code *branches*. The `master` branch contains all
+Git has a concept of source code **branches**. The `master` branch contains all
 of the changes which were reviewed and accepted in Memgraph's code base. The
 `master` branch is selected by default.
 
 ### Creating a Branch
 
 When working on a new feature or fixing a bug, you should create a new branch
-out of the `master` branch. For example, let's say you are adding static type
-checking to the query language compiler. You would create a branch called
-`mg_query_static_typing` with the following command:
+out of the `master` branch. There are two branch types, **epic** and **task**
+branches. The epic branch is created when introducing a new feature or any work
+unit requiring more than one commit. More commits are required to split the
+work into chunks to be able to easier review code or find a bug (in each
+commit, there could be various problems, e.g., related to performance or
+concurrency issues, which are the hardest to track down). Each commit on the
+master or epic branch should be a compilable and well-documented set of
+changes. Task branches should be created when a smaller work unit has to be
+integrated into the codebase. The task branch could be branched out of the
+master or an epic branch. We manage epics and tasks on the project management
+tool called [Airtable](https://airtable.com/tblTUqycq8sHTTkBF). Each epic is
+prefixed by `Exyz-MG`, on the other hand, each task has `Tabcd-MG` prefix.
+Examples on how to create branches follow:
 
-    git branch mg_query_static_typing
-
-To switch to that branch, type:
-
-    git checkout mg_query_static_typing
-
-Since doing these two steps will happen often, you can use a shortcut command:
-
-    git checkout -b mg_query_static_typing
+```
+git checkout master
+git checkout -b T0025-MG-fix-a-problem
+...
+git checkout master
+git checkout -b E025-MG-huge-feature
+...
+git checkout E025-MG-huge-feature
+git checkout -b T0123-MG-add-feature-part
+```
 
 Note that a branch is created from the currently selected branch. So, if you
 wish to create another branch from `master` you need to switch to `master`
 first.
-
-The usual convention for naming your branches is `mg_<feature_name>`, you may
-switch underscores ('\_') for hyphens ('-').
-
-Do take care not to mix the case of your branch names! Certain operating
-systems (like Windows) don't distinguish the casing in git branches. This may
-cause hard to track down issues when trying to switch branches. Therefore, you
-should always name your branches with lowercase letters.
 
 ### Making and Committing Changes
 
@@ -98,80 +95,72 @@ possible.
 ### Sending Changes on a Review
 
 After finishing your work on your feature branch, you will want to send it on
-code review. This is done through Arcanist. To do that, run the following
-command:
+code review. This is done by pushing the branch to Github and creating a pull
+request. You can find all PRs
+[here](https://github.com/memgraph/memgraph/pulls).
 
-    arc diff
+### Code Integration
 
-You will, once again, be presented with an editor where you need to describe
-your whole work. `arc` will by default fill that description with your commit
-messages. The title and summary of your work should also follow the
-conventions of git messages as described above. If you followed the
-guidelines, the message filled by `arc` should be fine.
+When working, you have to integrate some changes to your work or push your work
+to be available for others. To pull changes into a local `branch`, usually run
+the following:
 
-In addition to the message, you need to fill the `Reviewers:` line with
-usernames of people who should do the code review.
+    git checkout {{branch}}
+    git pull origin {{branch}}
 
-You changes will be visible on Phabricator as a so called "diff". You can find
-the default view of active diffs
-[here](https://phabricator.memgraph.io/differential/)
+To push your changes, usually run the following:
 
-### Updating Changes Based on Review
+    git checkout {{branch}}
+    git push origin {{branch}}
 
-When you get comments in the code review, you will want to make additional
-modifications to your work. The same workflow as before applies: [Making and
-Committing Changes](#making-and-committing-changes)
+Sometimes, things could get a little bit more complicated. Diagram below shows
+which git operation should be performed if a piece of code has to be integrated
+from one branch to another. Note, `main_branch` is the **master** branch in our
+case.
 
-After making those changes, send them back on code review:
+```
+      |<---------------------------|
+      |       squash merge         |
+      |--------------------------->|
+      |          merge             |
+      |                            |
+      |<-----------|<--------------|
+      |   merge    | squash merge  |
+      |            |               |
+      |----------->|-------------->|
+      |   rebase   |     merge     |
+      |            | rebase --onto |
+      |            |               |
+ main_branch  epic_branch     task_branch
+```
 
-    arc diff
+There are a couple of cases:
 
+* If a code has to be integrated from a task branch to the main branch, use
+  **squash merge**. While you were working on a task, you probably committed a
+couple of cleanup commits that are not relevant to the main branch. In the
+other direction, while integrating the main branch to a task branch, the
+**regular merge** is ok because changes from the task branch will later be
+squash merged.
 
-### Updating From New Master
+* You should use **squash merge** when integrating changes from task to epic
+  branch (task might have irrelevant commits). On the other hand, you should
+use a **regular merge** when an epic is completed and has to be integrated into
+the main branch. Epic is a more significant piece of work, decoupled in
+compilable and testable commits. All these commits should be preserved to be
+able to find potential issues later on.
 
-Let's say that, while you were working, someone else added some new features
-to the codebase that you would like to use in your current work. To obtain
-those changes you should update your `master` branch:
+* You should use **rebase** when integrating changes from main to an epic
+  branch. The epic branch has to be as clean as possible, avoid pure merge
+commits. Once you rebase epic on main, all commits on the epic branch will
+change the hashes. The implications are: 1) you have to force push your local
+branch to the origin, 2) if you made a task branch out of the epic branch, you
+would have to use **rebase --onto** (please refer to `git help rebase` for
+details). In simple cases, **regular merge** should be sufficient to integrate
+changes from epic to a task branch (that can even be done via GitHub web
+interface).
 
-    git checkout master
-    git pull origin master
-
-Now, these changes are on `master`, but you want them in your local branch. To
-do that, use `git rebase`:
-
-    git checkout mg_query_static_typing
-    git rebase master
-
-During `git rebase`, you may get reports that some files have conflicting
-changes. If you need help resolving them, don't be afraid to ask around! After
-you've resolved them, mark them as done with `git add` command. You may
-then continue with `git rebase --continue`.
-
-After the `git rebase` is done, you will now have new changes from `master` on
-your feature branch as if you just created and started working on that branch.
-You may continue with the usual workflow of [Making and Committing
-Changes](#making-and-committing-changes) and [Sending Changes on a
-Review](#sending-changes-on-a-review).
-
-### Sending Your Changes on Master Branch
-
-When your changes pass the code review, you are ready to integrate them in the
-`master` branch. To do that, run the following command:
-
-    arc land
-
-Arcanist will take care of obtaining the latest changes from `master` and
-merging your changes on top. If the `land` was successful, Arcanist will
-delete your local branch and you will be back on `master`. Continuing from the
-examples above, the deleted branch would be `mg_query_static_typing`.
-
-This marks the completion of your changes, and you are ready to work on
-something else.
-
-### Note For People Familiar With Git
-
-Since Arcanist takes care of merging your git commits and pushing them on
-`master`, you should *never* have to call `git merge` and `git push`. If you
-find yourself typing those commands, check that you are doing the right thing.
-The most common mistake is to use `git merge` instead of `git rebase` for the
-case described in [Updating From New Master](#updating-from-new-master).
+During any code integration, you may get reports that some files have
+conflicting changes. If you need help resolving them, don't be afraid to ask
+around! After you've resolved them, mark them as done with `git add` command.
+You may then continue with `git {{action}} --continue`.

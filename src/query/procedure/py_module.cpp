@@ -35,17 +35,22 @@ PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 // method for checking this by our higher level API in `mgp` module. Python only
 // does shallow copies by default, and we do not provide deep copy of
 // `_mgp.Graph`, so this validity concept should work fine.
+//
+// clang-format off
 struct PyGraph {
   PyObject_HEAD
   const mgp_graph *graph;
   mgp_memory *memory;
 };
+// clang-format on
 
+// clang-format off
 struct PyVerticesIterator {
   PyObject_HEAD
   mgp_vertices_iterator *it;
   PyGraph *py_graph;
 };
+// clang-format on
 
 PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph);
 
@@ -90,21 +95,25 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyVerticesIteratorType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.VerticesIterator",
-    .tp_doc = "Wraps struct mgp_vertices_iterator.",
     .tp_basicsize = sizeof(PyVerticesIterator),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyVerticesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_vertices_iterator.",
+    .tp_methods = PyVerticesIteratorMethods,
 };
+// clang-format on
 
+// clang-format off
 struct PyEdgesIterator {
   PyObject_HEAD
   mgp_edges_iterator *it;
   PyGraph *py_graph;
 };
+// clang-format on
 
 PyObject *MakePyEdge(const mgp_edge &edge, PyGraph *py_graph);
 
@@ -149,15 +158,17 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyEdgesIteratorType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.EdgesIterator",
-    .tp_doc = "Wraps struct mgp_edges_iterator.",
     .tp_basicsize = sizeof(PyEdgesIterator),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyEdgesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_edges_iterator.",
+    .tp_methods = PyEdgesIteratorMethods,
 };
+// clang-format on
 
 PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   self->graph = nullptr;
@@ -232,14 +243,16 @@ static PyMethodDef PyGraphMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyGraphType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Graph",
-    .tp_doc = "Wraps struct mgp_graph.",
     .tp_basicsize = sizeof(PyGraph),
     .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_graph.",
     .tp_methods = PyGraphMethods,
 };
+// clang-format on
 
 PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   CHECK(!graph || (graph && memory));
@@ -250,18 +263,22 @@ PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   return reinterpret_cast<PyObject *>(py_graph);
 }
 
+// clang-format off
 struct PyCypherType {
   PyObject_HEAD
   const mgp_type *type;
 };
+// clang-format on
 
+// clang-format off
 static PyTypeObject PyCypherTypeType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Type",
-    .tp_doc = "Wraps struct mgp_type.",
     .tp_basicsize = sizeof(PyCypherType),
     .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_type.",
 };
+// clang-format on
 
 PyObject *MakePyCypherType(const mgp_type *type) {
   CHECK(type);
@@ -271,10 +288,12 @@ PyObject *MakePyCypherType(const mgp_type *type) {
   return reinterpret_cast<PyObject *>(py_type);
 }
 
+// clang-format off
 struct PyQueryProc {
   PyObject_HEAD
   mgp_proc *proc;
 };
+// clang-format on
 
 PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
   CHECK(self->proc);
@@ -384,19 +403,23 @@ static PyMethodDef PyQueryProcMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyQueryProcType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Proc",
-    .tp_doc = "Wraps struct mgp_proc.",
     .tp_basicsize = sizeof(PyQueryProc),
     .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_proc.",
     .tp_methods = PyQueryProcMethods,
 };
+// clang-format on
 
+// clang-format off
 struct PyQueryModule {
   PyObject_HEAD
   mgp_module *module;
 };
+// clang-format on
 
 py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
   CHECK(list);
@@ -631,14 +654,16 @@ static PyMethodDef PyQueryModuleMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyQueryModuleType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Module",
-    .tp_doc = "Wraps struct mgp_module.",
     .tp_basicsize = sizeof(PyQueryModule),
     .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_module.",
     .tp_methods = PyQueryModuleMethods,
 };
+// clang-format on
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   CHECK(module);
@@ -736,6 +761,7 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyModuleDef PyMgpModule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_mgp",
@@ -743,12 +769,15 @@ static PyModuleDef PyMgpModule = {
     .m_size = -1,
     .m_methods = PyMgpModuleMethods,
 };
+// clang-format on
 
+// clang-format off
 struct PyPropertiesIterator {
   PyObject_HEAD
   mgp_properties_iterator *it;
   PyGraph *py_graph;
 };
+// clang-format on
 
 void PyPropertiesIteratorDealloc(PyPropertiesIterator *self) {
   CHECK(self->it);
@@ -797,21 +826,25 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyPropertiesIteratorType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.PropertiesIterator",
-    .tp_doc = "Wraps struct mgp_properties_iterator.",
     .tp_basicsize = sizeof(PyPropertiesIterator),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyPropertiesIteratorMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_properties_iterator.",
+    .tp_methods = PyPropertiesIteratorMethods,
 };
+// clang-format on
 
+// clang-format off
 struct PyEdge {
   PyObject_HEAD
   mgp_edge *edge;
   PyGraph *py_graph;
 };
+// clang-format on
 
 PyObject *PyEdgeGetTypeName(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   CHECK(self);
@@ -929,16 +962,18 @@ static PyMethodDef PyEdgeMethods[] = {
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
+// clang-format off
 static PyTypeObject PyEdgeType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Edge",
-    .tp_doc = "Wraps struct mgp_edge.",
     .tp_basicsize = sizeof(PyEdge),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyEdgeMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_edge.",
     .tp_richcompare = PyEdgeRichCompare,
+    .tp_methods = PyEdgeMethods,
 };
+// clang-format on
 
 /// Create an instance of `_mgp.Edge` class.
 ///
@@ -980,11 +1015,13 @@ PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
   return PyBool_FromLong(mgp_edge_equal(e1->edge, e2->edge));
 }
 
+// clang-format off
 struct PyVertex {
   PyObject_HEAD
   mgp_vertex *vertex;
   PyGraph *py_graph;
 };
+// clang-format on
 
 void PyVertexDealloc(PyVertex *self) {
   CHECK(self->vertex);
@@ -1148,16 +1185,18 @@ static PyMethodDef PyVertexMethods[] = {
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
+// clang-format off
 static PyTypeObject PyVertexType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Vertex",
-    .tp_doc = "Wraps struct mgp_vertex.",
     .tp_basicsize = sizeof(PyVertex),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyVertexMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_vertex.",
     .tp_richcompare = PyVertexRichCompare,
+    .tp_methods = PyVertexMethods,
 };
+// clang-format on
 
 PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
   CHECK(vertex);
@@ -1202,11 +1241,13 @@ PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
   return PyBool_FromLong(mgp_vertex_equal(v1->vertex, v2->vertex));
 }
 
+// clang-format off
 struct PyPath {
   PyObject_HEAD
   mgp_path *path;
   PyGraph *py_graph;
 };
+// clang-format on
 
 void PyPathDealloc(PyPath *self) {
   CHECK(self->path);
@@ -1308,15 +1349,17 @@ static PyMethodDef PyPathMethods[] = {
     {nullptr},
 };
 
+// clang-format off
 static PyTypeObject PyPathType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Path",
-    .tp_doc = "Wraps struct mgp_path.",
     .tp_basicsize = sizeof(PyPath),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_methods = PyPathMethods,
     .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_path.",
+    .tp_methods = PyPathMethods,
 };
+// clang-format on
 
 PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   CHECK(path);

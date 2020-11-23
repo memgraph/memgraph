@@ -85,7 +85,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * Writes a DiscardAll message.
    *
    * From the Bolt v1 documentation:
-   *   DiscardAllMessage (signature=0x2F) {
+   *   DiscardMessage (signature=0x2F) {
    *   }
    *
    * @returns true if the data was successfully sent to the client
@@ -93,7 +93,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    */
   bool MessageDiscardAll() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
-    WriteRAW(utils::UnderlyingCast(Signature::DiscardAll));
+    WriteRAW(utils::UnderlyingCast(Signature::Discard));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (!buffer_.Flush(true)) return false;
@@ -113,7 +113,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    */
   bool MessagePullAll() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
-    WriteRAW(utils::UnderlyingCast(Signature::PullAll));
+    WriteRAW(utils::UnderlyingCast(Signature::Pull));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (!buffer_.Flush(true)) return false;

@@ -1,3 +1,6 @@
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -5,9 +8,6 @@
 #include <optional>
 #include <regex>
 #include <unordered_map>
-
-#include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "helpers.hpp"
 #include "storage/v2/storage.hpp"
@@ -326,10 +326,8 @@ std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
   }
 
   if (FLAGS_trim_strings) {
-    for (size_t i = 0; i < row.size(); ++i) {
-      std::string trimmed(utils::Trim(row[i]));
-      row[i] = std::move(trimmed);
-    }
+    std::transform(std::begin(row), std::end(row), std::begin(row),
+                   [](const auto &item) { return utils::Trim(item); });
   }
 
   return {std::move(row), lines_count};
@@ -736,16 +734,14 @@ int main(int argc, char *argv[]) {
   }
 
   std::unordered_map<NodeId, storage::Gid> node_id_map;
-  storage::Storage store{
-      {.durability =
-           {.storage_directory = FLAGS_data_directory,
-            .recover_on_startup = false,
-            .snapshot_wal_mode =
-                storage::Config::Durability::SnapshotWalMode::DISABLED,
-            .snapshot_on_exit = true},
-       .items = {
-           .properties_on_edges = FLAGS_storage_properties_on_edges,
-       }}};
+  storage::Storage store{{
+      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
+      .durability = {.storage_directory = FLAGS_data_directory,
+                     .recover_on_startup = false,
+                     .snapshot_wal_mode =
+                         storage::Config::Durability::SnapshotWalMode::DISABLED,
+                     .snapshot_on_exit = true},
+  }};
 
   utils::Timer load_timer;
 

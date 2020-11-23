@@ -215,7 +215,7 @@ auto Execute(storage::Storage *db, const std::string &query) {
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
-  auto [header, _] = interpreter.Prepare(query, {});
+  auto [header, _, qid] = interpreter.Prepare(query, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -792,7 +792,7 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
 
-    auto [header, _] = interpreter_.Prepare(query, {});
+    auto [header, _, qid] = interpreter_.Prepare(query, {});
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);
@@ -871,4 +871,120 @@ TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
 
   // Rollback the transaction.
   interpreter.Execute("ROLLBACK");
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(DumpTest, MultiplePartialPulls) {
+  storage::Storage db;
+  {
+    // Create indices
+    db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("name"));
+    db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("surname"));
+
+    // Create existence constraints
+    {
+      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"),
+                                              db.NameToProperty("name"));
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
+    }
+    {
+      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"),
+                                              db.NameToProperty("surname"));
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_TRUE(res.GetValue());
+    }
+
+    // Create unique constraints
+    {
+      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"),
+                                           {db.NameToProperty("name")});
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_EQ(res.GetValue(),
+                storage::UniqueConstraints::CreationStatus::SUCCESS);
+    }
+    {
+      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"),
+                                           {db.NameToProperty("surname")});
+      ASSERT_TRUE(res.HasValue());
+      ASSERT_EQ(res.GetValue(),
+                storage::UniqueConstraints::CreationStatus::SUCCESS);
+    }
+
+    auto dba = db.Access();
+    auto p1 = CreateVertex(&dba, {"PERSON"},
+                           {{"name", storage::PropertyValue("Person1")},
+                            {"surname", storage::PropertyValue("Unique1")}},
+                           false);
+    auto p2 = CreateVertex(&dba, {"PERSON"},
+                           {{"name", storage::PropertyValue("Person2")},
+                            {"surname", storage::PropertyValue("Unique2")}},
+                           false);
+    auto p3 = CreateVertex(&dba, {"PERSON"},
+                           {{"name", storage::PropertyValue("Person3")},
+                            {"surname", storage::PropertyValue("Unique3")}},
+                           false);
+    auto p4 = CreateVertex(&dba, {"PERSON"},
+                           {{"name", storage::PropertyValue("Person4")},
+                            {"surname", storage::PropertyValue("Unique4")}},
+                           false);
+    auto p5 = CreateVertex(&dba, {"PERSON"},
+                           {{"name", storage::PropertyValue("Person5")},
+                            {"surname", storage::PropertyValue("Unique5")}},
+                           false);
+    CreateEdge(&dba, &p1, &p2, "REL", {}, false);
+    CreateEdge(&dba, &p1, &p3, "REL", {}, false);
+    CreateEdge(&dba, &p4, &p5, "REL", {}, false);
+    CreateEdge(&dba, &p2, &p5, "REL", {}, false);
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  ResultStreamFaker stream(&db);
+  query::AnyStream query_stream(&stream, utils::NewDeleteResource());
+  auto acc = db.Access();
+  query::DbAccessor dba(&acc);
+
+  query::PullPlanDump pullPlan{&dba};
+
+  auto check_next = [&, offset_index =
+                            0U](const std::string &expected_row) mutable {
+    pullPlan.Pull(&query_stream, 1);
+    const auto &results{stream.GetResults()};
+    ASSERT_EQ(results.size(), offset_index + 1);
+    VerifyQueries({results.begin() + offset_index, results.end()},
+                  expected_row);
+    ++offset_index;
+  };
+
+  check_next("CREATE INDEX ON :`PERSON`(`name`);");
+  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
+  check_next(kCreateInternalIndex);
+  check_next(
+      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
+  check_next(
+      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
+  check_next(
+      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
+  check_next(
+      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
+  check_next(
+      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
+  check_next(
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+      "v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);");
+  check_next(
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+      "v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);");
+  check_next(
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
+      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+  check_next(
+      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND "
+      "v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+  check_next(kDropInternalIndex);
+  check_next(kRemoveInternalLabelProperty);
 }

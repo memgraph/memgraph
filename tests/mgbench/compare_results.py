@@ -80,7 +80,7 @@ def compare_results(results_from, results_to, fields):
                     if len(summary_from) > 0 and \
                             summary_to["count"] != summary_from["count"] or \
                             summary_to["num_workers"] != \
-                            summary_to["num_workers"]:
+                            summary_from["num_workers"]:
                         raise Exception("Incompatible results!")
                     testcode = "/".join([dataset, variant, group, scenario,
                                          "{:02d}".format(
