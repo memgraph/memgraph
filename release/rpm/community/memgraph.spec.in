@@ -83,22 +83,6 @@ chmod 750 /var/lib/memgraph || exit 1
 chown memgraph:adm /var/log/memgraph || exit 1
 chmod 750 /var/log/memgraph || exit 1
 
-# Create telemetry directory in examples
-for i in /usr/share/memgraph/examples/*; do
-    # The telemetry directory may already exist from some prior installation
-    if [ ! -d $i/telemetry ]; then
-        mkdir $i/telemetry || exit 1
-    fi
-done
-
-# Change ownership of all examples
-chown -R memgraph:memgraph /usr/share/memgraph/examples || exit 1
-
-# Make snapshots directory immutable (optional)
-for i in /usr/share/memgraph/examples/*; do
-    chattr +i -R $i/snapshots || true
-done
-
 # Generate SSL certificates
 if [ ! -d /etc/memgraph/ssl ]; then
     mkdir /etc/memgraph/ssl || exit 1
@@ -123,8 +107,6 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 @CPACK_RPM_SPEC_PREINSTALL@
 
 %preun
-# Remove optional immutability from examples directory to allow removal
-chattr -i -R /usr/share/memgraph/examples || true
 @CPACK_RPM_SPEC_PREUNINSTALL@
 
 %files
