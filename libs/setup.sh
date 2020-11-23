@@ -100,7 +100,7 @@ rm neo4j.tar.gz
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.
 mkdir -p json
 cd json
-wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
+wget "https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
 cd ..
 
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
