@@ -693,7 +693,7 @@ void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list,
 TEST(SkipList, EstimateAverageNumberOfEquals1) {
   utils::SkipList<Counter> list;
 
-  // ~500k elements will yield an expected maximum height of 19
+  // ~500k elements will yield an expected maximum height of 19.
   const int kMaxElements = 1000;
 
   // Create a list that has 1, then 2, then 3, then 4, ..., up to
@@ -723,8 +723,8 @@ TEST(SkipList, EstimateAverageNumberOfEquals1) {
     auto acc = list.access();
     uint64_t count = acc.estimate_average_number_of_equals(
         [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
-    // There are `kMaxElements` unique elements when observing the data with the
-    // specified equation operator so we divide the number of elements with
+    // There are `kMaxElements` unique elements when observing the data with
+    // the specified equation operator so we divide the number of elements with
     // `kMaxElements`.
     ASSERT_EQ(list.size(), kMaxElements * (kMaxElements + 1) / 2);
     ASSERT_EQ(count, (kMaxElements + 1) / 2);
@@ -734,7 +734,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals1) {
 TEST(SkipList, EstimateAverageNumberOfEquals2) {
   utils::SkipList<Counter> list;
 
-  // 100k elements will yield an expected maximum height of 17
+  // 100k elements will yield an expected maximum height of 17.
   const int kMaxElements = 100000;
   const int kElementMembers = 1;
 
@@ -810,12 +810,12 @@ TEST(SkipList, EstimateAverageNumberOfEquals3) {
 TEST(SkipList, EstimateAverageNumberOfEquals4) {
   utils::SkipList<Counter> list;
 
-  // ~300k elements will yield an expected maximum height of 18
+  // ~300k elements will yield an expected maximum height of 18.
   const int kMaxElements = 100000;
 
-  // Create a list that has `kMaxElements` sets of 1 or 3 items that
-  // have same keys. The bias is 70% for a set that has 3 items, and 30% for a
-  // set that has 1 items.
+  // Create a list that has `kMaxElements` sets of 1 or 3 items that have same
+  // keys. The bias is 70% for a set that has 3 items, and 30% for a set that
+  // has 1 items.
   std::mt19937 gen{std::random_device{}()};
   std::uniform_real_distribution<> dis(0.0, 1.0);
   {
@@ -851,7 +851,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals4) {
 TEST(SkipList, EstimateAverageNumberOfEquals5) {
   utils::SkipList<Counter> list;
 
-  // ~500k elements will yield an expected maximum height of 19
+  // ~500k elements will yield an expected maximum height of 19.
   const int kMaxElements = 1000000;
 
   // Create a list that has `kMaxElements` items that have same keys.
