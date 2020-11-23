@@ -33,6 +33,12 @@ cpp<#
     ((success :bool)
      (current-commit-timestamp :uint64_t))))
 
+(lcp:define-rpc only-snapshot
+  (:request ((snapshot-timestamp :uint64_t)))
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
 (lcp:define-rpc wal-files
   (:request ((file-number :uint64_t)))
   (:response

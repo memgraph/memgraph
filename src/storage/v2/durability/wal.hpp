@@ -189,6 +189,12 @@ class WalFile {
 
   uint64_t SequenceNumber() const;
 
+  auto FromTimestamp() const { return from_timestamp_; }
+
+  auto ToTimestamp() const { return to_timestamp_; }
+
+  auto Count() const { return count_; }
+
   // Disable flushing of the internal buffer.
   void DisableFlushing();
   // Enable flushing of the internal buffer.

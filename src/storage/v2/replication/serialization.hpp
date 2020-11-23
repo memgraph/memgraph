@@ -60,7 +60,7 @@ class Decoder final : public durability::BaseDecoder {
   /// @param directory Directory which will contain the read file.
   /// @return If the read was successful, path to the read file.
   std::optional<std::filesystem::path> ReadFile(
-      const std::filesystem::path &directory);
+      const std::filesystem::path &directory, const std::string &suffix = "");
 
  private:
   slk::Reader *reader_;

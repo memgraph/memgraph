@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <thread>
+#include <variant>
 
 #include "rpc/client.hpp"
 #include "storage/v2/config.hpp"
@@ -36,7 +37,6 @@ class ReplicationClient {
                     const std::filesystem::path &wal_directory,
                     std::string_view uuid,
                     std::optional<durability::WalFile> *wal_file_ptr,
-                    uint64_t *wal_seq_num,
                     utils::SpinLock *transaction_engine_lock,
                     const io::network::Endpoint &endpoint, bool use_ssl,
                     ReplicationMode mode);
@@ -68,7 +68,7 @@ class ReplicationClient {
 
    private:
     /// @throw rpc::RpcFailedException
-    void Finalize();
+    AppendDeltasRes Finalize();
 
     ReplicationClient *self_;
     rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
@@ -98,7 +98,7 @@ class ReplicationClient {
     rpc::Client::StreamHandler<CurrentWalRpc> stream_;
   };
 
-  bool StartTransactionReplication();
+  bool StartTransactionReplication(uint64_t current_wal_seq_num);
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -114,6 +114,10 @@ class ReplicationClient {
   // @param path Path of the snapshot file.
   SnapshotRes TransferSnapshot(const std::filesystem::path &path);
 
+  // Transfer the timestamp of the snapshot if it's the only difference
+  // between main and replica
+  OnlySnapshotRes TransferOnlySnapshot(uint64_t snapshot_timestamp);
+
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
@@ -127,7 +131,31 @@ class ReplicationClient {
  private:
   void FinalizeTransactionReplicationInternal();
 
-  void RecoverReplica();
+  void RecoverReplica(uint64_t replica_commit);
+
+  uint64_t ReplicateCurrentWal();
+
+  using RecoveryWals = std::vector<std::filesystem::path>;
+  struct RecoveryCurrentWal {
+    uint64_t current_wal_seq_num;
+
+    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num)
+        : current_wal_seq_num(current_wal_seq_num) {}
+  };
+  using RecoverySnapshot = std::filesystem::path;
+  struct RecoveryFinalSnapshot {
+    uint64_t snapshot_timestamp;
+
+    explicit RecoveryFinalSnapshot(const uint64_t snapshot_timestamp)
+        : snapshot_timestamp(snapshot_timestamp) {}
+  };
+  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals,
+                                    RecoveryCurrentWal, RecoveryFinalSnapshot>;
+
+  std::vector<RecoveryStep> GetRecoverySteps(
+      uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
+
+  void InitializeClient();
 
   std::string name_;
   // storage info
@@ -139,7 +167,6 @@ class ReplicationClient {
   const std::filesystem::path &wal_directory_;
   std::string_view uuid_;
   std::optional<durability::WalFile> *wal_file_ptr_;
-  uint64_t *wal_seq_num_;
   utils::SpinLock *transaction_engine_lock_;
 
   communication::ClientContext rpc_context_;

@@ -30,6 +30,7 @@
 #ifdef MG_ENTERPRISE
 DEFINE_bool(main, false, "Set to true to be the main");
 DEFINE_bool(replica, false, "Set to true to be the replica");
+DEFINE_bool(async_replica, false, "Set to true to be the replica");
 #endif
 
 namespace storage {
@@ -414,9 +415,14 @@ Storage::Storage(Config config)
   // a query.
   if (FLAGS_main) {
     SetReplicationRole<ReplicationRole::MAIN>();
+    RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000});
+    RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002});
   } else if (FLAGS_replica) {
     SetReplicationRole<ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 1000});
+        io::network::Endpoint{"127.0.0.1", 10000});
+  } else if (FLAGS_async_replica) {
+    SetReplicationRole<ReplicationRole::REPLICA>(
+        io::network::Endpoint{"127.0.0.1", 10002});
   }
 #endif
 }
@@ -1667,11 +1673,7 @@ void Storage::AppendToWal(const Transaction &transaction,
   if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
-        try {
-          client.StartTransactionReplication();
-        } catch (const rpc::RpcFailedException &) {
-          LOG(FATAL) << "Couldn't replicate data!";
-        }
+        client.StartTransactionReplication(wal_file_->SequenceNumber());
       }
     });
   }
@@ -1695,13 +1697,9 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
         replication_clients_.WithLock([&](auto &clients) {
           for (auto &client : clients) {
-            try {
-              client.IfStreamingTransaction([&](auto &stream) {
-                stream.AppendDelta(*delta, parent, final_commit_timestamp);
-              });
-            } catch (const rpc::RpcFailedException &) {
-              LOG(FATAL) << "Couldn't replicate data!";
-            }
+            client.IfStreamingTransaction([&](auto &stream) {
+              stream.AppendDelta(*delta, parent, final_commit_timestamp);
+            });
           }
         });
 #endif
@@ -1841,14 +1839,10 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      try {
-        client.IfStreamingTransaction([&](auto &stream) {
-          stream.AppendTransactionEnd(final_commit_timestamp);
-        });
-        client.FinalizeTransactionReplication();
-      } catch (const rpc::RpcFailedException &) {
-        LOG(FATAL) << "Couldn't replicate data!";
-      }
+      client.IfStreamingTransaction([&](auto &stream) {
+        stream.AppendTransactionEnd(final_commit_timestamp);
+      });
+      client.FinalizeTransactionReplication();
     }
   });
 #endif
@@ -1866,16 +1860,12 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
     if (replication_role_.load() == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
-          try {
-            client.StartTransactionReplication();
-            client.IfStreamingTransaction([&](auto &stream) {
-              stream.AppendOperation(operation, label, properties,
-                                     final_commit_timestamp);
-            });
-            client.FinalizeTransactionReplication();
-          } catch (const rpc::RpcFailedException &) {
-            LOG(FATAL) << "Couldn't replicate data!";
-          }
+          client.StartTransactionReplication(wal_file_->SequenceNumber());
+          client.IfStreamingTransaction([&](auto &stream) {
+            stream.AppendOperation(operation, label, properties,
+                                   final_commit_timestamp);
+          });
+          client.FinalizeTransactionReplication();
         }
       });
     }
@@ -1913,7 +1903,7 @@ void Storage::CreateSnapshot() {
 std::pair<durability::WalInfo, std::filesystem::path> Storage::LoadWal(
     replication::Decoder *decoder,
     durability::RecoveredIndicesAndConstraints *indices_constraints) {
-  auto maybe_wal_path = decoder->ReadFile(wal_directory_);
+  auto maybe_wal_path = decoder->ReadFile(wal_directory_, "_MAIN");
   CHECK(maybe_wal_path) << "Failed to load WAL!";
   DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
   try {
@@ -2439,6 +2429,21 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           wal_file_.reset();
         }
       });
+  replication_server_->rpc_server->Register<OnlySnapshotRpc>(
+      [this](auto *req_reader, auto *res_builder) {
+        DLOG(INFO) << "Received OnlySnapshotRpc";
+        OnlySnapshotReq req;
+        slk::Load(&req, req_reader);
+
+        CHECK(last_commit_timestamp_.load() < req.snapshot_timestamp)
+            << "Invalid snapshot timestamp, it should be less than the last"
+               "commited timestamp";
+
+        last_commit_timestamp_.store(req.snapshot_timestamp);
+
+        SnapshotRes res{true, last_commit_timestamp_.load()};
+        slk::Save(res, res_builder);
+      });
   replication_server_->rpc_server->Register<WalFilesRpc>(
       [this](auto *req_reader, auto *res_builder) {
         DLOG(INFO) << "Received WalFilesRpc";
@@ -2535,8 +2540,7 @@ void Storage::RegisterReplica(
     clients.emplace_back(std::move(name), last_commit_timestamp_,
                          &name_id_mapper_, config_.items, &file_retainer_,
                          snapshot_directory_, wal_directory_, uuid_, &wal_file_,
-                         &wal_seq_num_, &engine_lock_, endpoint, false,
-                         replication_mode);
+                         &engine_lock_, endpoint, false, replication_mode);
   });
 }
 
