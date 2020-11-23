@@ -2472,7 +2472,7 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
-  std::string raw_query = "SHOW REPLICATION ROLE";
+  const std::string raw_query = "SHOW REPLICATION ROLE";
   auto *parsed_query =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
   EXPECT_EQ(parsed_query->action_,
@@ -2481,7 +2481,7 @@ TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
   auto &ast_generator = *GetParam();
-  std::string raw_query = "SHOW REPLICAS";
+  const std::string raw_query = "SHOW REPLICAS";
   auto *parsed_query =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
   EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
@@ -2489,13 +2489,13 @@ TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   auto &ast_generator = *GetParam();
-  std::string missing_mode_query = "SET REPLICATION ROLE";
+  const std::string missing_mode_query = "SET REPLICATION ROLE";
   ASSERT_THROW(ast_generator.ParseQuery(missing_mode_query), SyntaxException);
 
-  std::string bad_mode_query = "SET REPLICATION ROLE TO BUTTERY";
+  const std::string bad_mode_query = "SET REPLICATION ROLE TO BUTTERY";
   ASSERT_THROW(ast_generator.ParseQuery(bad_mode_query), SyntaxException);
 
-  std::string full_query = "SET REPLICATION ROLE TO MAIN";
+  const std::string full_query = "SET REPLICATION ROLE TO MAIN";
   auto *parsed_full_query =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
   EXPECT_EQ(parsed_full_query->action_,
@@ -2506,10 +2506,10 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 TEST_P(CypherMainVisitorTest, TestCreateReplicationQuery) {
   auto &ast_generator = *GetParam();
 
-  std::string faulty_query = "CREATE REPLICA WITH TIMEOUT TO";
+  const std::string faulty_query = "CREATE REPLICA WITH TIMEOUT TO";
   ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
 
-  std::string no_timeout_query =
+  const std::string no_timeout_query =
       R"(CREATE REPLICA replica1 SYNC TO "127.0.0.1")";
   auto *no_timeout_query_parsed = dynamic_cast<ReplicationQuery *>(
       ast_generator.ParseQuery(no_timeout_query));
