@@ -70,8 +70,8 @@ authQuery : createRole
           | showUsersForRole
           ;
 
-replicationQuery : setReplicationMode
-                 | showReplicationMode
+replicationQuery : setReplicationRole
+                 | showReplicationRole
                  | createReplica
                  | dropReplica
                  | showReplicas
@@ -117,9 +117,9 @@ showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
 
-setReplicationMode  : SET REPLICATION MODE TO ( MAIN | REPLICA ) ;
+setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA ) ;
 
-showReplicationMode : SHOW REPLICATION MODE ;
+showReplicationRole : SHOW REPLICATION ROLE ;
 
 replicaName : symbolicName ;
 

@@ -340,25 +340,25 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
 
   Callback callback;
   switch (repl_query->action_) {
-    case ReplicationQuery::Action::SET_REPLICATION_MODE: {
-      callback.fn = [handler, mode = repl_query->mode_] {
-        if (!handler->SetReplicationMode(mode)) {
+    case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
+      callback.fn = [handler, role = repl_query->role_] {
+        if (!handler->SetReplicationRole(role)) {
           throw QueryRuntimeException(
-              "Couldn't set the desired replication mode.");
+              "Couldn't set the desired replication role.");
         }
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICATION_MODE: {
+    case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication mode"};
       callback.fn = [handler] {
-        auto mode = handler->ShowReplicationMode();
+        auto mode = handler->ShowReplicationRole();
         switch (mode) {
-          case ReplicationQuery::ReplicationMode::MAIN: {
+          case ReplicationQuery::ReplicationRole::MAIN: {
             return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
           }
-          case ReplicationQuery::ReplicationMode::REPLICA: {
+          case ReplicationQuery::ReplicationRole::REPLICA: {
             return std::vector<std::vector<TypedValue>>{
                 {TypedValue("replica")}};
           }

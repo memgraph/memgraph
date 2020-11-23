@@ -61,10 +61,10 @@ class PrivilegeExtractor : public QueryVisitor<void>,
 
   void Visit(ReplicationQuery &replication_query) override {
     switch (replication_query.action_) {
-      case ReplicationQuery::Action::SET_REPLICATION_MODE:
+      case ReplicationQuery::Action::SET_REPLICATION_ROLE:
         AddPrivilege(AuthQuery::Privilege::REPLICATION);
         break;
-      case ReplicationQuery::Action::SHOW_REPLICATION_MODE:
+      case ReplicationQuery::Action::SHOW_REPLICATION_ROLE:
         AddPrivilege(AuthQuery::Privilege::REPLICATION);
         break;
       case ReplicationQuery::Action::CREATE_REPLICA:
