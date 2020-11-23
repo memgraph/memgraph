@@ -13,13 +13,14 @@ from threading import Thread
 from time import sleep
 
 from argparse import ArgumentParser
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, TRUST_ALL_CERTIFICATES
 
 
 class OutputData:
     '''
     Encapsulates results and info about the tests.
     '''
+
     def __init__(self):
         # data in time format (name, time, unit)
         self._measurements = []
@@ -164,7 +165,11 @@ def bolt_session(url, auth, ssl=False):
     :param auth: auth method, goes directly to the Bolt driver constructor
     :param ssl: bool, is ssl enabled
     '''
-    driver = GraphDatabase.driver(url, auth=auth, encrypted=ssl)
+    driver = GraphDatabase.driver(
+        url,
+        auth=auth,
+        encrypted=ssl,
+        trust=TRUST_ALL_CERTIFICATES)
     session = driver.session()
     try:
         yield session
@@ -188,11 +193,13 @@ def argument_driver(args):
     return GraphDatabase.driver(
         'bolt://' + args.endpoint,
         auth=(args.username, str(args.password)),
-        encrypted=args.use_ssl)
+        encrypted=args.use_ssl, trust=TRUST_ALL_CERTIFICATES)
 
 # This class is used to create and cache sessions. Session is cached by args
-# used to create it and process' pid in which it was created. This makes it easy
-# to reuse session with python multiprocessing primitives like pmap.
+# used to create it and process' pid in which it was created. This makes it
+# easy to reuse session with python multiprocessing primitives like pmap.
+
+
 class SessionCache:
     cache = {}
 
