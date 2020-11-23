@@ -116,11 +116,11 @@ class ReplicationQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetReplicationMode(
-      ReplicationQuery::ReplicationMode replication_mode) = 0;
+  virtual bool SetReplicationRole(
+      ReplicationQuery::ReplicationRole replication_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual ReplicationQuery::ReplicationMode ShowReplicationMode() const = 0;
+  virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
 
   /// Return false if the replica already exists.
   /// @throw QueryRuntimeException if an error ocurred.

@@ -2299,7 +2299,7 @@ cpp<#
 
 (lcp:define-class replication-query (query)
   ((action "Action" :scope :public)
-   (mode "ReplicationMode" :scope :public)
+   (role "ReplicationRole" :scope :public)
    (replica_name "std::string" :scope :public)
    (hostname "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
@@ -2311,10 +2311,10 @@ cpp<#
 
   (:public
     (lcp:define-enum action
-        (set-replication-mode show-replication-mode create-replica
+        (set-replication-role show-replication-role create-replica
          drop-replica show-replicas)
       (:serialize))
-    (lcp:define-enum replication-mode
+    (lcp:define-enum replication-role
         (main replica)
       (:serialize))
     (lcp:define-enum sync-mode
