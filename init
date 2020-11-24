@@ -86,8 +86,8 @@ cd libs
 ./setup.sh
 cd ..
 
-# setup qa dependencies
-setup_virtualenv tests/qa
+# setup gql_behave dependencies
+setup_virtualenv tests/gql_behave
 
 # setup stress dependencies
 setup_virtualenv tests/stress
