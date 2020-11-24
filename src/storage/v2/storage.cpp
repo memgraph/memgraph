@@ -869,16 +869,8 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) {
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-#ifdef MG_ENTERPRISE
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
-  return Commit(std::nullopt);
-}
-
 utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
-    std::optional<uint64_t> desired_commit_timestamp) {
-#else
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
-#endif
+    const std::optional<uint64_t> desired_commit_timestamp) {
   CHECK(is_transaction_active_) << "The transaction is already terminated!";
   CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
 
@@ -915,17 +907,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit() {
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-#ifdef MG_ENTERPRISE
-      if (!desired_commit_timestamp) {
-        commit_timestamp = storage_->timestamp_++;
-      } else {
-        commit_timestamp = *desired_commit_timestamp;
-        storage_->timestamp_ =
-            std::max(storage_->timestamp_, *desired_commit_timestamp + 1);
-      }
-#else
-      commit_timestamp = storage_->timestamp_++;
-#endif
+      commit_timestamp = storage_->CommitTimestamp(desired_commit_timestamp);
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -1224,7 +1206,8 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-bool Storage::CreateIndex(LabelId label) {
+bool Storage::CreateIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access()))
     return false;
@@ -1236,40 +1219,61 @@ bool Storage::CreateIndex(LabelId label) {
   // next regular transaction after this operation. This prevents collisions of
   // commit timestamps between non-transactional operations and transactional
   // operations.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
-              timestamp_++);
+              commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
-bool Storage::CreateIndex(LabelId label, PropertyId property) {
+bool Storage::CreateIndex(
+    LabelId label, PropertyId property,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.CreateIndex(label, property,
                                                  vertices_.access()))
     return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
-              label, {property}, timestamp_++);
+              label, {property}, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
-bool Storage::DropIndex(LabelId label) {
+bool Storage::DropIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
-              timestamp_++);
+              commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
-bool Storage::DropIndex(LabelId label, PropertyId property) {
+bool Storage::DropIndex(
+    LabelId label, PropertyId property,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.DropIndex(label, property)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
-              label, {property}, timestamp_++);
+              label, {property}, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
@@ -1280,32 +1284,45 @@ IndicesInfo Storage::ListAllIndices() const {
 }
 
 utils::BasicResult<ConstraintViolation, bool>
-Storage::CreateExistenceConstraint(LabelId label, PropertyId property) {
+Storage::CreateExistenceConstraint(
+    LabelId label, PropertyId property,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = ::storage::CreateExistenceConstraint(&constraints_, label,
                                                   property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
-              label, {property}, timestamp_);
+              label, {property}, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
-bool Storage::DropExistenceConstraint(LabelId label, PropertyId property) {
+bool Storage::DropExistenceConstraint(
+    LabelId label, PropertyId property,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!::storage::DropExistenceConstraint(&constraints_, label, property))
     return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
-              label, {property}, timestamp_);
+              label, {property}, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return true;
 }
 
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
-Storage::CreateUniqueConstraint(LabelId label,
-                                const std::set<PropertyId> &properties) {
+Storage::CreateUniqueConstraint(
+    LabelId label, const std::set<PropertyId> &properties,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.CreateConstraint(
       label, properties, vertices_.access());
@@ -1315,13 +1332,18 @@ Storage::CreateUniqueConstraint(LabelId label,
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE,
-              label, properties, timestamp_);
+              label, properties, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
 UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties) {
+    LabelId label, const std::set<PropertyId> &properties,
+    const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
@@ -1329,8 +1351,12 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
-              properties, timestamp_);
+              properties, commit_timestamp);
+#ifdef MG_ENTERPRISE
+  last_commit_timestamp_ = commit_timestamp;
+#endif
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1901,6 +1927,21 @@ void Storage::CreateSnapshot() {
 
   // Finalize snapshot transaction.
   commit_log_.MarkFinished(transaction.start_timestamp);
+}
+
+uint64_t Storage::CommitTimestamp(
+    const std::optional<uint64_t> desired_commit_timestamp) {
+#ifdef MG_ENTERPRISE
+  if (!desired_commit_timestamp) {
+    return timestamp_++;
+  } else {
+    const auto commit_timestamp = *desired_commit_timestamp;
+    timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+    return commit_timestamp;
+  }
+#else
+  return timestamp_++;
+#endif
 }
 
 #ifdef MG_ENTERPRISE

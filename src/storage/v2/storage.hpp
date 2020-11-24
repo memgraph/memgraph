@@ -313,7 +313,8 @@ class Storage final {
     /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit();
+    utils::BasicResult<ConstraintViolation, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -326,10 +327,6 @@ class Storage final {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                     EdgeTypeId edge_type, storage::Gid gid);
-
-    /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp);
 #endif
 
     Storage *storage_;
@@ -355,14 +352,18 @@ class Storage final {
   EdgeTypeId NameToEdgeType(const std::string_view &name);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label);
+  bool CreateIndex(LabelId label,
+                   std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property);
+  bool CreateIndex(LabelId label, PropertyId property,
+                   std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label);
+  bool DropIndex(LabelId label,
+                 std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, PropertyId property);
+  bool DropIndex(LabelId label, PropertyId property,
+                 std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 
@@ -373,11 +374,14 @@ class Storage final {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-      LabelId label, PropertyId property);
+      LabelId label, PropertyId property,
+      std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes an existence constraint. Returns true if the constraint was
   /// removed, and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property);
+  bool DropExistenceConstraint(
+      LabelId label, PropertyId property,
+      std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Creates a unique constraint. In the case of two vertices violating the
   /// constraint, it returns `ConstraintViolation`. Otherwise returns a
@@ -390,7 +394,8 @@ class Storage final {
   ///
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties);
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                         std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
   /// enum with the following possibilities:
@@ -400,7 +405,8 @@ class Storage final {
   ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
   //        limit of maximum number of properties.
   UniqueConstraints::DeletionStatus DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties);
+      LabelId label, const std::set<PropertyId> &properties,
+      std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
 
@@ -450,6 +456,9 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
   void CreateSnapshot();
+
+  uint64_t CommitTimestamp(
+      std::optional<uint64_t> desired_commit_timestamp = {});
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
