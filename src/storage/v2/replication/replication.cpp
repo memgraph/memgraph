@@ -239,6 +239,28 @@ uint64_t ReplicationClient::ReplicateCurrentWal() {
   return response.current_commit_timestamp;
 }
 
+/// This method tries to find the optimal path for recoverying a single replica.
+/// Based on the last commit transfered to replica it tries to update the
+/// replica using durability files - WALs and Snapshots. WAL files are much
+/// smaller in size as they contain only the Deltas (changes) made during the
+/// transactions while Snapshots contain all the data. For that reason we prefer
+/// WALs as much as possible. As the WAL file that is currently being updated
+/// can change during the process we ignore it as much as possible. Also, it
+/// uses the transaction lock so lokcing it can be really expensive. After we
+/// fetch the list of finalized WALs, we try to find the longest chain of
+/// sequential WALs, starting from the latest one, that will update the recovery
+/// with the all missed updates. If the WAL chain cannot be created, replica is
+/// behind by a lot, so we use the regular recovery process, we send the latest
+/// snapshot and all the necessary WAL files, starting from the newest WAL that
+/// contains a timestamp before the snapshot. If we registered the existence of
+/// the current WAL, we add the sequence number we read from it to the recovery
+/// process. After all the other steps are finished, if the current WAL contains
+/// the same sequence number, it's the same WAL we read while fetching the
+/// recovery steps, so we can safely send it to the replica. There's also one
+/// edge case, if MAIN instance restarted and the snapshot contained the last
+/// change (creation of that snapshot) the latest timestamp is contained in it.
+/// As no changes were made to the data, we only need to send the timestamp of
+/// the snapshot so replica can set its last timestamp to that value.
 std::vector<ReplicationClient::RecoveryStep>
 ReplicationClient::GetRecoverySteps(
     const uint64_t replica_commit,
@@ -267,6 +289,9 @@ ReplicationClient::GetRecoverySteps(
 
   std::vector<RecoveryStep> recovery_steps;
 
+  // No finalized WAL files were found. This means the difference is contained
+  // inside the current WAL or the snapshot was loaded back without any WALs
+  // after.
   if (wal_files->empty()) {
     if (current_wal_seq_num) {
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
@@ -292,7 +317,6 @@ ReplicationClient::GetRecoverySteps(
     } else {
       CHECK(latest_snapshot);
       locker_acc.AddFile(latest_snapshot->path);
-      DLOG(WARNING) << "FINAL SNAPSHOT";
       recovery_steps.emplace_back(
           RecoveryFinalSnapshot{latest_snapshot->start_timestamp});
     }
@@ -308,9 +332,9 @@ ReplicationClient::GetRecoverySteps(
       break;
     }
 
-    // Find first WAL that conatins up to replica commit, i.e. WAL
+    // Find first WAL that contains up to replica commit, i.e. WAL
     // that is before the replica commit or conatins the replica commit
-    // as the last committe transaction.
+    // as the last committed transaction.
     if (replica_commit >= rwal_it->from_timestamp &&
         replica_commit >= rwal_it->to_timestamp) {
       // We want the WAL after because the replica already contains all the
@@ -377,6 +401,7 @@ ReplicationClient::GetRecoverySteps(
   if (current_wal_seq_num) {
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
+
   return recovery_steps;
 }
 
