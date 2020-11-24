@@ -1,0 +1,15 @@
+- name: memgraph_V1
+  test_suite: memgraph_V1
+  must_pass: true
+
+- name: openCypher_M09
+  test_suite: openCypher_M09
+  must_pass: false
+
+- name: stackoverflow_answers
+  test_suite: stackoverflow_answers
+  must_pass: true
+
+- name: unstable
+  test_suite: unstable
+  must_pass: false

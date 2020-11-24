@@ -1,6 +1,0 @@
-behave==1.2.5
-neo4j-driver==1.2.0
-parse==1.8.0
-parse-type==0.3.4
-PyYAML==3.12
-six==1.10.0
