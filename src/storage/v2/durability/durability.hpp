@@ -37,8 +37,7 @@ struct SnapshotDurabilityInfo {
   std::string uuid;
   uint64_t start_timestamp;
 
-  friend auto operator<=>(const SnapshotDurabilityInfo &,
-                          const SnapshotDurabilityInfo &) = default;
+  auto operator<=>(const SnapshotDurabilityInfo &) const = default;
 };
 
 /// Get list of snapshot files with their UUID.
@@ -69,8 +68,7 @@ struct WalDurabilityInfo {
   std::string uuid;
   std::filesystem::path path;
 
-  friend auto operator<=>(const WalDurabilityInfo &,
-                          const WalDurabilityInfo &) = default;
+  auto operator<=>(const WalDurabilityInfo &) const = default;
 };
 
 using RecoveryFileDurabilityInfo =

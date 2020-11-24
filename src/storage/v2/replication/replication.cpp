@@ -208,8 +208,6 @@ void ReplicationClient::RecoverReplica(uint64_t replica_commit) {
               if (response.success) {
                 replica_commit = response.current_commit_timestamp;
               }
-              DLOG(WARNING) << replica_commit;
-              DLOG(WARNING) << last_commit_timestamp_;
             } else {
               static_assert(always_false_v<T>,
                             "Missing type from variant visitor");
