@@ -710,12 +710,14 @@ class SkipList final {
     }
 
     /// Estimates the average number of objects in the list that have the same
-    /// value using the provided equality operator. The items in the list must
-    /// already be ordered by the field that is used in the equality operator.
-    /// The default layer is chosen to optimize duration vs. precision. The
-    /// lower the layer used for estimation the higher the duration of the count
-    /// operation. If you set the maximum layer for estimation to 1 you will get
-    /// an exact average number.
+    /// value using the provided equality operator. E.g., if the objects are:
+    /// 1, 2, 2, 3, 3, 3; the average number of queals is 2.
+    ///
+    /// The items in the list must already be ordered by the field that is used
+    /// in the equality operator. The default layer is chosen to optimize
+    /// duration vs. precision. The lower the layer used for estimation the
+    /// higher the duration of the count operation. If you set the maximum layer
+    /// for estimation to 1 you will get an exact average number.
     ///
     /// @return uint64_t estimated average number of equal items in the list
     template <typename TCallable>
