@@ -3,7 +3,6 @@
 
 #include <benchmark/benchmark.h>
 
-
 //////////////////////////////////////////////////////
 // THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
 // OTHER INCLUDES
