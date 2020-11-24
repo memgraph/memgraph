@@ -1413,15 +1413,7 @@ Transaction Storage::CreateTransaction() {
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
-#ifdef MG_ENTERPRISE
-    if (replication_role_.load() != ReplicationRole::REPLICA) {
-      start_timestamp = timestamp_++;
-    } else {
-      start_timestamp = timestamp_;
-    }
-#else
     start_timestamp = timestamp_++;
-#endif
   }
   return {transaction_id, start_timestamp};
 }
@@ -2292,9 +2284,10 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
           DLOG(INFO) << "       Create label index on :"
                      << delta.operation_label.label;
+          // Need to send the timestamp
           if (commit_timestamp_and_accessor)
             throw utils::BasicException("Invalid transaction!");
-          if (!CreateIndex(NameToLabel(delta.operation_label.label)))
+          if (!CreateIndex(NameToLabel(delta.operation_label.label), timestamp))
             throw utils::BasicException("Invalid transaction!");
           break;
         }
@@ -2303,7 +2296,7 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
                      << delta.operation_label.label;
           if (commit_timestamp_and_accessor)
             throw utils::BasicException("Invalid transaction!");
-          if (!DropIndex(NameToLabel(delta.operation_label.label)))
+          if (!DropIndex(NameToLabel(delta.operation_label.label), timestamp))
             throw utils::BasicException("Invalid transaction!");
           break;
         }
@@ -2315,7 +2308,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           if (!CreateIndex(
                   NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property)))
+                  NameToProperty(delta.operation_label_property.property),
+                  timestamp))
             throw utils::BasicException("Invalid transaction!");
           break;
         }
@@ -2327,7 +2321,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           if (!DropIndex(
                   NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property)))
+                  NameToProperty(delta.operation_label_property.property),
+                  timestamp))
             throw utils::BasicException("Invalid transaction!");
           break;
         }
@@ -2339,7 +2334,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           auto ret = CreateExistenceConstraint(
               NameToLabel(delta.operation_label_property.label),
-              NameToProperty(delta.operation_label_property.property));
+              NameToProperty(delta.operation_label_property.property),
+              timestamp);
           if (!ret.HasValue() || !ret.GetValue())
             throw utils::BasicException("Invalid transaction!");
           break;
@@ -2352,7 +2348,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             throw utils::BasicException("Invalid transaction!");
           if (!DropExistenceConstraint(
                   NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property)))
+                  NameToProperty(delta.operation_label_property.property),
+                  timestamp))
             throw utils::BasicException("Invalid transaction!");
           break;
         }
@@ -2369,7 +2366,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             properties.emplace(NameToProperty(prop));
           }
           auto ret = CreateUniqueConstraint(
-              NameToLabel(delta.operation_label_properties.label), properties);
+              NameToLabel(delta.operation_label_properties.label), properties,
+              timestamp);
           if (!ret.HasValue() ||
               ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
             throw utils::BasicException("Invalid transaction!");
@@ -2388,7 +2386,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
             properties.emplace(NameToProperty(prop));
           }
           auto ret = DropUniqueConstraint(
-              NameToLabel(delta.operation_label_properties.label), properties);
+              NameToLabel(delta.operation_label_properties.label), properties,
+              timestamp);
           if (ret != UniqueConstraints::DeletionStatus::SUCCESS)
             throw utils::BasicException("Invalid transaction!");
           break;
