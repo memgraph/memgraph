@@ -55,17 +55,19 @@ struct WalDurabilityInfo {
   explicit WalDurabilityInfo(const uint64_t seq_num,
                              const uint64_t from_timestamp,
                              const uint64_t to_timestamp, std::string uuid,
-                             std::filesystem::path path)
+                             std::string epoch_id, std::filesystem::path path)
       : seq_num(seq_num),
         from_timestamp(from_timestamp),
         to_timestamp(to_timestamp),
         uuid(std::move(uuid)),
+        epoch_id(std::move(epoch_id)),
         path(std::move(path)) {}
 
   uint64_t seq_num;
   uint64_t from_timestamp;
   uint64_t to_timestamp;
   std::string uuid;
+  std::string epoch_id;
   std::filesystem::path path;
 
   auto operator<=>(const WalDurabilityInfo &) const = default;
@@ -100,6 +102,8 @@ void RecoverIndicesAndConstraints(
 std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
+    std::string *epoch_id,
+    std::vector<std::pair<std::string, uint64_t>> *epoch_history,
     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
     std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
     Indices *indices, Constraints *constraints, Config::Items items,

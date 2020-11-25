@@ -323,7 +323,8 @@ Storage::Storage(Config config)
                      durability::kWalDirectory),
       lock_file_path_(config_.durability.storage_directory /
                       durability::kLockFile),
-      uuid_(utils::GenerateUUID()) {
+      uuid_(utils::GenerateUUID()),
+      epoch_id_(utils::GenerateUUID()) {
   if (config_.durability.snapshot_wal_mode !=
           Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit ||
@@ -355,9 +356,9 @@ Storage::Storage(Config config)
   }
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(
-        snapshot_directory_, wal_directory_, &uuid_, &vertices_, &edges_,
-        &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
-        &wal_seq_num_);
+        snapshot_directory_, wal_directory_, &uuid_, &epoch_id_,
+        &epoch_history_, &vertices_, &edges_, &edge_count_, &name_id_mapper_,
+        &indices_, &constraints_, config_.items, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -418,7 +419,6 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    SetReplicationRole<ReplicationRole::MAIN>();
     RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000});
     RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002});
   } else if (FLAGS_replica) {
@@ -1661,8 +1661,8 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, config_.items, &name_id_mapper_,
-                      wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items,
+                      &name_id_mapper_, wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1922,8 +1922,8 @@ void Storage::CreateSnapshot() {
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count,
                              &vertices_, &edges_, &name_id_mapper_, &indices_,
-                             &constraints_, config_.items, uuid_,
-                             &file_retainer_);
+                             &constraints_, config_.items, uuid_, epoch_id_,
+                             epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_.MarkFinished(transaction.start_timestamp);
@@ -1953,6 +1953,10 @@ std::pair<durability::WalInfo, std::filesystem::path> Storage::LoadWal(
   DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
+    if (wal_info.epoch_id != epoch_id_) {
+      epoch_history_.emplace_back(wal_info.epoch_id, last_commit_timestamp_);
+      epoch_id_ = std::move(wal_info.epoch_id);
+    }
     auto info = durability::LoadWal(
         *maybe_wal_path, indices_constraints, last_commit_timestamp_,
         &vertices_, &edges_, &name_id_mapper_, &edge_count_, config_.items);
@@ -2001,24 +2005,6 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
     DLOG(INFO) << "Received AppendDeltasRpc:";
 
-    constexpr auto is_transaction_complete =
-        [](const durability::WalDeltaData::Type delta_type) {
-          switch (delta_type) {
-            case durability::WalDeltaData::Type::TRANSACTION_END:
-            case durability::WalDeltaData::Type::LABEL_INDEX_CREATE:
-            case durability::WalDeltaData::Type::LABEL_INDEX_DROP:
-            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-              return true;
-            default:
-              return false;
-          }
-        };
-
     replication::Decoder decoder(req_reader);
     const auto read_delta =
         [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
@@ -2034,13 +2020,15 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
       }
     };
 
+    // TODO (antonio2368): CHECK EPOCH_ID!!
     if (req.previous_commit_timestamp != last_commit_timestamp_.load()) {
       // Empty the stream
       bool transaction_complete = false;
       while (!transaction_complete) {
         DLOG(INFO) << "Skipping delta";
         const auto [timestamp, delta] = read_delta();
-        transaction_complete = is_transaction_complete(delta.type);
+        transaction_complete =
+            durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
       }
 
       AppendDeltasRes res{false, last_commit_timestamp_.load()};
@@ -2401,7 +2389,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
           break;
         }
       }
-      transaction_complete = is_transaction_complete(delta.type);
+      transaction_complete =
+          durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
     if (commit_timestamp_and_accessor)
@@ -2438,12 +2427,13 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
         try {
           DLOG(INFO) << "Loading snapshot";
           auto recovered_snapshot = durability::LoadSnapshot(
-              *maybe_snapshot_path, &vertices_, &edges_, &name_id_mapper_,
-              &edge_count_, config_.items);
+              *maybe_snapshot_path, &vertices_, &edges_, &epoch_history_,
+              &name_id_mapper_, &edge_count_, config_.items);
           DLOG(INFO) << "Snapshot loaded successfully";
           // If this step is present it should always be the first step of
           // the recovery so we use the UUID we read from snasphost
-          uuid_ = recovered_snapshot.snapshot_info.uuid;
+          uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
+          epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
           const auto &recovery_info = recovered_snapshot.recovery_info;
           vertex_id_ = recovery_info.next_vertex_id;
           edge_id_ = recovery_info.next_edge_id;
@@ -2473,15 +2463,15 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 
         auto wal_files = durability::GetWalFiles(wal_directory_, uuid_);
         if (wal_files) {
-          for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
-               *wal_files) {
-            file_retainer_.DeleteFile(path);
+          for (const auto &wal_file : *wal_files) {
+            file_retainer_.DeleteFile(wal_file.path);
           }
 
           wal_file_.reset();
         }
       });
   replication_server_->rpc_server->Register<OnlySnapshotRpc>(
+      // TODO (antonio2368): This needs to check epoch_id also!
       [this](auto *req_reader, auto *res_builder) {
         DLOG(INFO) << "Received OnlySnapshotRpc";
         OnlySnapshotReq req;

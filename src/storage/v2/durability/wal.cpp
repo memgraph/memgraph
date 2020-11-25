@@ -165,43 +165,11 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
+    case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_OFFSETS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure("Invalid WAL data!");
-  }
-}
-
-bool IsWalDeltaDataTypeTransactionEnd(WalDeltaData::Type type) {
-  switch (type) {
-    // These delta actions are all found inside transactions so they don't
-    // indicate a transaction end.
-    case WalDeltaData::Type::VERTEX_CREATE:
-    case WalDeltaData::Type::VERTEX_DELETE:
-    case WalDeltaData::Type::VERTEX_ADD_LABEL:
-    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
-    case WalDeltaData::Type::EDGE_CREATE:
-    case WalDeltaData::Type::EDGE_DELETE:
-    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
-    case WalDeltaData::Type::EDGE_SET_PROPERTY:
-      return false;
-
-    // This delta explicitly indicates that a transaction is done.
-    case WalDeltaData::Type::TRANSACTION_END:
-      return true;
-
-    // These operations aren't transactional and they are encoded only using
-    // a single delta, so they each individually mark the end of their
-    // 'transaction'.
-    case WalDeltaData::Type::LABEL_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-      return true;
   }
 }
 
@@ -385,6 +353,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     auto maybe_uuid = wal.ReadString();
     if (!maybe_uuid) throw RecoveryFailure("Invalid WAL data!");
     info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = wal.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Invalid WAL data!");
+    info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
     if (!maybe_seq_num) throw RecoveryFailure("Invalid WAL data!");
@@ -970,9 +942,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 }
 
 WalFile::WalFile(const std::filesystem::path &wal_directory,
-                 const std::string &uuid, Config::Items items,
-                 NameIdMapper *name_id_mapper, uint64_t seq_num,
-                 utils::FileRetainer *file_retainer)
+                 const std::string_view uuid, const std::string_view epoch_id,
+                 Config::Items items, NameIdMapper *name_id_mapper,
+                 uint64_t seq_num, utils::FileRetainer *file_retainer)
     : items_(items),
       name_id_mapper_(name_id_mapper),
       path_(wal_directory / MakeWalName()),
@@ -1000,6 +972,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory,
   offset_metadata = wal_.GetPosition();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(uuid);
+  wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 
   // Write final offsets.

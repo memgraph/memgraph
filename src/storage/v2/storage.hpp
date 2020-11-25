@@ -24,6 +24,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
@@ -419,13 +420,22 @@ class Storage final {
       return;
     }
 
-    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
+    std::scoped_lock guard(engine_lock_, replication_lock_);
 
     if constexpr (role == ReplicationRole::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
     } else if (role == ReplicationRole::MAIN) {
       // Main instance does not need replication server
       replication_server_.reset();
+
+      if (wal_file_) {
+        wal_file_->FinalizeWal();
+        wal_file_.reset();
+      }
+
+      // Generate new epoch id and save the last one to the history.
+      epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+      epoch_id_ = utils::GenerateUUID();
     }
 
     replication_role_.store(role);
@@ -538,6 +548,18 @@ class Storage final {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
+  // UUID to distinguish different main instance runs for replication process
+  // on SAME storage.
+  // Multiple instance can have same storage UUID and be MAIN at the same time.
+  // We cannot compare commit timestamps of those instances if one of them
+  // becomes the replica of the other so we use epoch_id_ as additional
+  // property.
+  std::string epoch_id_;
+  // History of the previous epoch ids.
+  // Each value consists of the epoch id along the last commit belonging to that
+  // epoch.
+  std::vector<std::pair<std::string, uint64_t>> epoch_history_;
+
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
@@ -545,7 +567,9 @@ class Storage final {
 
   // Replication
 #ifdef MG_ENTERPRISE
+  // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
   struct ReplicationServer {

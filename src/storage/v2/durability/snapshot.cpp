@@ -114,6 +114,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     info.offset_indices = read_offset();
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
+    info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
   }
 
@@ -129,6 +130,10 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     auto maybe_uuid = snapshot.ReadString();
     if (!maybe_uuid) throw RecoveryFailure("Invalid snapshot data!");
     info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = snapshot.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Invalid snapshot data!");
+    info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_timestamp = snapshot.ReadUint();
     if (!maybe_timestamp) throw RecoveryFailure("Invalid snapshot data!");
@@ -146,12 +151,12 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   return info;
 }
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
-                               utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges,
-                               NameIdMapper *name_id_mapper,
-                               std::atomic<uint64_t> *edge_count,
-                               Config::Items items) {
+RecoveredSnapshot LoadSnapshot(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges,
+    std::vector<std::pair<std::string, uint64_t>> *epoch_history,
+    NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    Config::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -567,6 +572,34 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
     }
   }
 
+  // Recover epoch history
+  {
+    if (!snapshot.SetPosition(info.offset_epoch_history))
+      throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    const auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Invalid snapshot data!");
+
+    const auto history_size = snapshot.ReadUint();
+    if (!history_size) {
+      throw RecoveryFailure("Invalid snapshot data!");
+    }
+
+    for (int i = 0; i < *history_size; ++i) {
+      auto maybe_epoch_id = snapshot.ReadString();
+      if (!maybe_epoch_id) {
+        throw RecoveryFailure("Invalid snapshot data!");
+      }
+      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
+      if (!maybe_last_commit_timestamp) {
+        throw RecoveryFailure("Invalid snapshot data!");
+      }
+      epoch_history->emplace_back(std::move(*maybe_epoch_id),
+                                  *maybe_last_commit_timestamp);
+    }
+  }
+
   // Recover timestamp.
   ret.next_timestamp = info.start_timestamp + 1;
 
@@ -576,15 +609,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
   return {info, ret, std::move(indices_constraints)};
 }
 
-void CreateSnapshot(Transaction *transaction,
-                    const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory,
-                    uint64_t snapshot_retention_count,
-                    utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                    Indices *indices, Constraints *constraints,
-                    Config::Items items, const std::string &uuid,
-                    utils::FileRetainer *file_retainer) {
+void CreateSnapshot(
+    Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory,
+    uint64_t snapshot_retention_count, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+    Indices *indices, Constraints *constraints, Config::Items items,
+    const std::string &uuid, const std::string_view epoch_id,
+    const std::vector<std::pair<std::string, uint64_t>> &epoch_history,
+    utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -603,6 +636,7 @@ void CreateSnapshot(Transaction *transaction,
   uint64_t offset_constraints = 0;
   uint64_t offset_mapper = 0;
   uint64_t offset_metadata = 0;
+  uint64_t offset_epoch_history = 0;
   {
     snapshot.WriteMarker(Marker::SECTION_OFFSETS);
     offset_offsets = snapshot.GetPosition();
@@ -611,6 +645,7 @@ void CreateSnapshot(Transaction *transaction,
     snapshot.WriteUint(offset_indices);
     snapshot.WriteUint(offset_constraints);
     snapshot.WriteUint(offset_mapper);
+    snapshot.WriteUint(offset_epoch_history);
     snapshot.WriteUint(offset_metadata);
   }
 
@@ -814,11 +849,23 @@ void CreateSnapshot(Transaction *transaction,
     }
   }
 
+  // Write epoch history
+  {
+    offset_epoch_history = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_EPOCH_HISTORY);
+    snapshot.WriteUint(epoch_history.size());
+    for (const auto &[epoch_id, last_commit_timestamp] : epoch_history) {
+      snapshot.WriteString(epoch_id);
+      snapshot.WriteUint(last_commit_timestamp);
+    }
+  }
+
   // Write metadata.
   {
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid);
+    snapshot.WriteString(epoch_id);
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
@@ -832,6 +879,7 @@ void CreateSnapshot(Transaction *transaction,
     snapshot.WriteUint(offset_indices);
     snapshot.WriteUint(offset_constraints);
     snapshot.WriteUint(offset_mapper);
+    snapshot.WriteUint(offset_epoch_history);
     snapshot.WriteUint(offset_metadata);
   }
 
