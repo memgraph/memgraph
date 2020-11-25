@@ -71,9 +71,6 @@ struct WalDurabilityInfo {
   auto operator<=>(const WalDurabilityInfo &) const = default;
 };
 
-using RecoveryFileDurabilityInfo =
-    std::variant<SnapshotDurabilityInfo, WalDurabilityInfo>;
-
 /// Get list of WAL files ordered by the sequence number
 /// @param wal_directory Directory containing the WAL files.
 /// @param uuid UUID of the WAL files. If not empty, fetch only WAL files
