@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <variant>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -24,15 +25,51 @@ namespace storage::durability {
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     const std::filesystem::path &storage_directory);
 
+// Used to capture the snapshot's data related to durability
+struct SnapshotDurabilityInfo {
+  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid,
+                                  const uint64_t start_timestamp)
+      : path(std::move(path)),
+        uuid(std::move(uuid)),
+        start_timestamp(start_timestamp) {}
+
+  std::filesystem::path path;
+  std::string uuid;
+  uint64_t start_timestamp;
+
+  auto operator<=>(const SnapshotDurabilityInfo &) const = default;
+};
+
 /// Get list of snapshot files with their UUID.
 /// @param snapshot_directory Directory containing the Snapshot files.
 /// @param uuid UUID of the Snapshot files. If not empty, fetch only Snapshot
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
 /// @return List of snapshot files defined with its path and UUID.
-std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     std::string_view uuid = "");
+
+/// Used to capture a WAL's data related to durability
+struct WalDurabilityInfo {
+  explicit WalDurabilityInfo(const uint64_t seq_num,
+                             const uint64_t from_timestamp,
+                             const uint64_t to_timestamp, std::string uuid,
+                             std::filesystem::path path)
+      : seq_num(seq_num),
+        from_timestamp(from_timestamp),
+        to_timestamp(to_timestamp),
+        uuid(std::move(uuid)),
+        path(std::move(path)) {}
+
+  uint64_t seq_num;
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  std::string uuid;
+  std::filesystem::path path;
+
+  auto operator<=>(const WalDurabilityInfo &) const = default;
+};
 
 /// Get list of WAL files ordered by the sequence number
 /// @param wal_directory Directory containing the WAL files.
@@ -44,11 +81,9 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<
-    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
-GetWalFiles(const std::filesystem::path &wal_directory,
-            std::string_view uuid = "",
-            std::optional<size_t> current_seq_num = {});
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
+    const std::filesystem::path &wal_directory, std::string_view uuid = "",
+    std::optional<size_t> current_seq_num = {});
 
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done
