@@ -12,6 +12,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/file.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
@@ -192,7 +193,7 @@ class DeltaGenerator final {
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_,
                   {.properties_on_edges = properties_on_edges}, &mapper_,
-                  seq_num) {}
+                  seq_num, &file_retainer_) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
 
@@ -282,6 +283,8 @@ class DeltaGenerator final {
   uint64_t tx_from_{0};
   uint64_t tx_to_{0};
   uint64_t valid_{true};
+
+  utils::FileRetainer file_retainer_;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
