@@ -91,14 +91,32 @@ can enable replication on the main:
 SET REPLICATION ROLE TO (MAIN|REPLICA);
 ```
 
-After you have set your replica instance to the correct operating mode, you can
+After you have set your replica instance to the correct operating role, you can
 enable replication in the main instance by issuing the following openCypher
 command:
 ```plaintext
-CREATE REPLICA name (SYNC|ASYNC) [WITH TIMEOUT 0.5] TO <ip_address>;
+REGISTER REPLICA name (SYNC|ASYNC) [WITH TIMEOUT 0.5] TO <socket_address>;
 ```
 
-Each Memgraph instance will remember that the configuration was set to and will
+The socket address must be a string of the following form:
+
+```plaintext
+"IP_ADDRESS:PORT_NUMBER"
+```
+
+where IP_ADDRESS is a valid IP address, and PORT_NUMBER is a valid port number,
+both given in decimal notation.
+Note that in this case they must be separated by a single colon.
+Alternatively, one can give the socket address as:
+
+```plaintext
+"IP_ADDRESS"
+```
+
+where IP_ADDRESS must be a valid IP address, and the port number will be
+assumed to be the default one (we specify it to be 10000).
+
+Each Memgraph instance will remember what the configuration was set to and will
 automatically resume with its role when restarted.
 
 ### How to Setup an Advanced Replication Scenario?
@@ -113,8 +131,8 @@ To configure the above scenario, issue the following commands:
 SET REPLICATION ROLE TO REPLICA;  # on replica 1
 SET REPLICATION ROLE TO REPLICA;  # on replica 2
 
-CREATE REPLICA replica1 ASYNC TO <replica1_ip>;  # on main
-CREATE REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO <replica2_ip>;  # on replica 1
+REGISTER REPLICA replica1 ASYNC TO <replica1_sa>;  # on main
+REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO <replica2_sa>;  # on replica 1
 ```
 
 ### How to See the Current Replication Status?
