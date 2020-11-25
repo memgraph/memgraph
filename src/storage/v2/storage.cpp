@@ -1222,6 +1222,7 @@ bool Storage::CreateIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
               commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1240,6 +1241,7 @@ bool Storage::CreateIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
               label, {property}, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1255,6 +1257,7 @@ bool Storage::DropIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
               commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1271,6 +1274,7 @@ bool Storage::DropIndex(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP,
               label, {property}, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1296,6 +1300,7 @@ Storage::CreateExistenceConstraint(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
               label, {property}, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1313,6 +1318,7 @@ bool Storage::DropExistenceConstraint(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
               label, {property}, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1335,6 +1341,7 @@ Storage::CreateUniqueConstraint(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE,
               label, properties, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1354,6 +1361,7 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
               properties, commit_timestamp);
+  commit_log_.MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
