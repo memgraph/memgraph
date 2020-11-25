@@ -50,10 +50,10 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
       << ". Please start the process as user " << user_directory << "!";
 }
 
-std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
     const std::filesystem::path &snapshot_directory,
     const std::string_view uuid) {
-  std::vector<std::pair<std::filesystem::path, std::string>> snapshot_files;
+  std::vector<SnapshotDurabilityInfo> snapshot_files;
   std::error_code error_code;
   if (utils::DirExists(snapshot_directory)) {
     for (const auto &item :
@@ -62,7 +62,8 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {
-          snapshot_files.emplace_back(item.path(), info.uuid);
+          snapshot_files.emplace_back(item.path(), std::move(info.uuid),
+                                      info.start_timestamp);
         }
       } catch (const RecoveryFailure &) {
         continue;
@@ -75,15 +76,12 @@ std::vector<std::pair<std::filesystem::path, std::string>> GetSnapshotFiles(
   return snapshot_files;
 }
 
-std::optional<std::vector<
-    std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>>
-GetWalFiles(const std::filesystem::path &wal_directory,
-            const std::string_view uuid,
-            const std::optional<size_t> current_seq_num) {
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
+    const std::filesystem::path &wal_directory, const std::string_view uuid,
+    const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>>
-      wal_files;
+  std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
   for (const auto &item :
        std::filesystem::directory_iterator(wal_directory, error_code)) {
@@ -93,7 +91,8 @@ GetWalFiles(const std::filesystem::path &wal_directory,
       if ((uuid.empty() || info.uuid == uuid) &&
           (!current_seq_num || info.seq_num < current_seq_num))
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                               info.to_timestamp, item.path());
+                               info.to_timestamp, std::move(info.uuid),
+                               item.path());
     } catch (const RecoveryFailure &e) {
       DLOG(WARNING) << "Failed to read " << item.path();
       continue;
@@ -101,6 +100,7 @@ GetWalFiles(const std::filesystem::path &wal_directory,
   }
   CHECK(!error_code) << "Couldn't recover data because an error occurred: "
                      << error_code.message() << "!";
+
   std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
 }
@@ -161,11 +161,12 @@ std::optional<RecoveryInfo> RecoverData(
   if (!snapshot_files.empty()) {
     // Order the files by name
     std::sort(snapshot_files.begin(), snapshot_files.end());
+
     // UUID used for durability is the UUID of the last snapshot file.
-    *uuid = snapshot_files.back().second;
+    *uuid = snapshot_files.back().uuid;
     std::optional<RecoveredSnapshot> recovered_snapshot;
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
-      const auto &[path, file_uuid] = *it;
+      const auto &[path, file_uuid, _] = *it;
       if (file_uuid != *uuid) {
         LOG(WARNING) << "The snapshot file " << path
                      << " isn't related to the latest snapshot file!";
@@ -236,9 +237,9 @@ std::optional<RecoveryInfo> RecoverData(
          "files that match the last WAL file!";
 
   if (!wal_files.empty()) {
-    std::sort(wal_files.begin(), wal_files.end());
     {
-      const auto &[seq_num, from_timestamp, to_timestamp, path] = wal_files[0];
+      const auto &[seq_num, from_timestamp, to_timestamp, _, path] =
+          wal_files[0];
       if (seq_num != 0) {
         // We don't have all WAL files. We need to see whether we need them all.
         if (!snapshot_timestamp) {
@@ -257,15 +258,17 @@ std::optional<RecoveryInfo> RecoverData(
       }
     }
     std::optional<uint64_t> previous_seq_num;
-    for (const auto &[seq_num, from_timestamp, to_timestamp, path] :
+    auto last_loaded_timestamp = snapshot_timestamp;
+    for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
          wal_files) {
-      if (previous_seq_num && *previous_seq_num + 1 != seq_num) {
+      if (previous_seq_num && *previous_seq_num + 1 != seq_num &&
+          *previous_seq_num != seq_num) {
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
                    << *previous_seq_num + 1 << "!";
       }
       previous_seq_num = seq_num;
       try {
-        auto info = LoadWal(path, &indices_constraints, snapshot_timestamp,
+        auto info = LoadWal(path, &indices_constraints, last_loaded_timestamp,
                             vertices, edges, name_id_mapper, edge_count, items);
         recovery_info.next_vertex_id =
             std::max(recovery_info.next_vertex_id, info.next_vertex_id);
@@ -273,6 +276,7 @@ std::optional<RecoveryInfo> RecoverData(
             std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp =
             std::max(recovery_info.next_timestamp, info.next_timestamp);
+        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       } catch (const RecoveryFailure &e) {
         LOG(FATAL) << "Couldn't recover WAL deltas from " << path
                    << " because of: " << e.what();

@@ -423,16 +423,28 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       "MG_test_unit_storage_v2_replication_replica"};
   utils::OnScopeExit replica_directory_cleaner(
       [&]() { std::filesystem::remove_all(replica_storage_directory); });
+
+  constexpr const auto *vertex_label = "vertex_label";
   {
     storage::Storage replica_store(
-        {.durability = {.storage_directory = replica_storage_directory}});
+        {.durability = {.storage_directory = replica_storage_directory,
+                        .recover_on_startup = true,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}});
 
     replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
         io::network::Endpoint{"127.0.0.1", 10000});
 
     main_store.RegisterReplica("REPLICA1",
                                io::network::Endpoint{"127.0.0.1", 10000});
-    constexpr const auto *vertex_label = "vertex_label";
+
+    ASSERT_EQ(main_store.ReplicaState("REPLICA1"),
+              storage::replication::ReplicaState::RECOVERY);
+    while (main_store.ReplicaState("REPLICA1") !=
+           storage::replication::ReplicaState::READY) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     {
       auto acc = main_store.Access();
       for (const auto &vertex_gid : vertex_gids) {
@@ -462,11 +474,12 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_FALSE(acc.Commit().HasError());
     }
   }
-  // Test recovery of the replica with the files received from Main
   {
     storage::Storage replica_store(
         {.durability = {.storage_directory = replica_storage_directory,
-                        .recover_on_startup = true}});
+                        .recover_on_startup = true,
+                        .snapshot_wal_mode = storage::Config::Durability::
+                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}});
     {
       auto acc = replica_store.Access();
       for (const auto &vertex_gid : vertex_gids) {
@@ -474,9 +487,14 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         ASSERT_TRUE(v);
         const auto labels = v->Labels(storage::View::OLD);
         ASSERT_TRUE(labels.HasValue());
-        // Labels are received with AppendDeltasRpc so they are not saved on
-        // disk
-        ASSERT_EQ(labels->size(), 0);
+        ASSERT_THAT(*labels, UnorderedElementsAre(
+                                 replica_store.NameToLabel(vertex_label)));
+        const auto properties = v->Properties(storage::View::OLD);
+        ASSERT_TRUE(properties.HasValue());
+        ASSERT_THAT(*properties,
+                    UnorderedElementsAre(std::make_pair(
+                        replica_store.NameToProperty(property_name),
+                        storage::PropertyValue(property_value))));
       }
       ASSERT_FALSE(acc.Commit().HasError());
     }
@@ -524,27 +542,18 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     }
   }
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-  ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
-            storage::replication::ReplicaState::RECOVERY);
-  // Replica should have at least the first vertex
-  {
-    auto acc = replica_store_async.Access();
-    auto v = acc.FindVertex(created_vertices[0], storage::View::OLD);
-    ASSERT_TRUE(v);
-    ASSERT_FALSE(acc.Commit().HasError());
+  while (main_store.ReplicaState("REPLICA_ASYNC") !=
+         storage::replication::ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  // Most of the later vertices should be skipped because
-  // asyn replica cannot keep up
-  ASSERT_FALSE(std::all_of(created_vertices.begin() + 1, created_vertices.end(),
-                           [&](const auto vertex_gid) {
-                             auto acc = replica_store_async.Access();
-                             auto v =
-                                 acc.FindVertex(vertex_gid, storage::View::OLD);
-                             const bool exists = v.has_value();
-                             EXPECT_FALSE(acc.Commit().HasError());
-                             return exists;
-                           }));
+  ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(),
+                          [&](const auto vertex_gid) {
+                            auto acc = replica_store_async.Access();
+                            auto v =
+                                acc.FindVertex(vertex_gid, storage::View::OLD);
+                            const bool exists = v.has_value();
+                            EXPECT_FALSE(acc.Commit().HasError());
+                            return exists;
+                          }));
 }

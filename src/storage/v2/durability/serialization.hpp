@@ -33,6 +33,9 @@ class Encoder final : public BaseEncoder {
   void Initialize(const std::filesystem::path &path,
                   const std::string_view &magic, uint64_t version);
 
+  void OpenExisting(const std::filesystem::path &path);
+
+  void Close();
   // Main write function, the only one that is allowed to write to the `file_`
   // directly.
   void Write(const uint8_t *data, uint64_t size);

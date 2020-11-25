@@ -24,6 +24,16 @@ void Encoder::Initialize(const std::filesystem::path &path,
         sizeof(version_encoded));
 }
 
+void Encoder::OpenExisting(const std::filesystem::path &path) {
+  file_.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+}
+
+void Encoder::Close() {
+  if (file_.IsOpen()) {
+    file_.Close();
+  }
+}
+
 void Encoder::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
 }

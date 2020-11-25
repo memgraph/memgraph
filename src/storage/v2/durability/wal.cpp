@@ -6,6 +6,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/file_locker.hpp"
 
 namespace storage::durability {
 
@@ -664,7 +665,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
 
 RecoveryInfo LoadWal(const std::filesystem::path &path,
                      RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> snapshot_timestamp,
+                     const std::optional<uint64_t> last_loaded_timestamp,
                      utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                      std::atomic<uint64_t> *edge_count, Config::Items items) {
@@ -681,7 +682,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
   auto info = ReadWalInfo(path);
 
   // Check timestamp.
-  if (snapshot_timestamp && info.to_timestamp <= *snapshot_timestamp)
+  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp)
     return ret;
 
   // Recover deltas.
@@ -693,7 +694,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
     // Read WAL delta header to find out the delta timestamp.
     auto timestamp = ReadWalDeltaHeader(&wal);
 
-    if (!snapshot_timestamp || timestamp > *snapshot_timestamp) {
+    if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal);
       switch (delta.type) {
@@ -970,14 +971,16 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 
 WalFile::WalFile(const std::filesystem::path &wal_directory,
                  const std::string &uuid, Config::Items items,
-                 NameIdMapper *name_id_mapper, uint64_t seq_num)
+                 NameIdMapper *name_id_mapper, uint64_t seq_num,
+                 utils::FileRetainer *file_retainer)
     : items_(items),
       name_id_mapper_(name_id_mapper),
       path_(wal_directory / MakeWalName()),
       from_timestamp_(0),
       to_timestamp_(0),
       count_(0),
-      seq_num_(seq_num) {
+      seq_num_(seq_num),
+      file_retainer_(file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
 
@@ -1010,20 +1013,43 @@ WalFile::WalFile(const std::filesystem::path &wal_directory,
   wal_.Sync();
 }
 
-WalFile::~WalFile() {
-  if (count_ != 0) {
-    // Finalize file.
-    wal_.Finalize();
+WalFile::WalFile(std::filesystem::path current_wal_path, Config::Items items,
+                 NameIdMapper *name_id_mapper, uint64_t seq_num,
+                 uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
+                 utils::FileRetainer *file_retainer)
+    : items_(items),
+      name_id_mapper_(name_id_mapper),
+      path_(std::move(current_wal_path)),
+      from_timestamp_(from_timestamp),
+      to_timestamp_(to_timestamp),
+      count_(count),
+      seq_num_(seq_num),
+      file_retainer_(file_retainer) {
+  wal_.OpenExisting(path_);
+}
 
+void WalFile::FinalizeWal() {
+  if (count_ != 0) {
+    wal_.Finalize();
     // Rename file.
     std::filesystem::path new_path(path_);
     new_path.replace_filename(
         RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
-    // If the rename fails it isn't a crucial situation. The renaming is done
-    // only to make the directory structure of the WAL files easier to read
-    // manually.
-    utils::RenamePath(path_, new_path);
-  } else {
+
+    utils::CopyFile(path_, new_path);
+    wal_.Close();
+    file_retainer_->DeleteFile(path_);
+    path_ = std::move(new_path);
+  }
+}
+
+void WalFile::DeleteWal() {
+  wal_.Close();
+  file_retainer_->DeleteFile(path_);
+}
+
+WalFile::~WalFile() {
+  if (count_ == 0) {
     // Remove empty WAL file.
     utils::DeleteFile(path_);
   }
