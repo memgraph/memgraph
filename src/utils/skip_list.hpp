@@ -106,6 +106,38 @@ size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
   return sizeof(node) + node.height * sizeof(std::atomic<SkipListNode<TObj> *>);
 }
 
+/// A helper function for determining the skip list layer used for estimating
+/// the number of elements in, e.g. a database index. The lower layer we use,
+/// the better approximation we get (if we use the lowest layer, we get the
+/// exact numbers). However, lower skip list layers contain more elements so we
+/// must iterate through more items to get the estimate.
+///
+/// Our goal is to achieve balance between execution time and approximation
+/// precision. The expected number of elements at the k-th skip list layer is N
+/// * (1/2)^(k-1), where N is the skip-list size. We choose to iterate through
+/// no more than sqrt(N) items for large N when calculating the estimate, so we
+/// need to choose the skip-list layer such that N * (1/2)^(k-1) <= sqrt(N).
+/// That is equivalent to k >= 1 + 1/2 * log2(N), so we choose k to be 1 +
+/// ceil(log2(N) / 2).
+///
+/// For N small enough (arbitrarily chosen to be 500), we will just use the
+/// lowest layer to get the exact numbers. Mostly because this makes writing
+/// tests easier.
+constexpr uint64_t SkipListLayerForCountEstimation(uint64_t N) {
+  if (N <= 500) return 1;
+  return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
+}
+
+/// This function is written with the same intent as the function above except
+/// that it uses slightly higher layers for estimation because the
+/// `average_number_of_equals` estimate has a larger time complexity than the
+/// `*count` estimates.
+constexpr uint64_t SkipListLayerForAverageEqualsEstimation(uint64_t N) {
+  if (N <= 500) return 1;
+  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1),
+                  utils::kSkipListMaxHeight);
+}
+
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
 /// This class handles all operations necessary to remove the nodes safely.
 ///

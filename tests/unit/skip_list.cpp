@@ -665,20 +665,12 @@ TEST(SkipList, EstimateRangeCount) {
   }
 }
 
-// This function is the same function used in label+property indices to estimate
-// the average number of equal elements.
-uint64_t SkipListLayerForAverageEqualsEstimation(uint64_t N) {
-  if (N <= 500) return 1;
-  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1),
-                  utils::kSkipListMaxHeight);
-}
-
 template <typename TElem, typename TCmp>
 void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list,
                                             const TCmp &cmp) {
   std::cout << "List size: " << list->size() << std::endl;
   std::cout << "The index will use layer "
-            << SkipListLayerForAverageEqualsEstimation(list->size())
+            << utils::SkipListLayerForAverageEqualsEstimation(list->size())
             << std::endl;
   auto acc = list->access();
   for (int layer = 1; layer <= utils::kSkipListMaxHeight; ++layer) {
