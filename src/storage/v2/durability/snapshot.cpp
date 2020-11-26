@@ -654,7 +654,7 @@ void CreateSnapshot(
   uint64_t vertices_count = 0;
 
   // Mapper data.
-  std::unordered_set<uint64_t> used_ids;
+  std::set<uint64_t> used_ids;
   auto write_mapping = [&snapshot, &used_ids](auto mapping) {
     used_ids.insert(mapping.AsUint());
     snapshot.WriteUint(mapping.AsUint());

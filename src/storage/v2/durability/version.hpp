@@ -12,7 +12,7 @@ namespace storage::durability {
 const uint64_t kVersion{14};
 
 const uint64_t kOldestSupportedVersion{14};
-const uint64_t kUniqueConstraintVersion{14};
+const uint64_t kUniqueConstraintVersion{13};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};
