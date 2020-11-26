@@ -366,11 +366,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       };
       return callback;
     }
-    case ReplicationQuery::Action::CREATE_REPLICA: {
+    case ReplicationQuery::Action::REGISTER_REPLICA: {
       const auto &name = repl_query->replica_name_;
       const auto &sync_mode = repl_query->sync_mode_;
-      auto hostname =
-          EvaluateOptionalExpression(repl_query->hostname_, &evaluator);
+      auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout =
           EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
       std::optional<double> opt_timeout;
@@ -379,10 +378,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       } else if (timeout.IsInt()) {
         opt_timeout = static_cast<double>(timeout.ValueInt());
       }
-      callback.fn = [handler, name, hostname, sync_mode, opt_timeout] {
-        CHECK(hostname.IsString());
-        if (!handler->CreateReplica(name, std::string(hostname.ValueString()),
-                                    sync_mode, opt_timeout)) {
+      callback.fn = [handler, name, socket_address, sync_mode, opt_timeout] {
+        CHECK(socket_address.IsString());
+        if (!handler->RegisterReplica(name,
+                                      std::string(socket_address.ValueString()),
+                                      sync_mode, opt_timeout)) {
           throw QueryRuntimeException(
               "Couldn't create the desired replica '{}'.", name);
         }
@@ -411,7 +411,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
           typed_replica.reserve(replica_nfields);
 
           typed_replica.emplace_back(TypedValue(replica.name));
-          typed_replica.emplace_back(TypedValue(replica.hostname));
+          typed_replica.emplace_back(TypedValue(replica.socket_address));
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
               typed_replica.emplace_back(TypedValue("sync"));

@@ -27,6 +27,7 @@ MAIN           : M A I N ;
 MODE           : M O D E ;
 PASSWORD       : P A S S W O R D ;
 PRIVILEGES     : P R I V I L E G E S ;
+REGISTER       : R E G I S T E R ;
 REPLICA        : R E P L I C A ;
 REPLICAS       : R E P L I C A S ;
 REPLICATION    : R E P L I C A T I O N ;

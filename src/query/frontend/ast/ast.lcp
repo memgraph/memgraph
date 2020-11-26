@@ -2301,7 +2301,7 @@ cpp<#
   ((action "Action" :scope :public)
    (role "ReplicationRole" :scope :public)
    (replica_name "std::string" :scope :public)
-   (hostname "Expression *" :initval "nullptr" :scope :public
+   (socket_address "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
    (sync_mode "SyncMode" :scope :public)
@@ -2311,7 +2311,7 @@ cpp<#
 
   (:public
     (lcp:define-enum action
-        (set-replication-role show-replication-role create-replica
+        (set-replication-role show-replication-role register-replica
          drop-replica show-replicas)
       (:serialize))
     (lcp:define-enum replication-role
