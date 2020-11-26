@@ -28,7 +28,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
-#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #endif
@@ -420,7 +420,7 @@ class Storage final {
       return;
     }
 
-    std::scoped_lock guard(engine_lock_, replication_lock_);
+    std::unique_lock guard(replication_lock_);
 
     if constexpr (role == ReplicationRole::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
@@ -441,12 +441,12 @@ class Storage final {
     replication_role_.store(role);
   }
 
-  void RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       replication::ReplicationMode replication_mode =
-                           replication::ReplicationMode::SYNC);
+  void RegisterReplica(
+      std::string name, io::network::Endpoint endpoint,
+      ReplicationMode replication_mode = ReplicationMode::SYNC);
   void UnregisterReplica(std::string_view name);
 
-  std::optional<replication::ReplicaState> ReplicaState(std::string_view name);
+  std::optional<ReplicaState> GetReplicaState(std::string_view name);
 #endif
 
  private:
@@ -554,6 +554,7 @@ class Storage final {
   // We cannot compare commit timestamps of those instances if one of them
   // becomes the replica of the other so we use epoch_id_ as additional
   // property.
+  // Needs to be synchronized because the value can be read at any time
   std::string epoch_id_;
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
@@ -590,9 +591,10 @@ class Storage final {
     }
   };
 
+  class ReplicationClient;
+
   using ReplicationClientList =
-      utils::Synchronized<std::list<replication::ReplicationClient>,
-                          utils::SpinLock>;
+      utils::Synchronized<std::list<ReplicationClient>, utils::SpinLock>;
 
   std::optional<ReplicationServer> replication_server_;
   ReplicationClientList replication_clients_;

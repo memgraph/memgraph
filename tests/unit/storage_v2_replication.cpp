@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <storage/v2/property_value.hpp>
+#include <storage/v2/replication/enums.hpp>
 #include <storage/v2/replication/replication.hpp>
 #include <storage/v2/storage.hpp>
 
@@ -438,10 +439,10 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     main_store.RegisterReplica("REPLICA1",
                                io::network::Endpoint{"127.0.0.1", 10000});
 
-    ASSERT_EQ(main_store.ReplicaState("REPLICA1"),
-              storage::replication::ReplicaState::RECOVERY);
-    while (main_store.ReplicaState("REPLICA1") !=
-           storage::replication::ReplicaState::READY) {
+    ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
+              storage::ReplicaState::RECOVERY);
+    while (main_store.GetReplicaState("REPLICA1") !=
+           storage::ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -523,7 +524,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
   main_store.RegisterReplica("REPLICA_ASYNC",
                              io::network::Endpoint{"127.0.0.1", 20000},
-                             storage::replication::ReplicationMode::ASYNC);
+                             storage::ReplicationMode::ASYNC);
 
   constexpr size_t vertices_create_num = 10;
   std::vector<storage::Gid> created_vertices;
@@ -534,16 +535,16 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     ASSERT_FALSE(acc.Commit().HasError());
 
     if (i == 0) {
-      ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
-                storage::replication::ReplicaState::REPLICATING);
+      ASSERT_EQ(main_store.GetReplicaState("REPLICA_ASYNC"),
+                storage::ReplicaState::REPLICATING);
     } else {
-      ASSERT_EQ(main_store.ReplicaState("REPLICA_ASYNC"),
-                storage::replication::ReplicaState::RECOVERY);
+      ASSERT_EQ(main_store.GetReplicaState("REPLICA_ASYNC"),
+                storage::ReplicaState::RECOVERY);
     }
   }
 
-  while (main_store.ReplicaState("REPLICA_ASYNC") !=
-         storage::replication::ReplicaState::READY) {
+  while (main_store.GetReplicaState("REPLICA_ASYNC") !=
+         storage::ReplicaState::READY) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 

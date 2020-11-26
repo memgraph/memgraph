@@ -13,31 +13,22 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
-namespace storage::replication {
+namespace storage {
 
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
-
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY };
-
-class ReplicationClient {
+class Storage::ReplicationClient {
  public:
-  ReplicationClient(std::string name,
-                    const std::atomic<uint64_t> &last_commit_timestamp,
-                    NameIdMapper *name_id_mapper, Config::Items items,
-                    utils::FileRetainer *file_retainer,
-                    const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory,
-                    std::string_view uuid,
-                    std::optional<durability::WalFile> *wal_file_ptr,
-                    utils::SpinLock *transaction_engine_lock,
+  ReplicationClient(std::string name, Storage *storage,
                     const io::network::Endpoint &endpoint, bool use_ssl,
                     ReplicationMode mode);
 
@@ -158,16 +149,8 @@ class ReplicationClient {
   void InitializeClient();
 
   std::string name_;
-  // storage info
-  const std::atomic<uint64_t> &last_commit_timestamp_;
-  NameIdMapper *name_id_mapper_;
-  Config::Items items_;
-  utils::FileRetainer *file_retainer_;
-  const std::filesystem::path &snapshot_directory_;
-  const std::filesystem::path &wal_directory_;
-  std::string_view uuid_;
-  std::optional<durability::WalFile> *wal_file_ptr_;
-  utils::SpinLock *transaction_engine_lock_;
+
+  Storage *storage;
 
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
@@ -180,4 +163,4 @@ class ReplicationClient {
   std::atomic<ReplicaState> replica_state_;
 };
 
-}  // namespace storage::replication
+}  // namespace storage

@@ -24,6 +24,7 @@
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
+#include "storage/v2/replication/replication.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #endif
 
@@ -1661,6 +1662,10 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
+#ifdef MG_ENTERPRISE
+    // protect epoch_id
+    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
+#endif
     wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items,
                       &name_id_mapper_, wal_seq_num_++, &file_retainer_);
   }
@@ -1918,6 +1923,10 @@ void Storage::CreateSnapshot() {
   // Create the transaction used to create the snapshot.
   auto transaction = CreateTransaction();
 
+#ifdef MG_ENTERPRISE
+  // protect epoch_id
+  std::shared_lock replication_guard(replication_lock_);
+#endif
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count,
@@ -2564,9 +2573,8 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
   replication_server_->rpc_server->Start();
 }
 
-void Storage::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint,
-    const replication::ReplicationMode replication_mode) {
+void Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                              const ReplicationMode replication_mode) {
   std::shared_lock guard(replication_lock_);
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
@@ -2579,10 +2587,8 @@ void Storage::RegisterReplica(
                     [&](auto &client) { return client.Name() == name; })) {
       throw utils::BasicException("Replica with a same name already exists!");
     }
-    clients.emplace_back(std::move(name), last_commit_timestamp_,
-                         &name_id_mapper_, config_.items, &file_retainer_,
-                         snapshot_directory_, wal_directory_, uuid_, &wal_file_,
-                         &engine_lock_, endpoint, false, replication_mode);
+    clients.emplace_back(std::move(name), this, endpoint, false,
+                         replication_mode);
   });
 }
 
@@ -2596,10 +2602,10 @@ void Storage::UnregisterReplica(const std::string_view name) {
   });
 }
 
-std::optional<replication::ReplicaState> Storage::ReplicaState(
+std::optional<ReplicaState> Storage::GetReplicaState(
     const std::string_view name) {
   return replication_clients_.WithLock(
-      [&](auto &clients) -> std::optional<replication::ReplicaState> {
+      [&](auto &clients) -> std::optional<ReplicaState> {
         const auto client_it = std::find_if(
             clients.cbegin(), clients.cend(),
             [name](auto &client) { return client.Name() == name; });
