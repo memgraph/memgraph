@@ -7,7 +7,7 @@
 
 ## Draft
 
-* [A Star Variable-length Expand](draft/a-start-variable-length-expand.md)
+* [A-star Variable-length Expand](draft/a-star-variable-length-expand.md)
 * [Cloud-native Graph Store](draft/cloud-native-graph-store.md)
 * [Compile Filter Expressions](draft/compile-filter-expressions.md)
 * [Database Triggers](draft/database-triggers.md)
@@ -23,6 +23,8 @@
 * [Release Log Levels](draft/release-log-levels.md)
 * [Rust Query Modules](draft/rust-query-modules.md)
 * [Sharded Graph Store](draft/sharded-graph-store.md)
+* [Storage Memory Management](draft/storage-memory-management.md)
+* [Vectorized Query Execution](draft/vectorized-query-execution.md)
 
 ## Obsolete
 
