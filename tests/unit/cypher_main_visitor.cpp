@@ -2455,14 +2455,15 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
                              const std::string name,
-                             const std::optional<TypedValue> hostname,
+                             const std::optional<TypedValue> socket_address,
                              const ReplicationQuery::SyncMode sync_mode,
                              const std::optional<TypedValue> timeout) {
   EXPECT_EQ(query->replica_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
-  ASSERT_EQ(static_cast<bool>(query->hostname_), static_cast<bool>(hostname));
-  if (hostname) {
-    ast_generator->CheckLiteral(query->hostname_, *hostname);
+  ASSERT_EQ(static_cast<bool>(query->socket_address_),
+            static_cast<bool>(socket_address));
+  if (socket_address) {
+    ast_generator->CheckLiteral(query->socket_address_, *socket_address);
   }
   ASSERT_EQ(static_cast<bool>(query->timeout_), static_cast<bool>(timeout));
   if (timeout) {
@@ -2503,14 +2504,14 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   EXPECT_EQ(parsed_full_query->role_, ReplicationQuery::ReplicationRole::MAIN);
 }
 
-TEST_P(CypherMainVisitorTest, TestCreateReplicationQuery) {
+TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
-  const std::string faulty_query = "CREATE REPLICA WITH TIMEOUT TO";
+  const std::string faulty_query = "REGISTER REPLICA WITH TIMEOUT TO";
   ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
 
   const std::string no_timeout_query =
-      R"(CREATE REPLICA replica1 SYNC TO "127.0.0.1")";
+      R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
   auto *no_timeout_query_parsed = dynamic_cast<ReplicationQuery *>(
       ast_generator.ParseQuery(no_timeout_query));
   ASSERT_TRUE(no_timeout_query_parsed);
@@ -2519,12 +2520,12 @@ TEST_P(CypherMainVisitorTest, TestCreateReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC, {});
 
   std::string full_query =
-      R"(CREATE REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO "1.1.1.1")";
+      R"(REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO "1.1.1.1:10000")";
   auto *full_query_parsed =
       dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
   ASSERT_TRUE(full_query_parsed);
   check_replication_query(&ast_generator, full_query_parsed, "replica2",
-                          TypedValue("1.1.1.1"),
+                          TypedValue("1.1.1.1:10000"),
                           ReplicationQuery::SyncMode::SYNC, TypedValue(0.5));
 }
 

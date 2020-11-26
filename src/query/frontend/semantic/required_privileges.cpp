@@ -67,7 +67,7 @@ class PrivilegeExtractor : public QueryVisitor<void>,
       case ReplicationQuery::Action::SHOW_REPLICATION_ROLE:
         AddPrivilege(AuthQuery::Privilege::REPLICATION);
         break;
-      case ReplicationQuery::Action::CREATE_REPLICA:
+      case ReplicationQuery::Action::REGISTER_REPLICA:
         AddPrivilege(AuthQuery::Privilege::REPLICATION);
         break;
       case ReplicationQuery::Action::DROP_REPLICA:

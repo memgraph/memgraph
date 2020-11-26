@@ -225,10 +225,10 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateReplica(
-    MemgraphCypher::CreateReplicaContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitRegisterReplica(
+    MemgraphCypher::RegisterReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::CREATE_REPLICA;
+  replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
   replication_query->replica_name_ =
       ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
   if (ctx->SYNC()) {
@@ -236,10 +236,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateReplica(
   } else if (ctx->ASYNC()) {
     replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
   }
-  if (!ctx->hostName()->literal()->StringLiteral()) {
-    throw SyntaxException("Hostname should be a string literal!");
+  if (!ctx->socketAddress()->literal()->StringLiteral()) {
+    throw SyntaxException("Socket address should be a string literal!");
   } else {
-    replication_query->hostname_ = ctx->hostName()->accept(this);
+    replication_query->socket_address_ = ctx->socketAddress()->accept(this);
   }
   if (ctx->timeout) {
     if (!ctx->timeout->numberLiteral()->doubleLiteral() &&
