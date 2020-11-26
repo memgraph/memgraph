@@ -1,10 +1,10 @@
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
-CREATE (:__mg_vertex__:`Movie` {__mg_id__: 0, `year`: 1999, `title`: "The Matrix", `movieId`: "tt0133093"});
-CREATE (:__mg_vertex__:`Movie`:`Sequel` {__mg_id__: 1, `year`: 2003, `title`: "The Matrix Reloaded", `movieId`: "tt0234215"});
-CREATE (:__mg_vertex__:`Movie`:`Sequel` {__mg_id__: 2, `year`: 2003, `title`: "The Matrix Revolutions", `movieId`: "tt0242653"});
-CREATE (:__mg_vertex__:`Actor` {__mg_id__: 3, `name`: "Keanu Reeves", `personId`: "keanu"});
-CREATE (:__mg_vertex__:`Actor` {__mg_id__: 4, `name`: "Laurence Fishburne", `personId`: "laurence"});
-CREATE (:__mg_vertex__:`Actor` {__mg_id__: 5, `name`: "Carrie-Anne Moss", `personId`: "carrieanne"});
+CREATE (:__mg_vertex__:`Movie` {__mg_id__: 0, `movieId`: "tt0133093", `title`: "The Matrix", `year`: 1999});
+CREATE (:__mg_vertex__:`Movie`:`Sequel` {__mg_id__: 1, `movieId`: "tt0234215", `title`: "The Matrix Reloaded", `year`: 2003});
+CREATE (:__mg_vertex__:`Movie`:`Sequel` {__mg_id__: 2, `movieId`: "tt0242653", `title`: "The Matrix Revolutions", `year`: 2003});
+CREATE (:__mg_vertex__:`Actor` {__mg_id__: 3, `personId`: "keanu", `name`: "Keanu Reeves"});
+CREATE (:__mg_vertex__:`Actor` {__mg_id__: 4, `personId`: "laurence", `name`: "Laurence Fishburne"});
+CREATE (:__mg_vertex__:`Actor` {__mg_id__: 5, `personId`: "carrieanne", `name`: "Carrie-Anne Moss"});
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 0 CREATE (u)-[:`ACTED_IN` {`role`: "Neo"}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 1 CREATE (u)-[:`ACTED_IN` {`role`: "Neo"}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 2 CREATE (u)-[:`ACTED_IN` {`role`: "Neo"}]->(v);
