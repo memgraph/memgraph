@@ -1663,10 +1663,6 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-#ifdef MG_ENTERPRISE
-    // protect epoch_id
-    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
-#endif
     wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items,
                       &name_id_mapper_, wal_seq_num_++, &file_retainer_);
   }
@@ -1703,9 +1699,6 @@ void Storage::AppendToWal(const Transaction &transaction,
       transaction.commit_timestamp->load(std::memory_order_acquire);
 
 #ifdef MG_ENTERPRISE
-  // We need to keep this lock because handler takes a pointer to the client
-  // from which it was created
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
@@ -1892,7 +1885,6 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
                              final_commit_timestamp);
 #ifdef MG_ENTERPRISE
   {
-    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
     if (replication_role_.load() == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
@@ -1924,10 +1916,6 @@ void Storage::CreateSnapshot() {
   // Create the transaction used to create the snapshot.
   auto transaction = CreateTransaction();
 
-#ifdef MG_ENTERPRISE
-  // protect epoch_id
-  std::shared_lock replication_guard(replication_lock_);
-#endif
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count,
@@ -1960,9 +1948,24 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
       std::make_unique<ReplicationServer>(this, std::move(endpoint));
 }
 
+void Storage::ConfigureMain() {
+  std::unique_lock engine_guard{engine_lock_};
+
+  // Main instance does not need replication server
+  replication_server_.reset(nullptr);
+
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
+  }
+
+  // Generate new epoch id and save the last one to the history.
+  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+  epoch_id_ = utils::GenerateUUID();
+}
+
 void Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
                               const ReplicationMode replication_mode) {
-  std::shared_lock guard(replication_lock_);
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
@@ -1980,7 +1983,6 @@ void Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
 }
 
 void Storage::UnregisterReplica(const std::string_view name) {
-  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
   replication_clients_.WithLock([&](auto &clients) {

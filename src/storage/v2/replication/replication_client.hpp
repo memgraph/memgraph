@@ -150,7 +150,7 @@ class Storage::ReplicationClient {
 
   std::string name_;
 
-  Storage *storage;
+  Storage *storage_;
 
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;

@@ -12,12 +12,7 @@ class Storage::ReplicationServer {
   ReplicationServer &operator=(const ReplicationServer &) = delete;
   ReplicationServer &operator=(ReplicationServer &&) = delete;
 
-  ~ReplicationServer() {
-    if (rpc_server_) {
-      rpc_server_->Shutdown();
-      rpc_server_->AwaitShutdown();
-    }
-  }
+  ~ReplicationServer();
 
  private:
   // RPC handlers

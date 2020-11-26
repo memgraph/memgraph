@@ -9,6 +9,7 @@
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
 #include <storage/v2/storage.hpp>
+#include "storage/v2/view.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -556,4 +557,75 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                             EXPECT_FALSE(acc.Commit().HasError());
                             return exists;
                           }));
+}
+
+TEST_F(ReplicationTest, EpochTest) {
+  storage::Storage main_store(
+      {.items = {.properties_on_edges = true},
+       .durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  storage::Storage replica_store(
+      {.items = {.properties_on_edges = true},
+       .durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10000});
+
+  main_store.RegisterReplica("REPLICA",
+                             io::network::Endpoint{"127.0.0.1", 10000});
+
+  std::optional<storage::Gid> vertex_gid;
+  {
+    auto acc = main_store.Access();
+    const auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = replica_store.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  main_store.UnregisterReplica("REPLICA");
+
+  replica_store.SetReplicationRole<storage::ReplicationRole::MAIN>();
+  {
+    auto acc = main_store.Access();
+    acc.CreateVertex();
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = replica_store.Access();
+    acc.CreateVertex();
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10000});
+
+  main_store.RegisterReplica("REPLICA",
+                             io::network::Endpoint{"127.0.0.1", 10000});
+
+  {
+    auto acc = main_store.Access();
+    const auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = replica_store.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_FALSE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 }

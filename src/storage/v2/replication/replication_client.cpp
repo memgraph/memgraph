@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/file_locker.hpp"
 
 namespace storage {
@@ -18,7 +19,7 @@ Storage::ReplicationClient::ReplicationClient(
     std::string name, Storage *storage, const io::network::Endpoint &endpoint,
     bool use_ssl, const ReplicationMode mode)
     : name_(std::move(name)),
-      storage(storage),
+      storage_(storage),
       rpc_context_(use_ssl),
       rpc_client_(endpoint, &rpc_context_),
       mode_(mode) {
@@ -29,12 +30,27 @@ void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
   auto stream{rpc_client_.Stream<HeartbeatRpc>()};
   replication::Encoder encoder{stream.GetBuilder()};
+  // Write epoch id
+  {
+    // We need to lock so the epoch id isn't overwritten
+    std::unique_lock engine_guard{storage_->engine_lock_};
+    encoder.WriteString(storage_->epoch_id_);
+  }
   const auto response = stream.AwaitResponse();
+  std::unique_lock client_guard{client_lock_};
+  if (!response.success) {
+    LOG(ERROR)
+        << "Replica " << name_
+        << " is ahead of this instance. The branching point is on commit "
+        << response.current_commit_timestamp;
+    replica_state_.store(ReplicaState::INVALID);
+    return;
+  }
   current_commit_timestamp = response.current_commit_timestamp;
   DLOG(INFO) << "CURRENT TIMESTAMP: " << current_commit_timestamp;
   DLOG(INFO) << "CURRENT MAIN TIMESTAMP: "
-             << storage->last_commit_timestamp_.load();
-  if (current_commit_timestamp == storage->last_commit_timestamp_.load()) {
+             << storage_->last_commit_timestamp_.load();
+  if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
     DLOG(INFO) << "REPLICA UP TO DATE";
     replica_state_.store(ReplicaState::READY);
   } else {
@@ -69,6 +85,8 @@ WalFilesRes Storage::ReplicationClient::TransferWalFiles(
 OnlySnapshotRes Storage::ReplicationClient::TransferOnlySnapshot(
     const uint64_t snapshot_timestamp) {
   auto stream{rpc_client_.Stream<OnlySnapshotRpc>(snapshot_timestamp)};
+  replication::Encoder encoder{stream.GetBuilder()};
+  encoder.WriteString(storage_->epoch_id_);
   return stream.AwaitResponse();
 }
 
@@ -87,20 +105,27 @@ bool Storage::ReplicationClient::StartTransactionReplication(
       // the commits until now so the replica should contain the
       // last_commit_timestamp
       thread_pool_.AddTask([=, this] {
-        this->RecoverReplica(storage->last_commit_timestamp_.load());
+        this->RecoverReplica(storage_->last_commit_timestamp_.load());
       });
+      return false;
+    case ReplicaState::INVALID:
+      LOG(WARNING) << "Replica " << name_
+                   << " cannot be used for replication. Please unregister it.";
       return false;
     case ReplicaState::READY:
       CHECK(!replica_stream_);
       try {
-        replica_stream_.emplace(ReplicaStream{
-            this, storage->last_commit_timestamp_.load(), current_wal_seq_num});
+        replica_stream_.emplace(
+            ReplicaStream{this, storage_->last_commit_timestamp_.load(),
+                          current_wal_seq_num});
       } catch (const rpc::RpcFailedException &) {
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
           rpc_client_.Abort();
+          replica_state_.store(ReplicaState::INVALID);
           InitializeClient();
         });
+        return false;
       }
       replica_state_.store(ReplicaState::REPLICATING);
       return true;
@@ -136,13 +161,20 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
     try {
       auto response = replica_stream_->Finalize();
       if (!response.success) {
-        replica_state_.store(ReplicaState::RECOVERY);
+        {
+          std::unique_lock client_guard{client_lock_};
+          replica_state_.store(ReplicaState::RECOVERY);
+        }
         thread_pool_.AddTask([&, this] {
           this->RecoverReplica(response.current_commit_timestamp);
         });
       }
     } catch (const rpc::RpcFailedException &) {
       LOG(ERROR) << "Couldn't replicate data to " << name_;
+      {
+        std::unique_lock client_guard{client_lock_};
+        replica_state_.store(ReplicaState::INVALID);
+      }
       thread_pool_.AddTask([this] {
         rpc_client_.Abort();
         InitializeClient();
@@ -159,7 +191,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
   while (true) {
-    auto file_locker = storage->file_retainer_.AddLocker();
+    auto file_locker = storage_->file_retainer_.AddLocker();
 
     const auto steps = GetRecoverySteps(replica_commit, &file_locker);
     for (const auto &recovery_step : steps) {
@@ -177,16 +209,17 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
               replica_commit = response.current_commit_timestamp;
               DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: " << replica_commit;
             } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
-              std::unique_lock transaction_guard(storage->engine_lock_);
-              if (storage->wal_file_ && storage->wal_file_->SequenceNumber() ==
-                                            arg.current_wal_seq_num) {
-                storage->wal_file_->DisableFlushing();
+              std::unique_lock transaction_guard(storage_->engine_lock_);
+              if (storage_->wal_file_ &&
+                  storage_->wal_file_->SequenceNumber() ==
+                      arg.current_wal_seq_num) {
+                storage_->wal_file_->DisableFlushing();
                 transaction_guard.unlock();
                 DLOG(INFO) << "Sending current wal file";
                 replica_commit = ReplicateCurrentWal();
                 DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
                            << replica_commit;
-                storage->wal_file_->EnableFlushing();
+                storage_->wal_file_->EnableFlushing();
               }
             } else if constexpr (std::is_same_v<StepType,
                                                 RecoveryFinalSnapshot>) {
@@ -203,7 +236,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
           recovery_step);
     }
 
-    if (storage->last_commit_timestamp_.load() == replica_commit) {
+    if (storage_->last_commit_timestamp_.load() == replica_commit) {
+      std::unique_lock client_guard{client_lock_};
       replica_state_.store(ReplicaState::READY);
       return;
     }
@@ -212,11 +246,11 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
 
 uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
   auto stream = TransferCurrentWalFile();
-  stream.AppendFilename(storage->wal_file_->Path().filename());
+  stream.AppendFilename(storage_->wal_file_->Path().filename());
   utils::InputFile file;
-  CHECK(file.Open(storage->wal_file_->Path()))
+  CHECK(file.Open(storage_->wal_file_->Path()))
       << "Failed to open current WAL file!";
-  const auto [buffer, buffer_size] = storage->wal_file_->CurrentFileBuffer();
+  const auto [buffer, buffer_size] = storage_->wal_file_->CurrentFileBuffer();
   stream.AppendSize(file.GetSize() + buffer_size);
   stream.AppendFileData(&file);
   stream.AppendBufferData(buffer, buffer_size);
@@ -254,18 +288,18 @@ Storage::ReplicationClient::GetRecoverySteps(
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
-  if (std::unique_lock transtacion_guard(storage->engine_lock_);
-      storage->wal_file_) {
-    current_wal_seq_num.emplace(storage->wal_file_->SequenceNumber());
+  if (std::unique_lock transtacion_guard(storage_->engine_lock_);
+      storage_->wal_file_) {
+    current_wal_seq_num.emplace(storage_->wal_file_->SequenceNumber());
   }
 
   auto locker_acc = file_locker->Access();
-  auto wal_files = durability::GetWalFiles(storage->wal_directory_,
-                                           storage->uuid_, current_wal_seq_num);
+  auto wal_files = durability::GetWalFiles(
+      storage_->wal_directory_, storage_->uuid_, current_wal_seq_num);
   CHECK(wal_files) << "Wal files could not be loaded";
 
   auto snapshot_files = durability::GetSnapshotFiles(
-      storage->snapshot_directory_, storage->uuid_);
+      storage_->snapshot_directory_, storage_->uuid_);
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot;
   if (!snapshot_files.empty()) {
     std::sort(snapshot_files.begin(), snapshot_files.end());
@@ -396,20 +430,23 @@ Storage::ReplicationClient::ReplicaStream::ReplicaStream(
     const uint64_t current_seq_num)
     : self_(self),
       stream_(self_->rpc_client_.Stream<AppendDeltasRpc>(
-          previous_commit_timestamp, current_seq_num)) {}
+          previous_commit_timestamp, current_seq_num)) {
+  replication::Encoder encoder{stream_.GetBuilder()};
+  encoder.WriteString(self_->storage_->epoch_id_);
+}
 
 void Storage::ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage->name_id_mapper_,
-              self_->storage->config_.items, delta, vertex,
+  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_,
+              self_->storage_->config_.items, delta, vertex,
               final_commit_timestamp);
 }
 
 void Storage::ReplicationClient::ReplicaStream::AppendDelta(
     const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage->name_id_mapper_, delta, edge,
+  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, delta, edge,
               final_commit_timestamp);
 }
 
@@ -423,7 +460,7 @@ void Storage::ReplicationClient::ReplicaStream::AppendOperation(
     durability::StorageGlobalOperation operation, LabelId label,
     const std::set<PropertyId> &properties, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, &self_->storage->name_id_mapper_, operation, label,
+  EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label,
                   properties, timestamp);
 }
 

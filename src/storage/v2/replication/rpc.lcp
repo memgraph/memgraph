@@ -25,7 +25,8 @@ cpp<#
 (lcp:define-rpc heartbeat
   (:request ())
   (:response
-    ((current-commit-timestamp :uint64_t))))
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
 
 (lcp:define-rpc snapshot
   (:request ())
@@ -51,4 +52,4 @@ cpp<#
     ((success :bool)
      (current-commit-timestamp :uint64_t))))
 
-(lcp:pop-namespace) ;; storage
+(lcp:pop-namespace) ;;

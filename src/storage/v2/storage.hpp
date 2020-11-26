@@ -420,22 +420,10 @@ class Storage final {
       return;
     }
 
-    std::unique_lock guard(replication_lock_);
-
     if constexpr (role == ReplicationRole::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
-    } else if (role == ReplicationRole::MAIN) {
-      // Main instance does not need replication server
-      replication_server_.reset(nullptr);
-
-      if (wal_file_) {
-        wal_file_->FinalizeWal();
-        wal_file_.reset();
-      }
-
-      // Generate new epoch id and save the last one to the history.
-      epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-      epoch_id_ = utils::GenerateUUID();
+    } else if constexpr (role == ReplicationRole::MAIN) {
+      ConfigureMain(std::forward<Args>(args)...);
     }
 
     replication_role_.store(role);
@@ -472,6 +460,7 @@ class Storage final {
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
+  void ConfigureMain();
 #endif
 
   // Main storage lock.
@@ -566,8 +555,6 @@ class Storage final {
 #ifdef MG_ENTERPRISE
   // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
-
-  utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
   class ReplicationServer;
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};

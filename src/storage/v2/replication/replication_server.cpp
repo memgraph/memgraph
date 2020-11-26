@@ -2,6 +2,7 @@
 
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace storage {
 Storage::ReplicationServer::ReplicationServer(Storage *storage,
@@ -54,7 +55,31 @@ void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   HeartbeatReq req;
   slk::Load(&req, req_reader);
-  HeartbeatRes res{storage_->last_commit_timestamp_.load()};
+  {
+    std::unique_lock engine_guard{storage_->engine_lock_};
+    replication::Decoder decoder{req_reader};
+    auto maybe_epoch_id = decoder.ReadString();
+    CHECK(maybe_epoch_id) << "Invalid value read form HeartbeatRpc!";
+    if (storage_->timestamp_ == kTimestampInitialId) {
+      // The replica has no commits
+      // use the main's epoch id
+      storage_->epoch_id_ = std::move(*maybe_epoch_id);
+    } else if (*maybe_epoch_id != storage_->epoch_id_) {
+      const auto &epoch_history = storage_->epoch_history_;
+      const auto result =
+          std::find_if(epoch_history.begin(), epoch_history.end(),
+                       [&](const auto &epoch_info) {
+                         return epoch_info.first == *maybe_epoch_id;
+                       });
+      const auto branching_point =
+          result == epoch_history.end() ? kTimestampInitialId : result->second;
+      engine_guard.unlock();
+      HeartbeatRes res{false, branching_point};
+      slk::Save(res, res_builder);
+      return;
+    }
+  }
+  HeartbeatRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -64,6 +89,10 @@ void Storage::ReplicationServer::AppendDeltasHandler(
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
+
+  auto maybe_epoch_id = decoder.ReadString();
+  CHECK(maybe_epoch_id) << "Invalid replication message";
+
   const auto read_delta =
       [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
     try {
@@ -78,7 +107,6 @@ void Storage::ReplicationServer::AppendDeltasHandler(
     }
   };
 
-  // TODO (antonio2368): CHECK EPOCH_ID!!
   if (req.previous_commit_timestamp !=
       storage_->last_commit_timestamp_.load()) {
     // Empty the stream
@@ -96,7 +124,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
   }
 
   if (storage_->wal_file_) {
-    if (req.seq_num > storage_->wal_file_->SequenceNumber()) {
+    if (req.seq_num > storage_->wal_file_->SequenceNumber() ||
+        *maybe_epoch_id != storage_->epoch_id_) {
       storage_->wal_file_->FinalizeWal();
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
@@ -536,13 +565,22 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
 
 void Storage::ReplicationServer::OnlySnapshotHandler(
     slk::Reader *req_reader, slk::Builder *res_builder) {
-  // TODO (antonio2368): This needs to check epoch_id also!
   OnlySnapshotReq req;
   slk::Load(&req, req_reader);
 
   CHECK(storage_->last_commit_timestamp_.load() < req.snapshot_timestamp)
       << "Invalid snapshot timestamp, it should be less than the last"
          "commited timestamp";
+
+  replication::Decoder decoder{req_reader};
+  auto maybe_epoch_id = decoder.ReadString();
+  CHECK(maybe_epoch_id) << "Invalid replication message";
+
+  if (*maybe_epoch_id != storage_->epoch_id_) {
+    storage_->epoch_history_.emplace_back(std::move(storage_->epoch_id_),
+                                          storage_->last_commit_timestamp_);
+    storage_->epoch_id_ = std::move(*maybe_epoch_id);
+  }
 
   storage_->last_commit_timestamp_.store(req.snapshot_timestamp);
 
@@ -568,6 +606,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader,
   if (wal_info.seq_num == 0) {
     storage_->uuid_ = wal_info.uuid;
   }
+
   // Check the seq number of the first wal file to see if it's the
   // finalized form of the current wal on replica
   if (storage_->wal_file_) {
@@ -661,4 +700,10 @@ Storage::ReplicationServer::LoadWal(
   }
 }
 
+Storage::ReplicationServer::~ReplicationServer() {
+  if (rpc_server_) {
+    rpc_server_->Shutdown();
+    rpc_server_->AwaitShutdown();
+  }
+}
 }  // namespace storage
