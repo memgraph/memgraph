@@ -8,7 +8,6 @@
 
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
-#include <storage/v2/replication/replication.hpp>
 #include <storage/v2/storage.hpp>
 
 using testing::UnorderedElementsAre;

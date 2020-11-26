@@ -426,7 +426,7 @@ class Storage final {
       ConfigureReplica(std::forward<Args>(args)...);
     } else if (role == ReplicationRole::MAIN) {
       // Main instance does not need replication server
-      replication_server_.reset();
+      replication_server_.reset(nullptr);
 
       if (wal_file_) {
         wal_file_->FinalizeWal();
@@ -472,10 +472,6 @@ class Storage final {
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
-
-  std::pair<durability::WalInfo, std::filesystem::path> LoadWal(
-      replication::Decoder *decoder,
-      durability::RecoveredIndicesAndConstraints *indices_constraints);
 #endif
 
   // Main storage lock.
@@ -573,30 +569,12 @@ class Storage final {
 
   utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
-  struct ReplicationServer {
-    std::optional<communication::ServerContext> rpc_server_context;
-    std::optional<rpc::Server> rpc_server;
-
-    explicit ReplicationServer() = default;
-    ReplicationServer(const ReplicationServer &) = delete;
-    ReplicationServer(ReplicationServer &&) = delete;
-    ReplicationServer &operator=(const ReplicationServer &) = delete;
-    ReplicationServer &operator=(ReplicationServer &&) = delete;
-
-    ~ReplicationServer() {
-      if (rpc_server) {
-        rpc_server->Shutdown();
-        rpc_server->AwaitShutdown();
-      }
-    }
-  };
+  class ReplicationServer;
+  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
   class ReplicationClient;
-
   using ReplicationClientList =
       utils::Synchronized<std::list<ReplicationClient>, utils::SpinLock>;
-
-  std::optional<ReplicationServer> replication_server_;
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
