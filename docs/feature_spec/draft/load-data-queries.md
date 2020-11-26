@@ -6,6 +6,8 @@ CSV](https://neo4j.com/developer/guide-import-csv/#import-load-csv). This
 feature seems relatively straightforward to implement because `LoadCSV` could
 be another operator that would yield row by row. By having the operator, the
 operation would be composable with the rest of the `CREATE`|`MERGE` queries.
+The composability is the key because users would be able to combine various
+clauses to import data.
 
 A more general concept is [SingleStore
 Pipelines](https://docs.singlestore.com/v7.1/reference/sql-reference/pipelines-commands/create-pipeline).

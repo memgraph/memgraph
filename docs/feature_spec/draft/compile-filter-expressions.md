@@ -1,4 +1,4 @@
-# Extend and Compile Filter Expressions
+# Compile Filter Expressions
 
 Memgraph evaluates filter expression by traversing the abstract syntax tree of
 the given filter. Filtering is a general operation in query execution.
@@ -32,20 +32,9 @@ RETURN DISTINCT b.addr;
 ```
 
 Filtering may take a significant portion of query execution, which means it has
-to be fast. Furthermore, filtering has to be arbitrarily complex. The most
-compelling case to improve from the expressivity perspective is variable-length
-expansions like DFS/BFS/WeightedShortestPath. They contain an expression that
-gets a limited set of inputs (only currently visited node/edge). A noticeable
-improvement would be to pass the current path as well.
+to be fast.
 
 The first step towards improvement might be to expose an API under which a
 developer can implement its filtering logic (it's OK to support only C++ in the
 beginning). Later on, we can introduce an automatic compilation of filtering
 expressions.
-
-The goals of this feature are:
-
-* Improve query execution times by improving expression evaluation.
-* Extend current filtering abilities, DFS/BFS/WeightedShortestPath are all
-  great places to start.
-

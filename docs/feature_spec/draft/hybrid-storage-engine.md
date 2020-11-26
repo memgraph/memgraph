@@ -10,6 +10,10 @@ introduced. Otherwise, it's impossible to store data on disk optimally (Neo4j
 already has a pretty optimized implementation of that). Furthermore, we have to
 introduce the paging concept.
 
+This is a complex feature because various aspects of the core engine have to be
+considered and probably updated (memory management, garbage collection,
+indexing).
+
 ## References
 
 * [On Disk IO, Part 3: LSM Trees](https://medium.com/databasss/on-disk-io-part-3-lsm-trees-8b2da218496f)
