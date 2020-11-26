@@ -23,6 +23,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MODE
                       | PASSWORD
                       | PRIVILEGES
+                      | REGISTER
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -72,7 +73,7 @@ authQuery : createRole
 
 replicationQuery : setReplicationRole
                  | showReplicationRole
-                 | createReplica
+                 | registerReplica
                  | dropReplica
                  | showReplicas
                  ;
@@ -123,11 +124,11 @@ showReplicationRole : SHOW REPLICATION ROLE ;
 
 replicaName : symbolicName ;
 
-hostName : literal ;
+socketAddress : literal ;
 
-createReplica : CREATE REPLICA replicaName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
                 ( WITH TIMEOUT timeout=literal ) ?
-                TO hostName ;
+                TO socketAddress ;
 
 dropReplica : DROP REPLICA replicaName ;
 

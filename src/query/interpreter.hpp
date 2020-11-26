@@ -101,7 +101,7 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 class ReplicationQueryHandler {
  public:
   ReplicationQueryHandler() = default;
-  virtual ~ReplicationQueryHandler() = default;
+  ~ReplicationQueryHandler() = default;
 
   ReplicationQueryHandler(const ReplicationQueryHandler &) = delete;
   ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
@@ -110,11 +110,12 @@ class ReplicationQueryHandler {
 
   struct Replica {
     std::string name;
-    std::string hostname;
+    std::string socket_address;
     ReplicationQuery::SyncMode sync_mode;
     std::optional<double> timeout;
   };
 
+  /// returns false if the replication role can't be set
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool SetReplicationRole(
       ReplicationQuery::ReplicationRole replication_mode) = 0;
@@ -122,14 +123,14 @@ class ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
 
-  /// Return false if the replica already exists.
+  /// returns false if the replica can't be registered
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateReplica(const std::string &name,
-                             const std::string &hostname,
-                             ReplicationQuery::SyncMode sync_mode,
-                             std::optional<double> timeout) = 0;
+  virtual bool RegisterReplica(const std::string &name,
+                               const std::string &hostname,
+                               ReplicationQuery::SyncMode sync_mode,
+                               std::optional<double> timeout) = 0;
 
-  /// Return false if the replica doesn't exist.
+  /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool DropReplica(const std::string &replica_name) = 0;
 
