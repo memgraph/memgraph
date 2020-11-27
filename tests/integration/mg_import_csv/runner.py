@@ -148,7 +148,7 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
     if write_expected:
-        with open(expected_path, 'w') as expected:
+        with open(os.path.join(test_path, expected_path), 'w') as expected:
             expected.write('\n'.join(queries_got))
 
     else:
