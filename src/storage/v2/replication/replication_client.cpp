@@ -23,7 +23,7 @@ Storage::ReplicationClient::ReplicationClient(
       rpc_context_(use_ssl),
       rpc_client_(endpoint, &rpc_context_),
       mode_(mode) {
-  thread_pool_.AddTask([this] { this->InitializeClient(); });
+  InitializeClient();
 }
 
 void Storage::ReplicationClient::InitializeClient() {

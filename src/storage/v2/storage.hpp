@@ -561,7 +561,8 @@ class Storage final {
 
   class ReplicationClient;
   using ReplicationClientList =
-      utils::Synchronized<std::list<ReplicationClient>, utils::SpinLock>;
+      utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
+                          utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};

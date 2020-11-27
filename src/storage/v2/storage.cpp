@@ -1702,7 +1702,7 @@ void Storage::AppendToWal(const Transaction &transaction,
   if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
-        client.StartTransactionReplication(wal_file_->SequenceNumber());
+        client->StartTransactionReplication(wal_file_->SequenceNumber());
       }
     });
   }
@@ -1726,7 +1726,7 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
         replication_clients_.WithLock([&](auto &clients) {
           for (auto &client : clients) {
-            client.IfStreamingTransaction([&](auto &stream) {
+            client->IfStreamingTransaction([&](auto &stream) {
               stream.AppendDelta(*delta, parent, final_commit_timestamp);
             });
           }
@@ -1868,10 +1868,10 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client.IfStreamingTransaction([&](auto &stream) {
+      client->IfStreamingTransaction([&](auto &stream) {
         stream.AppendTransactionEnd(final_commit_timestamp);
       });
-      client.FinalizeTransactionReplication();
+      client->FinalizeTransactionReplication();
     }
   });
 #endif
@@ -1888,12 +1888,12 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
     if (replication_role_.load() == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
-          client.StartTransactionReplication(wal_file_->SequenceNumber());
-          client.IfStreamingTransaction([&](auto &stream) {
+          client->StartTransactionReplication(wal_file_->SequenceNumber());
+          client->IfStreamingTransaction([&](auto &stream) {
             stream.AppendOperation(operation, label, properties,
                                    final_commit_timestamp);
           });
-          client.FinalizeTransactionReplication();
+          client->FinalizeTransactionReplication();
         }
       });
     }
@@ -1970,24 +1970,26 @@ void Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
 
-  // We can safely add new elements to the list because it doesn't validate
-  // existing references/iteratos
   replication_clients_.WithLock([&](auto &clients) {
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &client) { return client.Name() == name; })) {
+                    [&](auto &client) { return client->Name() == name; })) {
       throw utils::BasicException("Replica with a same name already exists!");
     }
-    clients.emplace_back(std::move(name), this, endpoint, false,
-                         replication_mode);
   });
+
+  auto client = std::make_unique<ReplicationClient>(
+      std::move(name), this, endpoint, false, replication_mode);
+
+  replication_clients_.WithLock(
+      [&](auto &clients) { clients.push_back(std::move(client)); });
 }
 
 void Storage::UnregisterReplica(const std::string_view name) {
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
   replication_clients_.WithLock([&](auto &clients) {
-    clients.remove_if(
-        [&](const auto &client) { return client.Name() == name; });
+    std::erase_if(clients,
+                  [&](const auto &client) { return client->Name() == name; });
   });
 }
 
@@ -1997,11 +1999,11 @@ std::optional<ReplicaState> Storage::GetReplicaState(
       [&](auto &clients) -> std::optional<ReplicaState> {
         const auto client_it = std::find_if(
             clients.cbegin(), clients.cend(),
-            [name](auto &client) { return client.Name() == name; });
+            [name](auto &client) { return client->Name() == name; });
         if (client_it == clients.cend()) {
           return std::nullopt;
         }
-        return client_it->State();
+        return (*client_it)->State();
       });
 }
 #endif

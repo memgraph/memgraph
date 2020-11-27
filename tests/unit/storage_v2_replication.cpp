@@ -22,14 +22,6 @@ class ReplicationTest : public ::testing::Test {
 
   void TearDown() override { Clear(); }
 
-  static void WaitForReady(storage::Storage *storage,
-                           const std::string_view replica_name) {
-    while (*storage->GetReplicaState(replica_name) !=
-           storage::ReplicaState::READY) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-  }
-
  private:
   void Clear() {
     if (!std::filesystem::exists(storage_directory)) return;
@@ -58,8 +50,6 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   main_store.RegisterReplica("REPLICA",
                              io::network::Endpoint{"127.0.0.1", 10000});
-
-  WaitForReady(&main_store, "REPLICA");
 
   // vertex create
   // vertex add label
@@ -309,8 +299,6 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   main_store.RegisterReplica("REPLICA2",
                              io::network::Endpoint{"127.0.0.1", 20000});
 
-  WaitForReady(&main_store, "REPLICA1");
-  WaitForReady(&main_store, "REPLICA2");
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
   const auto *vertex_property_value = "property_value";
@@ -441,7 +429,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   {
     storage::Storage replica_store(
         {.durability = {.storage_directory = replica_storage_directory,
-                        .recover_on_startup = true,
                         .snapshot_wal_mode = storage::Config::Durability::
                             SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}});
 
@@ -451,14 +438,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     main_store.RegisterReplica("REPLICA1",
                                io::network::Endpoint{"127.0.0.1", 10000});
 
-    while (main_store.GetReplicaState("REPLICA1") ==
-           storage::ReplicaState::INVALID) {
-      ;
-    }
-
     ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
               storage::ReplicaState::RECOVERY);
-    WaitForReady(&main_store, "REPLICA1");
+
+    while (main_store.GetReplicaState("REPLICA1") !=
+           storage::ReplicaState::READY) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 
     {
       auto acc = main_store.Access();
@@ -540,8 +526,6 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                              io::network::Endpoint{"127.0.0.1", 20000},
                              storage::ReplicationMode::ASYNC);
 
-  WaitForReady(&main_store, "REPLICA_ASYNC");
-
   constexpr size_t vertices_create_num = 10;
   std::vector<storage::Gid> created_vertices;
   for (size_t i = 0; i < vertices_create_num; ++i) {
@@ -559,7 +543,10 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     }
   }
 
-  WaitForReady(&main_store, "REPLICA_ASYNC");
+  while (main_store.GetReplicaState("REPLICA_ASYNC") !=
+         storage::ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 
   ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(),
                           [&](const auto vertex_gid) {
@@ -605,11 +592,9 @@ TEST_F(ReplicationTest, EpochTest) {
 
   main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000});
-  WaitForReady(&main_store, "REPLICA1");
 
   main_store.RegisterReplica("REPLICA2",
                              io::network::Endpoint{"127.0.0.1", 10001});
-  WaitForReady(&main_store, "REPLICA2");
 
   std::optional<storage::Gid> vertex_gid;
   {
@@ -637,7 +622,6 @@ TEST_F(ReplicationTest, EpochTest) {
   replica_store1.SetReplicationRole<storage::ReplicationRole::MAIN>();
   replica_store1.RegisterReplica("REPLICA2",
                                  io::network::Endpoint{"127.0.0.1", 10001});
-  WaitForReady(&replica_store1, "REPLICA2");
 
   {
     auto acc = main_store.Access();
