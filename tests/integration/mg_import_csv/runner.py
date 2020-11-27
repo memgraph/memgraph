@@ -75,7 +75,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
 
 
 def execute_test(name, test_path, test_config, memgraph_binary,
-                 mg_import_csv_binary, tester_binary):
+                 mg_import_csv_binary, tester_binary, write_expected):
     print("\033[1;36m~~ Executing test", name, "~~\033[0m")
     storage_directory = tempfile.TemporaryDirectory()
 
@@ -87,14 +87,8 @@ def execute_test(name, test_path, test_config, memgraph_binary,
         raise Exception("The test should specify either 'import_should_fail' "
                         "or 'expected'!")
 
-    # Load test expected queries
-    import_should_fail = test_config.pop("import_should_fail", False)
     expected_path = test_config.pop("expected", "")
-    if expected_path:
-        with open(os.path.join(test_path, expected_path)) as f:
-            queries_expected = extract_rows(f.read())
-    else:
-        queries_expected = ""
+    import_should_fail = test_config.pop("import_should_fail", False)
 
     # Generate common args
     properties_on_edges = bool(test_config.pop("properties_on_edges", False))
@@ -106,10 +100,10 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     mg_import_csv_args = [mg_import_csv_binary] + common_args
     for key, value in test_config.items():
         flag = "--" + key.replace("_", "-")
-        if type(value) == list:
+        if isinstance(value, list):
             for item in value:
                 mg_import_csv_args.extend([flag, str(item)])
-        elif type(value) == bool:
+        elif isinstance(value, bool):
             mg_import_csv_args.append(flag + "=" + str(value).lower())
         else:
             mg_import_csv_args.extend([flag, str(value)])
@@ -117,7 +111,6 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     # Execute mg_import_csv
     ret = subprocess.run(mg_import_csv_args, cwd=test_path)
 
-    # Check the return code
     if import_should_fail:
         if ret.returncode == 0:
             raise Exception("The import should have failed, but it "
@@ -154,12 +147,23 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     memgraph.terminate()
     assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
-    # Verify the queries
-    queries_expected.sort()
-    queries_got.sort()
-    assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" \
-        "{}".format(list_to_string(queries_got),
-                    list_to_string(queries_expected))
+    if write_expected:
+        with open(expected_path, 'w') as expected:
+            expected.write('\n'.join(queries_got))
+
+    else:
+        if expected_path:
+            with open(os.path.join(test_path, expected_path)) as f:
+                queries_expected = extract_rows(f.read())
+        else:
+            queries_expected = ""
+
+        # Verify the queries
+        queries_expected.sort()
+        queries_got.sort()
+        assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" \
+            "{}".format(list_to_string(queries_got),
+                        list_to_string(queries_expected))
     print("\033[1;32m~~ Test successful ~~\033[0m\n")
 
 
@@ -174,6 +178,10 @@ if __name__ == "__main__":
     parser.add_argument("--memgraph", default=memgraph_binary)
     parser.add_argument("--mg-import-csv", default=mg_import_csv_binary)
     parser.add_argument("--tester", default=tester_binary)
+    parser.add_argument(
+        "--write-expected",
+        action="store_true",
+        help="Overwrite the expected values with the results of the current run")
     args = parser.parse_args()
 
     # First test whether the CSV importer can be started while the main
@@ -192,6 +200,6 @@ if __name__ == "__main__":
         for test_config in testcases:
             test_name = name + "/" + test_config.pop("name")
             execute_test(test_name, test_path, test_config, args.memgraph,
-                         args.mg_import_csv, args.tester)
+                         args.mg_import_csv, args.tester, args.write_expected)
 
     sys.exit(0)
