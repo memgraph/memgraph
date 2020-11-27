@@ -1949,11 +1949,11 @@ void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
 }
 
 void Storage::ConfigureMain() {
-  std::unique_lock engine_guard{engine_lock_};
-
   // Main instance does not need replication server
+  // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
+  std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();

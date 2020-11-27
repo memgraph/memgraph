@@ -22,6 +22,14 @@ class ReplicationTest : public ::testing::Test {
 
   void TearDown() override { Clear(); }
 
+  static void WaitForReady(storage::Storage *storage,
+                           const std::string_view replica_name) {
+    while (*storage->GetReplicaState(replica_name) !=
+           storage::ReplicaState::READY) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+
  private:
   void Clear() {
     if (!std::filesystem::exists(storage_directory)) return;
@@ -50,6 +58,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   main_store.RegisterReplica("REPLICA",
                              io::network::Endpoint{"127.0.0.1", 10000});
+
+  WaitForReady(&main_store, "REPLICA");
 
   // vertex create
   // vertex add label
@@ -299,6 +309,8 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   main_store.RegisterReplica("REPLICA2",
                              io::network::Endpoint{"127.0.0.1", 20000});
 
+  WaitForReady(&main_store, "REPLICA1");
+  WaitForReady(&main_store, "REPLICA2");
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
   const auto *vertex_property_value = "property_value";
@@ -439,12 +451,14 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     main_store.RegisterReplica("REPLICA1",
                                io::network::Endpoint{"127.0.0.1", 10000});
 
+    while (main_store.GetReplicaState("REPLICA1") ==
+           storage::ReplicaState::INVALID) {
+      ;
+    }
+
     ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
               storage::ReplicaState::RECOVERY);
-    while (main_store.GetReplicaState("REPLICA1") !=
-           storage::ReplicaState::READY) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    WaitForReady(&main_store, "REPLICA1");
 
     {
       auto acc = main_store.Access();
@@ -526,6 +540,8 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                              io::network::Endpoint{"127.0.0.1", 20000},
                              storage::ReplicationMode::ASYNC);
 
+  WaitForReady(&main_store, "REPLICA_ASYNC");
+
   constexpr size_t vertices_create_num = 10;
   std::vector<storage::Gid> created_vertices;
   for (size_t i = 0; i < vertices_create_num; ++i) {
@@ -543,10 +559,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     }
   }
 
-  while (main_store.GetReplicaState("REPLICA_ASYNC") !=
-         storage::ReplicaState::READY) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  WaitForReady(&main_store, "REPLICA_ASYNC");
 
   ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(),
                           [&](const auto vertex_gid) {
@@ -568,7 +581,7 @@ TEST_F(ReplicationTest, EpochTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  storage::Storage replica_store(
+  storage::Storage replica_store1(
       {.items = {.properties_on_edges = true},
        .durability = {
            .storage_directory = storage_directory,
@@ -576,11 +589,27 @@ TEST_F(ReplicationTest, EpochTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
+  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
 
-  main_store.RegisterReplica("REPLICA",
+  storage::Storage replica_store2(
+      {.items = {.properties_on_edges = true},
+       .durability = {
+           .storage_directory = storage_directory,
+           .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
+               PERIODIC_SNAPSHOT_WITH_WAL,
+       }});
+
+  replica_store2.SetReplicationRole<storage::ReplicationRole::REPLICA>(
+      io::network::Endpoint{"127.0.0.1", 10001});
+
+  main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000});
+  WaitForReady(&main_store, "REPLICA1");
+
+  main_store.RegisterReplica("REPLICA2",
+                             io::network::Endpoint{"127.0.0.1", 10001});
+  WaitForReady(&main_store, "REPLICA2");
 
   std::optional<storage::Gid> vertex_gid;
   {
@@ -590,30 +619,48 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
-    auto acc = replica_store.Access();
+    auto acc = replica_store1.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = replica_store2.Access();
     const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
-  main_store.UnregisterReplica("REPLICA");
+  main_store.UnregisterReplica("REPLICA1");
+  main_store.UnregisterReplica("REPLICA2");
 
-  replica_store.SetReplicationRole<storage::ReplicationRole::MAIN>();
+  replica_store1.SetReplicationRole<storage::ReplicationRole::MAIN>();
+  replica_store1.RegisterReplica("REPLICA2",
+                                 io::network::Endpoint{"127.0.0.1", 10001});
+  WaitForReady(&replica_store1, "REPLICA2");
+
   {
     auto acc = main_store.Access();
     acc.CreateVertex();
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
-    auto acc = replica_store.Access();
-    acc.CreateVertex();
+    auto acc = replica_store1.Access();
+    auto v = acc.CreateVertex();
+    vertex_gid.emplace(v.Gid());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  // Replica1 should forward it's vertex to Replica2
+  {
+    auto acc = replica_store2.Access();
+    const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
+    ASSERT_TRUE(v);
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
-  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
+  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
-
-  main_store.RegisterReplica("REPLICA",
+  main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000});
 
   {
@@ -622,8 +669,10 @@ TEST_F(ReplicationTest, EpochTest) {
     vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc.Commit().HasError());
   }
+  // Replica1 is not compatible with the main so it shouldn't contain
+  // it's newest vertex
   {
-    auto acc = replica_store.Access();
+    auto acc = replica_store1.Access();
     const auto v = acc.FindVertex(*vertex_gid, storage::View::OLD);
     ASSERT_FALSE(v);
     ASSERT_FALSE(acc.Commit().HasError());

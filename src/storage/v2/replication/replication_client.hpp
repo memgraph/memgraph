@@ -160,7 +160,7 @@ class Storage::ReplicationClient {
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};
-  std::atomic<ReplicaState> replica_state_;
+  std::atomic<ReplicaState> replica_state_{ReplicaState::INVALID};
 };
 
 }  // namespace storage

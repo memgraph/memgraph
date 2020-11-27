@@ -23,12 +23,13 @@ Storage::ReplicationClient::ReplicationClient(
       rpc_context_(use_ssl),
       rpc_client_(endpoint, &rpc_context_),
       mode_(mode) {
-  InitializeClient();
+  thread_pool_.AddTask([this] { this->InitializeClient(); });
 }
 
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
-  auto stream{rpc_client_.Stream<HeartbeatRpc>()};
+  auto stream{
+      rpc_client_.Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
   replication::Encoder encoder{stream.GetBuilder()};
   // Write epoch id
   {
@@ -37,13 +38,11 @@ void Storage::ReplicationClient::InitializeClient() {
     encoder.WriteString(storage_->epoch_id_);
   }
   const auto response = stream.AwaitResponse();
-  std::unique_lock client_guard{client_lock_};
   if (!response.success) {
     LOG(ERROR)
         << "Replica " << name_
         << " is ahead of this instance. The branching point is on commit "
         << response.current_commit_timestamp;
-    replica_state_.store(ReplicaState::INVALID);
     return;
   }
   current_commit_timestamp = response.current_commit_timestamp;
@@ -51,9 +50,11 @@ void Storage::ReplicationClient::InitializeClient() {
   DLOG(INFO) << "CURRENT MAIN TIMESTAMP: "
              << storage_->last_commit_timestamp_.load();
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
+    std::unique_lock client_guard{client_lock_};
     DLOG(INFO) << "REPLICA UP TO DATE";
     replica_state_.store(ReplicaState::READY);
   } else {
+    std::unique_lock client_guard{client_lock_};
     DLOG(INFO) << "REPLICA IS BEHIND";
     replica_state_.store(ReplicaState::RECOVERY);
     thread_pool_.AddTask(
@@ -109,8 +110,7 @@ bool Storage::ReplicationClient::StartTransactionReplication(
       });
       return false;
     case ReplicaState::INVALID:
-      LOG(WARNING) << "Replica " << name_
-                   << " cannot be used for replication. Please unregister it.";
+      LOG(ERROR) << "Couldn't replicate data to " << name_;
       return false;
     case ReplicaState::READY:
       CHECK(!replica_stream_);
@@ -119,10 +119,10 @@ bool Storage::ReplicationClient::StartTransactionReplication(
             ReplicaStream{this, storage_->last_commit_timestamp_.load(),
                           current_wal_seq_num});
       } catch (const rpc::RpcFailedException &) {
+        replica_state_.store(ReplicaState::INVALID);
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
           rpc_client_.Abort();
-          replica_state_.store(ReplicaState::INVALID);
           InitializeClient();
         });
         return false;

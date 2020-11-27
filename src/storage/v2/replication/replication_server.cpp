@@ -3,6 +3,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/exceptions.hpp"
 
 namespace storage {
 Storage::ReplicationServer::ReplicationServer(Storage *storage,
@@ -55,29 +56,41 @@ void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   HeartbeatReq req;
   slk::Load(&req, req_reader);
-  {
-    std::unique_lock engine_guard{storage_->engine_lock_};
-    replication::Decoder decoder{req_reader};
-    auto maybe_epoch_id = decoder.ReadString();
-    CHECK(maybe_epoch_id) << "Invalid value read form HeartbeatRpc!";
-    if (storage_->timestamp_ == kTimestampInitialId) {
-      // The replica has no commits
-      // use the main's epoch id
-      storage_->epoch_id_ = std::move(*maybe_epoch_id);
-    } else if (*maybe_epoch_id != storage_->epoch_id_) {
-      const auto &epoch_history = storage_->epoch_history_;
-      const auto result =
-          std::find_if(epoch_history.begin(), epoch_history.end(),
-                       [&](const auto &epoch_info) {
-                         return epoch_info.first == *maybe_epoch_id;
-                       });
-      const auto branching_point =
-          result == epoch_history.end() ? kTimestampInitialId : result->second;
-      engine_guard.unlock();
-      HeartbeatRes res{false, branching_point};
-      slk::Save(res, res_builder);
-      return;
+  replication::Decoder decoder{req_reader};
+  auto maybe_epoch_id = decoder.ReadString();
+  CHECK(maybe_epoch_id) << "Invalid value read form HeartbeatRpc!";
+  if (storage_->last_commit_timestamp_ == kTimestampInitialId) {
+    // The replica has no commits
+    // use the main's epoch id
+    storage_->epoch_id_ = std::move(*maybe_epoch_id);
+  } else if (*maybe_epoch_id != storage_->epoch_id_) {
+    auto &epoch_history = storage_->epoch_history_;
+    const auto result =
+        std::find_if(epoch_history.begin(), epoch_history.end(),
+                     [&](const auto &epoch_info) {
+                       return epoch_info.first == *maybe_epoch_id;
+                     });
+    auto branching_point = kTimestampInitialId;
+    if (result == epoch_history.end()) {
+      // we couldn't find the epoch_id inside the history so if it has
+      // the same or larger commit timestamp, some old replica became a main
+      // This isn't always the case, there is one case where an old main
+      // becomes a replica then main again and it should have a commit timestamp
+      // larger than the one on replica.
+      if (req.main_commit_timestamp >= storage_->last_commit_timestamp_) {
+        epoch_history.emplace_back(std::move(storage_->epoch_id_),
+                                   storage_->last_commit_timestamp_);
+        storage_->epoch_id_ = std::move(*maybe_epoch_id);
+        HeartbeatRes res{true, storage_->last_commit_timestamp_.load()};
+        slk::Save(res, res_builder);
+        return;
+      }
+    } else {
+      branching_point = result->second;
     }
+    HeartbeatRes res{false, branching_point};
+    slk::Save(res, res_builder);
+    return;
   }
   HeartbeatRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -106,6 +119,11 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       throw utils::BasicException("Invalid data!");
     }
   };
+
+  // TODO (antonio2368): Add error handling for different epoch id
+  if (*maybe_epoch_id != storage_->epoch_id_) {
+    throw utils::BasicException("Invalid epoch id");
+  }
 
   if (req.previous_commit_timestamp !=
       storage_->last_commit_timestamp_.load()) {
