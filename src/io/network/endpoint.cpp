@@ -10,18 +10,23 @@
 
 namespace io::network {
 
-Endpoint::Endpoint() {}
-Endpoint::Endpoint(const std::string &address, uint16_t port)
-    : address_(address), port_(port) {
+void Endpoint::SetFamilyIfIpValidOrThrowOtherwise(
+    const std::string &ip_address) {
   in_addr addr4;
   in6_addr addr6;
-  int ipv4_result = inet_pton(AF_INET, address_.c_str(), &addr4);
-  int ipv6_result = inet_pton(AF_INET6, address_.c_str(), &addr6);
+  int ipv4_result = inet_pton(AF_INET, ip_address.c_str(), &addr4);
+  int ipv6_result = inet_pton(AF_INET6, ip_address.c_str(), &addr6);
   if (ipv4_result == 1)
     family_ = 4;
   else if (ipv6_result == 1)
     family_ = 6;
-  CHECK(family_ != 0) << "Not a valid IPv4 or IPv6 address: " << address;
+  CHECK(family_ != 0) << "Not a valid IPv4 or IPv6 address: " << ip_address;
+}
+
+Endpoint::Endpoint() {}
+Endpoint::Endpoint(const std::string &address, uint16_t port)
+    : address_(address), port_(port) {
+  SetFamilyIfIpValidOrThrowOtherwise(address_);
 }
 
 bool Endpoint::operator==(const Endpoint &other) const {

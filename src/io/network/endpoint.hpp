@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 
 namespace io::network {
@@ -16,7 +17,6 @@ class Endpoint {
  public:
   Endpoint();
   Endpoint(const std::string &address, uint16_t port);
-
   // TODO: Remove these since members are public
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }
@@ -28,6 +28,9 @@ class Endpoint {
   std::string address_;
   uint16_t port_{0};
   unsigned char family_{0};
+
+ private:
+  void SetFamilyIfIpValidOrThrowOtherwise(const std::string &ip_address);
 };
 
 }  // namespace io::network
