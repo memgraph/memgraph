@@ -50,13 +50,15 @@ void Storage::ReplicationClient::InitializeClient() {
   DLOG(INFO) << "CURRENT MAIN TIMESTAMP: "
              << storage_->last_commit_timestamp_.load();
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
-    std::unique_lock client_guard{client_lock_};
     DLOG(INFO) << "REPLICA UP TO DATE";
+    std::unique_lock client_guard{client_lock_};
     replica_state_.store(ReplicaState::READY);
   } else {
-    std::unique_lock client_guard{client_lock_};
     DLOG(INFO) << "REPLICA IS BEHIND";
-    replica_state_.store(ReplicaState::RECOVERY);
+    {
+      std::unique_lock client_guard{client_lock_};
+      replica_state_.store(ReplicaState::RECOVERY);
+    }
     thread_pool_.AddTask(
         [=, this] { this->RecoverReplica(current_commit_timestamp); });
   }

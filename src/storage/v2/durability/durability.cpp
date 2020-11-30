@@ -310,7 +310,9 @@ std::optional<RecoveryInfo> RecoverData(
                    << " because of: " << e.what();
       }
 
-      last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+      if (recovery_info.next_timestamp != 0) {
+        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+      }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
     // load any deltas from that file.
