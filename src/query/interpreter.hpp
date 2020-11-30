@@ -129,8 +129,8 @@ class ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool RegisterReplica(const std::string &name,
                                const std::string &socket_address,
-                               ReplicationQuery::SyncMode sync_mode,
-                               std::optional<double> timeout) = 0;
+                               const ReplicationQuery::SyncMode sync_mode,
+                               const std::optional<double> timeout) = 0;
 
   /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
@@ -247,7 +247,6 @@ struct InterpreterContext {
   double execution_timeout_sec{180.0};
 
   AuthQueryHandler *auth{nullptr};
-  ReplicationQueryHandler *repl{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;

@@ -16,7 +16,7 @@ namespace io::network {
 class Endpoint {
  public:
   Endpoint();
-  Endpoint(const std::string &address, uint16_t port);
+  Endpoint(const std::string &ip_address, uint16_t port);
   // TODO: Remove these since members are public
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }
@@ -29,8 +29,11 @@ class Endpoint {
   uint16_t port_{0};
   unsigned char family_{0};
 
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
+      const std::string &address, const std::optional<uint16_t> default_port);
+
  private:
-  void SetFamilyIfIpValidOrThrowOtherwise(const std::string &ip_address);
+  void SetFamilyIfIpValid(const std::string &ip_address);
 };
 
 }  // namespace io::network

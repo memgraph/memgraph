@@ -181,8 +181,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   bool RegisterReplica(const std::string &name,
                        const std::string &socket_address,
-                       query::ReplicationQuery::SyncMode sync_mode,
-                       std::optional<double> timeout) override {
+                       const query::ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) override {
     storage::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case query::ReplicationQuery::SyncMode::ASYNC: {
@@ -196,20 +196,31 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     try {
-      auto ip_and_port = ParseSocketAddress(socket_address);
-      db_.RegisterReplica(
-          name, io::network::Endpoint{ip_and_port.first, ip_and_port.second},
-          repl_mode);
+      uint16_t default_replication_port = 10000;
+      auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
+          socket_address, default_replication_port);
+      if (maybe_ip_and_port) {
+        auto [ip, port] = *maybe_ip_and_port;
+        db_.RegisterReplica(name, io::network::Endpoint{ip, port}, repl_mode);
+      }
     } catch (std::exception &e) {
-      std::string err_msg = "Couldn't register replica! Reason: ";
-      throw query::QueryRuntimeException(err_msg + e.what());
+      LOG(ERROR) << "Couldn't register replica! Reason: " << e.what();
+      return false;
     }
     return true;
   }
 
   /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
-  bool DropReplica(const std::string &replica_name) override { return false; }
+  bool DropReplica(const std::string &replica_name) override {
+    try {
+      db_.UnregisterReplica(replica_name);
+    } catch (std::exception &e) {
+      LOG(ERROR) << "Couldn't unregister replica! Reason: " << e.what();
+      return false;
+    }
+    return true;
+  }
 
   using Replica = query::ReplicationQueryHandler::Replica;
   /// @throw QueryRuntimeException if an error ocurred.
@@ -217,39 +228,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
  private:
   storage::Storage &db_;
-  std::pair<std::string, uint16_t> ParseSocketAddress(
-      const std::string &socket_address) {
-    /// socket address format:
-    //    - "ip_address:port_number"
-    //    - "ip_address"
-    constexpr uint16_t default_port = 10000;
-    std::string delimiter = ":";
-    std::string ip_address;
-    uint16_t port_number{0};
-
-    // only ip address given (no port number specified)
-    if (auto pos = socket_address.find(delimiter); pos == std::string::npos) {
-      return std::make_pair(socket_address, default_port);
-    }
-
-    std::vector<std::string> parts = utils::Split(socket_address, delimiter);
-    if (parts.size() == 2) {
-      ip_address = parts[0];
-      int64_t int_port{0};
-      try {
-        int_port = utils::ParseInt(parts[1]);
-      } catch (std::exception &e) {
-        LOG(ERROR) << "Invalid port number: " << parts[1];
-      }
-      CHECK(int_port > std::numeric_limits<uint16_t>::max())
-          << "Port number exceeded maximum possible size!";
-      port_number = static_cast<uint16_t>(int_port);
-
-      return std::make_pair(ip_address, port_number);
-    }
-
-    return std::make_pair("", 0);
-  }
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -454,7 +432,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query,
-                                storage::Storage *interp_ctx_db,
+                                ReplQueryHandler *handler,
                                 const Parameters &parameters,
                                 DbAccessor *db_accessor) {
   Frame frame(0);
@@ -468,7 +446,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
                                 db_accessor, storage::View::OLD);
 
-  ReplQueryHandler handler{interp_ctx_db};
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
@@ -488,8 +465,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication mode"};
-      callback.fn = [&handler] {
-        auto mode = handler.ShowReplicationRole();
+      callback.fn = [handler] {
+        auto mode = handler->ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
             return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
@@ -514,9 +491,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       } else if (timeout.IsInt()) {
         opt_timeout = static_cast<double>(timeout.ValueInt());
       }
-      callback.fn = [&handler, name, socket_address, sync_mode, opt_timeout] {
+      callback.fn = [handler, name, socket_address, sync_mode,
+                     opt_timeout] {
         CHECK(socket_address.IsString());
-        if (!handler.RegisterReplica(name,
+        if (!handler->RegisterReplica(name,
                                      std::string(socket_address.ValueString()),
                                      sync_mode, opt_timeout)) {
           throw QueryRuntimeException(
@@ -528,8 +506,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [&handler, name] {
-        if (!handler.DropReplica(name)) {
+      callback.fn = [handler, name] {
+        if (!handler->DropReplica(name)) {
           throw QueryRuntimeException("Couldn't drop the replica '{}'.", name);
         }
         return std::vector<std::vector<TypedValue>>();
@@ -538,8 +516,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name", "socket_address", "sync_mode", "timeout"};
-      callback.fn = [&handler, replica_nfields = callback.header.size()] {
-        const auto &replicas = handler.ShowReplicas();
+      callback.fn = [handler, replica_nfields = callback.header.size()] {
+        const auto &replicas = handler->ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
         for (auto &replica : replicas) {
