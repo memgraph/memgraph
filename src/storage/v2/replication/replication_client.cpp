@@ -158,9 +158,18 @@ void Storage::ReplicationClient::IfStreamingTransaction(
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplication() {
-  if (mode_ == replication::ReplicationMode::ASYNC) {
+  if (mode_ == replication::ReplicationMode::ASYNC || timeout_) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
+
+    if (timeout_) {
+      CHECK(mode_ == replication::ReplicationMode::SYNC)
+          << "Only SYNC replica can have a timeout.";
+      std::this_thread::sleep_for(std::chrono::duration<double>(*timeout_));
+      if (replica_state_ == replication::ReplicaState::REPLICATING) {
+        mode_ = replication::ReplicationMode::ASYNC;
+      }
+    }
   } else {
     FinalizeTransactionReplicationInternal();
   }
