@@ -706,11 +706,12 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
   const std::string replica1_name{"REPLICA1"};
   main_store.RegisterReplica(replica1_name, replica1_endpoint,
-                             storage::ReplicationMode::SYNC, {.timeout = 2.0});
+                             storage::replication::ReplicationMode::SYNC,
+                             {.timeout = 2.0});
 
   const std::string replica2_name{"REPLICA2"};
   main_store.RegisterReplica(replica2_name, replica2_endpoint,
-                             storage::ReplicationMode::ASYNC);
+                             storage::replication::ReplicationMode::ASYNC);
 
   ASSERT_EQ(main_store.GetReplicationRole(), storage::ReplicationRole::MAIN);
   ASSERT_EQ(replica_store1.GetReplicationRole(),
@@ -723,16 +724,16 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
   const auto &first_info = replicas_info[0];
   ASSERT_EQ(first_info.name, replica1_name);
-  ASSERT_EQ(first_info.mode, storage::ReplicationMode::SYNC);
+  ASSERT_EQ(first_info.mode, storage::replication::ReplicationMode::SYNC);
   ASSERT_TRUE(first_info.timeout);
   ASSERT_EQ(*first_info.timeout, 2.0);
   ASSERT_EQ(first_info.endpoint, replica1_endpoint);
-  ASSERT_EQ(first_info.state, storage::ReplicaState::READY);
+  ASSERT_EQ(first_info.state, storage::replication::ReplicaState::READY);
 
   const auto &second_info = replicas_info[1];
   ASSERT_EQ(second_info.name, replica2_name);
-  ASSERT_EQ(second_info.mode, storage::ReplicationMode::ASYNC);
+  ASSERT_EQ(second_info.mode, storage::replication::ReplicationMode::ASYNC);
   ASSERT_FALSE(second_info.timeout);
   ASSERT_EQ(second_info.endpoint, replica2_endpoint);
-  ASSERT_EQ(second_info.state, storage::ReplicaState::READY);
+  ASSERT_EQ(second_info.state, storage::replication::ReplicaState::READY);
 }
