@@ -165,7 +165,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
 #ifdef MG_ENTERPRISE
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_(*db) {}
+  explicit ReplQueryHandler(storage::Storage *db) : db_{*db} {}
 
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_role) override {
@@ -183,6 +183,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const std::string &socket_address,
                        const query::ReplicationQuery::SyncMode sync_mode,
                        const std::optional<double> timeout) override {
+    constexpr uint16_t default_replication_port = 10000;
     storage::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case query::ReplicationQuery::SyncMode::ASYNC: {
@@ -196,12 +197,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     try {
-      uint16_t default_replication_port = 10000;
       auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
           socket_address, default_replication_port);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
-        db_.RegisterReplica(name, io::network::Endpoint{ip, port}, repl_mode);
+        db_.RegisterReplica(name, {std::move(ip), port}, repl_mode);
       }
     } catch (std::exception &e) {
       LOG(ERROR) << "Couldn't register replica! Reason: " << e.what();
@@ -253,8 +253,8 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
 
   bool RegisterReplica(const std::string &name,
                        const std::string &socket_address,
-                       query::ReplicationQuery::SyncMode sync_mode,
-                       std::optional<double> timeout) {
+                       const query::ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) {
     throw NoReplicationInCommunity();
   }
 

@@ -3,13 +3,11 @@
 #include <sys/socket.h>
 
 #include <algorithm>
-
 #include <optional>
 
 #include "glog/logging.h"
 
 #include "utils/string.hpp"
-
 #include "io/network/endpoint.hpp"
 
 namespace io::network {
@@ -29,7 +27,7 @@ void Endpoint::SetFamilyIfIpValid(const std::string &ip_address) {
 std::optional<std::pair<std::string, uint16_t>>
 Endpoint::ParseSocketOrIpAddress(
     const std::string &address,
-    const std::optional<uint16_t> default_port = std::nullopt) {
+    const std::optional<uint16_t> default_port = {}) {
   /// address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
@@ -44,7 +42,7 @@ Endpoint::ParseSocketOrIpAddress(
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
     if (default_port) {
-      std::make_optional(std::make_pair(address, *default_port));
+      std::make_pair(address, *default_port);
     }
   } else if (parts.size() == 2) {
     ip_address = std::move(parts[0]);
@@ -59,15 +57,15 @@ Endpoint::ParseSocketOrIpAddress(
         << "Port number exceeded maximum possible size!";
     port_number = static_cast<uint16_t>(int_port);
 
-    return std::make_optional(std::make_pair(ip_address, port_number));
+    return std::make_pair(ip_address, port_number);
   }
 
   return std::nullopt;
 }
 
 Endpoint::Endpoint() {}
-Endpoint::Endpoint(const std::string &address, uint16_t port)
-    : address_(address), port_(port) {
+Endpoint::Endpoint(std::string address, uint16_t port)
+    : address_(std::move(address)), port_(port) {
   SetFamilyIfIpValid(address_);
 }
 
