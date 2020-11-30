@@ -5,6 +5,7 @@
 #include <optional>
 #include <shared_mutex>
 
+#include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -430,14 +431,28 @@ class Storage final {
     replication_role_.store(role);
   }
 
-  void RegisterReplica(std::string name, io::network::Endpoint endpoint,
+  /// @pre The instance should have a MAIN role
+  /// @pre Timeout can only be set for SYNC replication
+  bool RegisterReplica(std::string name, io::network::Endpoint endpoint,
                        replication::ReplicationMode replication_mode,
                        const replication::ReplicationClientConfig &config = {});
-
-  void UnregisterReplica(std::string_view name);
+  /// @pre The instance should have a MAIN role
+  bool UnregisterReplica(std::string_view name);
 
   std::optional<replication::ReplicaState> GetReplicaState(
       std::string_view name);
+
+  ReplicationRole GetReplicationRole() const;
+
+  struct ReplicaInfo {
+    std::string name;
+    replication::ReplicationMode mode;
+    std::optional<double> timeout;
+    io::network::Endpoint endpoint;
+    replication::ReplicaState state;
+  };
+
+  std::vector<ReplicaInfo> ReplicasInfo();
 #endif
 
  private:

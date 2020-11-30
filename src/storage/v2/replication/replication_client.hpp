@@ -119,6 +119,12 @@ class Storage::ReplicationClient {
 
   auto State() const { return replica_state_.load(); }
 
+  auto Mode() const { return mode_; }
+
+  auto Timeout() const { return timeout_; }
+
+  const auto &Endpoint() const { return rpc_client_->Endpoint(); }
+
  private:
   void FinalizeTransactionReplicationInternal();
 

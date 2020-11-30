@@ -1976,7 +1976,7 @@ void Storage::ConfigureMain() {
   epoch_id_ = utils::GenerateUUID();
 }
 
-void Storage::RegisterReplica(
+bool Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
     const replication::ReplicationMode replication_mode,
     const replication::ReplicationClientConfig &config) {
@@ -1991,19 +1991,27 @@ void Storage::RegisterReplica(
     }
   });
 
+  CHECK(replication_mode == replication::ReplicationMode::SYNC ||
+        !config.timeout)
+      << "Only SYNC mode can have a timeout set";
+
   auto client = std::make_unique<ReplicationClient>(
       std::move(name), this, endpoint, replication_mode, config);
+  if (client->State() == replication::ReplicaState::INVALID) {
+    return false;
+  }
 
   replication_clients_.WithLock(
       [&](auto &clients) { clients.push_back(std::move(client)); });
+  return true;
 }
 
-void Storage::UnregisterReplica(const std::string_view name) {
+bool Storage::UnregisterReplica(const std::string_view name) {
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
-  replication_clients_.WithLock([&](auto &clients) {
-    std::erase_if(clients,
-                  [&](const auto &client) { return client->Name() == name; });
+  return replication_clients_.WithLock([&](auto &clients) {
+    return std::erase_if(
+        clients, [&](const auto &client) { return client->Name() == name; });
   });
 }
 
@@ -2019,6 +2027,24 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(
         }
         return (*client_it)->State();
       });
+}
+
+ReplicationRole Storage::GetReplicationRole() const {
+  return replication_role_;
+}
+
+std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
+  return replication_clients_.WithLock([](auto &clients) {
+    std::vector<Storage::ReplicaInfo> replica_info;
+    replica_info.reserve(clients.size());
+    std::transform(clients.begin(), clients.end(),
+                   std::back_inserter(replica_info),
+                   [](const auto &client) -> ReplicaInfo {
+                     return {client->Name(), client->Mode(), client->Timeout(),
+                             client->Endpoint(), client->State()};
+                   });
+    return replica_info;
+  });
 }
 #endif
 
