@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "utils/file_locker.hpp"
 
@@ -17,19 +18,26 @@ template <typename>
 ////// ReplicationClient //////
 Storage::ReplicationClient::ReplicationClient(
     std::string name, Storage *storage, const io::network::Endpoint &endpoint,
-    bool use_ssl, const replication::ReplicationMode mode)
+    const replication::ReplicationMode mode,
+    const replication::ReplicationClientConfig &config)
     : name_(std::move(name)),
       storage_(storage),
-      rpc_context_(use_ssl),
-      rpc_client_(endpoint, &rpc_context_),
-      mode_(mode) {
+      mode_(mode),
+      timeout_(config.timeout) {
+  if (config.ssl) {
+    rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
+  } else {
+    rpc_context_.emplace();
+  }
+
+  rpc_client_.emplace(endpoint, &*rpc_context_);
   InitializeClient();
 }
 
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
   auto stream{
-      rpc_client_.Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
+      rpc_client_->Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
   replication::Encoder encoder{stream.GetBuilder()};
   // Write epoch id
   {
@@ -66,7 +74,7 @@ void Storage::ReplicationClient::InitializeClient() {
 
 SnapshotRes Storage::ReplicationClient::TransferSnapshot(
     const std::filesystem::path &path) {
-  auto stream{rpc_client_.Stream<SnapshotRpc>()};
+  auto stream{rpc_client_->Stream<SnapshotRpc>()};
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
@@ -75,7 +83,7 @@ SnapshotRes Storage::ReplicationClient::TransferSnapshot(
 WalFilesRes Storage::ReplicationClient::TransferWalFiles(
     const std::vector<std::filesystem::path> &wal_files) {
   CHECK(!wal_files.empty()) << "Wal files list is empty!";
-  auto stream{rpc_client_.Stream<WalFilesRpc>(wal_files.size())};
+  auto stream{rpc_client_->Stream<WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     DLOG(INFO) << "Sending wal file: " << wal;
@@ -87,7 +95,7 @@ WalFilesRes Storage::ReplicationClient::TransferWalFiles(
 
 OnlySnapshotRes Storage::ReplicationClient::TransferOnlySnapshot(
     const uint64_t snapshot_timestamp) {
-  auto stream{rpc_client_.Stream<OnlySnapshotRpc>(snapshot_timestamp)};
+  auto stream{rpc_client_->Stream<OnlySnapshotRpc>(snapshot_timestamp)};
   replication::Encoder encoder{stream.GetBuilder()};
   encoder.WriteString(storage_->epoch_id_);
   return stream.AwaitResponse();
@@ -124,7 +132,7 @@ bool Storage::ReplicationClient::StartTransactionReplication(
         replica_state_.store(replication::ReplicaState::INVALID);
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
-          rpc_client_.Abort();
+          rpc_client_->Abort();
           InitializeClient();
         });
         return false;
@@ -142,7 +150,7 @@ void Storage::ReplicationClient::IfStreamingTransaction(
     } catch (const rpc::RpcFailedException &) {
       LOG(ERROR) << "Couldn't replicate data to " << name_;
       thread_pool_.AddTask([this] {
-        rpc_client_.Abort();
+        rpc_client_->Abort();
         InitializeClient();
       });
     }
@@ -178,7 +186,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
         replica_state_.store(replication::ReplicaState::INVALID);
       }
       thread_pool_.AddTask([this] {
-        rpc_client_.Abort();
+        rpc_client_->Abort();
         InitializeClient();
       });
     }
@@ -431,7 +439,7 @@ Storage::ReplicationClient::ReplicaStream::ReplicaStream(
     ReplicationClient *self, const uint64_t previous_commit_timestamp,
     const uint64_t current_seq_num)
     : self_(self),
-      stream_(self_->rpc_client_.Stream<AppendDeltasRpc>(
+      stream_(self_->rpc_client_->Stream<AppendDeltasRpc>(
           previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->storage_->epoch_id_);
@@ -473,7 +481,7 @@ AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() {
 ////// CurrentWalHandler //////
 Storage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(
     ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<CurrentWalRpc>()) {}
+    : self_(self), stream_(self_->rpc_client_->Stream<CurrentWalRpc>()) {}
 
 void Storage::ReplicationClient::CurrentWalHandler::AppendFilename(
     const std::string &filename) {

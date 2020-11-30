@@ -49,7 +49,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
       io::network::Endpoint{"127.0.0.1", 10000});
 
   main_store.RegisterReplica("REPLICA",
-                             io::network::Endpoint{"127.0.0.1", 10000});
+                             io::network::Endpoint{"127.0.0.1", 10000},
+                             storage::replication::ReplicationMode::SYNC);
 
   // vertex create
   // vertex add label
@@ -295,9 +296,11 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
       io::network::Endpoint{"127.0.0.1", 20000});
 
   main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000});
+                             io::network::Endpoint{"127.0.0.1", 10000},
+                             storage::replication::ReplicationMode::SYNC);
   main_store.RegisterReplica("REPLICA2",
-                             io::network::Endpoint{"127.0.0.1", 20000});
+                             io::network::Endpoint{"127.0.0.1", 20000},
+                             storage::replication::ReplicationMode::SYNC);
 
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
@@ -436,7 +439,8 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         io::network::Endpoint{"127.0.0.1", 10000});
 
     main_store.RegisterReplica("REPLICA1",
-                               io::network::Endpoint{"127.0.0.1", 10000});
+                               io::network::Endpoint{"127.0.0.1", 10000},
+                               storage::replication::ReplicationMode::SYNC);
 
     ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
               storage::replication::ReplicaState::RECOVERY);
@@ -591,10 +595,12 @@ TEST_F(ReplicationTest, EpochTest) {
       io::network::Endpoint{"127.0.0.1", 10001});
 
   main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000});
+                             io::network::Endpoint{"127.0.0.1", 10000},
+                             storage::replication::ReplicationMode::SYNC);
 
   main_store.RegisterReplica("REPLICA2",
-                             io::network::Endpoint{"127.0.0.1", 10001});
+                             io::network::Endpoint{"127.0.0.1", 10001},
+                             storage::replication::ReplicationMode::SYNC);
 
   std::optional<storage::Gid> vertex_gid;
   {
@@ -621,7 +627,8 @@ TEST_F(ReplicationTest, EpochTest) {
 
   replica_store1.SetReplicationRole<storage::ReplicationRole::MAIN>();
   replica_store1.RegisterReplica("REPLICA2",
-                                 io::network::Endpoint{"127.0.0.1", 10001});
+                                 io::network::Endpoint{"127.0.0.1", 10001},
+                                 storage::replication::ReplicationMode::SYNC);
 
   {
     auto acc = main_store.Access();
@@ -645,7 +652,8 @@ TEST_F(ReplicationTest, EpochTest) {
   replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
       io::network::Endpoint{"127.0.0.1", 10000});
   main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000});
+                             io::network::Endpoint{"127.0.0.1", 10000},
+                             storage::replication::ReplicationMode::SYNC);
 
   {
     auto acc = main_store.Access();

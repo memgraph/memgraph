@@ -17,6 +17,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
@@ -425,8 +426,10 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000});
-    RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002});
+    RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000},
+                    replication::ReplicationMode::SYNC);
+    RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002},
+                    replication::ReplicationMode::ASYNC);
   } else if (FLAGS_replica) {
     SetReplicationRole<ReplicationRole::REPLICA>(
         io::network::Endpoint{"127.0.0.1", 10000});
@@ -1947,9 +1950,11 @@ uint64_t Storage::CommitTimestamp(
 }
 
 #ifdef MG_ENTERPRISE
-void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
+void Storage::ConfigureReplica(
+    io::network::Endpoint endpoint,
+    const replication::ReplicationServerConfig &config) {
   replication_server_ =
-      std::make_unique<ReplicationServer>(this, std::move(endpoint));
+      std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 }
 
 void Storage::ConfigureMain() {
@@ -1973,7 +1978,8 @@ void Storage::ConfigureMain() {
 
 void Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
-    const replication::ReplicationMode replication_mode) {
+    const replication::ReplicationMode replication_mode,
+    const replication::ReplicationClientConfig &config) {
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
@@ -1986,7 +1992,7 @@ void Storage::RegisterReplica(
   });
 
   auto client = std::make_unique<ReplicationClient>(
-      std::move(name), this, endpoint, false, replication_mode);
+      std::move(name), this, endpoint, replication_mode, config);
 
   replication_clients_.WithLock(
       [&](auto &clients) { clients.push_back(std::move(client)); });

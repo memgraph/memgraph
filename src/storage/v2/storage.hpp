@@ -28,6 +28,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -430,8 +431,9 @@ class Storage final {
   }
 
   void RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       replication::ReplicationMode replication_mode =
-                           replication::ReplicationMode::SYNC);
+                       replication::ReplicationMode replication_mode,
+                       const replication::ReplicationClientConfig &config = {});
+
   void UnregisterReplica(std::string_view name);
 
   std::optional<replication::ReplicaState> GetReplicaState(
@@ -460,7 +462,9 @@ class Storage final {
       std::optional<uint64_t> desired_commit_timestamp = {});
 
 #ifdef MG_ENTERPRISE
-  void ConfigureReplica(io::network::Endpoint endpoint);
+  void ConfigureReplica(
+      io::network::Endpoint endpoint,
+      const replication::ReplicationServerConfig &config = {});
   void ConfigureMain();
 #endif
 

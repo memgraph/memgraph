@@ -12,6 +12,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -27,8 +28,9 @@ namespace storage {
 class Storage::ReplicationClient {
  public:
   ReplicationClient(std::string name, Storage *storage,
-                    const io::network::Endpoint &endpoint, bool use_ssl,
-                    replication::ReplicationMode mode);
+                    const io::network::Endpoint &endpoint,
+                    replication::ReplicationMode mode,
+                    const replication::ReplicationClientConfig &config = {});
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
@@ -150,11 +152,13 @@ class Storage::ReplicationClient {
 
   Storage *storage_;
 
-  communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
+  std::optional<communication::ClientContext> rpc_context_;
+  std::optional<rpc::Client> rpc_client_;
 
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
+
+  std::optional<double> timeout_;
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};

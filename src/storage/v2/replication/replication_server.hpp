@@ -6,7 +6,9 @@ namespace storage {
 
 class Storage::ReplicationServer {
  public:
-  explicit ReplicationServer(Storage *storage, io::network::Endpoint endpoint);
+  explicit ReplicationServer(
+      Storage *storage, io::network::Endpoint endpoint,
+      const replication::ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;
   ReplicationServer &operator=(const ReplicationServer &) = delete;
