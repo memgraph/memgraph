@@ -25,6 +25,7 @@ struct WalInfo {
   uint64_t offset_deltas;
 
   std::string uuid;
+  std::string epoch_id;
   uint64_t seq_num;
   uint64_t from_timestamp;
   uint64_t to_timestamp;
@@ -107,6 +108,39 @@ enum class StorageGlobalOperation {
   UNIQUE_CONSTRAINT_DROP,
 };
 
+constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
+  switch (type) {
+    // These delta actions are all found inside transactions so they don't
+    // indicate a transaction end.
+    case WalDeltaData::Type::VERTEX_CREATE:
+    case WalDeltaData::Type::VERTEX_DELETE:
+    case WalDeltaData::Type::VERTEX_ADD_LABEL:
+    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
+    case WalDeltaData::Type::EDGE_CREATE:
+    case WalDeltaData::Type::EDGE_DELETE:
+    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
+    case WalDeltaData::Type::EDGE_SET_PROPERTY:
+      return false;
+
+    // This delta explicitly indicates that a transaction is done.
+    case WalDeltaData::Type::TRANSACTION_END:
+      return true;
+
+    // These operations aren't transactional and they are encoded only using
+    // a single delta, so they each individually mark the end of their
+    // 'transaction'.
+    case WalDeltaData::Type::LABEL_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_INDEX_DROP:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+      return true;
+  }
+}
+
 /// Function used to read information about the WAL file.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
@@ -158,8 +192,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
-  WalFile(const std::filesystem::path &wal_directory, const std::string &uuid,
-          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+  WalFile(const std::filesystem::path &wal_directory, std::string_view uuid,
+          std::string_view epoch_id, Config::Items items,
+          NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);
   WalFile(std::filesystem::path current_wal_path, Config::Items items,
           NameIdMapper *name_id_mapper, uint64_t seq_num,
