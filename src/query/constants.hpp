@@ -1,4 +1,4 @@
 #pragma once
 #include <cstdint>
 
-constexpr uint16_t default_replication_port = 10000;
+constexpr uint16_t kDefaultReplicationPort = 10000;

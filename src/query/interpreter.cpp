@@ -9,6 +9,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/constants.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -183,7 +184,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const std::string &socket_address,
                        const query::ReplicationQuery::SyncMode sync_mode,
                        const std::optional<double> timeout) override {
-    constexpr uint16_t default_replication_port = 10000;
     storage::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case query::ReplicationQuery::SyncMode::ASYNC: {
@@ -198,7 +198,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
     try {
       auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
-          socket_address, default_replication_port);
+          socket_address, kDefaultReplicationPort);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
         db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
