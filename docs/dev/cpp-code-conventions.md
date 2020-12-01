@@ -77,60 +77,61 @@ apply to destructors, which are not allowed to even throw exceptions.
 #### Constructors and member variables
 
 One of the most powerful tools in C++ are the move semantics. We won't go into
-detail how they work, but you should know how to utilize them as much as possible.
-For our example we will define a small `struct` called `S` which contains only a single
-member, `text` of type `std::string`.
+detail how they work, but you should know how to utilize them as much as
+possible.  For our example we will define a small `struct` called `S` which
+contains only a single member, `text` of type `std::string`.
 ```cpp
 struct S {
   std::string text;
 };
 ```
-We want to define a constructor that receives a `std::string`, and saves its value in
-`text`. You'll notice this situtation, in which you want to accept a value in constructor
-and save it in object, often.
+We want to define a constructor that receives a `std::string`, and saves its
+value in `text`. You'll notice this situtation, in which you want to accept a
+value in constructor and save it in object, often.
 
 Our first implementation would look like this:
 ```cpp
 S(const std::string &s) : text(s) {}
 ```
 
-This is a valid solution but with one downside - we always copy.
-If we construct an object like this:
+This is a valid solution but with one downside - we always copy.  If we
+construct an object like this:
 ```cpp
 S s("some text");
 ```
-We would create a temporary `std::string` object and then copy it to our member variable.
+We would create a temporary `std::string` object and then copy it to our member
+variable.
 
-Of course, we know what to do now, we will capture temporary variables using `&&` and move it
-into our `text` variable.
+Of course, we know what to do now, we will capture temporary variables using
+`&&` and move it into our `text` variable.
 ```cpp
 S(std::string &&s) : text(std::move(s)) {}
 ```
 
-Now let's add an extra member variable of type `std::vector<int>` called `words`.
-Our constructors accept 2 values now - `std::vector<int>` and `std::string` and to
-handle every possible solution optimally, we need to define a constructor for each
-possible situation. We can send a temporary `std::vector` and a reference to 
-a `std::string`, or we can send both values as temporaries. We have a lot of 
-combinations for only 2 members.
+Now let's add an extra member variable of type `std::vector<int>` called
+`words`.  Our constructors accept 2 values now - `std::vector<int>` and
+`std::string` and to handle every possible solution optimally, we need to define
+a constructor for each possible situation. We can send a temporary `std::vector`
+and a reference to a `std::string`, or we can send both values as temporaries.
+We have a lot of combinations for only 2 members.
 Fortunately, there are 2 options, first one is writing a templated constructor:
 ```cpp
 template<typename T1, typename T2>
 S(T1 &&s, T2 &&v) : text(std::forward<T1>(s), words(std::forward<T2>(v) {}
 ```
-But don't forget to define `requires` clause so you don't accept any type.
-This solution is optimal but really hard to read AND write.
-The second solution is something you should ALWAYS prefer in these simple cases:
+But don't forget to define `requires` clause so you don't accept any type.  This
+solution is optimal but really hard to read AND write.  The second solution is
+something you should ALWAYS prefer in these simple cases:
 ```cpp
 S(std::string s, std::vector<int> v) : text(std::move(s)), words(std::move(v)) {}
 ```
 This way we have an almost optimal solution. The only extra operation we have is
-the extra move when we send an `lvalue`. We would copy the value to the `s`, and then
-move it to the `text` variable. Before, we would copy directly to `text`.
-Also, you should ALWAYS write const-correct code, meaning `s` and `v` cannot be `const`
-as it's not correct here. Why is that? You CANNOT move a const object! It would just degrade
-to copying the object.
-I would say that this is a small price to pay for a much cleaner and more maintainable code.
+the extra move when we send an `lvalue`. We would copy the value to the `s`, and
+then move it to the `text` variable. Before, we would copy directly to `text`.
+Also, you should ALWAYS write const-correct code, meaning `s` and `v` cannot be
+`const` as it's not correct here. Why is that? You CANNOT move a const object!
+It would just degrade to copying the object.  I would say that this is a small
+price to pay for a much cleaner and more maintainable code.
 
 ### Additional Style Conventions
 
