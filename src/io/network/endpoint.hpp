@@ -33,7 +33,7 @@ class Endpoint {
       const std::string &address, const std::optional<uint16_t> default_port);
 
  private:
-  void SetFamilyIfIpValid(const std::string &ip_address);
+  unsigned char GetIpFamily(const std::string &ip_address) const;
 };
 
 }  // namespace io::network

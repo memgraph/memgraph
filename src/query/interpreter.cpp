@@ -165,7 +165,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
 #ifdef MG_ENTERPRISE
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_{*db} {}
+  explicit ReplQueryHandler(storage::Storage *db) : db_{db} {}
 
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_role) override {
@@ -201,7 +201,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           socket_address, default_replication_port);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
-        db_.RegisterReplica(name, {std::move(ip), port}, repl_mode);
+        db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
       }
     } catch (std::exception &e) {
       LOG(ERROR) << "Couldn't register replica! Reason: " << e.what();
@@ -214,7 +214,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   bool DropReplica(const std::string &replica_name) override {
     try {
-      db_.UnregisterReplica(replica_name);
+      db_->UnregisterReplica(replica_name);
     } catch (std::exception &e) {
       LOG(ERROR) << "Couldn't unregister replica! Reason: " << e.what();
       return false;
@@ -227,7 +227,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   std::vector<Replica> ShowReplicas() const override { return {}; }
 
  private:
-  storage::Storage &db_;
+  storage::Storage *db_;
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.

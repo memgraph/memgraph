@@ -3,7 +3,6 @@
 #include <sys/socket.h>
 
 #include <algorithm>
-#include <optional>
 
 #include "glog/logging.h"
 
@@ -12,23 +11,25 @@
 
 namespace io::network {
 
-void Endpoint::SetFamilyIfIpValid(const std::string &ip_address) {
+unsigned char Endpoint::GetIpFamily(const std::string &ip_address) const {
   in_addr addr4;
   in6_addr addr6;
   int ipv4_result = inet_pton(AF_INET, ip_address.c_str(), &addr4);
   int ipv6_result = inet_pton(AF_INET6, ip_address.c_str(), &addr6);
-  if (ipv4_result == 1)
-    family_ = 4;
-  else if (ipv6_result == 1)
-    family_ = 6;
-  CHECK(family_ != 0) << "Not a valid IPv4 or IPv6 address: " << ip_address;
+  if (ipv4_result == 1) {
+    return 4;
+  } else if (ipv6_result == 1) {
+    return 6;
+  } else {
+    return 0;
+  }
 }
 
 std::optional<std::pair<std::string, uint16_t>>
 Endpoint::ParseSocketOrIpAddress(
     const std::string &address,
     const std::optional<uint16_t> default_port = {}) {
-  /// address format:
+  /// expected address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
   /// We parse the address first. If it's an IP address, a default port must
@@ -64,9 +65,11 @@ Endpoint::ParseSocketOrIpAddress(
 }
 
 Endpoint::Endpoint() {}
-Endpoint::Endpoint(std::string address, uint16_t port)
-    : address_(std::move(address)), port_(port) {
-  SetFamilyIfIpValid(address_);
+Endpoint::Endpoint(std::string ip_address, uint16_t port)
+    : address_(std::move(ip_address)), port_(port) {
+  unsigned char ip_family = GetIpFamily(ip_address);
+  CHECK(ip_family != 0) << "Not a valid IPv4 or IPv6 address: " << ip_address;
+  family_ = ip_family;
 }
 
 bool Endpoint::operator==(const Endpoint &other) const {
