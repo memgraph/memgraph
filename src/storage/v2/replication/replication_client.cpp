@@ -28,7 +28,7 @@ Storage::ReplicationClient::ReplicationClient(
   }
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
-  InitializeClient();
+  TryInitializeClient();
 
   if (config.timeout) {
     timeout_.emplace(*config.timeout);
@@ -36,6 +36,7 @@ Storage::ReplicationClient::ReplicationClient(
   }
 }
 
+/// @throws rpc::RpcFailedException
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
   auto stream{
@@ -71,6 +72,15 @@ void Storage::ReplicationClient::InitializeClient() {
     }
     thread_pool_.AddTask(
         [=, this] { this->RecoverReplica(current_commit_timestamp); });
+  }
+}
+
+void Storage::ReplicationClient::TryInitializeClient() {
+  try {
+    InitializeClient();
+  } catch (const rpc::RpcFailedException &) {
+    LOG(ERROR) << "Failed to connect to replica " << name_ << " at "
+               << rpc_client_->Endpoint();
   }
 }
 
@@ -123,6 +133,10 @@ bool Storage::ReplicationClient::StartTransactionReplication(
       return false;
     case replication::ReplicaState::INVALID:
       LOG(ERROR) << "Couldn't replicate data to " << name_;
+      thread_pool_.AddTask([this] {
+        rpc_client_->Abort();
+        this->TryInitializeClient();
+      });
       return false;
     case replication::ReplicaState::READY:
       CHECK(!replica_stream_);
@@ -135,7 +149,7 @@ bool Storage::ReplicationClient::StartTransactionReplication(
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
           rpc_client_->Abort();
-          InitializeClient();
+          this->TryInitializeClient();
         });
         return false;
       }
@@ -153,7 +167,7 @@ void Storage::ReplicationClient::IfStreamingTransaction(
       LOG(ERROR) << "Couldn't replicate data to " << name_;
       thread_pool_.AddTask([this] {
         rpc_client_->Abort();
-        InitializeClient();
+        this->TryInitializeClient();
       });
     }
   }
@@ -226,7 +240,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       }
       thread_pool_.AddTask([this] {
         rpc_client_->Abort();
-        InitializeClient();
+        TryInitializeClient();
       });
     }
     replica_stream_.reset();
@@ -391,7 +405,6 @@ Storage::ReplicationClient::GetRecoverySteps(
     return recovery_steps;
   }
 
-  ++rwal_it;
   uint64_t previous_seq_num{rwal_it->seq_num};
   for (; rwal_it != wal_files->rend(); ++rwal_it) {
     // If the difference between two consecutive wal files is not 0 or 1
@@ -403,11 +416,12 @@ Storage::ReplicationClient::GetRecoverySteps(
     // Find first WAL that contains up to replica commit, i.e. WAL
     // that is before the replica commit or conatins the replica commit
     // as the last committed transaction.
-    if (replica_commit >= rwal_it->from_timestamp &&
-        replica_commit >= rwal_it->to_timestamp) {
-      // We want the WAL after because the replica already contains all the
-      // commits from this WAL
-      --rwal_it;
+    if (replica_commit >= rwal_it->from_timestamp) {
+      if (replica_commit >= rwal_it->to_timestamp) {
+        // We want the WAL after because the replica already contains all the
+        // commits from this WAL
+        --rwal_it;
+      }
       std::vector<std::filesystem::path> wal_chain;
       auto distance_from_first = std::distance(rwal_it, wal_files->rend() - 1);
       // We have managed to create WAL chain

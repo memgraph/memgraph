@@ -155,6 +155,8 @@ class Storage::ReplicationClient {
 
   void InitializeClient();
 
+  void TryInitializeClient();
+
   std::string name_;
 
   Storage *storage_;
