@@ -9,9 +9,9 @@ namespace storage::durability {
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
-const uint64_t kVersion{13};
+const uint64_t kVersion{14};
 
-const uint64_t kOldestSupportedVersion{12};
+const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.

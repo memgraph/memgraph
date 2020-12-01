@@ -23,9 +23,10 @@ cpp<#
      (current-commit-timestamp :uint64_t))))
 
 (lcp:define-rpc heartbeat
-  (:request ())
+  (:request ((main-commit-timestamp :uint64_t)))
   (:response
-    ((current-commit-timestamp :uint64_t))))
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
 
 (lcp:define-rpc snapshot
   (:request ())

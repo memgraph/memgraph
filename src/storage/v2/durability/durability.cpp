@@ -92,7 +92,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
           (!current_seq_num || info.seq_num < current_seq_num))
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
                                info.to_timestamp, std::move(info.uuid),
-                               item.path());
+                               std::move(info.epoch_id), item.path());
     } catch (const RecoveryFailure &e) {
       DLOG(WARNING) << "Failed to read " << item.path();
       continue;
@@ -146,6 +146,8 @@ void RecoverIndicesAndConstraints(
 std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
+    std::string *epoch_id,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
     std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
     Indices *indices, Constraints *constraints, Config::Items items,
@@ -174,8 +176,8 @@ std::optional<RecoveryInfo> RecoverData(
       }
       LOG(INFO) << "Starting snapshot recovery from " << path;
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, name_id_mapper,
-                                          edge_count, items);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history,
+                                          name_id_mapper, edge_count, items);
         LOG(INFO) << "Snapshot recovery successful!";
         break;
       } catch (const RecoveryFailure &e) {
@@ -191,6 +193,8 @@ std::optional<RecoveryInfo> RecoverData(
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
+    *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
+
     if (!utils::DirExists(wal_directory)) {
       RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
                                    vertices);
@@ -199,14 +203,29 @@ std::optional<RecoveryInfo> RecoverData(
   } else {
     std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
-    // Array of all discovered WAL files, ordered by name.
-    std::vector<std::pair<std::filesystem::path, std::string>> wal_files;
+    // We use this smaller struct that contains only a subset of information
+    // necessary for the rest of the recovery function.
+    // Also, the struct is sorted primarily on the path it contains.
+    struct WalFileInfo {
+      explicit WalFileInfo(std::filesystem::path path, std::string uuid,
+                           std::string epoch_id)
+          : path(std::move(path)),
+            uuid(std::move(uuid)),
+            epoch_id(std::move(epoch_id)) {}
+      std::filesystem::path path;
+      std::string uuid;
+      std::string epoch_id;
+
+      auto operator<=>(const WalFileInfo &) const = default;
+    };
+    std::vector<WalFileInfo> wal_files;
     for (const auto &item :
          std::filesystem::directory_iterator(wal_directory, error_code)) {
       if (!item.is_regular_file()) continue;
       try {
         auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), info.uuid);
+        wal_files.emplace_back(item.path(), std::move(info.uuid),
+                               std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
         continue;
       }
@@ -216,7 +235,9 @@ std::optional<RecoveryInfo> RecoverData(
     if (wal_files.empty()) return std::nullopt;
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
-    *uuid = wal_files.back().second;
+    // Same for the epoch id.
+    *uuid = std::move(wal_files.back().uuid);
+    *epoch_id = std::move(wal_files.back().epoch_id);
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
@@ -238,9 +259,8 @@ std::optional<RecoveryInfo> RecoverData(
 
   if (!wal_files.empty()) {
     {
-      const auto &[seq_num, from_timestamp, to_timestamp, _, path] =
-          wal_files[0];
-      if (seq_num != 0) {
+      const auto &first_wal = wal_files[0];
+      if (first_wal.seq_num != 0) {
         // We don't have all WAL files. We need to see whether we need them all.
         if (!snapshot_timestamp) {
           // We didn't recover from a snapshot and we must have all WAL files
@@ -248,7 +268,7 @@ std::optional<RecoveryInfo> RecoverData(
           // data from them.
           LOG(FATAL) << "There are missing prefix WAL files and data can't be "
                         "recovered without them!";
-        } else if (to_timestamp >= *snapshot_timestamp) {
+        } else if (first_wal.to_timestamp >= *snapshot_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // whose all deltas were created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
@@ -259,27 +279,41 @@ std::optional<RecoveryInfo> RecoverData(
     }
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_timestamp;
-    for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
-         wal_files) {
-      if (previous_seq_num && *previous_seq_num + 1 != seq_num &&
-          *previous_seq_num != seq_num) {
+    for (auto &wal_file : wal_files) {
+      if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG(FATAL) << "You are missing a WAL file with the sequence number "
                    << *previous_seq_num + 1 << "!";
       }
-      previous_seq_num = seq_num;
+      previous_seq_num = wal_file.seq_num;
+
+      if (wal_file.epoch_id != *epoch_id) {
+        // This way we skip WALs finalized only because of role change.
+        // We can also set the last timestamp to 0 if last loaded timestamp
+        // is nullopt as this can only happen if the WAL file with seq = 0
+        // does not contain any deltas and we didn't find any snapshots.
+        if (last_loaded_timestamp) {
+          epoch_history->emplace_back(wal_file.epoch_id,
+                                      *last_loaded_timestamp);
+        }
+        *epoch_id = std::move(wal_file.epoch_id);
+      }
       try {
-        auto info = LoadWal(path, &indices_constraints, last_loaded_timestamp,
-                            vertices, edges, name_id_mapper, edge_count, items);
+        auto info =
+            LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp,
+                    vertices, edges, name_id_mapper, edge_count, items);
         recovery_info.next_vertex_id =
             std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id =
             std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp =
             std::max(recovery_info.next_timestamp, info.next_timestamp);
-        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       } catch (const RecoveryFailure &e) {
-        LOG(FATAL) << "Couldn't recover WAL deltas from " << path
+        LOG(FATAL) << "Couldn't recover WAL deltas from " << wal_file.path
                    << " because of: " << e.what();
+      }
+
+      if (recovery_info.next_timestamp != 0) {
+        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
