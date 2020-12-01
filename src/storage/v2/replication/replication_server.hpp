@@ -19,6 +19,9 @@ class Storage::ReplicationServer {
   void HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  // RPC for replicating only the commit of the last snapshot as that is the
+  // only difference between the replica and main (all of the data is
+  // already replicated through previous WAL\Snapshot files)
   void OnlySnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder);

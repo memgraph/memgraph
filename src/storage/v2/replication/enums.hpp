@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace storage {
+namespace storage::replication {
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
 enum class ReplicaState : std::uint8_t {
@@ -10,4 +10,4 @@ enum class ReplicaState : std::uint8_t {
   RECOVERY,
   INVALID
 };
-}  // namespace storage
+}  // namespace storage::replication

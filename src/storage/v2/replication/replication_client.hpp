@@ -28,7 +28,7 @@ class Storage::ReplicationClient {
  public:
   ReplicationClient(std::string name, Storage *storage,
                     const io::network::Endpoint &endpoint, bool use_ssl,
-                    ReplicationMode mode);
+                    replication::ReplicationMode mode);
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
@@ -154,11 +154,12 @@ class Storage::ReplicationClient {
   rpc::Client rpc_client_;
 
   std::optional<ReplicaStream> replica_stream_;
-  ReplicationMode mode_{ReplicationMode::SYNC};
+  replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};
-  std::atomic<ReplicaState> replica_state_{ReplicaState::INVALID};
+  std::atomic<replication::ReplicaState> replica_state_{
+      replication::ReplicaState::INVALID};
 };
 
 }  // namespace storage

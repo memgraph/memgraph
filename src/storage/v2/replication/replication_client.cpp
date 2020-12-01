@@ -17,7 +17,7 @@ template <typename>
 ////// ReplicationClient //////
 Storage::ReplicationClient::ReplicationClient(
     std::string name, Storage *storage, const io::network::Endpoint &endpoint,
-    bool use_ssl, const ReplicationMode mode)
+    bool use_ssl, const replication::ReplicationMode mode)
     : name_(std::move(name)),
       storage_(storage),
       rpc_context_(use_ssl),
@@ -52,12 +52,12 @@ void Storage::ReplicationClient::InitializeClient() {
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
     DLOG(INFO) << "REPLICA UP TO DATE";
     std::unique_lock client_guard{client_lock_};
-    replica_state_.store(ReplicaState::READY);
+    replica_state_.store(replication::ReplicaState::READY);
   } else {
     DLOG(INFO) << "REPLICA IS BEHIND";
     {
       std::unique_lock client_guard{client_lock_};
-      replica_state_.store(ReplicaState::RECOVERY);
+      replica_state_.store(replication::ReplicaState::RECOVERY);
     }
     thread_pool_.AddTask(
         [=, this] { this->RecoverReplica(current_commit_timestamp); });
@@ -98,12 +98,12 @@ bool Storage::ReplicationClient::StartTransactionReplication(
   std::unique_lock guard(client_lock_);
   const auto status = replica_state_.load();
   switch (status) {
-    case ReplicaState::RECOVERY:
+    case replication::ReplicaState::RECOVERY:
       DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
       return false;
-    case ReplicaState::REPLICATING:
+    case replication::ReplicaState::REPLICATING:
       DLOG(INFO) << "Replica missed a transaction, going to recovery";
-      replica_state_.store(ReplicaState::RECOVERY);
+      replica_state_.store(replication::ReplicaState::RECOVERY);
       // If it's in replicating state, it should have been up to date with all
       // the commits until now so the replica should contain the
       // last_commit_timestamp
@@ -111,17 +111,17 @@ bool Storage::ReplicationClient::StartTransactionReplication(
         this->RecoverReplica(storage_->last_commit_timestamp_.load());
       });
       return false;
-    case ReplicaState::INVALID:
+    case replication::ReplicaState::INVALID:
       LOG(ERROR) << "Couldn't replicate data to " << name_;
       return false;
-    case ReplicaState::READY:
+    case replication::ReplicaState::READY:
       CHECK(!replica_stream_);
       try {
         replica_stream_.emplace(
             ReplicaStream{this, storage_->last_commit_timestamp_.load(),
                           current_wal_seq_num});
       } catch (const rpc::RpcFailedException &) {
-        replica_state_.store(ReplicaState::INVALID);
+        replica_state_.store(replication::ReplicaState::INVALID);
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
           rpc_client_.Abort();
@@ -129,7 +129,7 @@ bool Storage::ReplicationClient::StartTransactionReplication(
         });
         return false;
       }
-      replica_state_.store(ReplicaState::REPLICATING);
+      replica_state_.store(replication::ReplicaState::REPLICATING);
       return true;
   }
 }
@@ -150,7 +150,7 @@ void Storage::ReplicationClient::IfStreamingTransaction(
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplication() {
-  if (mode_ == ReplicationMode::ASYNC) {
+  if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
   } else {
@@ -165,7 +165,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       if (!response.success) {
         {
           std::unique_lock client_guard{client_lock_};
-          replica_state_.store(ReplicaState::RECOVERY);
+          replica_state_.store(replication::ReplicaState::RECOVERY);
         }
         thread_pool_.AddTask([&, this] {
           this->RecoverReplica(response.current_commit_timestamp);
@@ -175,7 +175,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       LOG(ERROR) << "Couldn't replicate data to " << name_;
       {
         std::unique_lock client_guard{client_lock_};
-        replica_state_.store(ReplicaState::INVALID);
+        replica_state_.store(replication::ReplicaState::INVALID);
       }
       thread_pool_.AddTask([this] {
         rpc_client_.Abort();
@@ -186,8 +186,8 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
   }
 
   std::unique_lock guard(client_lock_);
-  if (replica_state_.load() == ReplicaState::REPLICATING) {
-    replica_state_.store(ReplicaState::READY);
+  if (replica_state_.load() == replication::ReplicaState::REPLICATING) {
+    replica_state_.store(replication::ReplicaState::READY);
   }
 }
 
@@ -240,7 +240,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
 
     if (storage_->last_commit_timestamp_.load() == replica_commit) {
       std::unique_lock client_guard{client_lock_};
-      replica_state_.store(ReplicaState::READY);
+      replica_state_.store(replication::ReplicaState::READY);
       return;
     }
   }

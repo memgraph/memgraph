@@ -439,10 +439,10 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                                io::network::Endpoint{"127.0.0.1", 10000});
 
     ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
-              storage::ReplicaState::RECOVERY);
+              storage::replication::ReplicaState::RECOVERY);
 
     while (main_store.GetReplicaState("REPLICA1") !=
-           storage::ReplicaState::READY) {
+           storage::replication::ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -524,7 +524,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
   main_store.RegisterReplica("REPLICA_ASYNC",
                              io::network::Endpoint{"127.0.0.1", 20000},
-                             storage::ReplicationMode::ASYNC);
+                             storage::replication::ReplicationMode::ASYNC);
 
   constexpr size_t vertices_create_num = 10;
   std::vector<storage::Gid> created_vertices;
@@ -536,15 +536,15 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
     if (i == 0) {
       ASSERT_EQ(main_store.GetReplicaState("REPLICA_ASYNC"),
-                storage::ReplicaState::REPLICATING);
+                storage::replication::ReplicaState::REPLICATING);
     } else {
       ASSERT_EQ(main_store.GetReplicaState("REPLICA_ASYNC"),
-                storage::ReplicaState::RECOVERY);
+                storage::replication::ReplicaState::RECOVERY);
     }
   }
 
   while (main_store.GetReplicaState("REPLICA_ASYNC") !=
-         storage::ReplicaState::READY) {
+         storage::replication::ReplicaState::READY) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 

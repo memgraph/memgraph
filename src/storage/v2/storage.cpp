@@ -37,6 +37,10 @@ DEFINE_bool(async_replica, false, "Set to true to be the replica");
 
 namespace storage {
 
+namespace {
+constexpr uint16_t epoch_history_rentetion_ = 1000;
+}  // namespace
+
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
                             std::optional<VertexAccessor> *vertex,
@@ -1960,12 +1964,16 @@ void Storage::ConfigureMain() {
   }
 
   // Generate new epoch id and save the last one to the history.
+  if (epoch_history_.size() == epoch_history_rentetion_) {
+    epoch_history_.pop_front();
+  }
   epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
   epoch_id_ = utils::GenerateUUID();
 }
 
-void Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                              const ReplicationMode replication_mode) {
+void Storage::RegisterReplica(
+    std::string name, io::network::Endpoint endpoint,
+    const replication::ReplicationMode replication_mode) {
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
@@ -1993,10 +2001,10 @@ void Storage::UnregisterReplica(const std::string_view name) {
   });
 }
 
-std::optional<ReplicaState> Storage::GetReplicaState(
+std::optional<replication::ReplicaState> Storage::GetReplicaState(
     const std::string_view name) {
   return replication_clients_.WithLock(
-      [&](auto &clients) -> std::optional<ReplicaState> {
+      [&](auto &clients) -> std::optional<replication::ReplicaState> {
         const auto client_it = std::find_if(
             clients.cbegin(), clients.cend(),
             [name](auto &client) { return client->Name() == name; });

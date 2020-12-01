@@ -429,12 +429,13 @@ class Storage final {
     replication_role_.store(role);
   }
 
-  void RegisterReplica(
-      std::string name, io::network::Endpoint endpoint,
-      ReplicationMode replication_mode = ReplicationMode::SYNC);
+  void RegisterReplica(std::string name, io::network::Endpoint endpoint,
+                       replication::ReplicationMode replication_mode =
+                           replication::ReplicationMode::SYNC);
   void UnregisterReplica(std::string_view name);
 
-  std::optional<ReplicaState> GetReplicaState(std::string_view name);
+  std::optional<replication::ReplicaState> GetReplicaState(
+      std::string_view name);
 #endif
 
  private:
@@ -551,7 +552,7 @@ class Storage final {
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
-  std::vector<std::pair<std::string, uint64_t>> epoch_history_;
+  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
 
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
@@ -567,6 +568,16 @@ class Storage final {
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
   class ReplicationClient;
+  // We create ReplicationClient using unique_ptr so we can move
+  // newly created client into the vector.
+  // We cannot move the client directly because it contains ThreadPool
+  // which cannot be moved. Also, the move is necessary because
+  // we don't want to create the client directly inside the vector
+  // because that would require the lock on the list putting all
+  // commits (they iterate list of clients) to halt.
+  // This way we can initiliaze client in main thread which means
+  // that we can immediately notify the user if the intiialization
+  // failed.
   using ReplicationClientList =
       utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
                           utils::SpinLock>;

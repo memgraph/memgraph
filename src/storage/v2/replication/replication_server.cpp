@@ -66,12 +66,12 @@ void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader,
   } else if (*maybe_epoch_id != storage_->epoch_id_) {
     auto &epoch_history = storage_->epoch_history_;
     const auto result =
-        std::find_if(epoch_history.begin(), epoch_history.end(),
+        std::find_if(epoch_history.rbegin(), epoch_history.rend(),
                      [&](const auto &epoch_info) {
                        return epoch_info.first == *maybe_epoch_id;
                      });
     auto branching_point = kTimestampInitialId;
-    if (result == epoch_history.end()) {
+    if (result == epoch_history.rend()) {
       // we couldn't find the epoch_id inside the history so if it has
       // the same or larger commit timestamp, some old replica became a main
       // This isn't always the case, there is one case where an old main
@@ -602,7 +602,7 @@ void Storage::ReplicationServer::OnlySnapshotHandler(
 
   storage_->last_commit_timestamp_.store(req.snapshot_timestamp);
 
-  SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
+  OnlySnapshotRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 

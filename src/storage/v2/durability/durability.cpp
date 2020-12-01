@@ -147,7 +147,7 @@ std::optional<RecoveryInfo> RecoverData(
     const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, std::string *uuid,
     std::string *epoch_id,
-    std::vector<std::pair<std::string, uint64_t>> *epoch_history,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
     std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
     Indices *indices, Constraints *constraints, Config::Items items,
@@ -203,9 +203,12 @@ std::optional<RecoveryInfo> RecoverData(
   } else {
     std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
-    struct SmallWalInfo {
-      explicit SmallWalInfo(std::filesystem::path path, std::string uuid,
-                            std::string epoch_id)
+    // We use this smaller struct that contains only a subset of information
+    // necessary for the rest of the recovery function.
+    // Also, the struct is sorted primarily on the path it contains.
+    struct WalFileInfo {
+      explicit WalFileInfo(std::filesystem::path path, std::string uuid,
+                           std::string epoch_id)
           : path(std::move(path)),
             uuid(std::move(uuid)),
             epoch_id(std::move(epoch_id)) {}
@@ -213,10 +216,9 @@ std::optional<RecoveryInfo> RecoverData(
       std::string uuid;
       std::string epoch_id;
 
-      auto operator<=>(const SmallWalInfo &) const = default;
+      auto operator<=>(const WalFileInfo &) const = default;
     };
-    // Array of all discovered WAL files, ordered by name.
-    std::vector<SmallWalInfo> wal_files;
+    std::vector<WalFileInfo> wal_files;
     for (const auto &item :
          std::filesystem::directory_iterator(wal_directory, error_code)) {
       if (!item.is_regular_file()) continue;

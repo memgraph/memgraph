@@ -51,7 +51,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 RecoveredSnapshot LoadSnapshot(
     const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges,
-    std::vector<std::pair<std::string, uint64_t>> *epoch_history,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
     NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     Config::Items items);
 
@@ -63,7 +63,7 @@ void CreateSnapshot(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
     Indices *indices, Constraints *constraints, Config::Items items,
     const std::string &uuid, std::string_view epoch_id,
-    const std::vector<std::pair<std::string, uint64_t>> &epoch_history,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
     utils::FileRetainer *file_retainer);
 
 }  // namespace storage::durability
