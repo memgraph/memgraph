@@ -24,6 +24,8 @@
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
+#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #endif
 
@@ -34,6 +36,10 @@ DEFINE_bool(async_replica, false, "Set to true to be the replica");
 #endif
 
 namespace storage {
+
+namespace {
+constexpr uint16_t kEpochHistoryRetention = 1000;
+}  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
                             utils::SkipList<Vertex>::Iterator end,
@@ -323,7 +329,8 @@ Storage::Storage(Config config)
                      durability::kWalDirectory),
       lock_file_path_(config_.durability.storage_directory /
                       durability::kLockFile),
-      uuid_(utils::GenerateUUID()) {
+      uuid_(utils::GenerateUUID()),
+      epoch_id_(utils::GenerateUUID()) {
   if (config_.durability.snapshot_wal_mode !=
           Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit ||
@@ -355,9 +362,9 @@ Storage::Storage(Config config)
   }
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(
-        snapshot_directory_, wal_directory_, &uuid_, &vertices_, &edges_,
-        &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
-        &wal_seq_num_);
+        snapshot_directory_, wal_directory_, &uuid_, &epoch_id_,
+        &epoch_history_, &vertices_, &edges_, &edge_count_, &name_id_mapper_,
+        &indices_, &constraints_, config_.items, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -418,7 +425,6 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    SetReplicationRole<ReplicationRole::MAIN>();
     RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000});
     RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002});
   } else if (FLAGS_replica) {
@@ -1661,8 +1667,8 @@ bool Storage::InitializeWalFile() {
       Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, config_.items, &name_id_mapper_,
-                      wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items,
+                      &name_id_mapper_, wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1697,13 +1703,10 @@ void Storage::AppendToWal(const Transaction &transaction,
       transaction.commit_timestamp->load(std::memory_order_acquire);
 
 #ifdef MG_ENTERPRISE
-  // We need to keep this lock because handler takes a pointer to the client
-  // from which it was created
-  std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
   if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
-        client.StartTransactionReplication(wal_file_->SequenceNumber());
+        client->StartTransactionReplication(wal_file_->SequenceNumber());
       }
     });
   }
@@ -1727,7 +1730,7 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
         replication_clients_.WithLock([&](auto &clients) {
           for (auto &client : clients) {
-            client.IfStreamingTransaction([&](auto &stream) {
+            client->IfStreamingTransaction([&](auto &stream) {
               stream.AppendDelta(*delta, parent, final_commit_timestamp);
             });
           }
@@ -1869,10 +1872,10 @@ void Storage::AppendToWal(const Transaction &transaction,
 #ifdef MG_ENTERPRISE
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client.IfStreamingTransaction([&](auto &stream) {
+      client->IfStreamingTransaction([&](auto &stream) {
         stream.AppendTransactionEnd(final_commit_timestamp);
       });
-      client.FinalizeTransactionReplication();
+      client->FinalizeTransactionReplication();
     }
   });
 #endif
@@ -1886,16 +1889,15 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
                              final_commit_timestamp);
 #ifdef MG_ENTERPRISE
   {
-    std::shared_lock<utils::RWLock> replication_guard(replication_lock_);
     if (replication_role_.load() == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
-          client.StartTransactionReplication(wal_file_->SequenceNumber());
-          client.IfStreamingTransaction([&](auto &stream) {
+          client->StartTransactionReplication(wal_file_->SequenceNumber());
+          client->IfStreamingTransaction([&](auto &stream) {
             stream.AppendOperation(operation, label, properties,
                                    final_commit_timestamp);
           });
-          client.FinalizeTransactionReplication();
+          client->FinalizeTransactionReplication();
         }
       });
     }
@@ -1922,8 +1924,8 @@ void Storage::CreateSnapshot() {
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count,
                              &vertices_, &edges_, &name_id_mapper_, &indices_,
-                             &constraints_, config_.items, uuid_,
-                             &file_retainer_);
+                             &constraints_, config_.items, uuid_, epoch_id_,
+                             epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_.MarkFinished(transaction.start_timestamp);
@@ -1945,678 +1947,71 @@ uint64_t Storage::CommitTimestamp(
 }
 
 #ifdef MG_ENTERPRISE
-std::pair<durability::WalInfo, std::filesystem::path> Storage::LoadWal(
-    replication::Decoder *decoder,
-    durability::RecoveredIndicesAndConstraints *indices_constraints) {
-  auto maybe_wal_path = decoder->ReadFile(wal_directory_, "_MAIN");
-  CHECK(maybe_wal_path) << "Failed to load WAL!";
-  DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
-  try {
-    auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
-    auto info = durability::LoadWal(
-        *maybe_wal_path, indices_constraints, last_commit_timestamp_,
-        &vertices_, &edges_, &name_id_mapper_, &edge_count_, config_.items);
-    vertex_id_ = std::max(vertex_id_.load(), info.next_vertex_id);
-    edge_id_ = std::max(edge_id_.load(), info.next_edge_id);
-    timestamp_ = std::max(timestamp_, info.next_timestamp);
-    if (info.next_timestamp != 0) {
-      last_commit_timestamp_ = info.next_timestamp - 1;
-    }
-    DLOG(INFO) << *maybe_wal_path << " loaded successfully";
-    return {std::move(wal_info), std::move(*maybe_wal_path)};
-  } catch (const durability::RecoveryFailure &e) {
-    LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
-               << " because of: " << e.what();
-  }
+void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
+  replication_server_ =
+      std::make_unique<ReplicationServer>(this, std::move(endpoint));
 }
 
-void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
-  replication_server_.emplace();
+void Storage::ConfigureMain() {
+  // Main instance does not need replication server
+  // This should be always called first so we finalize everything
+  replication_server_.reset(nullptr);
 
-  // Create RPC server.
-  // TODO (antonio2368): Add support for SSL.
-  replication_server_->rpc_server_context.emplace();
-  // NOTE: The replication server must have a single thread for processing
-  // because there is no need for more processing threads - each replica can
-  // have only a single main server. Also, the single-threaded guarantee
-  // simplifies the rest of the implementation.
-  replication_server_->rpc_server.emplace(
-      endpoint, &*replication_server_->rpc_server_context,
-      /* workers_count = */ 1);
+  std::unique_lock engine_guard{engine_lock_};
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
+  }
 
-  replication_server_->rpc_server->Register<HeartbeatRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        HeartbeatReq req;
-        slk::Load(&req, req_reader);
-
-        DLOG(INFO) << "Received HeartbeatRpc:";
-
-        HeartbeatRes res{last_commit_timestamp_.load()};
-        slk::Save(res, res_builder);
-      });
-  replication_server_->rpc_server->Register<
-      AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
-    AppendDeltasReq req;
-    slk::Load(&req, req_reader);
-
-    DLOG(INFO) << "Received AppendDeltasRpc:";
-
-    constexpr auto is_transaction_complete =
-        [](const durability::WalDeltaData::Type delta_type) {
-          switch (delta_type) {
-            case durability::WalDeltaData::Type::TRANSACTION_END:
-            case durability::WalDeltaData::Type::LABEL_INDEX_CREATE:
-            case durability::WalDeltaData::Type::LABEL_INDEX_DROP:
-            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-            case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-            case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-            case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-              return true;
-            default:
-              return false;
-          }
-        };
-
-    replication::Decoder decoder(req_reader);
-    const auto read_delta =
-        [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
-      try {
-        auto timestamp = ReadWalDeltaHeader(&decoder);
-        DLOG(INFO) << "       Timestamp " << timestamp;
-        auto delta = ReadWalDeltaData(&decoder);
-        return {timestamp, delta};
-      } catch (const slk::SlkReaderException &) {
-        throw utils::BasicException("Missing data!");
-      } catch (const durability::RecoveryFailure &) {
-        throw utils::BasicException("Invalid data!");
-      }
-    };
-
-    if (req.previous_commit_timestamp != last_commit_timestamp_.load()) {
-      // Empty the stream
-      bool transaction_complete = false;
-      while (!transaction_complete) {
-        DLOG(INFO) << "Skipping delta";
-        const auto [timestamp, delta] = read_delta();
-        transaction_complete = is_transaction_complete(delta.type);
-      }
-
-      AppendDeltasRes res{false, last_commit_timestamp_.load()};
-      slk::Save(res, res_builder);
-      return;
-    }
-
-    if (wal_file_) {
-      if (req.seq_num > wal_file_->SequenceNumber()) {
-        wal_file_->FinalizeWal();
-        wal_file_.reset();
-        wal_seq_num_ = req.seq_num;
-      } else {
-        CHECK(wal_file_->SequenceNumber() == req.seq_num)
-            << "Invalid sequence number of current wal file";
-        wal_seq_num_ = req.seq_num + 1;
-      }
-    } else {
-      wal_seq_num_ = req.seq_num;
-    }
-
-    auto edge_acc = edges_.access();
-    auto vertex_acc = vertices_.access();
-
-    std::optional<std::pair<uint64_t, storage::Storage::Accessor>>
-        commit_timestamp_and_accessor;
-    auto get_transaction =
-        [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
-          if (!commit_timestamp_and_accessor) {
-            commit_timestamp_and_accessor.emplace(commit_timestamp, Access());
-          } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
-            throw utils::BasicException("Received more than one transaction!");
-          }
-          return &commit_timestamp_and_accessor->second;
-        };
-
-    bool transaction_complete = false;
-    for (uint64_t i = 0; !transaction_complete; ++i) {
-      DLOG(INFO) << "  Delta " << i;
-      const auto [timestamp, delta] = read_delta();
-
-      switch (delta.type) {
-        case durability::WalDeltaData::Type::VERTEX_CREATE: {
-          DLOG(INFO) << "       Create vertex "
-                     << delta.vertex_create_delete.gid.AsUint();
-          auto transaction = get_transaction(timestamp);
-          transaction->CreateVertex(delta.vertex_create_delete.gid);
-          break;
-        }
-        case durability::WalDeltaData::Type::VERTEX_DELETE: {
-          DLOG(INFO) << "       Delete vertex "
-                     << delta.vertex_create_delete.gid.AsUint();
-          auto transaction = get_transaction(timestamp);
-          auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid,
-                                                storage::View::NEW);
-          if (!vertex) throw utils::BasicException("Invalid transaction!");
-          auto ret = transaction->DeleteVertex(&*vertex);
-          if (ret.HasError() || !ret.GetValue())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
-          DLOG(INFO) << "       Vertex "
-                     << delta.vertex_add_remove_label.gid.AsUint()
-                     << " add label " << delta.vertex_add_remove_label.label;
-          auto transaction = get_transaction(timestamp);
-          auto vertex = transaction->FindVertex(
-              delta.vertex_add_remove_label.gid, storage::View::NEW);
-          if (!vertex) throw utils::BasicException("Invalid transaction!");
-          auto ret = vertex->AddLabel(
-              transaction->NameToLabel(delta.vertex_add_remove_label.label));
-          if (ret.HasError() || !ret.GetValue())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
-          DLOG(INFO) << "       Vertex "
-                     << delta.vertex_add_remove_label.gid.AsUint()
-                     << " remove label " << delta.vertex_add_remove_label.label;
-          auto transaction = get_transaction(timestamp);
-          auto vertex = transaction->FindVertex(
-              delta.vertex_add_remove_label.gid, storage::View::NEW);
-          if (!vertex) throw utils::BasicException("Invalid transaction!");
-          auto ret = vertex->RemoveLabel(
-              transaction->NameToLabel(delta.vertex_add_remove_label.label));
-          if (ret.HasError() || !ret.GetValue())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-          DLOG(INFO) << "       Vertex "
-                     << delta.vertex_edge_set_property.gid.AsUint()
-                     << " set property "
-                     << delta.vertex_edge_set_property.property << " to "
-                     << delta.vertex_edge_set_property.value;
-          auto transaction = get_transaction(timestamp);
-          auto vertex = transaction->FindVertex(
-              delta.vertex_edge_set_property.gid, storage::View::NEW);
-          if (!vertex) throw utils::BasicException("Invalid transaction!");
-          auto ret =
-              vertex->SetProperty(transaction->NameToProperty(
-                                      delta.vertex_edge_set_property.property),
-                                  delta.vertex_edge_set_property.value);
-          if (ret.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::EDGE_CREATE: {
-          DLOG(INFO) << "       Create edge "
-                     << delta.edge_create_delete.gid.AsUint() << " of type "
-                     << delta.edge_create_delete.edge_type << " from vertex "
-                     << delta.edge_create_delete.from_vertex.AsUint()
-                     << " to vertex "
-                     << delta.edge_create_delete.to_vertex.AsUint();
-          auto transaction = get_transaction(timestamp);
-          auto from_vertex = transaction->FindVertex(
-              delta.edge_create_delete.from_vertex, storage::View::NEW);
-          if (!from_vertex) throw utils::BasicException("Invalid transaction!");
-          auto to_vertex = transaction->FindVertex(
-              delta.edge_create_delete.to_vertex, storage::View::NEW);
-          if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-          auto edge = transaction->CreateEdge(
-              &*from_vertex, &*to_vertex,
-              transaction->NameToEdgeType(delta.edge_create_delete.edge_type),
-              delta.edge_create_delete.gid);
-          if (edge.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::EDGE_DELETE: {
-          DLOG(INFO) << "       Delete edge "
-                     << delta.edge_create_delete.gid.AsUint() << " of type "
-                     << delta.edge_create_delete.edge_type << " from vertex "
-                     << delta.edge_create_delete.from_vertex.AsUint()
-                     << " to vertex "
-                     << delta.edge_create_delete.to_vertex.AsUint();
-          auto transaction = get_transaction(timestamp);
-          auto from_vertex = transaction->FindVertex(
-              delta.edge_create_delete.from_vertex, storage::View::NEW);
-          if (!from_vertex) throw utils::BasicException("Invalid transaction!");
-          auto to_vertex = transaction->FindVertex(
-              delta.edge_create_delete.to_vertex, storage::View::NEW);
-          if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-          auto edges = from_vertex->OutEdges(
-              storage::View::NEW,
-              {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)},
-              &*to_vertex);
-          if (edges.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          if (edges->size() != 1)
-            throw utils::BasicException("Invalid transaction!");
-          auto &edge = (*edges)[0];
-          auto ret = transaction->DeleteEdge(&edge);
-          if (ret.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
-          DLOG(INFO) << "       Edge "
-                     << delta.vertex_edge_set_property.gid.AsUint()
-                     << " set property "
-                     << delta.vertex_edge_set_property.property << " to "
-                     << delta.vertex_edge_set_property.value;
-
-          if (!config_.items.properties_on_edges)
-            throw utils::BasicException(
-                "Can't set properties on edges because properties on edges "
-                "are disabled!");
-
-          auto transaction = get_transaction(timestamp);
-
-          // The following block of code effectively implements `FindEdge` and
-          // yields an accessor that is only valid for managing the edge's
-          // properties.
-          auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
-          if (edge == edge_acc.end())
-            throw utils::BasicException("Invalid transaction!");
-          // The edge visibility check must be done here manually because we
-          // don't allow direct access to the edges through the public API.
-          {
-            bool is_visible = true;
-            Delta *delta = nullptr;
-            {
-              std::lock_guard<utils::SpinLock> guard(edge->lock);
-              is_visible = !edge->deleted;
-              delta = edge->delta;
-            }
-            ApplyDeltasForRead(&transaction->transaction_, delta, View::NEW,
-                               [&is_visible](const Delta &delta) {
-                                 switch (delta.action) {
-                                   case Delta::Action::ADD_LABEL:
-                                   case Delta::Action::REMOVE_LABEL:
-                                   case Delta::Action::SET_PROPERTY:
-                                   case Delta::Action::ADD_IN_EDGE:
-                                   case Delta::Action::ADD_OUT_EDGE:
-                                   case Delta::Action::REMOVE_IN_EDGE:
-                                   case Delta::Action::REMOVE_OUT_EDGE:
-                                     break;
-                                   case Delta::Action::RECREATE_OBJECT: {
-                                     is_visible = true;
-                                     break;
-                                   }
-                                   case Delta::Action::DELETE_OBJECT: {
-                                     is_visible = false;
-                                     break;
-                                   }
-                                 }
-                               });
-            if (!is_visible)
-              throw utils::BasicException("Invalid transaction!");
-          }
-          EdgeRef edge_ref(&*edge);
-          // Here we create an edge accessor that we will use to get the
-          // properties of the edge. The accessor is created with an invalid
-          // type and invalid from/to pointers because we don't know them
-          // here, but that isn't an issue because we won't use that part of
-          // the API here.
-          auto ea = EdgeAccessor{edge_ref,
-                                 EdgeTypeId::FromUint(0UL),
-                                 nullptr,
-                                 nullptr,
-                                 &transaction->transaction_,
-                                 &indices_,
-                                 &constraints_,
-                                 config_.items};
-
-          auto ret =
-              ea.SetProperty(transaction->NameToProperty(
-                                 delta.vertex_edge_set_property.property),
-                             delta.vertex_edge_set_property.value);
-          if (ret.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-
-        case durability::WalDeltaData::Type::TRANSACTION_END: {
-          DLOG(INFO) << "       Transaction end";
-          if (!commit_timestamp_and_accessor ||
-              commit_timestamp_and_accessor->first != timestamp)
-            throw utils::BasicException("Invalid data!");
-          auto ret = commit_timestamp_and_accessor->second.Commit(
-              commit_timestamp_and_accessor->first);
-          if (ret.HasError())
-            throw utils::BasicException("Invalid transaction!");
-          commit_timestamp_and_accessor = std::nullopt;
-          break;
-        }
-
-        case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
-          DLOG(INFO) << "       Create label index on :"
-                     << delta.operation_label.label;
-          // Need to send the timestamp
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          if (!CreateIndex(NameToLabel(delta.operation_label.label), timestamp))
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
-          DLOG(INFO) << "       Drop label index on :"
-                     << delta.operation_label.label;
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          if (!DropIndex(NameToLabel(delta.operation_label.label), timestamp))
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
-          DLOG(INFO) << "       Create label+property index on :"
-                     << delta.operation_label_property.label << " ("
-                     << delta.operation_label_property.property << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          if (!CreateIndex(
-                  NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property),
-                  timestamp))
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
-          DLOG(INFO) << "       Drop label+property index on :"
-                     << delta.operation_label_property.label << " ("
-                     << delta.operation_label_property.property << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          if (!DropIndex(
-                  NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property),
-                  timestamp))
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
-          DLOG(INFO) << "       Create existence constraint on :"
-                     << delta.operation_label_property.label << " ("
-                     << delta.operation_label_property.property << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          auto ret = CreateExistenceConstraint(
-              NameToLabel(delta.operation_label_property.label),
-              NameToProperty(delta.operation_label_property.property),
-              timestamp);
-          if (!ret.HasValue() || !ret.GetValue())
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
-          DLOG(INFO) << "       Drop existence constraint on :"
-                     << delta.operation_label_property.label << " ("
-                     << delta.operation_label_property.property << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          if (!DropExistenceConstraint(
-                  NameToLabel(delta.operation_label_property.label),
-                  NameToProperty(delta.operation_label_property.property),
-                  timestamp))
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
-          std::stringstream ss;
-          utils::PrintIterable(ss, delta.operation_label_properties.properties);
-          DLOG(INFO) << "       Create unique constraint on :"
-                     << delta.operation_label_properties.label << " ("
-                     << ss.str() << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          std::set<PropertyId> properties;
-          for (const auto &prop : delta.operation_label_properties.properties) {
-            properties.emplace(NameToProperty(prop));
-          }
-          auto ret = CreateUniqueConstraint(
-              NameToLabel(delta.operation_label_properties.label), properties,
-              timestamp);
-          if (!ret.HasValue() ||
-              ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-        case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
-          std::stringstream ss;
-          utils::PrintIterable(ss, delta.operation_label_properties.properties);
-          DLOG(INFO) << "       Drop unique constraint on :"
-                     << delta.operation_label_properties.label << " ("
-                     << ss.str() << ")";
-          if (commit_timestamp_and_accessor)
-            throw utils::BasicException("Invalid transaction!");
-          std::set<PropertyId> properties;
-          for (const auto &prop : delta.operation_label_properties.properties) {
-            properties.emplace(NameToProperty(prop));
-          }
-          auto ret = DropUniqueConstraint(
-              NameToLabel(delta.operation_label_properties.label), properties,
-              timestamp);
-          if (ret != UniqueConstraints::DeletionStatus::SUCCESS)
-            throw utils::BasicException("Invalid transaction!");
-          break;
-        }
-      }
-      transaction_complete = is_transaction_complete(delta.type);
-    }
-
-    if (commit_timestamp_and_accessor)
-      throw utils::BasicException("Invalid data!");
-
-    AppendDeltasRes res{true, last_commit_timestamp_.load()};
-    slk::Save(res, res_builder);
-  });
-  replication_server_->rpc_server->Register<SnapshotRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received SnapshotRpc";
-        SnapshotReq req;
-        slk::Load(&req, req_reader);
-
-        replication::Decoder decoder(req_reader);
-
-        utils::EnsureDirOrDie(snapshot_directory_);
-
-        const auto maybe_snapshot_path = decoder.ReadFile(snapshot_directory_);
-        CHECK(maybe_snapshot_path) << "Failed to load snapshot!";
-        DLOG(INFO) << "Received snapshot saved to " << *maybe_snapshot_path;
-
-        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-        // Clear the database
-        vertices_.clear();
-        edges_.clear();
-
-        constraints_ = Constraints();
-        // TODO (antonio2368): Check if there's a less hacky way
-        indices_.label_index =
-            LabelIndex(&indices_, &constraints_, config_.items);
-        indices_.label_property_index =
-            LabelPropertyIndex(&indices_, &constraints_, config_.items);
-        try {
-          DLOG(INFO) << "Loading snapshot";
-          auto recovered_snapshot = durability::LoadSnapshot(
-              *maybe_snapshot_path, &vertices_, &edges_, &name_id_mapper_,
-              &edge_count_, config_.items);
-          DLOG(INFO) << "Snapshot loaded successfully";
-          // If this step is present it should always be the first step of
-          // the recovery so we use the UUID we read from snasphost
-          uuid_ = recovered_snapshot.snapshot_info.uuid;
-          const auto &recovery_info = recovered_snapshot.recovery_info;
-          vertex_id_ = recovery_info.next_vertex_id;
-          edge_id_ = recovery_info.next_edge_id;
-          timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-
-          durability::RecoverIndicesAndConstraints(
-              recovered_snapshot.indices_constraints, &indices_, &constraints_,
-              &vertices_);
-        } catch (const durability::RecoveryFailure &e) {
-          // TODO (antonio2368): What to do if the sent snapshot is invalid
-          LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
-        }
-        last_commit_timestamp_ = timestamp_ - 1;
-        storage_guard.unlock();
-
-        SnapshotRes res{true, last_commit_timestamp_.load()};
-        slk::Save(res, res_builder);
-
-        // Delete other durability files
-        auto snapshot_files =
-            durability::GetSnapshotFiles(snapshot_directory_, uuid_);
-        for (const auto &[path, uuid, _] : snapshot_files) {
-          if (path != *maybe_snapshot_path) {
-            file_retainer_.DeleteFile(path);
-          }
-        }
-
-        auto wal_files = durability::GetWalFiles(wal_directory_, uuid_);
-        if (wal_files) {
-          for (const auto &[seq_num, from_timestamp, to_timestamp, _, path] :
-               *wal_files) {
-            file_retainer_.DeleteFile(path);
-          }
-
-          wal_file_.reset();
-        }
-      });
-  replication_server_->rpc_server->Register<OnlySnapshotRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received OnlySnapshotRpc";
-        OnlySnapshotReq req;
-        slk::Load(&req, req_reader);
-
-        CHECK(last_commit_timestamp_.load() < req.snapshot_timestamp)
-            << "Invalid snapshot timestamp, it should be less than the last"
-               "commited timestamp";
-
-        last_commit_timestamp_.store(req.snapshot_timestamp);
-
-        SnapshotRes res{true, last_commit_timestamp_.load()};
-        slk::Save(res, res_builder);
-      });
-  replication_server_->rpc_server->Register<WalFilesRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received WalFilesRpc";
-        WalFilesReq req;
-        slk::Load(&req, req_reader);
-
-        const auto wal_file_number = req.file_number;
-        DLOG(INFO) << "Received WAL files: " << wal_file_number;
-
-        replication::Decoder decoder(req_reader);
-
-        utils::EnsureDirOrDie(wal_directory_);
-
-        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-        durability::RecoveredIndicesAndConstraints indices_constraints;
-        auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
-        if (wal_info.seq_num == 0) {
-          uuid_ = wal_info.uuid;
-        }
-        // Check the seq number of the first wal file to see if it's the
-        // finalized form of the current wal on replica
-        if (wal_file_) {
-          if (wal_file_->SequenceNumber() == wal_info.seq_num &&
-              wal_file_->Path() != path) {
-            wal_file_->DeleteWal();
-          }
-          wal_file_.reset();
-        }
-
-        for (auto i = 1; i < wal_file_number; ++i) {
-          LoadWal(&decoder, &indices_constraints);
-        }
-
-        durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
-                                                 &constraints_, &vertices_);
-        storage_guard.unlock();
-
-        WalFilesRes res{true, last_commit_timestamp_.load()};
-        slk::Save(res, res_builder);
-      });
-  replication_server_->rpc_server->Register<CurrentWalRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received CurrentWalRpc";
-        CurrentWalReq req;
-        slk::Load(&req, req_reader);
-
-        replication::Decoder decoder(req_reader);
-
-        utils::EnsureDirOrDie(wal_directory_);
-
-        std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-        durability::RecoveredIndicesAndConstraints indices_constraints;
-        auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
-        if (wal_info.seq_num == 0) {
-          uuid_ = wal_info.uuid;
-        }
-
-        if (wal_file_ && wal_file_->SequenceNumber() == wal_info.seq_num &&
-            wal_file_->Path() != path) {
-          // Delete the old wal file
-          file_retainer_.DeleteFile(wal_file_->Path());
-        }
-        CHECK(config_.durability.snapshot_wal_mode ==
-              Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
-        wal_file_.emplace(std::move(path), config_.items, &name_id_mapper_,
-                          wal_info.seq_num, wal_info.from_timestamp,
-                          wal_info.to_timestamp, wal_info.num_deltas,
-                          &file_retainer_);
-        durability::RecoverIndicesAndConstraints(indices_constraints, &indices_,
-                                                 &constraints_, &vertices_);
-        storage_guard.unlock();
-
-        CurrentWalRes res{true, last_commit_timestamp_.load()};
-        slk::Save(res, res_builder);
-      });
-  replication_server_->rpc_server->Start();
+  // Generate new epoch id and save the last one to the history.
+  if (epoch_history_.size() == kEpochHistoryRetention) {
+    epoch_history_.pop_front();
+  }
+  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+  epoch_id_ = utils::GenerateUUID();
 }
 
 void Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
     const replication::ReplicationMode replication_mode) {
-  std::shared_lock guard(replication_lock_);
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
 
-  // We can safely add new elements to the list because it doesn't validate
-  // existing references/iteratos
   replication_clients_.WithLock([&](auto &clients) {
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &client) { return client.Name() == name; })) {
+                    [&](auto &client) { return client->Name() == name; })) {
       throw utils::BasicException("Replica with a same name already exists!");
     }
-    clients.emplace_back(std::move(name), last_commit_timestamp_,
-                         &name_id_mapper_, config_.items, &file_retainer_,
-                         snapshot_directory_, wal_directory_, uuid_, &wal_file_,
-                         &engine_lock_, endpoint, false, replication_mode);
   });
+
+  auto client = std::make_unique<ReplicationClient>(
+      std::move(name), this, endpoint, false, replication_mode);
+
+  replication_clients_.WithLock(
+      [&](auto &clients) { clients.push_back(std::move(client)); });
 }
 
 void Storage::UnregisterReplica(const std::string_view name) {
-  std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
   replication_clients_.WithLock([&](auto &clients) {
-    clients.remove_if(
-        [&](const auto &client) { return client.Name() == name; });
+    std::erase_if(clients,
+                  [&](const auto &client) { return client->Name() == name; });
   });
 }
 
-std::optional<replication::ReplicaState> Storage::ReplicaState(
+std::optional<replication::ReplicaState> Storage::GetReplicaState(
     const std::string_view name) {
   return replication_clients_.WithLock(
       [&](auto &clients) -> std::optional<replication::ReplicaState> {
         const auto client_it = std::find_if(
             clients.cbegin(), clients.cend(),
-            [name](auto &client) { return client.Name() == name; });
+            [name](auto &client) { return client->Name() == name; });
         if (client_it == clients.cend()) {
           return std::nullopt;
         }
-        return client_it->State();
+        return (*client_it)->State();
       });
 }
 #endif

@@ -24,10 +24,11 @@
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
-#include "storage/v2/replication/replication.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #endif
@@ -419,13 +420,10 @@ class Storage final {
       return;
     }
 
-    std::unique_lock<utils::RWLock> replication_guard(replication_lock_);
-
     if constexpr (role == ReplicationRole::REPLICA) {
       ConfigureReplica(std::forward<Args>(args)...);
-    } else if (role == ReplicationRole::MAIN) {
-      // Main instance does not need replication server
-      replication_server_.reset();
+    } else if constexpr (role == ReplicationRole::MAIN) {
+      ConfigureMain(std::forward<Args>(args)...);
     }
 
     replication_role_.store(role);
@@ -436,7 +434,8 @@ class Storage final {
                            replication::ReplicationMode::SYNC);
   void UnregisterReplica(std::string_view name);
 
-  std::optional<replication::ReplicaState> ReplicaState(std::string_view name);
+  std::optional<replication::ReplicaState> GetReplicaState(
+      std::string_view name);
 #endif
 
  private:
@@ -462,10 +461,7 @@ class Storage final {
 
 #ifdef MG_ENTERPRISE
   void ConfigureReplica(io::network::Endpoint endpoint);
-
-  std::pair<durability::WalInfo, std::filesystem::path> LoadWal(
-      replication::Decoder *decoder,
-      durability::RecoveredIndicesAndConstraints *indices_constraints);
+  void ConfigureMain();
 #endif
 
   // Main storage lock.
@@ -538,6 +534,26 @@ class Storage final {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
+  // UUID to distinguish different main instance runs for replication process
+  // on SAME storage.
+  // Multiple instances can have same storage UUID and be MAIN at the same time.
+  // We cannot compare commit timestamps of those instances if one of them
+  // becomes the replica of the other so we use epoch_id_ as additional
+  // discriminating property.
+  // Example of this:
+  // We have 2 instances of the same storage, S1 and S2.
+  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
+  // At the moment when S1 commited a transaction with timestamp 20, and S2
+  // a different transaction with timestamp 15, we change S2's role to REPLICA
+  // and register it on S1.
+  // Without using the epoch_id, we don't know that S1 and S2 have completely
+  // different transactions, we think that the S2 is behind only by 5 commits.
+  std::string epoch_id_;
+  // History of the previous epoch ids.
+  // Each value consists of the epoch id along the last commit belonging to that
+  // epoch.
+  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
+
   std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
@@ -545,32 +561,26 @@ class Storage final {
 
   // Replication
 #ifdef MG_ENTERPRISE
+  // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
-  utils::RWLock replication_lock_{utils::RWLock::Priority::WRITE};
 
-  struct ReplicationServer {
-    std::optional<communication::ServerContext> rpc_server_context;
-    std::optional<rpc::Server> rpc_server;
+  class ReplicationServer;
+  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
-    explicit ReplicationServer() = default;
-    ReplicationServer(const ReplicationServer &) = delete;
-    ReplicationServer(ReplicationServer &&) = delete;
-    ReplicationServer &operator=(const ReplicationServer &) = delete;
-    ReplicationServer &operator=(ReplicationServer &&) = delete;
-
-    ~ReplicationServer() {
-      if (rpc_server) {
-        rpc_server->Shutdown();
-        rpc_server->AwaitShutdown();
-      }
-    }
-  };
-
+  class ReplicationClient;
+  // We create ReplicationClient using unique_ptr so we can move
+  // newly created client into the vector.
+  // We cannot move the client directly because it contains ThreadPool
+  // which cannot be moved. Also, the move is necessary because
+  // we don't want to create the client directly inside the vector
+  // because that would require the lock on the list putting all
+  // commits (they iterate list of clients) to halt.
+  // This way we can initiliaze client in main thread which means
+  // that we can immediately notify the user if the intiialization
+  // failed.
   using ReplicationClientList =
-      utils::Synchronized<std::list<replication::ReplicationClient>,
+      utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
                           utils::SpinLock>;
-
-  std::optional<ReplicationServer> replication_server_;
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
