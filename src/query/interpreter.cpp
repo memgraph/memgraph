@@ -165,7 +165,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
 #ifdef MG_ENTERPRISE
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_{db} {}
+  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
 
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_role) override {
@@ -241,6 +241,7 @@ class NoReplicationInCommunity : public query::QueryRuntimeException {
 };
 
 class ReplQueryHandler : public query::ReplicationQueryHandler {
+ public:
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_mode) override {
     throw NoReplicationInCommunity();
