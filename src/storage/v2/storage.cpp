@@ -38,7 +38,7 @@ DEFINE_bool(async_replica, false, "Set to true to be the replica");
 namespace storage {
 
 namespace {
-constexpr uint16_t epoch_history_rentetion_ = 1000;
+constexpr uint16_t kEpochHistoryRetention = 1000;
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
@@ -1964,7 +1964,7 @@ void Storage::ConfigureMain() {
   }
 
   // Generate new epoch id and save the last one to the history.
-  if (epoch_history_.size() == epoch_history_rentetion_) {
+  if (epoch_history_.size() == kEpochHistoryRetention) {
     epoch_history_.pop_front();
   }
   epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
