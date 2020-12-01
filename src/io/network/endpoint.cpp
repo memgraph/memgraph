@@ -67,7 +67,7 @@ Endpoint::ParseSocketOrIpAddress(
 Endpoint::Endpoint() {}
 Endpoint::Endpoint(std::string ip_address, uint16_t port)
     : address_(std::move(ip_address)), port_(port) {
-  unsigned char ip_family = GetIpFamily(ip_address);
+  unsigned char ip_family = GetIpFamily(address_);
   CHECK(ip_family != 0) << "Not a valid IPv4 or IPv6 address: " << ip_address;
   family_ = ip_family;
 }

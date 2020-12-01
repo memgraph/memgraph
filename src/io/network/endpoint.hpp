@@ -16,7 +16,7 @@ namespace io::network {
 class Endpoint {
  public:
   Endpoint();
-  Endpoint(std::string address, uint16_t port);
+  Endpoint(std::string ip_address, uint16_t port);
   // TODO: Remove these since members are public
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }

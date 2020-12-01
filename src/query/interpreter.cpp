@@ -242,6 +242,9 @@ class NoReplicationInCommunity : public query::QueryRuntimeException {
 
 class ReplQueryHandler : public query::ReplicationQueryHandler {
  public:
+  // Dummy ctor - just there to make the replication query handler work
+  // in both community and enterprise versions.
+  explicit ReplQueryHandler(storage::Storage *db) {}
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_mode) override {
     throw NoReplicationInCommunity();
