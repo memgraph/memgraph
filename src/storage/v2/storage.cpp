@@ -1959,6 +1959,7 @@ uint64_t Storage::CommitTimestamp(
 void Storage::SetReplicaRole(
     io::network::Endpoint endpoint,
     const replication::ReplicationServerConfig &config) {
+  // We don't want to restart the server if we're already a REPLICA
   if (replication_role_ == ReplicationRole::REPLICA) {
     return;
   }
@@ -1970,6 +1971,8 @@ void Storage::SetReplicaRole(
 }
 
 void Storage::SetMainReplicationRole() {
+  // We don't want to generate new epoch_id and do the
+  // cleanup if we're already a MAIN
   if (replication_role_ == ReplicationRole::MAIN) {
     return;
   }
@@ -2023,10 +2026,21 @@ Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
     return RegisterReplicaError::CONNECTION_FAILED;
   }
 
-  replication_clients_.WithLock(
-      [&](auto &clients) { clients.push_back(std::move(client)); });
+  return replication_clients_.WithLock(
+      [&](auto &clients)
+          -> utils::BasicResult<Storage::RegisterReplicaError, void> {
+        // Another thread could have added a client with same name while
+        // we were connecting to this client.
+        if (std::any_of(clients.begin(), clients.end(),
+                        [&](auto &other_client) {
+                          return client->Name() == other_client->Name();
+                        })) {
+          return RegisterReplicaError::NAME_EXISTS;
+        }
 
-  return {};
+        clients.push_back(std::move(client));
+        return {};
+      });
 }
 
 bool Storage::UnregisterReplica(const std::string_view name) {
