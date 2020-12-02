@@ -415,21 +415,11 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-#ifdef MG_ENTERPRISE
-  template <ReplicationRole role, typename... Args>
-  void SetReplicationRole(Args &&...args) {
-    if (replication_role_.load() == role) {
-      return;
-    }
+#if MG_ENTERPRISE
+  void SetReplicaRole(io::network::Endpoint endpoint,
+                      const replication::ReplicationServerConfig &config = {});
 
-    if constexpr (role == ReplicationRole::REPLICA) {
-      ConfigureReplica(std::forward<Args>(args)...);
-    } else if constexpr (role == ReplicationRole::MAIN) {
-      ConfigureMain(std::forward<Args>(args)...);
-    }
-
-    replication_role_.store(role);
-  }
+  void SetMainReplicationRole();
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
@@ -477,10 +467,6 @@ class Storage final {
       std::optional<uint64_t> desired_commit_timestamp = {});
 
 #ifdef MG_ENTERPRISE
-  void ConfigureReplica(
-      io::network::Endpoint endpoint,
-      const replication::ReplicationServerConfig &config = {});
-  void ConfigureMain();
 #endif
 
   // Main storage lock.

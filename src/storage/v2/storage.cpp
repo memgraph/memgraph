@@ -431,11 +431,9 @@ Storage::Storage(Config config)
     RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002},
                     replication::ReplicationMode::ASYNC);
   } else if (FLAGS_replica) {
-    SetReplicationRole<ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 10000});
+    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
   } else if (FLAGS_async_replica) {
-    SetReplicationRole<ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 10002});
+    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10002});
   }
 #endif
 }
@@ -1950,30 +1948,44 @@ uint64_t Storage::CommitTimestamp(
 }
 
 #ifdef MG_ENTERPRISE
-void Storage::ConfigureReplica(
+void Storage::SetReplicaRole(
     io::network::Endpoint endpoint,
     const replication::ReplicationServerConfig &config) {
+  if (replication_role_ == ReplicationRole::REPLICA) {
+    return;
+  }
+
   replication_server_ =
       std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
+
+  replication_role_.store(ReplicationRole::REPLICA);
 }
 
-void Storage::ConfigureMain() {
+void Storage::SetMainReplicationRole() {
+  if (replication_role_ == ReplicationRole::MAIN) {
+    return;
+  }
+
   // Main instance does not need replication server
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  std::unique_lock engine_guard{engine_lock_};
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_.reset();
+  {
+    std::unique_lock engine_guard{engine_lock_};
+    if (wal_file_) {
+      wal_file_->FinalizeWal();
+      wal_file_.reset();
+    }
+
+    // Generate new epoch id and save the last one to the history.
+    if (epoch_history_.size() == kEpochHistoryRetention) {
+      epoch_history_.pop_front();
+    }
+    epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+    epoch_id_ = utils::GenerateUUID();
   }
 
-  // Generate new epoch id and save the last one to the history.
-  if (epoch_history_.size() == kEpochHistoryRetention) {
-    epoch_history_.pop_front();
-  }
-  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-  epoch_id_ = utils::GenerateUUID();
+  replication_role_.store(ReplicationRole::MAIN);
 }
 
 bool Storage::RegisterReplica(

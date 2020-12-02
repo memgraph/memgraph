@@ -45,8 +45,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10000});
+  replica_store.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
   main_store.RegisterReplica("REPLICA",
                              io::network::Endpoint{"127.0.0.1", 10000},
@@ -283,8 +282,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10000});
+  replica_store1.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
   storage::Storage replica_store2(
       {.durability = {
@@ -292,8 +290,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
            .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
-  replica_store2.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 20000});
+  replica_store2.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 20000});
 
   main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000},
@@ -435,8 +432,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                         .snapshot_wal_mode = storage::Config::Durability::
                             SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL}});
 
-    replica_store.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 10000});
+    replica_store.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
     main_store.RegisterReplica("REPLICA1",
                                io::network::Endpoint{"127.0.0.1", 10000},
@@ -523,8 +519,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store_async.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 20000});
+  replica_store_async.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 20000});
 
   main_store.RegisterReplica("REPLICA_ASYNC",
                              io::network::Endpoint{"127.0.0.1", 20000},
@@ -580,8 +575,7 @@ TEST_F(ReplicationTest, EpochTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10000});
+  replica_store1.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
   storage::Storage replica_store2(
       {.items = {.properties_on_edges = true},
@@ -591,8 +585,7 @@ TEST_F(ReplicationTest, EpochTest) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store2.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10001});
+  replica_store2.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10001});
 
   main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000},
@@ -625,7 +618,7 @@ TEST_F(ReplicationTest, EpochTest) {
   main_store.UnregisterReplica("REPLICA1");
   main_store.UnregisterReplica("REPLICA2");
 
-  replica_store1.SetReplicationRole<storage::ReplicationRole::MAIN>();
+  replica_store1.SetMainReplicationRole();
   replica_store1.RegisterReplica("REPLICA2",
                                  io::network::Endpoint{"127.0.0.1", 10001},
                                  storage::replication::ReplicationMode::SYNC);
@@ -649,8 +642,7 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
-  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      io::network::Endpoint{"127.0.0.1", 10000});
+  replica_store1.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
   main_store.RegisterReplica("REPLICA1",
                              io::network::Endpoint{"127.0.0.1", 10000},
                              storage::replication::ReplicationMode::SYNC);
@@ -689,8 +681,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
        }});
 
   const io::network::Endpoint replica1_endpoint{"127.0.0.1", 10000};
-  replica_store1.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      replica1_endpoint);
+  replica_store1.SetReplicaRole(replica1_endpoint);
 
   const io::network::Endpoint replica2_endpoint{"127.0.0.1", 10000};
   storage::Storage replica_store2(
@@ -701,8 +692,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
                PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  replica_store2.SetReplicationRole<storage::ReplicationRole::REPLICA>(
-      replica2_endpoint);
+  replica_store2.SetReplicaRole(replica2_endpoint);
 
   const std::string replica1_name{"REPLICA1"};
   main_store.RegisterReplica(replica1_name, replica1_endpoint,
