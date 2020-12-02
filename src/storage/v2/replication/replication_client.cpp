@@ -79,9 +79,19 @@ void Storage::ReplicationClient::TryInitializeClient() {
   try {
     InitializeClient();
   } catch (const rpc::RpcFailedException &) {
+    std::unique_lock client_guarde{client_lock_};
+    replica_state_.store(replication::ReplicaState::INVALID);
     LOG(ERROR) << "Failed to connect to replica " << name_ << " at "
                << rpc_client_->Endpoint();
   }
+}
+
+void Storage::ReplicationClient::HandleRpcFailure() {
+  LOG(ERROR) << "Couldn't replicate data to " << name_;
+  thread_pool_.AddTask([this] {
+    rpc_client_->Abort();
+    this->TryInitializeClient();
+  });
 }
 
 SnapshotRes Storage::ReplicationClient::TransferSnapshot(
@@ -113,48 +123,35 @@ OnlySnapshotRes Storage::ReplicationClient::TransferOnlySnapshot(
   return stream.AwaitResponse();
 }
 
-bool Storage::ReplicationClient::StartTransactionReplication(
+void Storage::ReplicationClient::StartTransactionReplication(
     const uint64_t current_wal_seq_num) {
   std::unique_lock guard(client_lock_);
   const auto status = replica_state_.load();
   switch (status) {
     case replication::ReplicaState::RECOVERY:
       DLOG(INFO) << "Replica " << name_ << " is behind MAIN instance";
-      return false;
+      return;
     case replication::ReplicaState::REPLICATING:
-      DLOG(INFO) << "Replica missed a transaction, going to recovery";
+      DLOG(INFO) << "Replica " << name_ << " missed a transaction";
+      // We missed a transaction because we're still replicating
+      // the previous transaction so we need to go to RECOVERY
+      // state to catch up with the missing transaction
       replica_state_.store(replication::ReplicaState::RECOVERY);
-      // If it's in replicating state, it should have been up to date with all
-      // the commits until now so the replica should contain the
-      // last_commit_timestamp
-      thread_pool_.AddTask([=, this] {
-        this->RecoverReplica(storage_->last_commit_timestamp_.load());
-      });
-      return false;
+      return;
     case replication::ReplicaState::INVALID:
-      LOG(ERROR) << "Couldn't replicate data to " << name_;
-      thread_pool_.AddTask([this] {
-        rpc_client_->Abort();
-        this->TryInitializeClient();
-      });
-      return false;
+      HandleRpcFailure();
+      return;
     case replication::ReplicaState::READY:
       CHECK(!replica_stream_);
       try {
         replica_stream_.emplace(
             ReplicaStream{this, storage_->last_commit_timestamp_.load(),
                           current_wal_seq_num});
+        replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
-        replica_state_.store(replication::ReplicaState::INVALID);
-        LOG(ERROR) << "Couldn't replicate data to " << name_;
-        thread_pool_.AddTask([this] {
-          rpc_client_->Abort();
-          this->TryInitializeClient();
-        });
-        return false;
+        HandleRpcFailure();
       }
-      replica_state_.store(replication::ReplicaState::REPLICATING);
-      return true;
+      return;
   }
 }
 
@@ -164,11 +161,7 @@ void Storage::ReplicationClient::IfStreamingTransaction(
     try {
       callback(*replica_stream_);
     } catch (const rpc::RpcFailedException &) {
-      LOG(ERROR) << "Couldn't replicate data to " << name_;
-      thread_pool_.AddTask([this] {
-        rpc_client_->Abort();
-        this->TryInitializeClient();
-      });
+      HandleRpcFailure();
     }
   }
 }
@@ -223,9 +216,10 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
   if (replica_stream_) {
     try {
       auto response = replica_stream_->Finalize();
-      if (!response.success) {
-        {
-          std::unique_lock client_guard{client_lock_};
+      std::unique_lock client_guard{client_lock_};
+      if (!response.success ||
+          replica_state_ == replication::ReplicaState::RECOVERY) {
+        if (replica_state_ != replication::ReplicaState::RECOVERY) {
           replica_state_.store(replication::ReplicaState::RECOVERY);
         }
         thread_pool_.AddTask([&, this] {
@@ -233,15 +227,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
         });
       }
     } catch (const rpc::RpcFailedException &) {
-      LOG(ERROR) << "Couldn't replicate data to " << name_;
-      {
-        std::unique_lock client_guard{client_lock_};
-        replica_state_.store(replication::ReplicaState::INVALID);
-      }
-      thread_pool_.AddTask([this] {
-        rpc_client_->Abort();
-        TryInitializeClient();
-      });
+      HandleRpcFailure();
     }
     replica_stream_.reset();
   }
@@ -258,45 +244,52 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
 
     const auto steps = GetRecoverySteps(replica_commit, &file_locker);
     for (const auto &recovery_step : steps) {
-      std::visit(
-          [&, this]<typename T>(T &&arg) {
-            using StepType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
-              DLOG(INFO) << "Sending the latest snapshot file: " << arg;
-              auto response = TransferSnapshot(arg);
-              replica_commit = response.current_commit_timestamp;
-              DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: " << replica_commit;
-            } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
-              DLOG(INFO) << "Sending the latest wal files";
-              auto response = TransferWalFiles(arg);
-              replica_commit = response.current_commit_timestamp;
-              DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: " << replica_commit;
-            } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
-              std::unique_lock transaction_guard(storage_->engine_lock_);
-              if (storage_->wal_file_ &&
-                  storage_->wal_file_->SequenceNumber() ==
-                      arg.current_wal_seq_num) {
-                storage_->wal_file_->DisableFlushing();
-                transaction_guard.unlock();
-                DLOG(INFO) << "Sending current wal file";
-                replica_commit = ReplicateCurrentWal();
+      try {
+        std::visit(
+            [&, this]<typename T>(T &&arg) {
+              using StepType = std::remove_cvref_t<T>;
+              if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
+                DLOG(INFO) << "Sending the latest snapshot file: " << arg;
+                auto response = TransferSnapshot(arg);
+                replica_commit = response.current_commit_timestamp;
                 DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
                            << replica_commit;
-                storage_->wal_file_->EnableFlushing();
-              }
-            } else if constexpr (std::is_same_v<StepType,
-                                                RecoveryFinalSnapshot>) {
-              DLOG(INFO) << "Snapshot timestamp is the latest";
-              auto response = TransferOnlySnapshot(arg.snapshot_timestamp);
-              if (response.success) {
+              } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
+                DLOG(INFO) << "Sending the latest wal files";
+                auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
+                DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                           << replica_commit;
+              } else if constexpr (std::is_same_v<StepType,
+                                                  RecoveryCurrentWal>) {
+                std::unique_lock transaction_guard(storage_->engine_lock_);
+                if (storage_->wal_file_ &&
+                    storage_->wal_file_->SequenceNumber() ==
+                        arg.current_wal_seq_num) {
+                  storage_->wal_file_->DisableFlushing();
+                  transaction_guard.unlock();
+                  DLOG(INFO) << "Sending current wal file";
+                  replica_commit = ReplicateCurrentWal();
+                  DLOG(INFO)
+                      << "CURRENT TIMESTAMP ON REPLICA: " << replica_commit;
+                  storage_->wal_file_->EnableFlushing();
+                }
+              } else if constexpr (std::is_same_v<StepType,
+                                                  RecoveryFinalSnapshot>) {
+                DLOG(INFO) << "Snapshot timestamp is the latest";
+                auto response = TransferOnlySnapshot(arg.snapshot_timestamp);
+                if (response.success) {
+                  replica_commit = response.current_commit_timestamp;
+                }
+              } else {
+                static_assert(always_false_v<T>,
+                              "Missing type from variant visitor");
               }
-            } else {
-              static_assert(always_false_v<T>,
-                            "Missing type from variant visitor");
-            }
-          },
-          recovery_step);
+            },
+            recovery_step);
+      } catch (const rpc::RpcFailedException &) {
+        HandleRpcFailure();
+      }
     }
 
     if (storage_->last_commit_timestamp_.load() == replica_commit) {

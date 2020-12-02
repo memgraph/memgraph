@@ -90,7 +90,7 @@ class Storage::ReplicationClient {
     rpc::Client::StreamHandler<CurrentWalRpc> stream_;
   };
 
-  bool StartTransactionReplication(uint64_t current_wal_seq_num);
+  void StartTransactionReplication(uint64_t current_wal_seq_num);
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -156,6 +156,8 @@ class Storage::ReplicationClient {
   void InitializeClient();
 
   void TryInitializeClient();
+
+  void HandleRpcFailure();
 
   std::string name_;
 
