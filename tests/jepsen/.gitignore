@@ -9,3 +9,4 @@ pom.xml.asc
 /.lein-*
 /.nrepl-port
 /store
+/jepsen
