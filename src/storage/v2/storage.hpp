@@ -416,16 +416,20 @@ class Storage final {
   StorageInfo GetInfo() const;
 
 #if MG_ENTERPRISE
+
   void SetReplicaRole(io::network::Endpoint endpoint,
                       const replication::ReplicationServerConfig &config = {});
 
   void SetMainReplicationRole();
 
+  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, CONNECTION_FAILED };
+
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
-  bool RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       replication::ReplicationMode replication_mode,
-                       const replication::ReplicationClientConfig &config = {});
+  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
+      std::string name, io::network::Endpoint endpoint,
+      replication::ReplicationMode replication_mode,
+      const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(std::string_view name);
 

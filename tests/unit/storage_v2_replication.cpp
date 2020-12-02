@@ -47,9 +47,11 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
        }});
   replica_store.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
-  main_store.RegisterReplica("REPLICA",
-                             io::network::Endpoint{"127.0.0.1", 10000},
-                             storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(main_store
+                   .RegisterReplica("REPLICA",
+                                    io::network::Endpoint{"127.0.0.1", 10000},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
 
   // vertex create
   // vertex add label
@@ -292,12 +294,16 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
        }});
   replica_store2.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 20000});
 
-  main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000},
-                             storage::replication::ReplicationMode::SYNC);
-  main_store.RegisterReplica("REPLICA2",
-                             io::network::Endpoint{"127.0.0.1", 20000},
-                             storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(main_store
+                   .RegisterReplica("REPLICA1",
+                                    io::network::Endpoint{"127.0.0.1", 10000},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
+  ASSERT_FALSE(main_store
+                   .RegisterReplica("REPLICA2",
+                                    io::network::Endpoint{"127.0.0.1", 20000},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
 
   const auto *vertex_label = "label";
   const auto *vertex_property = "property";
@@ -434,9 +440,11 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 
     replica_store.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
 
-    main_store.RegisterReplica("REPLICA1",
-                               io::network::Endpoint{"127.0.0.1", 10000},
-                               storage::replication::ReplicationMode::SYNC);
+    ASSERT_FALSE(main_store
+                     .RegisterReplica(
+                         "REPLICA1", io::network::Endpoint{"127.0.0.1", 10000},
+                         storage::replication::ReplicationMode::SYNC)
+                     .HasError());
 
     ASSERT_EQ(main_store.GetReplicaState("REPLICA1"),
               storage::replication::ReplicaState::RECOVERY);
@@ -521,9 +529,12 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 
   replica_store_async.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 20000});
 
-  main_store.RegisterReplica("REPLICA_ASYNC",
-                             io::network::Endpoint{"127.0.0.1", 20000},
-                             storage::replication::ReplicationMode::ASYNC);
+  ASSERT_FALSE(
+      main_store
+          .RegisterReplica("REPLICA_ASYNC",
+                           io::network::Endpoint{"127.0.0.1", 20000},
+                           storage::replication::ReplicationMode::ASYNC)
+          .HasError());
 
   constexpr size_t vertices_create_num = 10;
   std::vector<storage::Gid> created_vertices;
@@ -587,13 +598,17 @@ TEST_F(ReplicationTest, EpochTest) {
 
   replica_store2.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10001});
 
-  main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000},
-                             storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(main_store
+                   .RegisterReplica("REPLICA1",
+                                    io::network::Endpoint{"127.0.0.1", 10000},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
 
-  main_store.RegisterReplica("REPLICA2",
-                             io::network::Endpoint{"127.0.0.1", 10001},
-                             storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(main_store
+                   .RegisterReplica("REPLICA2",
+                                    io::network::Endpoint{"127.0.0.1", 10001},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
 
   std::optional<storage::Gid> vertex_gid;
   {
@@ -619,9 +634,11 @@ TEST_F(ReplicationTest, EpochTest) {
   main_store.UnregisterReplica("REPLICA2");
 
   replica_store1.SetMainReplicationRole();
-  replica_store1.RegisterReplica("REPLICA2",
-                                 io::network::Endpoint{"127.0.0.1", 10001},
-                                 storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(replica_store1
+                   .RegisterReplica("REPLICA2",
+                                    io::network::Endpoint{"127.0.0.1", 10001},
+                                    storage::replication::ReplicationMode::SYNC)
+                   .HasError());
 
   {
     auto acc = main_store.Access();
@@ -643,9 +660,11 @@ TEST_F(ReplicationTest, EpochTest) {
   }
 
   replica_store1.SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
-  main_store.RegisterReplica("REPLICA1",
-                             io::network::Endpoint{"127.0.0.1", 10000},
-                             storage::replication::ReplicationMode::SYNC);
+  ASSERT_TRUE(main_store
+                  .RegisterReplica("REPLICA1",
+                                   io::network::Endpoint{"127.0.0.1", 10000},
+                                   storage::replication::ReplicationMode::SYNC)
+                  .HasError());
 
   {
     auto acc = main_store.Access();
@@ -695,13 +714,18 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   replica_store2.SetReplicaRole(replica2_endpoint);
 
   const std::string replica1_name{"REPLICA1"};
-  main_store.RegisterReplica(replica1_name, replica1_endpoint,
-                             storage::replication::ReplicationMode::SYNC,
-                             {.timeout = 2.0});
+  ASSERT_FALSE(main_store
+                   .RegisterReplica(replica1_name, replica1_endpoint,
+                                    storage::replication::ReplicationMode::SYNC,
+                                    {.timeout = 2.0})
+                   .HasError());
 
   const std::string replica2_name{"REPLICA2"};
-  main_store.RegisterReplica(replica2_name, replica2_endpoint,
-                             storage::replication::ReplicationMode::ASYNC);
+  ASSERT_FALSE(
+      main_store
+          .RegisterReplica(replica2_name, replica2_endpoint,
+                           storage::replication::ReplicationMode::ASYNC)
+          .HasError());
 
   ASSERT_EQ(main_store.GetReplicationRole(), storage::ReplicationRole::MAIN);
   ASSERT_EQ(replica_store1.GetReplicationRole(),
