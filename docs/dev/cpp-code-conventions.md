@@ -29,7 +29,7 @@ You should use a pointer to `const` then. The primary reason being is that
 references obscure the semantics of moving an object, thus making bugs with
 references pointing to invalid memory harder to track down.
 
-Example of this can be seen while capturing member variables by reference 
+Example of this can be seen while capturing member variables by reference
 inside a lambda.
 Let's define a class that has two members, where one of those members is a
 lambda that captures the other member by reference.
@@ -40,11 +40,11 @@ struct S {
   int bar;
 
   S() : foo([&]() { std::cout << bar; })
-  {} 
+  {}
 };
 ```
 What would happend if we move an instance of this object? Our lambda
-reference capture will point to the same location as before, i.e. it 
+reference capture will point to the same location as before, i.e. it
 will point to the **old** memory location of `bar`. This means we have
 a dangling reference in our code!
 There are multiple ways to avoid this. The simple solutions would be
@@ -53,7 +53,7 @@ Still, if we capture by reference an object that is not a member
 of the struct containing the lambda, we can still have a dangling
 reference if we move that object somewhere in our code and there is
 nothing we can do to prevent that.
-So, be careful with lambda catptures, and remember that references are 
+So, be careful with lambda catptures, and remember that references are
 still a pointer under the hood!
 
 [Style guide reference](https://google.github.io/styleguide/cppguide.html#Reference_Arguments)
@@ -73,6 +73,66 @@ Using virtual methods or doing a lot more should be delegated to some form of
 apply to destructors, which are not allowed to even throw exceptions.
 
 [Style guide reference](https://google.github.io/styleguide/cppguide.html#Doing_Work_in_Constructors)
+
+#### Constructors and member variables
+
+One of the most powerful tools in C++ is the move semantics. We won't go into
+detail how it works, but you should know how to utilize it as much as
+possible. In our example we will define a small `struct` called `S` which
+contains only a single member, `text` of type `std::string`.
+```cpp
+struct S {
+  std::string text;
+};
+```
+We want to define a constructor that takes a `std::string`, and saves its
+value in `text`. This is a common situation, where the constructor takes
+a value, and saves it in the object to be constructed.
+
+Our first implementation would look like this:
+```cpp
+S(const std::string &s) : text(s) {}
+```
+
+This is a valid solution but with one downside - we always copy. If we
+construct an object like this:
+```cpp
+S s("some text");
+```
+we would create a temporary `std::string` object and then copy it to our member
+variable.
+
+Of course, we know what to do now - we will capture temporary variables using
+`&&` and move it into our `text` variable.
+```cpp
+S(std::string &&s) : text(std::move(s)) {}
+```
+
+Now let's add an extra member variable of type `std::vector<int>` called
+`words`.  Our constructors accept 2 values now - `std::vector<int>` and
+`std::string`. Those arguments could be passed by value, by reference, or
+as rvalues. To cover all the cases we need to define a dedicated constructor
+for each case.
+Fortunately, there are two simpler options, the first one is writing a
+templated constructor:
+```cpp
+template<typename T1, typename T2>
+S(T1 &&s, T2 &&v) : text(std::forward<T1>(s), words(std::forward<T2>(v) {}
+```
+But don't forget to define `requires` clause so you don't accept any type. This
+solution is optimal but really hard to read AND write. The second solution is
+something you should ALWAYS prefer in these simple cases where we only store
+one of the arguments:
+```cpp
+S(std::string s, std::vector<int> v) : text(std::move(s)), words(std::move(v)) {}
+```
+This way we have an almost optimal solution. The only extra operation we have is
+the extra move when we send an `lvalue`. We would copy the value to the `s`, and
+then move it to the `text` variable. Before, we would copy directly to `text`.
+Also, you should ALWAYS write const-correct code, meaning `s` and `v` cannot be
+`const` as it's not correct here. Why is that? You CANNOT move a const object!
+It would just degrade to copying the object. I would say that this is a small
+price to pay for a much cleaner and more maintainable code.
 
 ### Additional Style Conventions
 
