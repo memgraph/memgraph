@@ -200,11 +200,13 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
       timeout_thread_->main_cv.notify_one();
     });
 
-    std::unique_lock main_guard(timeout_thread_->main_lock);
-    // Wait until one of the threads notifies us that they finished executing
-    // Both threads should first set the active flag to false
-    timeout_thread_->main_cv.wait(
-        main_guard, [&] { return !timeout_thread_->active.load(); });
+    {
+      std::unique_lock main_guard(timeout_thread_->main_lock);
+      // Wait until one of the threads notifies us that they finished executing
+      // Both threads should first set the active flag to false
+      timeout_thread_->main_cv.wait(
+          main_guard, [&] { return !timeout_thread_->active.load(); });
+    }
 
     if (replica_state_ == replication::ReplicaState::REPLICATING) {
       mode_ = replication::ReplicationMode::ASYNC;
