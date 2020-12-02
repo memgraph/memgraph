@@ -186,9 +186,10 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
     timeout_thread_->timeout_pool.AddTask([&, this] {
       timeout_thread_->finished = false;
       timeout_thread_->active = true;
-      const auto end_time = std::chrono::steady_clock::now() +
-                            std::chrono::duration_cast<std::chrono::seconds>(
-                                std::chrono::duration<double>(*timeout_));
+      const auto end_time =
+          std::chrono::steady_clock::now() +
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration<double>(*timeout_));
       while (timeout_thread_->active &&
              std::chrono::steady_clock::now() < end_time) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
