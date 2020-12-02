@@ -20,10 +20,7 @@ Storage::ReplicationClient::ReplicationClient(
     std::string name, Storage *storage, const io::network::Endpoint &endpoint,
     const replication::ReplicationMode mode,
     const replication::ReplicationClientConfig &config)
-    : name_(std::move(name)),
-      storage_(storage),
-      mode_(mode),
-      timeout_(config.timeout) {
+    : name_(std::move(name)), storage_(storage), mode_(mode) {
   if (config.ssl) {
     rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
   } else {
@@ -32,6 +29,11 @@ Storage::ReplicationClient::ReplicationClient(
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
   InitializeClient();
+
+  if (config.timeout) {
+    timeout_.emplace(*config.timeout);
+    timeout_thread_.emplace();
+  }
 }
 
 void Storage::ReplicationClient::InitializeClient() {
@@ -158,17 +160,61 @@ void Storage::ReplicationClient::IfStreamingTransaction(
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplication() {
-  if (mode_ == replication::ReplicationMode::ASYNC || timeout_) {
+  if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
+  } else if (timeout_) {
+    CHECK(mode_ == replication::ReplicationMode::SYNC)
+        << "Only SYNC replica can have a timeout.";
+    CHECK(timeout_thread_) << "Timeout thread is missing";
+    {
+      // Wait for the previous timeout thread task to finish
+      std::unique_lock main_guard(timeout_thread_->main_lock);
+      timeout_thread_->main_cv.wait(main_guard,
+                                    [&] { return !timeout_thread_->finished; });
+    }
 
-    if (timeout_) {
-      CHECK(mode_ == replication::ReplicationMode::SYNC)
-          << "Only SYNC replica can have a timeout.";
-      std::this_thread::sleep_for(std::chrono::duration<double>(*timeout_));
-      if (replica_state_ == replication::ReplicaState::REPLICATING) {
-        mode_ = replication::ReplicationMode::ASYNC;
+    thread_pool_.AddTask([&, this] {
+      this->FinalizeTransactionReplicationInternal();
+      std::unique_lock main_guard(timeout_thread_->main_lock);
+      // TimeoutThread can finish waiting for timeout
+      timeout_thread_->active = false;
+      // Notify the main thread
+      timeout_thread_->main_cv.notify_one();
+    });
+
+    timeout_thread_->timeout_pool.AddTask([&, this] {
+      timeout_thread_->finished = false;
+      timeout_thread_->active = true;
+      const auto end_time = std::chrono::steady_clock::now() +
+                            std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::duration<double>(*timeout_));
+      while (timeout_thread_->active &&
+             std::chrono::steady_clock::now() < end_time) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
+
+      std::unique_lock main_guard(timeout_thread_->main_lock);
+      timeout_thread_->finished = true;
+      timeout_thread_->active = false;
+      timeout_thread_->main_cv.notify_one();
+    });
+
+    std::unique_lock main_guard(timeout_thread_->main_lock);
+    // Wait until one of the threads notifies us that they finished executing
+    // Both threads should first set the active flag to false
+    timeout_thread_->main_cv.wait(
+        main_guard, [&] { return !timeout_thread_->active.load(); });
+
+    if (replica_state_ == replication::ReplicaState::REPLICATING) {
+      mode_ = replication::ReplicationMode::ASYNC;
+      timeout_.reset();
+      // This can only happen if we timeouted so we are sure that
+      // TimeoutThread finished
+      // We need to delete timeout thread AFTER the replication
+      // finished because it tries to acquire the timeout lock
+      // and acces the `active` variable`
+      thread_pool_.AddTask([this] { timeout_thread_.reset(); });
     }
   } else {
     FinalizeTransactionReplicationInternal();

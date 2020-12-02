@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <variant>
 
@@ -164,7 +165,23 @@ class Storage::ReplicationClient {
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
 
+  struct TimeoutThread {
+    explicit TimeoutThread(){};
+
+    // If the TimeoutThread should continue
+    // waiting
+    std::atomic<bool> active{false};
+
+    // if the TimeoutThread finished executing its
+    // task
+    bool finished{false};
+    std::mutex main_lock;
+    std::condition_variable main_cv;
+    utils::ThreadPool timeout_pool{1};
+  };
+
   std::optional<double> timeout_;
+  std::optional<TimeoutThread> timeout_thread_;
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};
