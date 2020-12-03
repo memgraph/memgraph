@@ -7,7 +7,7 @@
 
 namespace utils {
 
-template <class TError, class TValue>
+template <class TError, class TValue = void>
 class [[nodiscard]] BasicResult final {
  public:
   BasicResult(const TValue &value) : value_(value) {}

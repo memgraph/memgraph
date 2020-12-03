@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "utils/file_locker.hpp"
 
@@ -17,19 +18,28 @@ template <typename>
 ////// ReplicationClient //////
 Storage::ReplicationClient::ReplicationClient(
     std::string name, Storage *storage, const io::network::Endpoint &endpoint,
-    bool use_ssl, const replication::ReplicationMode mode)
-    : name_(std::move(name)),
-      storage_(storage),
-      rpc_context_(use_ssl),
-      rpc_client_(endpoint, &rpc_context_),
-      mode_(mode) {
+    const replication::ReplicationMode mode,
+    const replication::ReplicationClientConfig &config)
+    : name_(std::move(name)), storage_(storage), mode_(mode) {
+  if (config.ssl) {
+    rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
+  } else {
+    rpc_context_.emplace();
+  }
+
+  rpc_client_.emplace(endpoint, &*rpc_context_);
   InitializeClient();
+
+  if (config.timeout) {
+    timeout_.emplace(*config.timeout);
+    timeout_dispatcher_.emplace();
+  }
 }
 
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
   auto stream{
-      rpc_client_.Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
+      rpc_client_->Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
   replication::Encoder encoder{stream.GetBuilder()};
   // Write epoch id
   {
@@ -66,7 +76,7 @@ void Storage::ReplicationClient::InitializeClient() {
 
 SnapshotRes Storage::ReplicationClient::TransferSnapshot(
     const std::filesystem::path &path) {
-  auto stream{rpc_client_.Stream<SnapshotRpc>()};
+  auto stream{rpc_client_->Stream<SnapshotRpc>()};
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
@@ -75,7 +85,7 @@ SnapshotRes Storage::ReplicationClient::TransferSnapshot(
 WalFilesRes Storage::ReplicationClient::TransferWalFiles(
     const std::vector<std::filesystem::path> &wal_files) {
   CHECK(!wal_files.empty()) << "Wal files list is empty!";
-  auto stream{rpc_client_.Stream<WalFilesRpc>(wal_files.size())};
+  auto stream{rpc_client_->Stream<WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     DLOG(INFO) << "Sending wal file: " << wal;
@@ -87,7 +97,7 @@ WalFilesRes Storage::ReplicationClient::TransferWalFiles(
 
 OnlySnapshotRes Storage::ReplicationClient::TransferOnlySnapshot(
     const uint64_t snapshot_timestamp) {
-  auto stream{rpc_client_.Stream<OnlySnapshotRpc>(snapshot_timestamp)};
+  auto stream{rpc_client_->Stream<OnlySnapshotRpc>(snapshot_timestamp)};
   replication::Encoder encoder{stream.GetBuilder()};
   encoder.WriteString(storage_->epoch_id_);
   return stream.AwaitResponse();
@@ -124,7 +134,7 @@ bool Storage::ReplicationClient::StartTransactionReplication(
         replica_state_.store(replication::ReplicaState::INVALID);
         LOG(ERROR) << "Couldn't replicate data to " << name_;
         thread_pool_.AddTask([this] {
-          rpc_client_.Abort();
+          rpc_client_->Abort();
           InitializeClient();
         });
         return false;
@@ -142,7 +152,7 @@ void Storage::ReplicationClient::IfStreamingTransaction(
     } catch (const rpc::RpcFailedException &) {
       LOG(ERROR) << "Couldn't replicate data to " << name_;
       thread_pool_.AddTask([this] {
-        rpc_client_.Abort();
+        rpc_client_->Abort();
         InitializeClient();
       });
     }
@@ -153,6 +163,43 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
   if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
+  } else if (timeout_) {
+    CHECK(mode_ == replication::ReplicationMode::SYNC)
+        << "Only SYNC replica can have a timeout.";
+    CHECK(timeout_dispatcher_) << "Timeout thread is missing";
+    timeout_dispatcher_->WaitForTaskToFinish();
+
+    timeout_dispatcher_->active = true;
+    thread_pool_.AddTask([&, this] {
+      this->FinalizeTransactionReplicationInternal();
+      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
+      // TimerThread can finish waiting for timeout
+      timeout_dispatcher_->active = false;
+      // Notify the main thread
+      timeout_dispatcher_->main_cv.notify_one();
+    });
+
+    timeout_dispatcher_->StartTimeoutTask(*timeout_);
+
+    {
+      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
+      // Wait until one of the threads notifies us that they finished executing
+      // Both threads should first set the active flag to false
+      timeout_dispatcher_->main_cv.wait(
+          main_guard, [&] { return !timeout_dispatcher_->active.load(); });
+    }
+
+    // TODO (antonio2368): Document and/or polish SEMI-SYNC to ASYNC fallback.
+    if (replica_state_ == replication::ReplicaState::REPLICATING) {
+      mode_ = replication::ReplicationMode::ASYNC;
+      timeout_.reset();
+      // This can only happen if we timeouted so we are sure that
+      // Timeout task finished
+      // We need to delete timeout dispatcher AFTER the replication
+      // finished because it tries to acquire the timeout lock
+      // and acces the `active` variable`
+      thread_pool_.AddTask([this] { timeout_dispatcher_.reset(); });
+    }
   } else {
     FinalizeTransactionReplicationInternal();
   }
@@ -178,7 +225,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
         replica_state_.store(replication::ReplicaState::INVALID);
       }
       thread_pool_.AddTask([this] {
-        rpc_client_.Abort();
+        rpc_client_->Abort();
         InitializeClient();
       });
     }
@@ -426,12 +473,38 @@ Storage::ReplicationClient::GetRecoverySteps(
   return recovery_steps;
 }
 
+////// TimeoutDispatcher //////
+void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
+  // Wait for the previous timeout task to finish
+  std::unique_lock main_guard(main_lock);
+  main_cv.wait(main_guard, [&] { return finished; });
+}
+
+void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
+    const double timeout) {
+  timeout_pool.AddTask([&, this] {
+    finished = false;
+    using std::chrono::steady_clock;
+    const auto timeout_duration =
+        std::chrono::duration_cast<steady_clock::duration>(
+            std::chrono::duration<double>(timeout));
+    const auto end_time = steady_clock::now() + timeout_duration;
+    while (active && steady_clock::now() < end_time) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::unique_lock main_guard(main_lock);
+    finished = true;
+    active = false;
+    main_cv.notify_one();
+  });
+}
 ////// ReplicaStream //////
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(
     ReplicationClient *self, const uint64_t previous_commit_timestamp,
     const uint64_t current_seq_num)
     : self_(self),
-      stream_(self_->rpc_client_.Stream<AppendDeltasRpc>(
+      stream_(self_->rpc_client_->Stream<AppendDeltasRpc>(
           previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->storage_->epoch_id_);
@@ -473,7 +546,7 @@ AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() {
 ////// CurrentWalHandler //////
 Storage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(
     ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<CurrentWalRpc>()) {}
+    : self_(self), stream_(self_->rpc_client_->Stream<CurrentWalRpc>()) {}
 
 void Storage::ReplicationClient::CurrentWalHandler::AppendFilename(
     const std::string &filename) {
