@@ -119,7 +119,7 @@ class Client {
   ///                            RPC call (eg. connection failed, remote end
   ///                            died, etc.)
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> Stream(Args &&... args) {
+  StreamHandler<TRequestResponse> Stream(Args &&...args) {
     return StreamWithLoad<TRequestResponse>(
         [](auto *reader) {
           typename TRequestResponse::Response response;
@@ -133,7 +133,7 @@ class Client {
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&... args) {
+      Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
     VLOG(12) << "[RpcClient] sent " << req_type.name;
@@ -177,7 +177,7 @@ class Client {
   ///                            RPC call (eg. connection failed, remote end
   ///                            died, etc.)
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&... args) {
+  typename TRequestResponse::Response Call(Args &&...args) {
     auto stream = Stream<TRequestResponse>(std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }
@@ -186,13 +186,15 @@ class Client {
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response CallWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&... args) {
+      Args &&...args) {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }
 
   /// Call this function from another thread to abort a pending RPC call.
   void Abort();
+
+  const auto &Endpoint() const { return endpoint_; }
 
  private:
   io::network::Endpoint endpoint_;

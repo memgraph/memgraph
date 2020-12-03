@@ -2,16 +2,22 @@
 
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 
 namespace storage {
-Storage::ReplicationServer::ReplicationServer(Storage *storage,
-                                              io::network::Endpoint endpoint)
+Storage::ReplicationServer::ReplicationServer(
+    Storage *storage, io::network::Endpoint endpoint,
+    const replication::ReplicationServerConfig &config)
     : storage_(storage) {
   // Create RPC server.
-  // TODO (antonio2368): Add support for SSL.
-  rpc_server_context_.emplace();
+  if (config.ssl) {
+    rpc_server_context_.emplace(config.ssl->key_file, config.ssl->cert_file,
+                                config.ssl->ca_file, config.ssl->verify_peer);
+  } else {
+    rpc_server_context_.emplace();
+  }
   // NOTE: The replication server must have a single thread for processing
   // because there is no need for more processing threads - each replica can
   // have only a single main server. Also, the single-threaded guarantee
