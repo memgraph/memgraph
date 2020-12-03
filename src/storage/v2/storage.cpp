@@ -17,6 +17,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
@@ -425,14 +426,22 @@ Storage::Storage(Config config)
   // For testing purposes until we can define the instance type from
   // a query.
   if (FLAGS_main) {
-    RegisterReplica("REPLICA_SYNC", io::network::Endpoint{"127.0.0.1", 10000});
-    RegisterReplica("REPLICA_ASYNC", io::network::Endpoint{"127.0.0.1", 10002});
+    if (RegisterReplica("REPLICA_SYNC",
+                        io::network::Endpoint{"127.0.0.1", 10000},
+                        replication::ReplicationMode::SYNC)
+            .HasError()) {
+      LOG(WARNING) << "Couldn't connect to REPLICA_SYNC";
+    }
+    if (RegisterReplica("REPLICA_ASYNC",
+                        io::network::Endpoint{"127.0.0.1", 10002},
+                        replication::ReplicationMode::ASYNC)
+            .HasError()) {
+      LOG(WARNING) << "Couldn't connect to REPLICA_SYNC";
+    }
   } else if (FLAGS_replica) {
-    SetReplicationRole<ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 10000});
+    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
   } else if (FLAGS_async_replica) {
-    SetReplicationRole<ReplicationRole::REPLICA>(
-        io::network::Endpoint{"127.0.0.1", 10002});
+    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10002});
   }
 #endif
 }
@@ -1947,57 +1956,98 @@ uint64_t Storage::CommitTimestamp(
 }
 
 #ifdef MG_ENTERPRISE
-void Storage::ConfigureReplica(io::network::Endpoint endpoint) {
+void Storage::SetReplicaRole(
+    io::network::Endpoint endpoint,
+    const replication::ReplicationServerConfig &config) {
+  // We don't want to restart the server if we're already a REPLICA
+  if (replication_role_ == ReplicationRole::REPLICA) {
+    return;
+  }
+
   replication_server_ =
-      std::make_unique<ReplicationServer>(this, std::move(endpoint));
+      std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
+
+  replication_role_.store(ReplicationRole::REPLICA);
 }
 
-void Storage::ConfigureMain() {
+void Storage::SetMainReplicationRole() {
+  // We don't want to generate new epoch_id and do the
+  // cleanup if we're already a MAIN
+  if (replication_role_ == ReplicationRole::MAIN) {
+    return;
+  }
+
   // Main instance does not need replication server
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  std::unique_lock engine_guard{engine_lock_};
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_.reset();
+  {
+    std::unique_lock engine_guard{engine_lock_};
+    if (wal_file_) {
+      wal_file_->FinalizeWal();
+      wal_file_.reset();
+    }
+
+    // Generate new epoch id and save the last one to the history.
+    if (epoch_history_.size() == kEpochHistoryRetention) {
+      epoch_history_.pop_front();
+    }
+    epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+    epoch_id_ = utils::GenerateUUID();
   }
 
-  // Generate new epoch id and save the last one to the history.
-  if (epoch_history_.size() == kEpochHistoryRetention) {
-    epoch_history_.pop_front();
-  }
-  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-  epoch_id_ = utils::GenerateUUID();
+  replication_role_.store(ReplicationRole::MAIN);
 }
 
-void Storage::RegisterReplica(
+utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
-    const replication::ReplicationMode replication_mode) {
+    const replication::ReplicationMode replication_mode,
+    const replication::ReplicationClientConfig &config) {
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
 
-  replication_clients_.WithLock([&](auto &clients) {
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &client) { return client->Name() == name; })) {
-      throw utils::BasicException("Replica with a same name already exists!");
-    }
+  const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
+    return std::any_of(clients.begin(), clients.end(),
+                       [&](auto &client) { return client->Name() == name; });
   });
 
-  auto client = std::make_unique<ReplicationClient>(
-      std::move(name), this, endpoint, false, replication_mode);
+  if (name_exists) {
+    return RegisterReplicaError::NAME_EXISTS;
+  }
 
-  replication_clients_.WithLock(
-      [&](auto &clients) { clients.push_back(std::move(client)); });
+  CHECK(replication_mode == replication::ReplicationMode::SYNC ||
+        !config.timeout)
+      << "Only SYNC mode can have a timeout set";
+
+  auto client = std::make_unique<ReplicationClient>(
+      std::move(name), this, endpoint, replication_mode, config);
+  if (client->State() == replication::ReplicaState::INVALID) {
+    return RegisterReplicaError::CONNECTION_FAILED;
+  }
+
+  return replication_clients_.WithLock(
+      [&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
+        // Another thread could have added a client with same name while
+        // we were connecting to this client.
+        if (std::any_of(clients.begin(), clients.end(),
+                        [&](auto &other_client) {
+                          return client->Name() == other_client->Name();
+                        })) {
+          return RegisterReplicaError::NAME_EXISTS;
+        }
+
+        clients.push_back(std::move(client));
+        return {};
+      });
 }
 
-void Storage::UnregisterReplica(const std::string_view name) {
+bool Storage::UnregisterReplica(const std::string_view name) {
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can unregister a replica!";
-  replication_clients_.WithLock([&](auto &clients) {
-    std::erase_if(clients,
-                  [&](const auto &client) { return client->Name() == name; });
+  return replication_clients_.WithLock([&](auto &clients) {
+    return std::erase_if(
+        clients, [&](const auto &client) { return client->Name() == name; });
   });
 }
 
@@ -2013,6 +2063,24 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(
         }
         return (*client_it)->State();
       });
+}
+
+ReplicationRole Storage::GetReplicationRole() const {
+  return replication_role_;
+}
+
+std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
+  return replication_clients_.WithLock([](auto &clients) {
+    std::vector<Storage::ReplicaInfo> replica_info;
+    replica_info.reserve(clients.size());
+    std::transform(clients.begin(), clients.end(),
+                   std::back_inserter(replica_info),
+                   [](const auto &client) -> ReplicaInfo {
+                     return {client->Name(), client->Mode(), client->Timeout(),
+                             client->Endpoint(), client->State()};
+                   });
+    return replica_info;
+  });
 }
 #endif
 

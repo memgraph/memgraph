@@ -13,12 +13,16 @@ void ThreadPool::AddTask(std::function<void()> new_task) {
     queue.emplace(std::make_unique<TaskSignature>(std::move(new_task)));
     unfinished_tasks_num_.fetch_add(1);
   });
+  std::unique_lock pool_guard(pool_lock_);
   queue_cv_.notify_one();
 }
 
 void ThreadPool::Shutdown() {
   terminate_pool_.store(true);
-  queue_cv_.notify_all();
+  {
+    std::unique_lock pool_guard(pool_lock_);
+    queue_cv_.notify_all();
+  }
 
   for (auto &thread : thread_pool_) {
     if (thread.joinable()) {
