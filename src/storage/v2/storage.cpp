@@ -1999,10 +1999,10 @@ void Storage::SetMainReplicationRole() {
   replication_role_.store(ReplicationRole::MAIN);
 }
 
-utils::BasicResult<Storage::RegisterReplicaError, void>
-Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                         const replication::ReplicationMode replication_mode,
-                         const replication::ReplicationClientConfig &config) {
+utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
+    std::string name, io::network::Endpoint endpoint,
+    const replication::ReplicationMode replication_mode,
+    const replication::ReplicationClientConfig &config) {
   // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
@@ -2027,8 +2027,7 @@ Storage::RegisterReplica(std::string name, io::network::Endpoint endpoint,
   }
 
   return replication_clients_.WithLock(
-      [&](auto &clients)
-          -> utils::BasicResult<Storage::RegisterReplicaError, void> {
+      [&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
         // Another thread could have added a client with same name while
         // we were connecting to this client.
         if (std::any_of(clients.begin(), clients.end(),
