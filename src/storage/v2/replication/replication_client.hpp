@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <variant>
 
@@ -12,6 +13,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -27,8 +29,9 @@ namespace storage {
 class Storage::ReplicationClient {
  public:
   ReplicationClient(std::string name, Storage *storage,
-                    const io::network::Endpoint &endpoint, bool use_ssl,
-                    replication::ReplicationMode mode);
+                    const io::network::Endpoint &endpoint,
+                    replication::ReplicationMode mode,
+                    const replication::ReplicationClientConfig &config = {});
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
@@ -117,6 +120,12 @@ class Storage::ReplicationClient {
 
   auto State() const { return replica_state_.load(); }
 
+  auto Mode() const { return mode_; }
+
+  auto Timeout() const { return timeout_; }
+
+  const auto &Endpoint() const { return rpc_client_->Endpoint(); }
+
  private:
   void FinalizeTransactionReplicationInternal();
 
@@ -150,11 +159,35 @@ class Storage::ReplicationClient {
 
   Storage *storage_;
 
-  communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
+  std::optional<communication::ClientContext> rpc_context_;
+  std::optional<rpc::Client> rpc_client_;
 
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
+
+  // Dispatcher class for timeout tasks
+  struct TimeoutDispatcher {
+    explicit TimeoutDispatcher(){};
+
+    void WaitForTaskToFinish();
+
+    void StartTimeoutTask(double timeout);
+
+    // If the Timeout task should continue waiting
+    std::atomic<bool> active{false};
+
+    std::mutex main_lock;
+    std::condition_variable main_cv;
+
+   private:
+    // if the Timeout task finished executing
+    bool finished{false};
+
+    utils::ThreadPool timeout_pool{1};
+  };
+
+  std::optional<double> timeout_;
+  std::optional<TimeoutDispatcher> timeout_dispatcher_;
 
   utils::SpinLock client_lock_;
   utils::ThreadPool thread_pool_{1};

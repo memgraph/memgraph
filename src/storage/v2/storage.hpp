@@ -5,6 +5,7 @@
 #include <optional>
 #include <shared_mutex>
 
+#include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -28,6 +29,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "rpc/server.hpp"
+#include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -413,29 +415,38 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-#ifdef MG_ENTERPRISE
-  template <ReplicationRole role, typename... Args>
-  void SetReplicationRole(Args &&...args) {
-    if (replication_role_.load() == role) {
-      return;
-    }
+#if MG_ENTERPRISE
 
-    if constexpr (role == ReplicationRole::REPLICA) {
-      ConfigureReplica(std::forward<Args>(args)...);
-    } else if constexpr (role == ReplicationRole::MAIN) {
-      ConfigureMain(std::forward<Args>(args)...);
-    }
+  void SetReplicaRole(io::network::Endpoint endpoint,
+                      const replication::ReplicationServerConfig &config = {});
 
-    replication_role_.store(role);
-  }
+  void SetMainReplicationRole();
 
-  void RegisterReplica(std::string name, io::network::Endpoint endpoint,
-                       replication::ReplicationMode replication_mode =
-                           replication::ReplicationMode::SYNC);
-  void UnregisterReplica(std::string_view name);
+  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, CONNECTION_FAILED };
+
+  /// @pre The instance should have a MAIN role
+  /// @pre Timeout can only be set for SYNC replication
+  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
+      std::string name, io::network::Endpoint endpoint,
+      replication::ReplicationMode replication_mode,
+      const replication::ReplicationClientConfig &config = {});
+  /// @pre The instance should have a MAIN role
+  bool UnregisterReplica(std::string_view name);
 
   std::optional<replication::ReplicaState> GetReplicaState(
       std::string_view name);
+
+  ReplicationRole GetReplicationRole() const;
+
+  struct ReplicaInfo {
+    std::string name;
+    replication::ReplicationMode mode;
+    std::optional<double> timeout;
+    io::network::Endpoint endpoint;
+    replication::ReplicaState state;
+  };
+
+  std::vector<ReplicaInfo> ReplicasInfo();
 #endif
 
  private:
@@ -460,8 +471,6 @@ class Storage final {
       std::optional<uint64_t> desired_commit_timestamp = {});
 
 #ifdef MG_ENTERPRISE
-  void ConfigureReplica(io::network::Endpoint endpoint);
-  void ConfigureMain();
 #endif
 
   // Main storage lock.
