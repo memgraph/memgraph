@@ -112,6 +112,13 @@ void Storage::ReplicationServer::AppendDeltasHandler(
   auto maybe_epoch_id = decoder.ReadString();
   CHECK(maybe_epoch_id) << "Invalid replication message";
 
+  // Different epoch ids should not be possible in AppendDeltas
+  // because Recovery and Heartbeat handlers should resolve
+  // any issues with timestamp and epoch id
+  CHECK(*maybe_epoch_id == storage_->epoch_id_)
+      << "Received Deltas from transaction with incompatible"
+         " epoch id";
+
   const auto read_delta =
       [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
     try {
@@ -125,11 +132,6 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       throw utils::BasicException("Invalid data!");
     }
   };
-
-  // This should not be possible
-  CHECK(*maybe_epoch_id != storage_->epoch_id_)
-      << "Received Deltas from transaction with incompatible"
-         " epoch id";
 
   if (req.previous_commit_timestamp !=
       storage_->last_commit_timestamp_.load()) {

@@ -30,7 +30,7 @@ Storage::ReplicationClient::ReplicationClient(
   rpc_client_.emplace(endpoint, &*rpc_context_);
   TryInitializeClient();
 
-  if (config.timeout) {
+  if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
   }
