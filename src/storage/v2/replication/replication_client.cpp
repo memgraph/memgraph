@@ -189,6 +189,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
           main_guard, [&] { return !timeout_dispatcher_->active.load(); });
     }
 
+    // TODO (antonio2368): Document and/or polish SEMI-SYNC to ASYNC fallback.
     if (replica_state_ == replication::ReplicaState::REPLICATING) {
       mode_ = replication::ReplicationMode::ASYNC;
       timeout_.reset();
