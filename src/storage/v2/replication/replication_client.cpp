@@ -32,7 +32,7 @@ Storage::ReplicationClient::ReplicationClient(
 
   if (config.timeout) {
     timeout_.emplace(*config.timeout);
-    timeout_thread_.emplace();
+    timeout_dispatcher_.emplace();
   }
 }
 
@@ -166,47 +166,26 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
   } else if (timeout_) {
     CHECK(mode_ == replication::ReplicationMode::SYNC)
         << "Only SYNC replica can have a timeout.";
-    CHECK(timeout_thread_) << "Timeout thread is missing";
-    {
-      // Wait for the previous timeout thread task to finish
-      std::unique_lock main_guard(timeout_thread_->main_lock);
-      timeout_thread_->main_cv.wait(main_guard,
-                                    [&] { return !timeout_thread_->finished; });
-    }
+    CHECK(timeout_dispatcher_) << "Timeout thread is missing";
+    timeout_dispatcher_->WaitForTaskToFinish();
 
     thread_pool_.AddTask([&, this] {
       this->FinalizeTransactionReplicationInternal();
-      std::unique_lock main_guard(timeout_thread_->main_lock);
-      // TimeoutThread can finish waiting for timeout
-      timeout_thread_->active = false;
+      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
+      // TimerThread can finish waiting for timeout
+      timeout_dispatcher_->active = false;
       // Notify the main thread
-      timeout_thread_->main_cv.notify_one();
+      timeout_dispatcher_->main_cv.notify_one();
     });
 
-    timeout_thread_->timeout_pool.AddTask([&, this] {
-      timeout_thread_->finished = false;
-      timeout_thread_->active = true;
-      const auto end_time =
-          std::chrono::steady_clock::now() +
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::duration<double>(*timeout_));
-      while (timeout_thread_->active &&
-             std::chrono::steady_clock::now() < end_time) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
-
-      std::unique_lock main_guard(timeout_thread_->main_lock);
-      timeout_thread_->finished = true;
-      timeout_thread_->active = false;
-      timeout_thread_->main_cv.notify_one();
-    });
+    timeout_dispatcher_->StartTimeoutTask(*timeout_);
 
     {
-      std::unique_lock main_guard(timeout_thread_->main_lock);
+      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
       // Wait until one of the threads notifies us that they finished executing
       // Both threads should first set the active flag to false
-      timeout_thread_->main_cv.wait(
-          main_guard, [&] { return !timeout_thread_->active.load(); });
+      timeout_dispatcher_->main_cv.wait(
+          main_guard, [&] { return !timeout_dispatcher_->active.load(); });
     }
 
     if (replica_state_ == replication::ReplicaState::REPLICATING) {
@@ -217,7 +196,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
       // We need to delete timeout thread AFTER the replication
       // finished because it tries to acquire the timeout lock
       // and acces the `active` variable`
-      thread_pool_.AddTask([this] { timeout_thread_.reset(); });
+      thread_pool_.AddTask([this] { timeout_dispatcher_.reset(); });
     }
   } else {
     FinalizeTransactionReplicationInternal();
@@ -492,6 +471,33 @@ Storage::ReplicationClient::GetRecoverySteps(
   return recovery_steps;
 }
 
+////// TimeoutDispatcher //////
+void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
+  // Wait for the previous timeout task to finish
+  std::unique_lock main_guard(main_lock);
+  main_cv.wait(main_guard, [&] { return finished; });
+}
+
+void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
+    const double timeout) {
+  timeout_pool.AddTask([&, this] {
+    finished = false;
+    active = true;
+    using std::chrono::steady_clock;
+    const auto timeout_duration =
+        std::chrono::duration_cast<steady_clock::duration>(
+            std::chrono::duration<double>(timeout));
+    const auto end_time = steady_clock::now() + timeout_duration;
+    while (active && steady_clock::now() < end_time) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::unique_lock main_guard(main_lock);
+    finished = true;
+    active = false;
+    main_cv.notify_one();
+  });
+}
 ////// ReplicaStream //////
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(
     ReplicationClient *self, const uint64_t previous_commit_timestamp,
