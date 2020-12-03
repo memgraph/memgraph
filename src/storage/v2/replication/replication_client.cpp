@@ -169,6 +169,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
     CHECK(timeout_dispatcher_) << "Timeout thread is missing";
     timeout_dispatcher_->WaitForTaskToFinish();
 
+    timeout_dispatcher_->active = true;
     thread_pool_.AddTask([&, this] {
       this->FinalizeTransactionReplicationInternal();
       std::unique_lock main_guard(timeout_dispatcher_->main_lock);
@@ -192,8 +193,8 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
       mode_ = replication::ReplicationMode::ASYNC;
       timeout_.reset();
       // This can only happen if we timeouted so we are sure that
-      // TimeoutThread finished
-      // We need to delete timeout thread AFTER the replication
+      // Timeout task finished
+      // We need to delete timeout dispatcher AFTER the replication
       // finished because it tries to acquire the timeout lock
       // and acces the `active` variable`
       thread_pool_.AddTask([this] { timeout_dispatcher_.reset(); });
@@ -482,7 +483,6 @@ void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
     const double timeout) {
   timeout_pool.AddTask([&, this] {
     finished = false;
-    active = true;
     using std::chrono::steady_clock;
     const auto timeout_duration =
         std::chrono::duration_cast<steady_clock::duration>(
