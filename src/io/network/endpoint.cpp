@@ -50,18 +50,25 @@ Endpoint::ParseSocketOrIpAddress(
     int64_t int_port{0};
     try {
       int_port = utils::ParseInt(parts[1]);
-    } catch (std::exception &e) {
+    } catch (utils::BasicException &e) {
       LOG(ERROR) << "Invalid port number: " << parts[1];
       return std::nullopt;
     }
-    CHECK(int_port > std::numeric_limits<uint16_t>::max())
-        << "Port number exceeded maximum possible size!";
+    if (int_port > std::numeric_limits<uint16_t>::max()) {
+      LOG(ERROR) << "Port number exceeded maximum possible size!";
+      return std::nullopt;
+    }
     port_number = static_cast<uint16_t>(int_port);
 
     return std::make_pair(ip_address, port_number);
   }
 
   return std::nullopt;
+}
+
+std::string Endpoint::SocketAddress() const {
+  auto address = address_.empty() ? "EMPTY" : address_;
+  return address + std::string(":") + std::to_string(port_);
 }
 
 Endpoint::Endpoint() {}

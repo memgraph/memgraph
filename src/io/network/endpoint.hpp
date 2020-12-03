@@ -21,6 +21,7 @@ class Endpoint {
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
+  std::string SocketAddress() const;
 
   bool operator==(const Endpoint &other) const;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);

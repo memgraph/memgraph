@@ -170,13 +170,29 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   bool SetReplicationRole(
       query::ReplicationQuery::ReplicationRole replication_role) override {
-    return false;
+    auto repl_role = db_->GetReplicationRole();
+
+    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      db_->SetMainReplicationRole();
+      return true;
+    } else if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+      db_->SetReplicaRole(io::network::Endpoint());
+      return true;
+    } else {
+      return false;
+    }
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
   query::ReplicationQuery::ReplicationRole ShowReplicationRole()
       const override {
-    return query::ReplicationQuery::ReplicationRole::REPLICA;
+    switch (db_->GetReplicationRole()) {
+      case storage::ReplicationRole::MAIN:
+        return ReplicationQuery::ReplicationRole::MAIN;
+      case storage::ReplicationRole::REPLICA:
+        return ReplicationQuery::ReplicationRole::REPLICA;
+    }
+    throw QueryRuntimeException("Couldn't get replication role!");
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -201,30 +217,57 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           socket_address, kDefaultReplicationPort);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
-        db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
+        auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
+        return (!ret.HasError());
+      } else {
+        return false;
       }
     } catch (std::exception &e) {
-      LOG(ERROR) << "Couldn't register replica! Reason: " << e.what();
-      return false;
+      auto err_msg = std::string("Couldn't register replica! Reason: ");
+      throw QueryRuntimeException(err_msg + e.what());
     }
-    return true;
   }
 
   /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
   bool DropReplica(const std::string &replica_name) override {
     try {
-      db_->UnregisterReplica(replica_name);
+      return db_->UnregisterReplica(replica_name);
     } catch (std::exception &e) {
-      LOG(ERROR) << "Couldn't unregister replica! Reason: " << e.what();
-      return false;
+      auto err_msg = std::string("Couldn't unregister replica! Reason: ");
+      throw QueryRuntimeException(err_msg + e.what());
     }
-    return true;
   }
 
   using Replica = query::ReplicationQueryHandler::Replica;
-  /// @throw QueryRuntimeException if an error ocurred.
-  std::vector<Replica> ShowReplicas() const override { return {}; }
+  std::vector<Replica> ShowReplicas() const override {
+    auto repl_infos = db_->ReplicasInfo();
+    std::vector<Replica> replicas;
+    replicas.reserve(repl_infos.size());
+
+    auto from_info = [](const auto &repl_info) -> Replica {
+      Replica replica;
+      replica.name = repl_info.name;
+      replica.socket_address = repl_info.endpoint.SocketAddress();
+      switch (repl_info.mode) {
+        case storage::replication::ReplicationMode::SYNC:
+          replica.sync_mode = query::ReplicationQuery::SyncMode::SYNC;
+          break;
+        case storage::replication::ReplicationMode::ASYNC:
+          replica.sync_mode = query::ReplicationQuery::SyncMode::ASYNC;
+          break;
+      }
+      if (repl_info.timeout) {
+        replica.timeout = *repl_info.timeout;
+      }
+
+      return replica;
+    };
+
+    std::transform(repl_infos.begin(), repl_infos.end(),
+                   std::back_inserter(replicas), from_info);
+    return replicas;
+  }
 
  private:
   storage::Storage *db_;
