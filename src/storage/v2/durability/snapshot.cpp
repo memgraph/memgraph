@@ -165,7 +165,7 @@ RecoveredSnapshot LoadSnapshot(
   if (!version)
     throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
   if (!IsVersionSupported(*version))
-    throw RecoveryFailure("Invalid snapshot version!");
+    throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -173,6 +173,7 @@ RecoveredSnapshot LoadSnapshot(
     if (!success) {
       edges->clear();
       vertices->clear();
+      epoch_history->clear();
     }
   });
 
