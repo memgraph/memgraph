@@ -136,6 +136,10 @@ void Storage::ReplicationClient::StartTransactionReplication(
       // We missed a transaction because we're still replicating
       // the previous transaction so we need to go to RECOVERY
       // state to catch up with the missing transaction
+      // We cannot queue the recovery process here because
+      // an error can happen while we're replicating the previous
+      // transaction after which the client should go to
+      // INVALID state before starting the recovery process
       replica_state_.store(replication::ReplicaState::RECOVERY);
       return;
     case replication::ReplicaState::INVALID:
@@ -219,9 +223,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       std::unique_lock client_guard{client_lock_};
       if (!response.success ||
           replica_state_ == replication::ReplicaState::RECOVERY) {
-        if (replica_state_ != replication::ReplicaState::RECOVERY) {
-          replica_state_.store(replication::ReplicaState::RECOVERY);
-        }
+        replica_state_.store(replication::ReplicaState::RECOVERY);
         thread_pool_.AddTask([&, this] {
           this->RecoverReplica(response.current_commit_timestamp);
         });
