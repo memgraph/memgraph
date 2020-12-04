@@ -2003,7 +2003,6 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
     const replication::ReplicationMode replication_mode,
     const replication::ReplicationClientConfig &config) {
-  // TODO (antonio2368): This shouldn't stop the main instance
   CHECK(replication_role_.load() == ReplicationRole::MAIN)
       << "Only main instance can register a replica!";
 
