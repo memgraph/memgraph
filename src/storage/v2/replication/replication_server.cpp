@@ -112,6 +112,13 @@ void Storage::ReplicationServer::AppendDeltasHandler(
   auto maybe_epoch_id = decoder.ReadString();
   CHECK(maybe_epoch_id) << "Invalid replication message";
 
+  // Different epoch ids should not be possible in AppendDeltas
+  // because Recovery and Heartbeat handlers should resolve
+  // any issues with timestamp and epoch id
+  CHECK(*maybe_epoch_id == storage_->epoch_id_)
+      << "Received Deltas from transaction with incompatible"
+         " epoch id";
+
   const auto read_delta =
       [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
     try {
@@ -125,11 +132,6 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       throw utils::BasicException("Invalid data!");
     }
   };
-
-  // TODO (antonio2368): Add error handling for different epoch id
-  if (*maybe_epoch_id != storage_->epoch_id_) {
-    throw utils::BasicException("Invalid epoch id");
-  }
 
   if (req.previous_commit_timestamp !=
       storage_->last_commit_timestamp_.load()) {
@@ -532,7 +534,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
   storage_->edges_.clear();
 
   storage_->constraints_ = Constraints();
-  // TODO (antonio2368): Check if there's a less hacky way
   storage_->indices_.label_index = LabelIndex(
       &storage_->indices_, &storage_->constraints_, storage_->config_.items);
   storage_->indices_.label_property_index = LabelPropertyIndex(
@@ -558,8 +559,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
         recovered_snapshot.indices_constraints, &storage_->indices_,
         &storage_->constraints_, &storage_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
-    // TODO (antonio2368): What to do if the sent snapshot is invalid
-    LOG(WARNING) << "Couldn't load the snapshot because of: " << e.what();
+    LOG(FATAL) << "Couldn't load the snapshot because of: " << e.what();
   }
   storage_->last_commit_timestamp_ = storage_->timestamp_ - 1;
   storage_guard.unlock();
