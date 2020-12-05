@@ -222,30 +222,33 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
-  if (replica_state_ == replication::ReplicaState::REPLICATING) {
-    try {
-      auto response = replica_stream_->Finalize();
-      std::unique_lock client_guard{client_lock_};
-      if (!response.success ||
-          replica_state_ == replication::ReplicaState::RECOVERY) {
-        replica_state_.store(replication::ReplicaState::RECOVERY);
-        thread_pool_.AddTask([&, this] {
-          this->RecoverReplica(response.current_commit_timestamp);
-        });
-      }
-    } catch (const rpc::RpcFailedException &) {
-      {
-        std::unique_lock client_guard{client_lock_};
-        replica_state_.store(replication::ReplicaState::INVALID);
-      }
-      HandleRpcFailure();
-    }
-    replica_stream_.reset();
+  if (const auto state = replica_state_.load();
+      state != replication::ReplicaState::REPLICATING &&
+      (state != replication::ReplicaState::RECOVERY || !replica_stream_)) {
+    return;
   }
 
-  auto expected_state = replication::ReplicaState::REPLICATING;
-  replica_state_.compare_exchange_strong(expected_state,
-                                         replication::ReplicaState::READY);
+  try {
+    auto response = replica_stream_->Finalize();
+    replica_stream_.reset();
+    std::unique_lock client_guard(client_lock_);
+    if (!response.success ||
+        replica_state_ == replication::ReplicaState::RECOVERY) {
+      replica_state_.store(replication::ReplicaState::RECOVERY);
+      thread_pool_.AddTask([&, this] {
+        this->RecoverReplica(response.current_commit_timestamp);
+      });
+    } else {
+      replica_state_.store(replication::ReplicaState::READY);
+    }
+  } catch (const rpc::RpcFailedException &) {
+    replica_stream_.reset();
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure();
+  }
 }
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
@@ -306,8 +309,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
       }
     }
 
+    std::unique_lock client_guard{client_lock_};
     if (storage_->last_commit_timestamp_.load() == replica_commit) {
-      std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::READY);
       return;
     }
