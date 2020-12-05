@@ -6,5 +6,6 @@
   :main jepsen.memgraph
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [jepsen "0.2.1-SNAPSHOT"]
-                 [verschlimmbesserung "0.1.3"]]
+                 [gorillalabs/neo4j-clj "4.1.0"]]
+  :profiles {:test {:dependencies [#_[org.neo4j.test/neo4j-harness "4.1.0"]]}}
   :repl-options {:init-ns jepsen.memgraph})
