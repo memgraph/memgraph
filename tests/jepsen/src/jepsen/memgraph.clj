@@ -2,12 +2,14 @@
   (:require [clojure.tools.logging :refer :all]
             [clojure.string :as str]
             [neo4j-clj.core :as dbclient]
-            [jepsen [cli :as cli]
+            [jepsen [checker :as checker]
+                    [cli :as cli]
                     [client :as client]
                     [control :as c]
                     [db :as db]
                     [generator :as gen]
                     [tests :as tests]]
+            [jepsen.checker.timeline :as timeline]
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as debian])
   (:import (java.net URI)))
@@ -82,6 +84,9 @@
           :name            "memgraph"
           :db              (db (:package-url  opts) (:local-binary opts))
           :client          (Client. nil)
+          :checker (checker/compose
+                     {:perf   (checker/perf)
+                      :timeline (timeline/html)})
           :generator       (->> r
                                 (gen/stagger 1)
                                 (gen/nemesis nil)
