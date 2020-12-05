@@ -48,6 +48,22 @@ jobs:
           cd tests/stress
           ./continuous_integration
 
+      - name: Create community DEB package
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Create community DEB package.
+          cd build
+          mkdir output && cd output
+          cpack -G DEB --config ../CPackConfig.cmake
+
+      - name: Save community DEB package
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Community DEB package"
+          path: build/output/memgraph*.deb
+
   coverage_build:
     name: "Coverage build"
     runs-on: [self-hosted, Linux, X64, Debian10]
@@ -288,3 +304,19 @@ jobs:
           cd tests/stress
           source ve3/bin/activate
           python3 durability --num-steps 5
+
+      - name: Create enterprise DEB package
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Create enterprise DEB package.
+          cd build
+          mkdir output && cd output
+          cpack -G DEB --config ../CPackConfig.cmake
+
+      - name: Save enterprise DEB package
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Enterprise DEB package"
+          path: build/output/memgraph*.deb
