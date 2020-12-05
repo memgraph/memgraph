@@ -153,6 +153,7 @@ void Storage::ReplicationClient::StartTransactionReplication(
                           current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
+        replica_state_.store(replication::ReplicaState::INVALID);
         HandleRpcFailure();
       }
       return;
@@ -161,10 +162,14 @@ void Storage::ReplicationClient::StartTransactionReplication(
 
 void Storage::ReplicationClient::IfStreamingTransaction(
     const std::function<void(ReplicaStream &handler)> &callback) {
-  if (replica_stream_) {
+  if (replica_state_ == replication::ReplicaState::REPLICATING) {
     try {
       callback(*replica_stream_);
     } catch (const rpc::RpcFailedException &) {
+      {
+        std::unique_lock client_guard{client_lock_};
+        replica_state_.store(replication::ReplicaState::INVALID);
+      }
       HandleRpcFailure();
     }
   }
@@ -217,7 +222,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
-  if (replica_stream_) {
+  if (replica_state_ == replication::ReplicaState::REPLICATING) {
     try {
       auto response = replica_stream_->Finalize();
       std::unique_lock client_guard{client_lock_};
@@ -229,15 +234,18 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
         });
       }
     } catch (const rpc::RpcFailedException &) {
+      {
+        std::unique_lock client_guard{client_lock_};
+        replica_state_.store(replication::ReplicaState::INVALID);
+      }
       HandleRpcFailure();
     }
     replica_stream_.reset();
   }
 
-  std::unique_lock guard(client_lock_);
-  if (replica_state_.load() == replication::ReplicaState::REPLICATING) {
-    replica_state_.store(replication::ReplicaState::READY);
-  }
+  auto expected_state = replication::ReplicaState::REPLICATING;
+  replica_state_.compare_exchange_strong(expected_state,
+                                         replication::ReplicaState::READY);
 }
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
@@ -290,6 +298,10 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
             },
             recovery_step);
       } catch (const rpc::RpcFailedException &) {
+        {
+          std::unique_lock client_guard{client_lock_};
+          replica_state_.store(replication::ReplicaState::INVALID);
+        }
         HandleRpcFailure();
       }
     }
