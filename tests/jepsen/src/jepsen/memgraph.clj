@@ -6,6 +6,7 @@
                     [client :as client]
                     [control :as c]
                     [db :as db]
+                    [generator :as gen]
                     [tests :as tests]]
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as debian])
@@ -34,7 +35,7 @@
            :pidfile pidfile
            :chdir   dbdir}
           local-binary)
-        (Thread/sleep 10000)))
+        (Thread/sleep 2000)))
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")
       (when (and local-binary pidfile) (cu/stop-daemon! local-binary pidfile)))
@@ -47,26 +48,29 @@
   [node port]
   (str "bolt://" node ":" port))
 
-(defn peer-url
-  "The URL for other peers to talk to an instance"
-  [node]
-  (instance-url node 7687))
+(dbclient/defquery create-node
+  "CREATE (n:Node {id: $id});")
 
-(defn initial-cluster
-  "Constructs an initial cluster string for a test"
-  [test]
-  (->> (:nodes test)
-       (map (fn [node]
-              (str node "=" (peer-url node))))
-       (str/join ",")))
+(dbclient/defquery get-all-nodes
+  "MATCH (n:Node) RETURN n;")
 
 (defrecord Client [conn]
   client/Client
-  (open! [this test node] this)
-  (setup! [this test])
-  (invoke! [this test op])
-  (teardown! [this test])
+  (open! [this test node]
+    (assoc this :conn (dbclient/connect (URI. (instance-url node 7687)) "" "")))
+  (setup! [this test]
+    (with-open [session (dbclient/get-session conn)]
+      (create-node session {:id "1"})))
+  (invoke! [this test op]
+    (case (:f op)
+      :read (assoc op :type :ok,
+                      :value (with-open [session (dbclient/get-session conn)]
+                               (count (get-all-nodes session))))))
+  (teardown! [this test]
+    (dbclient/disconnect conn))
   (close! [_ est]))
+
+(defn r [_ _] {:type :invoke, :f :read, :value nil})
 
 (defn memgraph-test
   "Given an options map from the command line runner (e.g. :nodes, :ssh,
@@ -74,16 +78,20 @@
   [opts]
   (merge tests/noop-test
          opts
-         {:name "memgraph"
-          :db   (db (:package-url  opts) (:local-binary opts))
-          :client (Client. nil)
-          :pure-generators true}))
+         {:pure-generators true
+          :name            "memgraph"
+          :db              (db (:package-url  opts) (:local-binary opts))
+          :client          (Client. nil)
+          :generator       (->> r
+                                (gen/stagger 1)
+                                (gen/nemesis nil)
+                                (gen/time-limit 10))}))
 
 (def cli-opts
   "CLI options for tests"
   [[nil "--package-url URL" "What package of Memgraph should we test?"
     :default nil]
-   [nil "--local-binary PATH" "Ignore version; use this local binary instead."
+   [nil "--local-binary PATH" "Ignore package; use this local binary instead."
     :default "/opt/memgraph/memgraph"]])
 
 (defn -main
