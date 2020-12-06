@@ -3,14 +3,14 @@
             [clojure.string :as str]
             [neo4j-clj.core :as dbclient]
             [jepsen [checker :as checker]
-                    [cli :as cli]
-                    [client :as client]
-                    [control :as c]
-                    [db :as db]
-                    [generator :as gen]
-                    [nemesis :as nemesis]
-                    [tests :as tests]
-                    [util :as util :refer [meh]]]
+             [cli :as cli]
+             [client :as client]
+             [control :as c]
+             [db :as db]
+             [generator :as gen]
+             [nemesis :as nemesis]
+             [tests :as tests]
+             [util :as util :refer [meh]]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as debian]
@@ -49,21 +49,21 @@
       (when (nil? local-binary)
         (throw (Exception. "Memgraph local-binary has to be defined.")))
       (when (try (c/exec :command :-v local-binary)
-              (catch Exception e
-                (throw (Exception. (str local-binary " is not there.")))))
+                 (catch Exception e
+                   (throw (Exception. (str local-binary " is not there.")))))
         (info node "Memgraph binary is there" local-binary)
         (cu/start-daemon!
-          {:logfile mglog
-           :pidfile mgpid
-           :chdir   mgdir}
-          local-binary)
+         {:logfile mglog
+          :pidfile mgpid
+          :chdir   mgdir}
+         local-binary)
         (Thread/sleep 2000)))
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")
       (when (and local-binary mgpid) (cu/stop-daemon! local-binary mgpid))
       (c/su
-        (c/exec :rm :-rf mgdata)
-        (c/exec :rm :-rf mglog)))
+       (c/exec :rm :-rf mgdata)
+       (c/exec :rm :-rf mglog)))
     db/LogFiles
     (log-files [_ test node]
       [mglog])))
@@ -101,17 +101,17 @@
       (create-node session {:id "0" :value 0})))
   (invoke! [this test op]
     (case (:f op)
-      :read (assoc op :type :ok,
+      :read (assoc op :type :ok
                    :value (with-session conn session
                             (-> (get-node session {:id "0"}) first :n :value)))
       :write (do (with-session conn session
                    (update-node session {:id "0" :value (:value op)}))
                  (assoc op :type :ok))
-	  :cas (try+
-             (let [[o n] (:value op)]
-               (assoc op :type (if (compare-and-set-node conn o n) :ok :fail)))
-			 (catch Object _
-			   (assoc op :type :fail, :error :not-found)))))
+      :cas (try+
+            (let [[o n] (:value op)]
+              (assoc op :type (if (compare-and-set-node conn o n) :ok :fail)))
+            (catch Object _
+              (assoc op :type :fail, :error :not-found)))))
   (teardown! [this test])
   (close! [_ est]
     (dbclient/disconnect conn)))
@@ -128,19 +128,19 @@
           :client          (Client. nil)
           :checker         (checker/compose
                              ;; Fails on a cluster of independent Memgraphs.
-                             {:linear (checker/linearizable
-                                        {:model     (model/cas-register 0)
-                                         :algorithm :linear})
-                              :perf   (checker/perf)
-                              :timeline (timeline/html)})
+                            {:linear (checker/linearizable
+                                      {:model     (model/cas-register 0)
+                                       :algorithm :linear})
+                             :perf   (checker/perf)
+                             :timeline (timeline/html)})
           :nemesis         (nemesis/partition-random-halves)
           :generator       (->> (gen/mix [r w cas])
                                 (gen/stagger 1/50)
                                 (gen/nemesis
-                                  (cycle [(gen/sleep 5)
-                                          {:type :info, :f :start}
-                                          (gen/sleep 5)
-                                          {:type :info, :f :stop}]))
+                                 (cycle [(gen/sleep 5)
+                                         {:type :info, :f :start}
+                                         (gen/sleep 5)
+                                         {:type :info, :f :stop}]))
                                 (gen/time-limit (:time-limit opts)))}))
 
 (def cli-opts
