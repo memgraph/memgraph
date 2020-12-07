@@ -88,9 +88,12 @@ the role of all replica nodes using the following openCypher query before you
 can enable replication on the main:
 
 ```plaintext
-SET REPLICATION ROLE TO (MAIN|REPLICA);
+SET REPLICATION ROLE TO (MAIN|REPLICA) WITH PORT <port_number>;
 ```
 
+Note that the "WITH PORT <port_number>" part of the query sets the replication port,
+but it applies only to the replica. In other words, if you try to set the port
+on the main, the given port will be disregarded.
 After you have set your replica instance to the correct operating role, you can
 enable replication in the main instance by issuing the following openCypher
 command:

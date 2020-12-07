@@ -341,8 +341,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
-      callback.fn = [handler, role = repl_query->role_] {
-        if (!handler->SetReplicationRole(role)) {
+      auto port = repl_query->port_->Accept(evaluator);
+      std::optional<int> maybe_port{};
+      if (port.IsInt()) {
+        maybe_port = port.ValueInt();
+      }
+      callback.fn = [handler, role = repl_query->role_, maybe_port] {
+        if (!handler->SetReplicationRole(role, maybe_port)) {
           throw QueryRuntimeException(
               "Couldn't set the desired replication role.");
         }
