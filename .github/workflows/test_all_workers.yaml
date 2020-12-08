@@ -36,6 +36,9 @@ jobs:
         run: |
           source /opt/toolchain-v2/activate
           ./tools/check-build-system
+          deactivate
+          docker --version
+          docker ps || true
 
   HP-DL360G6-v2-1:
     name: "HP-DL360G6-v2-1"
