@@ -288,3 +288,36 @@ jobs:
           cd tests/stress
           source ve3/bin/activate
           python3 durability --num-steps 5
+
+  release_jepsen_test:
+    name: "Release Jepsen Test"
+    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binarie.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS memgraph
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./setup-local-docker-cluster.sh copy ../../build/memgraph
+          docker exec -it jepsen-control lein run test --local-binary /opt/memgraph/memgraph

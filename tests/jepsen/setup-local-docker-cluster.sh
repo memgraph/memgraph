@@ -17,14 +17,17 @@ fi
 case $1 in
     # Start Jepsen Docker cluster.
     up)
-        "$script_dir/jepsen/docker/bin/up"
+        "$script_dir/jepsen/docker/bin/up" --daemon
     ;;
     # Copy Memgraph Jepsen project files and Memgraph binary if specified.
     copy)
         shift 1
         binary_path=$1
+        if [ -L "$binary_path" ]; then
+            binary_path=$(readlink "$binary_path")
+        fi
         binary_name=$(basename -- "$binary_path")
-        # TODO (gitbuda): Parametrize.
+
         # Copy Memgraph build binary.
         docker exec jepsen-n1 mkdir -p /opt/memgraph
         docker exec jepsen-n2 mkdir -p /opt/memgraph
@@ -32,10 +35,16 @@ case $1 in
         docker exec jepsen-n4 mkdir -p /opt/memgraph
         docker exec jepsen-n5 mkdir -p /opt/memgraph
         docker cp "$binary_path" jepsen-n1:/opt/memgraph/"$binary_name"
+        docker exec jepsen-n1 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n2:/opt/memgraph/"$binary_name"
+        docker exec jepsen-n2 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n3:/opt/memgraph/"$binary_name"
+        docker exec jepsen-n3 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n4:/opt/memgraph/"$binary_name"
+        docker exec jepsen-n4 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n5:/opt/memgraph/"$binary_name"
+        docker exec jepsen-n5 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+
         # Copy tests/jepsen/memgraph required files into the control node.
         docker exec jepsen-control mkdir -p /jepsen/memgraph
         docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
