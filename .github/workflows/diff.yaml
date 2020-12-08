@@ -323,4 +323,4 @@ jobs:
           # NOTE: docker exec -it is NOT ok because gh user does NOT have TTY.
           # NOTE: bashrc has to be manually sourced when only -i is used
           #       because Jepsen config is there.
-          docker exec -i jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run test --local-binary /opt/memgraph/memgraph"
+          docker exec -i jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run test --local-binary /opt/memgraph/memgraph --node n1"
