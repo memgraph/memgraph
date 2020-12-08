@@ -35,15 +35,15 @@ case $1 in
         docker exec jepsen-n4 mkdir -p /opt/memgraph
         docker exec jepsen-n5 mkdir -p /opt/memgraph
         docker cp "$binary_path" jepsen-n1:/opt/memgraph/"$binary_name"
-        docker exec jepsen-n1 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+        docker exec jepsen-n1 bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n2:/opt/memgraph/"$binary_name"
-        docker exec jepsen-n2 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+        docker exec jepsen-n2 bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n3:/opt/memgraph/"$binary_name"
-        docker exec jepsen-n3 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+        docker exec jepsen-n3 bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n4:/opt/memgraph/"$binary_name"
-        docker exec jepsen-n4 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+        docker exec jepsen-n4 bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
         docker cp "$binary_path" jepsen-n5:/opt/memgraph/"$binary_name"
-        docker exec jepsen-n5 bash -c "rm /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+        docker exec jepsen-n5 bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
 
         # Copy tests/jepsen/memgraph required files into the control node.
         docker exec jepsen-control mkdir -p /jepsen/memgraph
