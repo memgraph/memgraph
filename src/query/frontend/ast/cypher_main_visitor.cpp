@@ -212,22 +212,19 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
   if (ctx->MAIN()) {
     if (ctx->WITH() || ctx->PORT()) {
-      throw SemanticException("Main can't set the replica's port!");
-    } else {
-      replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+      throw SemanticException("Main can't set a port!");
     }
+    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
     if (ctx->WITH() && ctx->PORT()) {
-      if (ctx->port) {
-        if (ctx->port->numberLiteral()->integerLiteral()) {
-          replication_query->port_ = ctx->port->accept(this);
-        } else {
-          throw SyntaxException("Port must be an integer literal!");
-        }
-      } else {
+      if (!ctx->port) {
         throw SyntaxException("Port not given!");
       }
+      if (!ctx->port->numberLiteral()->integerLiteral()) {
+        throw SyntaxException("Port must be an integer literal!");
+      }
+      replication_query->port_ = ctx->port->accept(this);
     }
   }
   return replication_query;

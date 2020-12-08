@@ -342,7 +342,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
       auto port = repl_query->port_->Accept(evaluator);
-      std::optional<int> maybe_port{};
+      std::optional<int64_t> maybe_port;
       if (port.IsInt()) {
         maybe_port = port.ValueInt();
       }
