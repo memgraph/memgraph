@@ -2457,7 +2457,8 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
                              const std::string name,
                              const std::optional<TypedValue> socket_address,
                              const ReplicationQuery::SyncMode sync_mode,
-                             const std::optional<TypedValue> timeout) {
+                             const std::optional<TypedValue> timeout = {},
+                             const std::optional<TypedValue> port = {}) {
   EXPECT_EQ(query->replica_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_),
@@ -2468,6 +2469,10 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
   ASSERT_EQ(static_cast<bool>(query->timeout_), static_cast<bool>(timeout));
   if (timeout) {
     ast_generator->CheckLiteral(query->timeout_, *timeout);
+  }
+  ASSERT_EQ(static_cast<bool>(query->port_), static_cast<bool>(port));
+  if (port) {
+    ast_generator->CheckLiteral(query->port_, *port);
   }
 }
 
@@ -2490,18 +2495,40 @@ TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   auto &ast_generator = *GetParam();
-  const std::string missing_mode_query = "SET REPLICATION ROLE";
-  ASSERT_THROW(ast_generator.ParseQuery(missing_mode_query), SyntaxException);
 
-  const std::string bad_mode_query = "SET REPLICATION ROLE TO BUTTERY";
-  ASSERT_THROW(ast_generator.ParseQuery(bad_mode_query), SyntaxException);
+  {
+    const std::string query = "SET REPLICATION ROLE";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
 
-  const std::string full_query = "SET REPLICATION ROLE TO MAIN";
-  auto *parsed_full_query =
-      dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
-  EXPECT_EQ(parsed_full_query->action_,
-            ReplicationQuery::Action::SET_REPLICATION_ROLE);
-  EXPECT_EQ(parsed_full_query->role_, ReplicationQuery::ReplicationRole::MAIN);
+  {
+    const std::string query = "SET REPLICATION ROLE TO BUTTERY";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO MAIN";
+    auto *parsed_query =
+        dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_,
+              ReplicationQuery::Action::SET_REPLICATION_ROLE);
+    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO REPLICA WITH PORT 10000";
+    auto *parsed_query =
+        dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_,
+              ReplicationQuery::Action::SET_REPLICATION_ROLE);
+    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(parsed_query->port_, TypedValue(10000));
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
@@ -2517,7 +2544,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   ASSERT_TRUE(no_timeout_query_parsed);
   check_replication_query(&ast_generator, no_timeout_query_parsed, "replica1",
                           TypedValue("127.0.0.1"),
-                          ReplicationQuery::SyncMode::SYNC, {});
+                          ReplicationQuery::SyncMode::SYNC);
 
   std::string full_query =
       R"(REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO "1.1.1.1:10000")";

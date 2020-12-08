@@ -22,6 +22,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MAIN
                       | MODE
                       | PASSWORD
+                      | PORT
                       | PRIVILEGES
                       | REGISTER
                       | REPLICA
@@ -118,7 +119,8 @@ showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
 
-setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA ) ;
+setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+                      ( WITH PORT port=literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
