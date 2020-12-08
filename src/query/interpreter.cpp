@@ -169,18 +169,20 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
 
   bool SetReplicationRole(
-      query::ReplicationQuery::ReplicationRole replication_role) override {
-    auto repl_role = db_->GetReplicationRole();
-
+      query::ReplicationQuery::ReplicationRole replication_role,
+      std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      db_->SetMainReplicationRole();
-      return true;
-    } else if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
-      db_->SetReplicaRole(io::network::Endpoint());
-      return true;
-    } else {
-      return false;
+      return db_->SetMainReplicationRole();
     }
+    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+      uint16_t used_port{0};
+      if (!port || *port > std::numeric_limits<uint16_t>::max()) {
+        return false;
+      }
+      used_port = static_cast<uint16_t>(*port);
+      return db_->SetReplicaRole(io::network::Endpoint("127.0.0.1", used_port));
+    }
+    return false;
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -289,7 +291,8 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
   // in both community and enterprise versions.
   explicit ReplQueryHandler(storage::Storage *db) {}
   bool SetReplicationRole(
-      query::ReplicationQuery::ReplicationRole replication_mode) override {
+      query::ReplicationQuery::ReplicationRole replication_role,
+      std::optional<int64_t> port) override {
     throw NoReplicationInCommunity();
   }
 
@@ -496,7 +499,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
-      auto port = repl_query->port_->Accept(evaluator);
+      auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
       std::optional<int64_t> maybe_port;
       if (port.IsInt()) {
         maybe_port = port.ValueInt();
@@ -538,8 +541,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       } else if (timeout.IsInt()) {
         opt_timeout = static_cast<double>(timeout.ValueInt());
       }
-      callback.fn = [handler, name, socket_address, sync_mode,
-                     opt_timeout] {
+      callback.fn = [handler, name, socket_address, sync_mode, opt_timeout] {
         CHECK(socket_address.IsString());
         if (!handler->RegisterReplica(name,
                                      std::string(socket_address.ValueString()),
@@ -1183,8 +1185,9 @@ PreparedQuery PrepareReplicationQuery(
 
   auto *replication_query =
       utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(
-      replication_query, interpreter_context->db, parsed_query.parameters, dba);
+  ReplQueryHandler handler{interpreter_context->db};
+  auto callback = HandleReplicationQuery(replication_query, &handler,
+                                         parsed_query.parameters, dba);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;

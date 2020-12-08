@@ -417,10 +417,10 @@ class Storage final {
 
 #if MG_ENTERPRISE
 
-  void SetReplicaRole(io::network::Endpoint endpoint,
+  bool SetReplicaRole(io::network::Endpoint endpoint,
                       const replication::ReplicationServerConfig &config = {});
 
-  void SetMainReplicationRole();
+  bool SetMainReplicationRole();
 
   enum class RegisterReplicaError : uint8_t { NAME_EXISTS, CONNECTION_FAILED };
 
