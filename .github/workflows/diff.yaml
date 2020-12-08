@@ -320,4 +320,4 @@ jobs:
         run: |
           cd tests/jepsen
           ./setup-local-docker-cluster.sh copy ../../build/memgraph
-          docker exec -it jepsen-control lein run test --local-binary /opt/memgraph/memgraph
+          docker exec -i jepsen-control lein run test --local-binary /opt/memgraph/memgraph
