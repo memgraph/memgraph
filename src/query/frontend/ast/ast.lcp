@@ -2304,6 +2304,7 @@ cpp<#
    (socket_address "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
+   (port "Expression *" :initval "nullptr" :scope :public)
    (sync_mode "SyncMode" :scope :public)
    (timeout "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer

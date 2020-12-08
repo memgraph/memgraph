@@ -211,13 +211,24 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
   if (ctx->MAIN()) {
+    if (ctx->WITH() || ctx->PORT()) {
+      throw SemanticException("Main can't set a port!");
+    }
     replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
+    if (ctx->WITH() && ctx->PORT()) {
+      if (!ctx->port) {
+        throw SyntaxException("Port not given!");
+      }
+      if (!ctx->port->numberLiteral()->integerLiteral()) {
+        throw SyntaxException("Port must be an integer literal!");
+      }
+      replication_query->port_ = ctx->port->accept(this);
+    }
   }
   return replication_query;
 }
-
 antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(
     MemgraphCypher::ShowReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
