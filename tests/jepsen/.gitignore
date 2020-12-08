@@ -10,3 +10,4 @@ pom.xml.asc
 /.nrepl-port
 /store
 /jepsen
+/Jepsen.tar.gz

@@ -43,7 +43,6 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
     dotnet-sdk-3.1 golang nodejs npm
-    leiningen # Clojure Jepsen
 )
 list() {
     echo "$1"

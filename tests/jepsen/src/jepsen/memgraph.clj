@@ -44,20 +44,20 @@
     (setup! [_ test node]
       (c/su (debian/install ['python3 'python3-dev]))
       (c/su (meh (c/exec :killall :memgraph)))
-      (when (not (nil? package-url))
+      (when-not (nil? package-url)
         (throw (Exception. "Memgraph package-url setup not yet implemented.")))
       (when (nil? local-binary)
         (throw (Exception. "Memgraph local-binary has to be defined.")))
-      (when (try (c/exec :command :-v local-binary)
-                 (catch Exception e
-                   (throw (Exception. (str local-binary " is not there.")))))
-        (info node "Memgraph binary is there" local-binary)
-        (cu/start-daemon!
-         {:logfile mglog
-          :pidfile mgpid
-          :chdir   mgdir}
-         local-binary)
-        (Thread/sleep 2000)))
+      (try (c/exec :command :-v local-binary)
+           (catch Exception e
+             (throw (Exception. (str local-binary " is not there.")))))
+      (info node "Memgraph binary is there" local-binary)
+      (cu/start-daemon!
+       {:logfile mglog
+        :pidfile mgpid
+        :chdir   mgdir}
+       local-binary)
+      (Thread/sleep 2000))
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")
       (when (and local-binary mgpid) (cu/stop-daemon! local-binary mgpid))
@@ -84,11 +84,12 @@
   "MATCH (n:Node {id: $id}) SET n.value = $value;")
 (defn compare-and-set-node
   [conn o n]
-  (do
-    (if (= (with-session conn session
-             (-> (get-node session {:id "0"}) first :n :value)) (str o))
-      (with-session conn session (update-node session {:id "0" :value n}))
+  (dbclient/with-transaction conn tx
+    (if (= (-> (get-node tx {:id "0"}) first :n :value) (str o))
+      (update-node tx {:id "0" :value n})
       (throw+ "Unable to alter something that does NOT exist."))))
+(dbclient/defquery detach-delete-all
+  "MATCH (n) DETACH DELETE n;")
 
 ;; Client specific to the tested system (Bolt and Cypher).
 ;; TODO (gitbuda): Write an impl targeting Memgraph replicated cluster.
@@ -112,7 +113,9 @@
               (assoc op :type (if (compare-and-set-node conn o n) :ok :fail)))
             (catch Object _
               (assoc op :type :fail, :error :not-found)))))
-  (teardown! [this test])
+  (teardown! [this test]
+    (with-session conn session
+      (detach-delete-all session)))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
