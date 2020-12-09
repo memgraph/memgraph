@@ -14,13 +14,14 @@ namespace io::network {
  * connection address.
  */
 struct Endpoint {
- public:
   Endpoint();
   Endpoint(std::string ip_address, uint16_t port);
-  // TODO: Remove these since members are public
+
+  enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
+
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }
-  std::uint8_t family() const { return family_; }
+  IpFamily family() const { return family_; }
   std::string SocketAddress() const;
 
   bool operator==(const Endpoint &other) const;
@@ -28,12 +29,12 @@ struct Endpoint {
 
   std::string address_;
   uint16_t port_{0};
-  std::uint8_t family_{0};
+  IpFamily family_{IpFamily::NONE};
 
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
 
-  static std::uint8_t GetIpFamily(const std::string &ip_address);
+  static IpFamily GetIpFamily(const std::string &ip_address);
 };
 
 }  // namespace io::network
