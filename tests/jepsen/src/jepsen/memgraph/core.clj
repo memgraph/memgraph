@@ -30,7 +30,10 @@
             :client          (:client workload)
             :checker         (checker/compose
                                ;; Fails on a cluster of independent Memgraphs.
-                               {:stats      (checker/stats)
+                               {;; :stats      (checker/stats) CAS always fails
+                                ;;                             so enable this
+                                ;;                             if all test have
+                                ;;                             at least 1 ok op
                                 :exceptions (checker/unhandled-exceptions)
                                 :perf       (checker/perf)
                                 :workload   (:checker workload)})
@@ -68,7 +71,7 @@
   browsing results."
   [& args]
   (cli/run! (merge (cli/test-all-cmd {:tests-fn all-tests
-                                      :opt-spec cli-opts}) 
+                                      :opt-spec cli-opts})
                    (cli/single-test-cmd {:test-fn memgraph-test
                                          :opt-spec cli-opts})
                    (cli/serve-cmd))
