@@ -168,9 +168,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
 
-  bool SetReplicationRole(
-      query::ReplicationQuery::ReplicationRole replication_role,
-      std::optional<int64_t> port) override {
+  bool SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
       return db_->SetMainReplicationRole();
     }
@@ -186,8 +185,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
-  query::ReplicationQuery::ReplicationRole ShowReplicationRole()
-      const override {
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     switch (db_->GetReplicationRole()) {
       case storage::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
@@ -200,15 +198,15 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   bool RegisterReplica(const std::string &name,
                        const std::string &socket_address,
-                       const query::ReplicationQuery::SyncMode sync_mode,
+                       const ReplicationQuery::SyncMode sync_mode,
                        const std::optional<double> timeout) override {
     storage::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
-      case query::ReplicationQuery::SyncMode::ASYNC: {
+      case ReplicationQuery::SyncMode::ASYNC: {
         repl_mode = storage::replication::ReplicationMode::ASYNC;
         break;
       }
-      case query::ReplicationQuery::SyncMode::SYNC: {
+      case ReplicationQuery::SyncMode::SYNC: {
         repl_mode = storage::replication::ReplicationMode::SYNC;
         break;
       }
@@ -216,7 +214,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
     try {
       auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
-          socket_address, kDefaultReplicationPort);
+          socket_address, query::kDefaultReplicationPort);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
         auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
@@ -241,7 +239,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
   }
 
-  using Replica = query::ReplicationQueryHandler::Replica;
+  using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
     auto repl_infos = db_->ReplicasInfo();
     std::vector<Replica> replicas;
@@ -253,10 +251,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
         case storage::replication::ReplicationMode::SYNC:
-          replica.sync_mode = query::ReplicationQuery::SyncMode::SYNC;
+          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
         case storage::replication::ReplicationMode::ASYNC:
-          replica.sync_mode = query::ReplicationQuery::SyncMode::ASYNC;
+          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }
       if (repl_info.timeout) {
@@ -290,20 +288,18 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
   // Dummy ctor - just there to make the replication query handler work
   // in both community and enterprise versions.
   explicit ReplQueryHandler(storage::Storage *db) {}
-  bool SetReplicationRole(
-      query::ReplicationQuery::ReplicationRole replication_role,
-      std::optional<int64_t> port) override {
+  bool SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
     throw NoReplicationInCommunity();
   }
 
-  query::ReplicationQuery::ReplicationRole ShowReplicationRole()
-      const override {
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     throw NoReplicationInCommunity();
   }
 
   bool RegisterReplica(const std::string &name,
                        const std::string &socket_address,
-                       const query::ReplicationQuery::SyncMode sync_mode,
+                       const ReplicationQuery::SyncMode sync_mode,
                        const std::optional<double> timeout) {
     throw NoReplicationInCommunity();
   }
@@ -312,7 +308,7 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
     throw NoReplicationInCommunity();
   }
 
-  using Replica = query::ReplicationQueryHandler::Replica;
+  using Replica = ReplicationQueryHandler::Replica;
 
   std::vector<Replica> ShowReplicas() const override {
     throw NoReplicationInCommunity();

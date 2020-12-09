@@ -119,7 +119,7 @@ class ReplicationQueryHandler {
   /// returns false if the replication role can't be set
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool SetReplicationRole(
-      ReplicationQuery::ReplicationRole replication_mode,
+      ReplicationQuery::ReplicationRole replication_role,
       std::optional<int64_t> port) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
