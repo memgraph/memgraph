@@ -162,20 +162,26 @@ void Storage::ReplicationClient::StartTransactionReplication(
 
 void Storage::ReplicationClient::IfStreamingTransaction(
     const std::function<void(ReplicaStream &handler)> &callback) {
-  if (replica_state_ == replication::ReplicaState::REPLICATING) {
-    try {
-      callback(*replica_stream_);
-    } catch (const rpc::RpcFailedException &) {
-      {
-        std::unique_lock client_guard{client_lock_};
-        replica_state_.store(replication::ReplicaState::INVALID);
-      }
-      HandleRpcFailure();
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return;
+  }
+
+  try {
+    callback(*replica_stream_);
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard{client_lock_};
+      replica_state_.store(replication::ReplicaState::INVALID);
     }
+    HandleRpcFailure();
   }
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplication() {
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return;
+  }
+
   if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
@@ -222,12 +228,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
-  if (const auto state = replica_state_.load();
-      state != replication::ReplicaState::REPLICATING &&
-      (state != replication::ReplicaState::RECOVERY || !replica_stream_)) {
-    return;
-  }
-
+  CHECK(replica_stream_) << "Missing stream for transaction deltas";
   try {
     auto response = replica_stream_->Finalize();
     replica_stream_.reset();
