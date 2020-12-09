@@ -288,3 +288,47 @@ jobs:
           cd tests/stress
           source ve3/bin/activate
           python3 durability --num-steps 5
+
+  release_jepsen_test:
+    name: "Release Jepsen Test"
+    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binarie.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS memgraph
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./setup-local-docker-cluster.sh copy ../../build/memgraph
+          # NOTE: docker exec -t is NOT ok because gh user does NOT have TTY.
+          # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
+          #       because some Jepsen config is there.
+          docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run test-all --local-binary /opt/memgraph/memgraph --node n1"
+          docker exec jepsen-control bash -c 'tar -czvf /jepsen/memgraph/Jepsen.tar.gz $(readlink -f /jepsen/memgraph/store/latest)'
+          docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
+
+      - name: Save Jepsen report
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
