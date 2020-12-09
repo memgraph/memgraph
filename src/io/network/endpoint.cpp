@@ -11,7 +11,7 @@
 
 namespace io::network {
 
-unsigned char Endpoint::GetIpFamily(const std::string &ip_address) const {
+std::uint8_t Endpoint::GetIpFamily(const std::string &ip_address) {
   in_addr addr4;
   in6_addr addr6;
   int ipv4_result = inet_pton(AF_INET, ip_address.c_str(), &addr4);
@@ -43,7 +43,7 @@ Endpoint::ParseSocketOrIpAddress(
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
     if (default_port) {
-      std::make_pair(address, *default_port);
+      std::pair{address, *default_port};
     }
   } else if (parts.size() == 2) {
     ip_address = std::move(parts[0]);
@@ -60,7 +60,7 @@ Endpoint::ParseSocketOrIpAddress(
     }
     port_number = static_cast<uint16_t>(int_port);
 
-    return std::make_pair(ip_address, port_number);
+    return std::pair{ip_address, port_number};
   }
 
   return std::nullopt;
@@ -68,13 +68,13 @@ Endpoint::ParseSocketOrIpAddress(
 
 std::string Endpoint::SocketAddress() const {
   auto address = address_.empty() ? "EMPTY" : address_;
-  return address + std::string(":") + std::to_string(port_);
+  return address + ":" + std::to_string(port_);
 }
 
 Endpoint::Endpoint() {}
 Endpoint::Endpoint(std::string ip_address, uint16_t port)
     : address_(std::move(ip_address)), port_(port) {
-  unsigned char ip_family = GetIpFamily(address_);
+  std::uint8_t ip_family = GetIpFamily(address_);
   CHECK(ip_family != 0) << "Not a valid IPv4 or IPv6 address: " << ip_address;
   family_ = ip_family;
 }

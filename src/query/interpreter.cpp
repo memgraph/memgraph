@@ -174,11 +174,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       return db_->SetMainReplicationRole();
     }
     if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
-      uint16_t used_port{0};
       if (!port || *port > std::numeric_limits<uint16_t>::max()) {
         return false;
       }
-      used_port = static_cast<uint16_t>(*port);
+      auto used_port = static_cast<uint16_t>(*port);
       return db_->SetReplicaRole(io::network::Endpoint("127.0.0.1", used_port));
     }
     return false;
@@ -223,8 +222,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         return false;
       }
     } catch (std::exception &e) {
-      auto err_msg = std::string("Couldn't register replica! Reason: ");
-      throw QueryRuntimeException(err_msg + e.what());
+      throw QueryRuntimeException(
+          fmt::format("Couldn't register replica! Reason: {}", e.what()));
     }
   }
 
@@ -234,8 +233,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     try {
       return db_->UnregisterReplica(replica_name);
     } catch (std::exception &e) {
-      auto err_msg = std::string("Couldn't unregister replica! Reason: ");
-      throw QueryRuntimeException(err_msg + e.what());
+      throw QueryRuntimeException(
+          fmt::format("Couldn't unregister replica! Reason: ", e.what()));
     }
   }
 
@@ -245,7 +244,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     std::vector<Replica> replicas;
     replicas.reserve(repl_infos.size());
 
-    auto from_info = [](const auto &repl_info) -> Replica {
+    const auto from_info = [](const auto &repl_info) -> Replica {
       Replica replica;
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
