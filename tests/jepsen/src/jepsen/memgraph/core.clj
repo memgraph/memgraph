@@ -25,7 +25,7 @@
     (merge tests/noop-test
            opts
            {:pure-generators true
-            :name            (str "Running " (name (:workload opts)))
+            :name            (str "test-" (name (:workload opts)))
             :db              (s/db (:package-url opts) (:local-binary opts))
             :client          (:client workload)
             :checker         (checker/compose
