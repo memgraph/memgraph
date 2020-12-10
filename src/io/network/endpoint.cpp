@@ -57,17 +57,16 @@ Endpoint::ParseSocketOrIpAddress(
       LOG(ERROR) << "Port number exceeded maximum possible size!";
       return std::nullopt;
     }
-    auto port_number = static_cast<uint16_t>(int_port);
 
-    return std::pair{ip_address, port_number};
+    return std::pair{ip_address, static_cast<uint16_t>(int_port)};
   }
 
   return std::nullopt;
 }
 
 std::string Endpoint::SocketAddress() const {
-  auto socket_address = address.empty() ? "EMPTY" : address;
-  return address + ":" + std::to_string(port);
+  auto ip_address = address.empty() ? "EMPTY" : address;
+  return ip_address + ":" + std::to_string(port);
 }
 
 Endpoint::Endpoint() {}
