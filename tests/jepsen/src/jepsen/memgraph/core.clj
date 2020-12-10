@@ -53,8 +53,8 @@
   [nodes]
   (reduce (fn [cur n]
             (conj cur {n
-                       {:replication_role :replica
-                        :replication_mode :sync}}))
+                       {:replication-role :replica
+                        :replication-mode :sync}}))
           {}
           nodes))
 
@@ -65,7 +65,7 @@
   (when-not (every? (fn [config]
                       (= 1
                          (count
-                             (filter #(= (:replication_role %) :main) (vals config)))))
+                             (filter #(= (:replication-role %) :main) (vals config)))))
                     node-configs)
     (throw (Exception. "Invalid node configuration. There can only be one :main.")))
   (map #(merge (default-node-configuration nodes) %) node-configs))
