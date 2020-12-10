@@ -177,8 +177,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!port || *port > std::numeric_limits<uint16_t>::max()) {
         return false;
       }
-      auto used_port = static_cast<uint16_t>(*port);
-      return db_->SetReplicaRole(io::network::Endpoint("127.0.0.1", used_port));
+      return db_->SetReplicaRole(io::network::Endpoint(
+          query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)));
     }
     return false;
   }
@@ -234,7 +234,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       return db_->UnregisterReplica(replica_name);
     } catch (std::exception &e) {
       throw QueryRuntimeException(
-          fmt::format("Couldn't unregister replica! Reason: ", e.what()));
+          fmt::format("Couldn't unregister replica! Reason: {}", e.what()));
     }
   }
 

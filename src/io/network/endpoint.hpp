@@ -28,6 +28,16 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
+  /*
+   * Tries to parse the given string as either a socket address or ip address.
+   * Expected address format:
+   *   - "ip_address:port_number"
+   *   - "ip_address"
+   * We parse the address first. If it's an IP address, a default port must
+   * be given, or we return nullopt. If it's a socket address, we try to parse
+   * it into an ip address and a port number; even if a default port is given,
+   * it won't be used, as we expect that it is given in the address string.
+   */
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
 
