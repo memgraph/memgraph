@@ -1,0 +1,5 @@
+[{"n1" {:replication_role :main}
+  "n2" {:replication_role :replica :replication_mode :async}}
+ {"n1" {:replication_role :main}
+  "n2" {:replication_role :replica :replication_mode :sync}}]
+

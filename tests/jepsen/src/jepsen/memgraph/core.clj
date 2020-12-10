@@ -10,7 +10,8 @@
                     [tests :as tests]]
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
-                             [support :as s]]))
+                             [support :as s]
+                             [edn :as e]]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
@@ -46,6 +47,29 @@
                                            {:type :info, :f :stop}]))
                                   (gen/time-limit (:time-limit opts)))})))
 
+(defn default-node-configuration
+  "Creates default replication configuration for nodes.
+  All of them are replicas in sync mode."
+  [nodes]
+  (reduce (fn [cur n]
+            (conj cur {n
+                       {:replication_role :replica
+                        :replication_mode :sync}}))
+          {}
+          nodes))
+
+(defn merge-node-configurations
+  "Merge user defined configuration with default configuration.
+  Check if the configuration is valid."
+  [nodes node-configs]
+  (when-not (every? (fn [config]
+                      (= 1
+                         (count
+                             (filter #(= (:replication_role %) :main) (vals config)))))
+                    node-configs)
+    (throw (Exception. "Invalid node configuration. There can only be one :main.")))
+  (map #(merge (default-node-configuration nodes) %) node-configs))
+
 (def cli-opts
   "CLI options for tests."
   [[nil "--package-url URL" "What package of Memgraph should we test?"
@@ -54,15 +78,21 @@
     :default "/opt/memgraph/memgraph"]
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
-    :validate [workloads (cli/one-of workloads)]]])
+    :validate [workloads (cli/one-of workloads)]]
+   [nil "--node-configs PATH" "Path to the node configuration file."
+    :parse-fn #(-> % e/load-configuration)]])
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
   [opts]
   (let [counts    (range (:test-count opts))
         workloads (if-let [w (:workload opts)] [w] (keys workloads))
-        test-opts (for [i counts, w workloads]
+        node-configs (if (:node-configs opts)
+                       (merge-node-configurations (:nodes opts) (:node-configs opts))
+                       [(default-node-configuration (:nodes opts))])
+        test-opts (for [i counts c node-configs w workloads]
                    (assoc opts
+                          :node-config c
                           :workload w))]
     (map memgraph-test test-opts)))
 

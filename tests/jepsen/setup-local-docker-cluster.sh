@@ -49,6 +49,7 @@ case $1 in
         docker exec jepsen-control mkdir -p /jepsen/memgraph
         docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
         docker cp "$script_dir/test/." jepsen-control:/jepsen/memgraph/test/
+        docker cp "$script_dir/resources/." jepsen-control:/jepsen/memgraph/resources/
         docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
     ;;
 esac
