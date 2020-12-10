@@ -21,7 +21,7 @@ struct Endpoint {
 
   std::string SocketAddress() const;
 
-  bool operator==(const Endpoint &other) const;
+  bool operator==(const Endpoint &other) const = default;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
   std::string address;

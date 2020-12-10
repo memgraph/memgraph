@@ -38,12 +38,11 @@ Endpoint::ParseSocketOrIpAddress(
   // it won't be used, as we expect that it is given in the address string.
   const std::string delimiter = ":";
   std::string ip_address;
-  uint16_t port_number{0};
 
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
     if (default_port) {
-      std::pair{address, *default_port};
+      return std::pair{address, *default_port};
     }
   } else if (parts.size() == 2) {
     ip_address = std::move(parts[0]);
@@ -58,7 +57,7 @@ Endpoint::ParseSocketOrIpAddress(
       LOG(ERROR) << "Port number exceeded maximum possible size!";
       return std::nullopt;
     }
-    port_number = static_cast<uint16_t>(int_port);
+    auto port_number = static_cast<uint16_t>(int_port);
 
     return std::pair{ip_address, port_number};
   }
@@ -78,11 +77,6 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port)
   CHECK(ip_family != IpFamily::NONE)
       << "Not a valid IPv4 or IPv6 address: " << ip_address;
   family = ip_family;
-}
-
-bool Endpoint::operator==(const Endpoint &other) const {
-  return address == other.address && port == other.port &&
-         family == other.family;
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {

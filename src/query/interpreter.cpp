@@ -1169,11 +1169,10 @@ PreparedQuery PrepareAuthQuery(
       }};
 }
 
-PreparedQuery PrepareReplicationQuery(
-    ParsedQuery parsed_query, bool in_explicit_transaction,
-    std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context, DbAccessor *dba,
-    utils::MonotonicBufferResource *execution_memory) {
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
+                                      bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context,
+                                      DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
@@ -1184,35 +1183,18 @@ PreparedQuery PrepareReplicationQuery(
   auto callback = HandleReplicationQuery(replication_query, &handler,
                                          parsed_query.parameters, dba);
 
-  SymbolTable symbol_table;
-  std::vector<Symbol> output_symbols;
-  for (const auto &column : callback.header) {
-    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
-  }
-
-  auto plan =
-      std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-          std::make_unique<plan::OutputTable>(
-              output_symbols,
-              [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
-          0.0, AstStorage{}, symbol_table));
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
-                                 interpreter_context, execution_memory);
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(pull_plan), callback = std::move(callback),
-       output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream,
-                std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return callback.should_abort_query ? QueryHandlerResult::ABORT
-                                             : QueryHandlerResult::COMMIT;
+      [pull_plan = std::make_shared<PullPlanVector>(callback.fn())](
+          AnyStream *stream,
+          std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       }};
 }
- 
+
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
@@ -1599,8 +1581,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query = PrepareReplicationQuery(
           std::move(parsed_query), in_explicit_transaction_,
-          &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory);
+          interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }
