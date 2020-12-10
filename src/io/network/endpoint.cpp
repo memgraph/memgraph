@@ -67,32 +67,32 @@ Endpoint::ParseSocketOrIpAddress(
 }
 
 std::string Endpoint::SocketAddress() const {
-  auto address = address_.empty() ? "EMPTY" : address_;
-  return address + ":" + std::to_string(port_);
+  auto socket_address = address.empty() ? "EMPTY" : address;
+  return address + ":" + std::to_string(port);
 }
 
 Endpoint::Endpoint() {}
 Endpoint::Endpoint(std::string ip_address, uint16_t port)
-    : address_(std::move(ip_address)), port_(port) {
-  IpFamily ip_family = GetIpFamily(address_);
+    : address(std::move(ip_address)), port(port) {
+  IpFamily ip_family = GetIpFamily(address);
   CHECK(ip_family != IpFamily::NONE)
       << "Not a valid IPv4 or IPv6 address: " << ip_address;
-  family_ = ip_family;
+  family = ip_family;
 }
 
 bool Endpoint::operator==(const Endpoint &other) const {
-  return address_ == other.address_ && port_ == other.port_ &&
-         family_ == other.family_;
+  return address == other.address && port == other.port &&
+         family == other.family;
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an
   // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
-  if (endpoint.family() == Endpoint::IpFamily::IP6) {
-    return os << "[" << endpoint.address() << "]"
-              << ":" << endpoint.port();
+  if (endpoint.family == Endpoint::IpFamily::IP6) {
+    return os << "[" << endpoint.address << "]"
+              << ":" << endpoint.port;
   }
-  return os << endpoint.address() << ":" << endpoint.port();
+  return os << endpoint.address << ":" << endpoint.port;
 }
 
 }  // namespace io::network

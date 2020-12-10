@@ -19,17 +19,14 @@ struct Endpoint {
 
   enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 
-  std::string address() const { return address_; }
-  uint16_t port() const { return port_; }
-  IpFamily family() const { return family_; }
   std::string SocketAddress() const;
 
   bool operator==(const Endpoint &other) const;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
-  std::string address_;
-  uint16_t port_{0};
-  IpFamily family_{IpFamily::NONE};
+  std::string address;
+  uint16_t port{0};
+  IpFamily family{IpFamily::NONE};
 
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
       const std::string &address, const std::optional<uint16_t> default_port);
