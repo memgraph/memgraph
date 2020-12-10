@@ -22,7 +22,22 @@
   "Given an options map from the command line runner (e.g. :nodes, :ssh,
   :concurrency, ...), constructs a test map."
   [opts]
-  (let [workload ((get workloads (:workload opts)) opts)]
+  (let [workload ((get workloads (:workload opts)) opts)
+        gen      (->> (:generator workload)
+                      (gen/nemesis
+                         (cycle [(gen/sleep 5)
+                                 {:type :info, :f :start}
+                                 (gen/sleep 5)
+                                 {:type :info, :f :stop}]))
+                        (gen/time-limit (:time-limit opts)))
+        gen      (if-let [final-generator (:final-generator workload)]
+                   (gen/phases gen
+                               (gen/log "Healing cluster.")
+                               (gen/nemesis (gen/once {:type :info, :f :stop}))
+                               (gen/log "Waiting for recovery")
+                               (gen/sleep 10)
+                               (gen/clients final-generator))
+                   gen)]
     (merge tests/noop-test
            opts
            {:pure-generators true
@@ -30,7 +45,6 @@
             :db              (s/db (:package-url opts) (:local-binary opts))
             :client          (:client workload)
             :checker         (checker/compose
-                               ;; Fails on a cluster of independent Memgraphs.
                                {;; :stats      (checker/stats) CAS always fails
                                 ;;                             so enable this
                                 ;;                             if all test have
@@ -39,13 +53,7 @@
                                 :perf       (checker/perf)
                                 :workload   (:checker workload)})
             :nemesis         (nemesis/partition-random-halves)
-            :generator       (->> (:generator workload)
-                                  (gen/nemesis
-                                   (cycle [(gen/sleep 5)
-                                           {:type :info, :f :start}
-                                           (gen/sleep 5)
-                                           {:type :info, :f :stop}]))
-                                  (gen/time-limit (:time-limit opts)))})))
+            :generator       gen})))
 
 (defn default-node-configuration
   "Creates default replication configuration for nodes.
