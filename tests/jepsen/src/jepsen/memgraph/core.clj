@@ -10,13 +10,15 @@
                     [tests :as tests]]
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
+                             [bank :as bank]
                              [support :as s]
                              [edn :as e]]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-  {:basic basic/workload})
+  {:basic basic/workload
+   :bank  bank/workload})
 
 (defn memgraph-test
   "Given an options map from the command line runner (e.g. :nodes, :ssh,

@@ -21,3 +21,6 @@
   "Open client connection to the node"
   [node]
   (dbclient/connect (URI. (instance-url node 7687)) "" ""))
+
+(dbclient/defquery detach-delete-all
+  "MATCH (n) DETACH DELETE n;")
