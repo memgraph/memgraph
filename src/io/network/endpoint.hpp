@@ -28,7 +28,7 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
-  /*
+  /**
    * Tries to parse the given string as either a socket address or ip address.
    * Expected address format:
    *   - "ip_address:port_number"
