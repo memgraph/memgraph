@@ -9,6 +9,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/constants.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -161,6 +162,158 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
                                       ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
+
+#ifdef MG_ENTERPRISE
+class ReplQueryHandler final : public query::ReplicationQueryHandler {
+ public:
+  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
+
+  bool SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
+    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      return db_->SetMainReplicationRole();
+    }
+    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+      if (!port || *port > std::numeric_limits<uint16_t>::max()) {
+        return false;
+      }
+      return db_->SetReplicaRole(io::network::Endpoint(
+          query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)));
+    }
+    return false;
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
+    switch (db_->GetReplicationRole()) {
+      case storage::ReplicationRole::MAIN:
+        return ReplicationQuery::ReplicationRole::MAIN;
+      case storage::ReplicationRole::REPLICA:
+        return ReplicationQuery::ReplicationRole::REPLICA;
+    }
+    throw QueryRuntimeException("Couldn't get replication role!");
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  bool RegisterReplica(const std::string &name,
+                       const std::string &socket_address,
+                       const ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) override {
+    storage::replication::ReplicationMode repl_mode;
+    switch (sync_mode) {
+      case ReplicationQuery::SyncMode::ASYNC: {
+        repl_mode = storage::replication::ReplicationMode::ASYNC;
+        break;
+      }
+      case ReplicationQuery::SyncMode::SYNC: {
+        repl_mode = storage::replication::ReplicationMode::SYNC;
+        break;
+      }
+    }
+
+    try {
+      auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
+          socket_address, query::kDefaultReplicationPort);
+      if (maybe_ip_and_port) {
+        auto [ip, port] = *maybe_ip_and_port;
+        auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
+        return (!ret.HasError());
+      } else {
+        return false;
+      }
+    } catch (std::exception &e) {
+      throw QueryRuntimeException(
+          fmt::format("Couldn't register replica! Reason: {}", e.what()));
+    }
+  }
+
+  /// returns false if the desired replica couldn't be dropped
+  /// @throw QueryRuntimeException if an error ocurred.
+  bool DropReplica(const std::string &replica_name) override {
+    try {
+      return db_->UnregisterReplica(replica_name);
+    } catch (std::exception &e) {
+      throw QueryRuntimeException(
+          fmt::format("Couldn't unregister replica! Reason: {}", e.what()));
+    }
+  }
+
+  using Replica = ReplicationQueryHandler::Replica;
+  std::vector<Replica> ShowReplicas() const override {
+    auto repl_infos = db_->ReplicasInfo();
+    std::vector<Replica> replicas;
+    replicas.reserve(repl_infos.size());
+
+    const auto from_info = [](const auto &repl_info) -> Replica {
+      Replica replica;
+      replica.name = repl_info.name;
+      replica.socket_address = repl_info.endpoint.SocketAddress();
+      switch (repl_info.mode) {
+        case storage::replication::ReplicationMode::SYNC:
+          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
+          break;
+        case storage::replication::ReplicationMode::ASYNC:
+          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
+          break;
+      }
+      if (repl_info.timeout) {
+        replica.timeout = *repl_info.timeout;
+      }
+
+      return replica;
+    };
+
+    std::transform(repl_infos.begin(), repl_infos.end(),
+                   std::back_inserter(replicas), from_info);
+    return replicas;
+  }
+
+ private:
+  storage::Storage *db_;
+};
+/// returns false if the replication role can't be set
+/// @throw QueryRuntimeException if an error ocurred.
+#else
+
+class NoReplicationInCommunity : public query::QueryRuntimeException {
+ public:
+  NoReplicationInCommunity()
+      : query::QueryRuntimeException::QueryRuntimeException(
+            "Replication is not supported in Memgraph Community!") {}
+};
+
+class ReplQueryHandler : public query::ReplicationQueryHandler {
+ public:
+  // Dummy ctor - just there to make the replication query handler work
+  // in both community and enterprise versions.
+  explicit ReplQueryHandler(storage::Storage *db) {}
+  bool SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
+    throw NoReplicationInCommunity();
+  }
+
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
+    throw NoReplicationInCommunity();
+  }
+
+  bool RegisterReplica(const std::string &name,
+                       const std::string &socket_address,
+                       const ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) {
+    throw NoReplicationInCommunity();
+  }
+
+  bool DropReplica(const std::string &replica_name) override {
+    throw NoReplicationInCommunity();
+  }
+
+  using Replica = ReplicationQueryHandler::Replica;
+
+  std::vector<Replica> ShowReplicas() const override {
+    throw NoReplicationInCommunity();
+  }
+};
+#endif
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
                          const Parameters &parameters,
@@ -324,7 +477,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query,
-                                ReplicationQueryHandler *handler,
+                                ReplQueryHandler *handler,
                                 const Parameters &parameters,
                                 DbAccessor *db_accessor) {
   Frame frame(0);
@@ -341,7 +494,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
-      auto port = repl_query->port_->Accept(evaluator);
+      auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
       std::optional<int64_t> maybe_port;
       if (port.IsInt()) {
         maybe_port = port.ValueInt();
@@ -386,8 +539,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       callback.fn = [handler, name, socket_address, sync_mode, opt_timeout] {
         CHECK(socket_address.IsString());
         if (!handler->RegisterReplica(name,
-                                      std::string(socket_address.ValueString()),
-                                      sync_mode, opt_timeout)) {
+                                     std::string(socket_address.ValueString()),
+                                     sync_mode, opt_timeout)) {
           throw QueryRuntimeException(
               "Couldn't create the desired replica '{}'.", name);
         }
@@ -406,7 +559,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name", "hostname", "sync_mode", "timeout"};
+      callback.header = {"name", "socket_address", "sync_mode", "timeout"};
       callback.fn = [handler, replica_nfields = callback.header.size()] {
         const auto &replicas = handler->ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -1016,50 +1169,32 @@ PreparedQuery PrepareAuthQuery(
       }};
 }
 
-PreparedQuery PrepareReplicationQuery(
-    ParsedQuery parsed_query, bool in_explicit_transaction,
-    std::map<std::string, TypedValue> *summary,
-    InterpreterContext *interpreter_context, DbAccessor *dba,
-    utils::MonotonicBufferResource *execution_memory) {
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
+                                      bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context,
+                                      DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query =
       utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, interpreter_context->repl,
-                             parsed_query.parameters, dba);
+  ReplQueryHandler handler{interpreter_context->db};
+  auto callback = HandleReplicationQuery(replication_query, &handler,
+                                         parsed_query.parameters, dba);
 
-  SymbolTable symbol_table;
-  std::vector<Symbol> output_symbols;
-  for (const auto &column : callback.header) {
-    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
-  }
-
-  auto plan =
-      std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-          std::make_unique<plan::OutputTable>(
-              output_symbols,
-              [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
-          0.0, AstStorage{}, symbol_table));
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
-                                 interpreter_context, execution_memory);
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(pull_plan), callback = std::move(callback),
-       output_symbols = std::move(output_symbols),
-       summary](AnyStream *stream,
-                std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
-          return callback.should_abort_query ? QueryHandlerResult::ABORT
-                                             : QueryHandlerResult::COMMIT;
+      [pull_plan = std::make_shared<PullPlanVector>(callback.fn())](
+          AnyStream *stream,
+          std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
       }};
 }
- 
+
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
@@ -1446,8 +1581,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query = PrepareReplicationQuery(
           std::move(parsed_query), in_explicit_transaction_,
-          &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory);
+          interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG(FATAL) << "Should not get here -- unknown query type!";
     }

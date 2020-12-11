@@ -228,8 +228,8 @@ class BoltSession final
     for (const auto &kv : params)
       params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifdef MG_ENTERPRISE
-    audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "",
-                       query, storage::PropertyValue(params_pv));
+    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query,
+                       storage::PropertyValue(params_pv));
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv);
