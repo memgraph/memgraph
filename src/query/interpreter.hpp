@@ -101,11 +101,12 @@ enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 class ReplicationQueryHandler {
  public:
   ReplicationQueryHandler() = default;
-  ~ReplicationQueryHandler() = default;
+  virtual ~ReplicationQueryHandler() = default;
 
   ReplicationQueryHandler(const ReplicationQueryHandler &) = delete;
-  ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
   ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = delete;
+
+  ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
   ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = delete;
 
   struct Replica {
@@ -118,7 +119,7 @@ class ReplicationQueryHandler {
   /// returns false if the replication role can't be set
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool SetReplicationRole(
-      ReplicationQuery::ReplicationRole replication_mode,
+      ReplicationQuery::ReplicationRole replication_role,
       std::optional<int64_t> port) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -127,9 +128,9 @@ class ReplicationQueryHandler {
   /// returns false if the replica can't be registered
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool RegisterReplica(const std::string &name,
-                               const std::string &hostname,
-                               ReplicationQuery::SyncMode sync_mode,
-                               std::optional<double> timeout) = 0;
+                               const std::string &socket_address,
+                               const ReplicationQuery::SyncMode sync_mode,
+                               const std::optional<double> timeout) = 0;
 
   /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
@@ -246,7 +247,6 @@ struct InterpreterContext {
   double execution_timeout_sec{180.0};
 
   AuthQueryHandler *auth{nullptr};
-  ReplicationQueryHandler *repl{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
