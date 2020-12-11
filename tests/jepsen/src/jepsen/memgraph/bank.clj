@@ -38,11 +38,24 @@
    SET n.balance = n.balance + $amount
    RETURN n")
 
-(dbclient/defquery set-replica-role
-  "SET REPLICATION ROLE TO REPLICA WITH PORT 10000;")
+(defn replica-mode-str
+  [replication-mode]
+  (case replication-mode
+    :async "ASYNC"
+    :sync  "SYNC"))
 
-(dbclient/defquery register-replica
-  "REGISTER REPLICA replica SYNC TO \"172.18.0.6:10000\";")
+(defn create-register-replica-query
+  [name node-config]
+  (dbclient/create-query
+    (str "REGISTER REPLICA "
+         name
+         " "
+         (replica-mode-str (:replication-mode node-config))
+         " TO \""
+         (:ip node-config)
+         ":"
+         (:port node-config)
+         "\"")))
 
 (defn transfer-money
   "Transfer money from one account to another by some amount
@@ -65,7 +78,7 @@
       (when (= :replica role)
         (c/with-session connection session
           (try
-            (set-replica-role session {:port (:port nc)})
+            ((dbclient/create-query (str "SET REPLICATION ROLE TO REPLICA WITH PORT " (:port nc))) session)
             (catch Exception e
               (info "Already setup the role")))))
 
@@ -78,7 +91,7 @@
         (do
           (try
             (doseq [n (filter #(= (:replication-role (val %)) :replica) node-config)]
-              (register-replica session {:name (first n) :sa (str (first n) ":" (:port (second n)))}))
+              ((create-register-replica-query (first n) (second n)) session))
             (catch Exception e))
           (Thread/sleep 2000)
           (dotimes [i account-num]

@@ -114,8 +114,8 @@
   (map (fn [node-config] (resolve-all-node-hostnames
           (merge
             (default-node-configuration nodes)
-            node-config))
-       node-configs)))
+            node-config)))
+       node-configs))
 
 (def cli-opts
   "CLI options for tests."
