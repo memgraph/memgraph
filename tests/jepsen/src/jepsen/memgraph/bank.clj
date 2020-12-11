@@ -38,6 +38,12 @@
    SET n.balance = n.balance + $amount
    RETURN n")
 
+(dbclient/defquery set-replica-role
+  "SET REPLICATION ROLE TO REPLICA WITH PORT 10000;")
+
+(dbclient/defquery register-replica
+  "REGISTER REPLICA replica SYNC TO \"172.18.0.6:10000\";")
+
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
@@ -53,22 +59,35 @@
 (defrecord Client [conn replication-role node-config]
   client/Client
   (open! [this test node]
-    (assoc this :replication-role (:replication-role (get node-config node))
-                :conn (c/open node)))
+    (let [connection (c/open node)
+          nc (get node-config node)
+          role (:replication-role nc)]
+      (when (= :replica role)
+        (c/with-session connection session
+          (try
+            (set-replica-role session {:port (:port nc)})
+            (catch Exception e
+              (info "Already setup the role")))))
+
+      (assoc this :replication-role role
+                  :conn connection)))
   (setup! [this test]
     (c/with-session conn session
       (c/detach-delete-all session)
       (when (= replication-role :main)
-        (dotimes [i account-num]
-          (info "Creating account:" i)
-          (create-account session {:id i :balance starting-balance})))))
+        (do
+          (try
+            (doseq [n (filter #(= (:replication-role (val %)) :replica) node-config)]
+              (register-replica session {:name (first n) :sa (str (first n) ":" (:port (second n)))}))
+            (catch Exception e))
+          (Thread/sleep 2000)
+          (dotimes [i account-num]
+            (info "Creating account:" i)
+            (create-account session {:id i :balance starting-balance}))))))
   (invoke! [this test op]
     (case (:f op)
-      :read (do
-              (if (= replication-role :main)
-                (c/with-session conn session
-                  (assoc op :type :ok :value (->> (get-all-accounts session) (map :n) (reduce conj []))))
-                (assoc op :type :fail)))
+      :read (c/with-session conn session
+              (assoc op :type :ok :value (->> (get-all-accounts session) (map :n) (reduce conj []))))
       :transfer (do
                   (if (= replication-role :main)
                     (try
@@ -135,8 +154,8 @@
 (defn workload
   "Basic test workload"
   [opts]
-  {:client (Client. nil nil (:node-config opts))
-   :checker (checker/compose
-              {:bank     (bank-checker)
-               :timeline (timeline/html)})
+  {:client    (Client. nil nil (:node-config opts))
+   :checker   (checker/compose
+                {:bank     (bank-checker)
+                 :timeline (timeline/html)})
    :generator (gen/mix [read-balances valid-transfer])})

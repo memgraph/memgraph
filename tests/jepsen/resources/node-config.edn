@@ -1,5 +1,3 @@
 [{"n1" {:replication-role :main}
-  "n2" {:replication-role :replica :replication-mode :async}}
- {"n1" {:replication-role :main}
-  "n2" {:replication-role :replica :replication-mode :sync}}]
-
+  "n2" {:replication-role :replica :replication-mode :async :port 10000}
+  "n3" {:replication-role :replica :replication-mode :async :port 10000}}]

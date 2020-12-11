@@ -31,7 +31,11 @@
        {:logfile mglog
         :pidfile mgpid
         :chdir   mgdir}
-       local-binary)
+       local-binary
+       :--storage-recover-on-startup
+       :--storage-wal-enabled
+       :--storage-snapshot-interval-sec 300
+       :--storage-properties-on-edges)
       (Thread/sleep 2000))
     (teardown! [_ test node]
       (info node "Tearing down Memgraph")

@@ -2,6 +2,7 @@
   (:gen-class)
   (:require [clojure.tools.logging :refer :all]
             [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
             [jepsen [cli :as cli]
                     [core :as jepsen]
                     [checker :as checker]
@@ -64,9 +65,30 @@
   (reduce (fn [cur n]
             (conj cur {n
                        {:replication-role :replica
-                        :replication-mode :sync}}))
+                        :replication-mode :sync
+                        :port             10000}}))
           {}
           nodes))
+
+(defn resolve-hostname
+  "Resolve hostnames to ip address"
+  [host]
+  (first
+    (re-find
+      #"(\d{1,3}(.\d{1,3}){3})"
+      (:out (sh "getent" "hosts" host)))))
+
+(defn resolve-all-node-hostnames
+  "Resolve all hostnames in config and assign it to the node"
+  [node-config]
+  (reduce (fn [curr node]
+            (let [k (first node)
+                  v (second node)]
+              (assoc curr
+                     k (assoc v
+                              :ip (resolve-hostname k)))))
+          {}
+          node-config))
 
 (defn merge-node-configurations
   "Merge user defined configuration with default configuration.
@@ -75,10 +97,25 @@
   (when-not (every? (fn [config]
                       (= 1
                          (count
-                             (filter #(= (:replication-role %) :main) (vals config)))))
+                             (filter
+                               #(= (:replication-role %) :main)
+                               (vals config)))))
                     node-configs)
     (throw (Exception. "Invalid node configuration. There can only be one :main.")))
-  (map #(merge (default-node-configuration nodes) %) node-configs))
+
+  (when-not (every? (fn [config]
+                      (every? #(or
+                                 (= (:replication-role %) :main)
+                                 (contains? % :port))
+                              (vals config)))
+                    node-configs)
+    (throw (Exception. "Invalid node configuration. Every replica should have a port defined.")))
+
+  (map (fn [node-config] (resolve-all-node-hostnames
+          (merge
+            (default-node-configuration nodes)
+            node-config))
+       node-configs)))
 
 (def cli-opts
   "CLI options for tests."
@@ -99,7 +136,7 @@
         workloads (if-let [w (:workload opts)] [w] (keys workloads))
         node-configs (if (:node-configs opts)
                        (merge-node-configurations (:nodes opts) (:node-configs opts))
-                       [(default-node-configuration (:nodes opts))])
+                       [(resolve-all-node-hostnames (default-node-configuration (:nodes opts)))])
         test-opts (for [i counts c node-configs w workloads]
                    (assoc opts
                           :node-config c
