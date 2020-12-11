@@ -417,10 +417,10 @@ class Storage final {
 
 #if MG_ENTERPRISE
 
-  void SetReplicaRole(io::network::Endpoint endpoint,
+  bool SetReplicaRole(io::network::Endpoint endpoint,
                       const replication::ReplicationServerConfig &config = {});
 
-  void SetMainReplicationRole();
+  bool SetMainReplicationRole();
 
   enum class RegisterReplicaError : uint8_t { NAME_EXISTS, CONNECTION_FAILED };
 
@@ -584,8 +584,8 @@ class Storage final {
   // we don't want to create the client directly inside the vector
   // because that would require the lock on the list putting all
   // commits (they iterate list of clients) to halt.
-  // This way we can initiliaze client in main thread which means
-  // that we can immediately notify the user if the intiialization
+  // This way we can initialize client in main thread which means
+  // that we can immediately notify the user if the initialization
   // failed.
   using ReplicationClientList =
       utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,

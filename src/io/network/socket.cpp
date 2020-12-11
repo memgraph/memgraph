@@ -60,8 +60,8 @@ bool Socket::IsOpen() const { return socket_ != -1; }
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address().c_str(),
-                            std::to_string(endpoint.port()).c_str());
+  auto info = AddrInfo::Get(endpoint.address.c_str(),
+                            std::to_string(endpoint.port).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -84,8 +84,8 @@ bool Socket::Connect(const Endpoint &endpoint) {
 bool Socket::Bind(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address().c_str(),
-                            std::to_string(endpoint.port()).c_str());
+  auto info = AddrInfo::Get(endpoint.address.c_str(),
+                            std::to_string(endpoint.port).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -122,7 +122,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
     return false;
   }
 
-  endpoint_ = Endpoint(endpoint.address(), ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.address, ntohs(portdata.sin6_port));
 
   return true;
 }

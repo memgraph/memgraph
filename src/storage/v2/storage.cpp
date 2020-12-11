@@ -1956,25 +1956,26 @@ uint64_t Storage::CommitTimestamp(
 }
 
 #ifdef MG_ENTERPRISE
-void Storage::SetReplicaRole(
+bool Storage::SetReplicaRole(
     io::network::Endpoint endpoint,
     const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
   if (replication_role_ == ReplicationRole::REPLICA) {
-    return;
+    return false;
   }
 
   replication_server_ =
       std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
   replication_role_.store(ReplicationRole::REPLICA);
+  return true;
 }
 
-void Storage::SetMainReplicationRole() {
+bool Storage::SetMainReplicationRole() {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (replication_role_ == ReplicationRole::MAIN) {
-    return;
+    return false;
   }
 
   // Main instance does not need replication server
@@ -1997,6 +1998,7 @@ void Storage::SetMainReplicationRole() {
   }
 
   replication_role_.store(ReplicationRole::MAIN);
+  return true;
 }
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(

@@ -72,7 +72,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < Nc; ++i)
-    clients.push_back(std::thread(client_run, i, interface, ep.port()));
+    clients.push_back(std::thread(client_run, i, interface, ep.port));
 
   // wait for 2s and stop clients
   std::this_thread::sleep_for(std::chrono::seconds(2));
