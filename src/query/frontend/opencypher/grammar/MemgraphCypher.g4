@@ -120,7 +120,7 @@ showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 dumpQuery: DUMP DATABASE ;
 
 setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
-                      ( WITH PORT port=literal ) ? ;
+                      ( WITH PORT literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
@@ -129,7 +129,7 @@ replicaName : symbolicName ;
 socketAddress : literal ;
 
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
-                ( WITH TIMEOUT timeout=literal ) ?
+                ( WITH TIMEOUT literal ) ?
                 TO socketAddress ;
 
 dropReplica : DROP REPLICA replicaName ;
