@@ -218,12 +218,9 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
     if (ctx->WITH() && ctx->PORT()) {
-      if (!ctx->literal()) {
-        throw SyntaxException("Port not given!");
-      }
-      if (!ctx->literal()->numberLiteral() &&
+      if (!ctx->literal()->numberLiteral() ||
           !ctx->literal()->numberLiteral()->integerLiteral()) {
-        throw SyntaxException("Port must be an integer literal!");
+        throw SemanticException("Port must be an integer literal!");
       }
       replication_query->port_ = ctx->literal()->accept(this);
     }
@@ -243,22 +240,21 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(
   replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
   replication_query->replica_name_ =
       ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+
   if (ctx->SYNC()) {
     replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::SYNC;
   } else if (ctx->ASYNC()) {
     replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
   }
+
   if (ctx->WITH() && ctx->TIMEOUT()) {
-    if (ctx->literal()) {
-      if (!ctx->literal()->numberLiteral() &&
-          !ctx->literal()->numberLiteral()->doubleLiteral() &&
-          !ctx->literal()->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Timeout should be a double literal!");
-      } else {
-        replication_query->timeout_ = ctx->literal()->accept(this);
-      }
+    if (!ctx->literal()->numberLiteral()) {
+      throw SemanticException("Timeout should be a double or integer literal!");
+    } else {
+      replication_query->timeout_ = ctx->literal()->accept(this);
     }
   }
+
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
     throw SemanticException("Socket address should be a string literal!");
   } else {
