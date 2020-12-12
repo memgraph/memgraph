@@ -26,10 +26,6 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          cd release
-          ./get_version.py --enterprise --variant deb "" ""
-          cd ..
-
           # Initialize dependencies.
           ./init
 
@@ -56,6 +52,11 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v2/activate
+
+          # At this point master is not a local branch. get_version.py script
+          # needs that the master is a local branch. The following command is
+          # creating the local master branch without checking it out.
+          git fetch origin master:master
 
           # Create community DEB package.
           cd build
@@ -313,6 +314,11 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v2/activate
+
+          # At this point master is not a local branch. get_version.py script
+          # needs that the master is a local branch. The following command is
+          # creating the local master branch without checking it out.
+          git fetch origin master:master
 
           # Create enterprise DEB package.
           cd build
