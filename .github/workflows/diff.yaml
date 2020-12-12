@@ -53,6 +53,10 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
+          cd release
+          ./get_version.py --enterprise --variant deb "" ""
+          cd ..
+
           # Create community DEB package.
           cd build
           mkdir output && cd output
