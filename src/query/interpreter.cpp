@@ -174,7 +174,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       return db_->SetMainReplicationRole();
     }
     if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
-      if (!port || *port > std::numeric_limits<uint16_t>::max()) {
+      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         return false;
       }
       return db_->SetReplicaRole(io::network::Endpoint(
@@ -216,7 +216,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           socket_address, query::kDefaultReplicationPort);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
-        auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode);
+        storage::replication::ReplicationClientConfig config{
+            .timeout = timeout, .ssl = std::nullopt};
+        auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                        config);
         return (!ret.HasError());
       } else {
         return false;
@@ -530,17 +533,17 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout =
           EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
-      std::optional<double> opt_timeout;
+      std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
-        opt_timeout = timeout.ValueDouble();
+        maybe_timeout = timeout.ValueDouble();
       } else if (timeout.IsInt()) {
-        opt_timeout = static_cast<double>(timeout.ValueInt());
+        maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
-      callback.fn = [handler, name, socket_address, sync_mode, opt_timeout] {
+      callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
         CHECK(socket_address.IsString());
         if (!handler->RegisterReplica(name,
-                                     std::string(socket_address.ValueString()),
-                                     sync_mode, opt_timeout)) {
+                                      std::string(socket_address.ValueString()),
+                                      sync_mode, maybe_timeout)) {
           throw QueryRuntimeException(
               "Couldn't create the desired replica '{}'.", name);
         }
