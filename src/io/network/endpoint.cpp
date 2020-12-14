@@ -53,6 +53,10 @@ Endpoint::ParseSocketOrIpAddress(
       LOG(ERROR) << "Invalid port number: " << parts[1];
       return std::nullopt;
     }
+    if (int_port < 0) {
+      LOG(ERROR) << "Port number must be a positive integer!";
+      return std::nullopt;
+    }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
       LOG(ERROR) << "Port number exceeded maximum possible size!";
       return std::nullopt;
