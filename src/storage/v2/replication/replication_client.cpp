@@ -203,10 +203,10 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 
     timeout_dispatcher_->StartTimeoutTask(*timeout_);
 
+    // Wait until one of the threads notifies us that they finished executing
+    // Both threads should first set the active flag to false
     {
       std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      // Wait until one of the threads notifies us that they finished executing
-      // Both threads should first set the active flag to false
       timeout_dispatcher_->main_cv.wait(
           main_guard, [&] { return !timeout_dispatcher_->active.load(); });
     }
@@ -507,14 +507,14 @@ void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
 
 void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
     const double timeout) {
-  timeout_pool.AddTask([&, this] {
+  timeout_pool.AddTask([timeout, this] {
     finished = false;
     using std::chrono::steady_clock;
     const auto timeout_duration =
         std::chrono::duration_cast<steady_clock::duration>(
             std::chrono::duration<double>(timeout));
     const auto end_time = steady_clock::now() + timeout_duration;
-    while (active && steady_clock::now() < end_time) {
+    while (active && (steady_clock::now() < end_time)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
