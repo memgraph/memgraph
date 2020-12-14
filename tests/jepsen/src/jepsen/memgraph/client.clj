@@ -3,16 +3,6 @@
   (:require [neo4j-clj.core :as dbclient])
   (:import (java.net URI)))
 
-(ns neo4j-clj.core
-  (:import (java.util.concurrent TimeUnit)))
-(defn config [options]
-  (let [logging (:logging options (ConsoleLogging. Level/CONFIG))
-        timeunit TimeUnit/SECONDS]
-    (-> (Config/builder)
-        (.withLogging logging)
-        (.build))))
-(ns jepsen.memgraph.client)
-
 ;; Jepsen related utils.
 (defn instance-url
   "An URL for connecting to an instance on a particular port"
@@ -34,3 +24,28 @@
 
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
+
+(defn replica-mode-str
+  [node-config]
+  (case (:replication-mode node-config)
+    :async "ASYNC"
+    :sync  (str "SYNC" (when-let [timeout (:timeout node-config)] (str " WITH TIMEOUT " timeout)))))
+
+(defn create-register-replica-query
+  [name node-config]
+  (dbclient/create-query
+    (str "REGISTER REPLICA "
+         name
+         " "
+         (replica-mode-str node-config)
+         " TO \""
+         (:ip node-config)
+         ":"
+         (:port node-config)
+         "\"")))
+
+(defn create-set-replica-role-query
+  [port]
+  (dbclient/create-query
+    (str "SET REPLICATION ROLE TO REPLICA WITH PORT " port)))
+

@@ -38,25 +38,6 @@
    SET n.balance = n.balance + $amount
    RETURN n")
 
-(defn replica-mode-str
-  [node-config]
-  (case (:replication-mode node-config)
-    :async "ASYNC"
-    :sync  (str "SYNC" (when-let [timeout (:timeout node-config)] (str " WITH TIMEOUT " timeout)))))
-
-(defn create-register-replica-query
-  [name node-config]
-  (dbclient/create-query
-    (str "REGISTER REPLICA "
-         name
-         " "
-         (replica-mode-str node-config)
-         " TO \""
-         (:ip node-config)
-         ":"
-         (:port node-config)
-         "\"")))
-
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
@@ -69,7 +50,7 @@
         (update-balance tx {:id to :amount amount})))))
 
 
-(defrecord Client [conn replication-role node-config]
+(defrecord Client [conn node replication-role node-config]
   client/Client
   (open! [this test node]
     (let [connection (c/open node)
@@ -78,54 +59,63 @@
       (when (= :replica role)
         (c/with-session connection session
           (try
-            ((dbclient/create-query
-               (str "SET REPLICATION ROLE TO REPLICA WITH PORT " (:port nc))) session)
+            ((c/create-set-replica-role-query (:port nc)) session)
             (catch Exception e
               (info "Already setup the role")))))
 
       (assoc this :replication-role role
-                  :conn connection)))
+                  :conn connection
+                  :node node)))
   (setup! [this test]
     (c/with-session conn session
-      (c/detach-delete-all session)
       (when (= replication-role :main)
         (do
-          (try
-            (doseq [n (filter #(= (:replication-role (val %)) :replica) node-config)]
-              ((create-register-replica-query (first n) (second n)) session))
-            (catch Exception e))
-          (Thread/sleep 2000)
+          (c/detach-delete-all session)
           (dotimes [i account-num]
             (info "Creating account:" i)
             (create-account session {:id i :balance starting-balance}))))))
   (invoke! [this test op]
     (case (:f op)
+      :register (if (= replication-role :main)
+                  (do
+                    (doseq [n (filter #(= (:replication-role (val %)) :replica) node-config)]
+                                (try
+                                  (c/with-session conn session
+                                    ((c/create-register-replica-query (first n) (second n)) session))
+                                (catch Exception e)))
+                    (assoc op :type :ok))
+                  (assoc op :type :fail))
       :read (c/with-session conn session
               (assoc op
                      :type :ok
-                     :value (->> (get-all-accounts session) (map :n) (reduce conj []))))
-      :transfer (do
-                  (if (= replication-role :main)
-                    (try
-                      (let [value (:value op)]
-                        (assoc op
-                               :type (if
-                                       (transfer-money
-                                         conn
-                                         (:from value)
-                                         (:to value)
-                                         (:amount value))
-                                       :ok
-                                       :fail)))
-                      (catch Exception e
-                        ; Transaction can fail on serialization errors
-                        (assoc op :type :fail :info (str e))))
-                    (assoc op :type :fail)))))
+                     :value {:accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                             :node node}))
+      :transfer (if (= replication-role :main)
+                  (try
+                    (let [value (:value op)]
+                      (assoc op
+                             :type (if
+                                     (transfer-money
+                                       conn
+                                       (:from value)
+                                       (:to value)
+                                       (:amount value))
+                                     :ok
+                                     :fail)))
+                    (catch Exception e
+                      ; Transaction can fail on serialization errors
+                      (assoc op :type :fail :info (str e))))
+                  (assoc op :type :fail))))
   (teardown! [this test]
     (c/with-session conn session
       (c/detach-delete-all session)))
   (close! [_ est]
     (dbclient/disconnect conn)))
+
+(defn register-replicas
+  "Register all replicas"
+  [test process]
+  {:type :invoke :f :register :value nil})
 
 (defn read-balances
   "Read the current state of all accounts"
@@ -135,8 +125,8 @@
 (defn transfer
   "Transfer money"
   [test process]
-  {:type :invoke :f :transfer :value {:from (rand-int account-num)
-                                      :to   (rand-int account-num)
+  {:type :invoke :f :transfer :value {:from   (rand-int account-num)
+                                      :to     (rand-int account-num)
                                       :amount (rand-int max-transfer-amount)}})
 
 (def valid-transfer
@@ -144,19 +134,26 @@
   (gen/filter (fn [op] (not= (-> op :value :from) (-> op :value :to))) transfer))
 
 (defn bank-checker
-  "Balances must all be non-negative and sum to the model's total"
+  "Balances must all be non-negative and sum to the model's total
+  Each node should have at least one read that returned all accounts.
+  We allow the reads to be empty because the replica can connect to
+  main at some later point, until that point the replica is empty."
   []
   (reify checker/Checker
     (check [this test history opts]
       (info "ANALYZING HISTORY")
-      (let [bad-reads (->> history
+      (let [ok-reads  (->> history
                            (filter #(= :ok (:type %)))
-                           (filter #(= :read (:f %)))
+                           (filter #(= :read (:f %))))
+            bad-reads (->> ok-reads
                            (map (fn [op]
-                                  (let [balances       (map :balance (:value op))
+                                  (let [balances       (->> op :value :accounts (map :balance))
                                         expected-total (* account-num starting-balance)]
-                                    (cond (not= expected-total
-                                                (reduce + balances))
+                                    (cond (and
+                                             (not-empty balances)
+                                             (not=
+                                               expected-total
+                                               (reduce + balances)))
                                           {:type :wrong-total
                                            :expected expected-total
                                            :found (reduce + balances)
@@ -165,18 +162,34 @@
                                           (some neg? balances)
                                           {:type :negative-value
                                            :found balances
-                                           :op op}
-                                          ))))
+                                           :op op}))))
                            (filter identity)
-                           (into []))]
-        {:valid? (empty? bad-reads)
+                           (into []))
+            empty-nodes (let [all-nodes (->> ok-reads
+                                             (map :value)
+                                             (map :node)
+                                             (reduce conj #{}))]
+                          (->> all-nodes
+                               (filter (fn [node]
+                                        (every?
+                                          empty?
+                                          (->> ok-reads
+                                               (map :value)
+                                               (filter #(= node (:node %)))
+                                               (map :accounts)))))
+                               (filter identity)
+                               (into [])))]
+        {:valid? (and
+                   (empty? bad-reads)
+                   (empty? empty-nodes))
+         :empty-nodes empty-nodes
          :bad-reads bad-reads}))))
 
 (defn workload
   "Basic test workload"
   [opts]
-  {:client    (Client. nil nil (:node-config opts))
+  {:client    (Client. nil nil nil (:node-config opts))
    :checker   (checker/compose
                 {:bank     (bank-checker)
                  :timeline (timeline/html)})
-   :generator (gen/mix [read-balances valid-transfer])})
+   :generator (gen/mix [register-replicas read-balances valid-transfer])})

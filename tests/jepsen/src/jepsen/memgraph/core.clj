@@ -66,7 +66,8 @@
             (conj cur {n
                        {:replication-role :replica
                         :replication-mode :sync
-                        :port             10000}}))
+                        :port             10000
+                        :timeout          10}}))
           {}
           nodes))
 
@@ -90,6 +91,11 @@
           {}
           node-config))
 
+(defn throw-if-key-missing-in-any
+  [map-coll key error-msg]
+  (when-not (every? #(contains? % key) map-coll)
+    (throw (Exception. error-msg))))
+
 (defn merge-node-configurations
   "Merge user defined configuration with default configuration.
   Check if the configuration is valid."
@@ -103,13 +109,29 @@
                     node-configs)
     (throw (Exception. "Invalid node configuration. There can only be one :main.")))
 
-  (when-not (every? (fn [config]
-                      (every? #(or
-                                 (= (:replication-role %) :main)
-                                 (contains? % :port))
-                              (vals config)))
-                    node-configs)
-    (throw (Exception. "Invalid node configuration. Every replica should have a port defined.")))
+
+  (doseq [node-config node-configs]
+    (let [replica-nodes-configs (filter 
+                                  #(= (:replication-role %) :replica) 
+                                  (vals node-config))]
+      (throw-if-key-missing-in-any 
+        replica-nodes-configs 
+        :port 
+        (str "Invalid node configuration. "
+             "Every replication node requires "
+             ":port to be defined."))
+      (throw-if-key-missing-in-any 
+        replica-nodes-configs 
+        :replication-mode 
+        (str "Invalid node configuration. "
+             "Every replication node requires "
+             ":replication-mode to be defined."))
+      (throw-if-key-missing-in-any
+        (filter #(= (:replication-mode %) :sync) replica-nodes-configs)
+        :timeout
+        (str "Invalid node confiruation. "
+             "Every SYNC replication node requires "
+             ":timeout to be defined."))))
 
   (map (fn [node-config] (resolve-all-node-hostnames
           (merge
