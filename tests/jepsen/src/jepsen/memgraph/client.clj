@@ -3,6 +3,16 @@
   (:require [neo4j-clj.core :as dbclient])
   (:import (java.net URI)))
 
+(ns neo4j-clj.core
+  (:import (java.util.concurrent TimeUnit)))
+(defn config [options]
+  (let [logging (:logging options (ConsoleLogging. Level/CONFIG))
+        timeunit TimeUnit/SECONDS]
+    (-> (Config/builder)
+        (.withLogging logging)
+        (.build))))
+(ns jepsen.memgraph.client)
+
 ;; Jepsen related utils.
 (defn instance-url
   "An URL for connecting to an instance on a particular port"

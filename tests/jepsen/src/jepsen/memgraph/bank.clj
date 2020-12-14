@@ -39,10 +39,10 @@
    RETURN n")
 
 (defn replica-mode-str
-  [replication-mode]
-  (case replication-mode
+  [node-config]
+  (case (:replication-mode node-config)
     :async "ASYNC"
-    :sync  "SYNC"))
+    :sync  (str "SYNC" (when-let [timeout (:timeout node-config)] (str " WITH TIMEOUT " timeout)))))
 
 (defn create-register-replica-query
   [name node-config]
@@ -50,7 +50,7 @@
     (str "REGISTER REPLICA "
          name
          " "
-         (replica-mode-str (:replication-mode node-config))
+         (replica-mode-str node-config)
          " TO \""
          (:ip node-config)
          ":"
@@ -78,7 +78,8 @@
       (when (= :replica role)
         (c/with-session connection session
           (try
-            ((dbclient/create-query (str "SET REPLICATION ROLE TO REPLICA WITH PORT " (:port nc))) session)
+            ((dbclient/create-query
+               (str "SET REPLICATION ROLE TO REPLICA WITH PORT " (:port nc))) session)
             (catch Exception e
               (info "Already setup the role")))))
 
@@ -100,14 +101,20 @@
   (invoke! [this test op]
     (case (:f op)
       :read (c/with-session conn session
-              (assoc op :type :ok :value (->> (get-all-accounts session) (map :n) (reduce conj []))))
+              (assoc op
+                     :type :ok
+                     :value (->> (get-all-accounts session) (map :n) (reduce conj []))))
       :transfer (do
                   (if (= replication-role :main)
                     (try
                       (let [value (:value op)]
                         (assoc op
                                :type (if
-                                       (transfer-money conn (:from value) (:to value) (:amount value))
+                                       (transfer-money
+                                         conn
+                                         (:from value)
+                                         (:to value)
+                                         (:amount value))
                                        :ok
                                        :fail)))
                       (catch Exception e
@@ -141,6 +148,7 @@
   []
   (reify checker/Checker
     (check [this test history opts]
+      (info "ANALYZING HISTORY")
       (let [bad-reads (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :read (:f %)))
