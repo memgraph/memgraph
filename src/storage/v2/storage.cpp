@@ -1436,7 +1436,15 @@ Transaction Storage::CreateTransaction() {
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
+#ifdef MG_ENTERPRISE
+    if (replication_role_ == ReplicationRole::REPLICA) {
+      start_timestamp = timestamp_;
+    } else {
+      start_timestamp = timestamp_++;
+    }
+#else
     start_timestamp = timestamp_++;
+#endif
   }
   return {transaction_id, start_timestamp};
 }
