@@ -1,7 +1,8 @@
 (ns jepsen.memgraph.client
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
-            [clojure.tools.logging :refer [info]])
+            [clojure.tools.logging :refer [info]]
+            [jepsen [generator :as gen]])
   (:import (java.net URI)))
 
 ;; Jepsen related utils.
@@ -55,13 +56,15 @@
   [test process]
   {:type :invoke :f :register :value nil})
 
-(defmacro replication-gen
+(defn replication-gen
   "Generator which should be used for replication tests
   as it adds register replica invoke."
-  [[& generators]]
-  `(gen/mix [c/register-replicas ~@generators]))
+  [generators]
+  (gen/each-thread(gen/phases (cycle [(gen/once register-replicas)
+                                      (gen/time-limit 5 (gen/mix generators))]))))
 
-(defmacro defreplicationclient
+
+(defmacro replication-client
   "Create Client for replication tests.
   Every replication client contains connection, node, replication role and
   the node config for all nodes.
@@ -108,4 +111,4 @@
                                            (catch Exception e)))
                                (assoc op :type :ok))
                              (assoc op :type :fail)))
-      cases))
+          cases))

@@ -19,10 +19,10 @@
 
 (def starting-balance
   "Starting balance of each account"
-  100)
+  400)
 
 (def max-transfer-amount
-  50)
+  20)
 
 (dbclient/defquery create-account
   "CREATE (n:Account {id: $id, balance: $balance});")
@@ -50,7 +50,7 @@
         (update-balance tx {:id to :amount amount})))))
 
 
-(c/defreplicationclient Client []
+(c/replication-client Client []
   (open! [this test node]
     (c/replication-open-connection this node node-config))
   (setup! [this test]
@@ -163,4 +163,5 @@
    :checker   (checker/compose
                 {:bank     (bank-checker)
                  :timeline (timeline/html)})
-   :generator (c/replication-gen [read-balances valid-transfer])})
+   :generator (c/replication-gen [read-balances valid-transfer])
+   :final-generator (gen/once read-balances)})
