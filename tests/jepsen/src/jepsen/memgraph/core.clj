@@ -4,39 +4,42 @@
             [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
             [jepsen [cli :as cli]
-                    [core :as jepsen]
                     [checker :as checker]
-                    [nemesis :as nemesis]
+                    [control :as c]
+                    [core :as jepsen]
                     [generator :as gen]
                     [tests :as tests]]
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
                              [bank :as bank]
                              [support :as s]
+                             [nemesis :as nemesis]
                              [edn :as e]]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-  {:basic basic/workload
-   :bank  bank/workload})
+   {:bank  bank/workload})
+
+(def nemesis-configuration
+  "Nemesis configuration"
+  {:interval         5
+   :kill-node        true
+   :partition-halves true})
 
 (defn memgraph-test
   "Given an options map from the command line runner (e.g. :nodes, :ssh,
   :concurrency, ...), constructs a test map."
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
+        nemesis  (nemesis/nemesis nemesis-configuration)
         gen      (->> (:generator workload)
-                      (gen/nemesis
-                         (cycle [(gen/sleep 5)
-                                 {:type :info, :f :start}
-                                 (gen/sleep 5)
-                                 {:type :info, :f :stop}]))
-                        (gen/time-limit (:time-limit opts)))
+                      (gen/nemesis (:generator nemesis))
+                      (gen/time-limit (:time-limit opts)))
         gen      (if-let [final-generator (:final-generator workload)]
                    (gen/phases gen
                                (gen/log "Healing cluster.")
-                               (gen/nemesis (gen/once {:type :info, :f :stop}))
+                               (gen/nemesis (:final-generator nemesis))
                                (gen/log "Waiting for recovery")
                                (gen/sleep 10)
                                (gen/clients final-generator))
@@ -45,17 +48,14 @@
            opts
            {:pure-generators true
             :name            (str "test-" (name (:workload opts)))
-            :db              (s/db (:package-url opts) (:local-binary opts))
+            :db              (s/db opts)
             :client          (:client workload)
             :checker         (checker/compose
-                               {;; :stats      (checker/stats) CAS always fails
-                                ;;                             so enable this
-                                ;;                             if all test have
-                                ;;                             at least 1 ok op
+                               {:stats      (checker/stats)
                                 :exceptions (checker/unhandled-exceptions)
                                 :perf       (checker/perf)
                                 :workload   (:checker workload)})
-            :nemesis         (nemesis/partition-random-halves)
+            :nemesis         (:nemesis nemesis)
             :generator       gen})))
 
 (defn default-node-configuration
@@ -111,18 +111,18 @@
 
 
   (doseq [node-config node-configs]
-    (let [replica-nodes-configs (filter 
-                                  #(= (:replication-role %) :replica) 
+    (let [replica-nodes-configs (filter
+                                  #(= (:replication-role %) :replica)
                                   (vals node-config))]
-      (throw-if-key-missing-in-any 
-        replica-nodes-configs 
-        :port 
+      (throw-if-key-missing-in-any
+        replica-nodes-configs
+        :port
         (str "Invalid node configuration. "
              "Every replication node requires "
              ":port to be defined."))
-      (throw-if-key-missing-in-any 
-        replica-nodes-configs 
-        :replication-mode 
+      (throw-if-key-missing-in-any
+        replica-nodes-configs
+        :replication-mode
         (str "Invalid node configuration. "
              "Every replication node requires "
              ":replication-mode to be defined."))
@@ -142,9 +142,11 @@
 (def cli-opts
   "CLI options for tests."
   [[nil "--package-url URL" "What package of Memgraph should we test?"
-    :default nil]
+    :default nil
+    :validate [nil? "Memgraph package-url setup not yet implemented."]]
    [nil "--local-binary PATH" "Ignore package; use this local binary instead."
-    :default "/opt/memgraph/memgraph"]
+    :default "/opt/memgraph/memgraph"
+    :validate [#(and (some? %) (not-empty %)) "local-binary should be defined."]]
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
