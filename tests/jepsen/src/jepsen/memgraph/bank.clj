@@ -85,8 +85,9 @@
                       (assoc op :type :fail :info (str e))))
                   (assoc op :type :fail))))
   (teardown! [this test]
-    (c/with-session conn session
-      (c/detach-delete-all session)))
+    (when (= replication-role :main)
+      (c/with-session conn session
+        (c/detach-delete-all session))))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
