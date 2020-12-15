@@ -50,41 +50,19 @@
         (update-balance tx {:id to :amount amount})))))
 
 
-(defrecord Client [conn node replication-role node-config]
-  client/Client
+(c/defreplicationclient Client []
   (open! [this test node]
-    (let [connection (c/open node)
-          nc (get node-config node)
-          role (:replication-role nc)]
-      (when (= :replica role)
-        (c/with-session connection session
-          (try
-            ((c/create-set-replica-role-query (:port nc)) session)
-            (catch Exception e
-              (info "Already setup the role")))))
-
-      (assoc this :replication-role role
-                  :conn connection
-                  :node node)))
+    (c/replication-open-connection this node node-config))
   (setup! [this test]
-    (c/with-session conn session
-      (when (= replication-role :main)
+    (when (= replication-role :main)
+      (c/with-session conn session
         (do
           (c/detach-delete-all session)
           (dotimes [i account-num]
             (info "Creating account:" i)
             (create-account session {:id i :balance starting-balance}))))))
   (invoke! [this test op]
-    (case (:f op)
-      :register (if (= replication-role :main)
-                  (do
-                    (doseq [n (filter #(= (:replication-role (val %)) :replica) node-config)]
-                                (try
-                                  (c/with-session conn session
-                                    ((c/create-register-replica-query (first n) (second n)) session))
-                                (catch Exception e)))
-                    (assoc op :type :ok))
-                  (assoc op :type :fail))
+    (c/replication-invoke-case (:f op)
       :read (c/with-session conn session
               (assoc op
                      :type :ok
@@ -112,11 +90,6 @@
   (close! [_ est]
     (dbclient/disconnect conn)))
 
-(defn register-replicas
-  "Register all replicas"
-  [test process]
-  {:type :invoke :f :register :value nil})
-
 (defn read-balances
   "Read the current state of all accounts"
   [test process]
@@ -141,7 +114,6 @@
   []
   (reify checker/Checker
     (check [this test history opts]
-      (info "ANALYZING HISTORY")
       (let [ok-reads  (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :read (:f %))))
@@ -166,8 +138,7 @@
                            (filter identity)
                            (into []))
             empty-nodes (let [all-nodes (->> ok-reads
-                                             (map :value)
-                                             (map :node)
+                                             (map #(-> % :value :node))
                                              (reduce conj #{}))]
                           (->> all-nodes
                                (filter (fn [node]
@@ -192,4 +163,4 @@
    :checker   (checker/compose
                 {:bank     (bank-checker)
                  :timeline (timeline/html)})
-   :generator (gen/mix [register-replicas read-balances valid-transfer])})
+   :generator (c/replication-gen [read-balances valid-transfer])})
