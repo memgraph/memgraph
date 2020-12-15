@@ -251,8 +251,11 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(
     if (ctx->timeout && ctx->timeout->numberLiteral()) {
       // we accept both double and integer literals
       replication_query->timeout_ = ctx->timeout->accept(this);
+    } else if (ctx->literal() && ctx->literal()->numberLiteral()) {
+      replication_query->timeout_ = ctx->literal()->accept(this);
+    } else {
+      throw SyntaxException("Timeout should be a integer or double literal!");
     }
-    throw SyntaxException("Timeout not given!");
   }
 
   if (!ctx->socketAddress()->literal()->StringLiteral()) {

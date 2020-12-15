@@ -168,6 +168,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
 
+  // ToDo (jseljan):
+  //  - change the return type of methods returning bool to utils::BasicResult
+  //  - this will enable us to pass more informative error messages to the user
   bool SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
                           std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
@@ -199,6 +202,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::optional<double> timeout) override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't register another replica
+      return false;
+    }
+
     storage::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case ReplicationQuery::SyncMode::ASYNC: {
@@ -233,6 +241,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
   bool DropReplica(const std::string &replica_name) override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't unregister a replica
+      return false;
+    }
     try {
       return db_->UnregisterReplica(replica_name);
     } catch (std::exception &e) {
@@ -243,6 +255,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't show registered replicas (it shouldn't have any)
+      return {};
+    }
+
     auto repl_infos = db_->ReplicasInfo();
     std::vector<Replica> replicas;
     replicas.reserve(repl_infos.size());
