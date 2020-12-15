@@ -224,10 +224,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           socket_address, query::kDefaultReplicationPort);
       if (maybe_ip_and_port) {
         auto [ip, port] = *maybe_ip_and_port;
-        storage::replication::ReplicationClientConfig config{
-            .timeout = timeout, .ssl = std::nullopt};
-        auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
-                                        config);
+        auto ret =
+            db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                 {.timeout = timeout, .ssl = std::nullopt});
         return (!ret.HasError());
       } else {
         return false;

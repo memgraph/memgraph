@@ -243,23 +243,25 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(
       ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
   if (ctx->SYNC()) {
     replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::SYNC;
+    if (ctx->WITH() && ctx->TIMEOUT()) {
+      if (ctx->timeout->numberLiteral()) {
+        // we accept both double and integer literals
+        replication_query->timeout_ = ctx->timeout->accept(this);
+      } else {
+        throw SemanticException(
+            "Timeout should be a integer or double literal!");
+      }
+    }
   } else if (ctx->ASYNC()) {
+    if (ctx->WITH() && ctx->TIMEOUT()) {
+      throw SyntaxException(
+          "Timeout can be set only for the SYNC replication mode!");
+    }
     replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
   }
 
-  if (ctx->WITH() && ctx->TIMEOUT()) {
-    if (ctx->timeout && ctx->timeout->numberLiteral()) {
-      // we accept both double and integer literals
-      replication_query->timeout_ = ctx->timeout->accept(this);
-    } else if (ctx->literal() && ctx->literal()->numberLiteral()) {
-      replication_query->timeout_ = ctx->literal()->accept(this);
-    } else {
-      throw SyntaxException("Timeout should be a integer or double literal!");
-    }
-  }
-
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
-    throw SyntaxException("Socket address should be a string literal!");
+    throw SemanticException("Socket address should be a string literal!");
   } else {
     replication_query->socket_address_ = ctx->socketAddress()->accept(this);
   }
