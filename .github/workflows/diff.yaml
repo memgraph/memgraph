@@ -292,6 +292,7 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
+    continue-on-error: true
     env:
       THREADS: 24
 
