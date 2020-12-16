@@ -59,9 +59,9 @@
 (defn replication-gen
   "Generator which should be used for replication tests
   as it adds register replica invoke."
-  [generators]
+  [generator]
   (gen/each-thread(gen/phases (cycle [(gen/once register-replicas)
-                                      (gen/time-limit 5 (gen/mix generators))]))))
+                                      (gen/time-limit 5 generator)]))))
 
 
 (defmacro replication-client

@@ -6,7 +6,6 @@
   should be consistent."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [clojure.math.combinatorics :as comb]
             [jepsen [client :as client]
                     [checker :as checker]
                     [generator :as gen]]
@@ -164,5 +163,5 @@
    :checker   (checker/compose
                 {:bank     (bank-checker)
                  :timeline (timeline/html)})
-   :generator (c/replication-gen [read-balances valid-transfer])
+   :generator (c/replication-gen (gen/mix [read-balances valid-transfer]))
    :final-generator (gen/once read-balances)})
