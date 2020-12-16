@@ -2,67 +2,168 @@
   (:gen-class)
   (:require [clojure.tools.logging :refer :all]
             [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
             [jepsen [cli :as cli]
-                    [core :as jepsen]
                     [checker :as checker]
-                    [nemesis :as nemesis]
+                    [control :as c]
+                    [core :as jepsen]
                     [generator :as gen]
                     [tests :as tests]]
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
-                             [support :as s]]))
+                             [bank :as bank]
+                             [support :as s]
+                             [nemesis :as nemesis]
+                             [edn :as e]]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-  {:basic basic/workload})
+   {:bank  bank/workload})
+
+(def nemesis-configuration
+  "Nemesis configuration"
+  {:interval         5
+   :kill-node        true
+   :partition-halves true})
 
 (defn memgraph-test
   "Given an options map from the command line runner (e.g. :nodes, :ssh,
   :concurrency, ...), constructs a test map."
   [opts]
-  (let [workload ((get workloads (:workload opts)) opts)]
+  (let [workload ((get workloads (:workload opts)) opts)
+        nemesis  (nemesis/nemesis nemesis-configuration)
+        gen      (->> (:generator workload)
+                      (gen/nemesis (:generator nemesis))
+                      (gen/time-limit (:time-limit opts)))
+        gen      (if-let [final-generator (:final-generator workload)]
+                   (gen/phases gen
+                               (gen/log "Healing cluster.")
+                               (gen/nemesis (:final-generator nemesis))
+                               (gen/log "Waiting for recovery")
+                               (gen/sleep 10)
+                               (gen/clients final-generator))
+                   gen)]
     (merge tests/noop-test
            opts
            {:pure-generators true
             :name            (str "test-" (name (:workload opts)))
-            :db              (s/db (:package-url opts) (:local-binary opts))
+            :db              (s/db opts)
             :client          (:client workload)
             :checker         (checker/compose
-                               ;; Fails on a cluster of independent Memgraphs.
-                               {;; :stats      (checker/stats) CAS always fails
-                                ;;                             so enable this
-                                ;;                             if all test have
-                                ;;                             at least 1 ok op
+                               {:stats      (checker/stats)
                                 :exceptions (checker/unhandled-exceptions)
                                 :perf       (checker/perf)
                                 :workload   (:checker workload)})
-            :nemesis         (nemesis/partition-random-halves)
-            :generator       (->> (:generator workload)
-                                  (gen/nemesis
-                                   (cycle [(gen/sleep 5)
-                                           {:type :info, :f :start}
-                                           (gen/sleep 5)
-                                           {:type :info, :f :stop}]))
-                                  (gen/time-limit (:time-limit opts)))})))
+            :nemesis         (:nemesis nemesis)
+            :generator       gen})))
+
+(defn default-node-configuration
+  "Creates default replication configuration for nodes.
+  All of them are replicas in sync mode."
+  [nodes]
+  (reduce (fn [cur n]
+            (conj cur {n
+                       {:replication-role :replica
+                        :replication-mode :sync
+                        :port             10000
+                        :timeout          10}}))
+          {}
+          nodes))
+
+(defn resolve-hostname
+  "Resolve hostnames to ip address"
+  [host]
+  (first
+    (re-find
+      #"(\d{1,3}(.\d{1,3}){3})"
+      (:out (sh "getent" "hosts" host)))))
+
+(defn resolve-all-node-hostnames
+  "Resolve all hostnames in config and assign it to the node"
+  [node-config]
+  (reduce (fn [curr node]
+            (let [k (first node)
+                  v (second node)]
+              (assoc curr
+                     k (assoc v
+                              :ip (resolve-hostname k)))))
+          {}
+          node-config))
+
+(defn throw-if-key-missing-in-any
+  [map-coll key error-msg]
+  (when-not (every? #(contains? % key) map-coll)
+    (throw (Exception. error-msg))))
+
+(defn merge-node-configurations
+  "Merge user defined configuration with default configuration.
+  Check if the configuration is valid."
+  [nodes node-configs]
+  (when-not (every? (fn [config]
+                      (= 1
+                         (count
+                             (filter
+                               #(= (:replication-role %) :main)
+                               (vals config)))))
+                    node-configs)
+    (throw (Exception. "Invalid node configuration. There can only be one :main.")))
+
+
+  (doseq [node-config node-configs]
+    (let [replica-nodes-configs (filter
+                                  #(= (:replication-role %) :replica)
+                                  (vals node-config))]
+      (throw-if-key-missing-in-any
+        replica-nodes-configs
+        :port
+        (str "Invalid node configuration. "
+             "Every replication node requires "
+             ":port to be defined."))
+      (throw-if-key-missing-in-any
+        replica-nodes-configs
+        :replication-mode
+        (str "Invalid node configuration. "
+             "Every replication node requires "
+             ":replication-mode to be defined."))
+      (throw-if-key-missing-in-any
+        (filter #(= (:replication-mode %) :sync) replica-nodes-configs)
+        :timeout
+        (str "Invalid node confiruation. "
+             "Every SYNC replication node requires "
+             ":timeout to be defined."))))
+
+  (map (fn [node-config] (resolve-all-node-hostnames
+          (merge
+            (default-node-configuration nodes)
+            node-config)))
+       node-configs))
 
 (def cli-opts
   "CLI options for tests."
   [[nil "--package-url URL" "What package of Memgraph should we test?"
-    :default nil]
+    :default nil
+    :validate [nil? "Memgraph package-url setup not yet implemented."]]
    [nil "--local-binary PATH" "Ignore package; use this local binary instead."
-    :default "/opt/memgraph/memgraph"]
+    :default "/opt/memgraph/memgraph"
+    :validate [#(and (some? %) (not-empty %)) "local-binary should be defined."]]
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
-    :validate [workloads (cli/one-of workloads)]]])
+    :validate [workloads (cli/one-of workloads)]]
+   [nil "--node-configs PATH" "Path to the node configuration file."
+    :parse-fn #(-> % e/load-configuration)]])
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
   [opts]
   (let [counts    (range (:test-count opts))
         workloads (if-let [w (:workload opts)] [w] (keys workloads))
-        test-opts (for [i counts, w workloads]
+        node-configs (if (:node-configs opts)
+                       (merge-node-configurations (:nodes opts) (:node-configs opts))
+                       [(resolve-all-node-hostnames (default-node-configuration (:nodes opts)))])
+        test-opts (for [i counts c node-configs w workloads]
                    (assoc opts
+                          :node-config c
                           :workload w))]
     (map memgraph-test test-opts)))
 
