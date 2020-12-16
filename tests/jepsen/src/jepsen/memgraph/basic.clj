@@ -71,5 +71,6 @@
                 {:model (model/cas-register 0)
                  :algorithm :linear})
                :timeline (timeline/html)})
-   :generator (gen/mix [r w cas])})
+   :generator (gen/mix [r w cas])
+   :final-generator (gen/once r)})
 
