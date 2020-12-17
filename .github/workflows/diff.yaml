@@ -292,7 +292,7 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    continue-on-error: true
+    #continue-on-error: true
     env:
       THREADS: 24
 
@@ -324,7 +324,7 @@ jobs:
           # NOTE: docker exec -t is NOT ok because gh user does NOT have TTY.
           # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
           #       because some Jepsen config is there.
-          docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run test-all --local-binary /opt/memgraph/memgraph --node n1"
+          docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run test-all --local-binary /opt/memgraph/memgraph --node-configs resources/node-config.edn"
           docker exec jepsen-control bash -c 'tar -czvf /jepsen/memgraph/Jepsen.tar.gz $(readlink -f /jepsen/memgraph/store/latest)'
           docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
 
