@@ -67,7 +67,7 @@
                        {:replication-role :replica
                         :replication-mode :sync
                         :port             10000
-                        :timeout          10}}))
+                        :timeout          5}}))
           {}
           nodes))
 
