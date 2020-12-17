@@ -1226,14 +1226,6 @@ bool Storage::CreateIndex(
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access()))
     return false;
-  // Here it is safe to use `timestamp_` as the final commit timestamp of this
-  // operation even though this operation isn't transactional. The `timestamp_`
-  // variable holds the next timestamp that will be used. Because the above
-  // `storage_guard` ensures that no transactions are currently active, the
-  // value of `timestamp_` is guaranteed to be used as a start timestamp for the
-  // next regular transaction after this operation. This prevents collisions of
-  // commit timestamps between non-transactional operations and transactional
-  // operations.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {},
               commit_timestamp);
@@ -1251,8 +1243,6 @@ bool Storage::CreateIndex(
   if (!indices_.label_property_index.CreateIndex(label, property,
                                                  vertices_.access()))
     return false;
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE,
               label, {property}, commit_timestamp);
@@ -1267,8 +1257,6 @@ bool Storage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) return false;
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {},
               commit_timestamp);
@@ -1310,8 +1298,6 @@ Storage::CreateExistenceConstraint(
   auto ret = ::storage::CreateExistenceConstraint(&constraints_, label,
                                                   property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE,
               label, {property}, commit_timestamp);
@@ -1328,8 +1314,6 @@ bool Storage::DropExistenceConstraint(
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!::storage::DropExistenceConstraint(&constraints_, label, property))
     return false;
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP,
               label, {property}, commit_timestamp);
@@ -1351,8 +1335,6 @@ Storage::CreateUniqueConstraint(
       ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret;
   }
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE,
               label, properties, commit_timestamp);
@@ -1371,8 +1353,6 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
               properties, commit_timestamp);
@@ -1437,6 +1417,12 @@ Transaction Storage::CreateTransaction() {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
 #ifdef MG_ENTERPRISE
+    // Replica should have only read queries and the write queries
+    // can come from main instance with any past timestamp.
+    // To preserve snapshot isolation we set the start timestamp
+    // of any query on replica to the last commited transaction
+    // which is timestamp_ as only commit of transaction with writes
+    // can change the value of it.
     if (replication_role_ == ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
