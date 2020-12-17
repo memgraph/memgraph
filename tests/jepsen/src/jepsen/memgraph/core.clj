@@ -23,9 +23,9 @@
 
 (def nemesis-configuration
   "Nemesis configuration"
-  {:interval         5
-   :kill-node        true
-   :partition-halves true})
+  {:interval          5
+   :kill-node?        true
+   :partition-halves? true})
 
 (defn memgraph-test
   "Given an options map from the command line runner (e.g. :nodes, :ssh,
@@ -53,7 +53,7 @@
             :checker         (checker/compose
                                {:stats      (checker/stats)
                                 :exceptions (checker/unhandled-exceptions)
-                                :perf       (checker/perf)
+                                ;:perf       (checker/perf) really exepnsive
                                 :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
