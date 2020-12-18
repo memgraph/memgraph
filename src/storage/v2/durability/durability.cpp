@@ -285,7 +285,6 @@ std::optional<RecoveryInfo> RecoverData(
                    << *previous_seq_num + 1 << "!";
       }
       previous_seq_num = wal_file.seq_num;
-      DLOG(INFO) << "LOADING WAL FILE " << wal_file.path;
 
       if (wal_file.epoch_id != *epoch_id) {
         // This way we skip WALs finalized only because of role change.
