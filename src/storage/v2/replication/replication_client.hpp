@@ -185,7 +185,7 @@ class Storage::ReplicationClient {
 
    private:
     // if the Timeout task finished executing
-    bool finished{false};
+    bool finished{true};
 
     utils::ThreadPool timeout_pool{1};
   };

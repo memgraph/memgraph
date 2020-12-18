@@ -57,15 +57,15 @@ void Storage::ReplicationClient::InitializeClient() {
     return;
   }
   current_commit_timestamp = response.current_commit_timestamp;
-  DLOG(INFO) << "CURRENT TIMESTAMP: " << current_commit_timestamp;
-  DLOG(INFO) << "CURRENT MAIN TIMESTAMP: "
+  DLOG(INFO) << "Current timestamp on replica: " << current_commit_timestamp;
+  DLOG(INFO) << "Current MAIN timestamp: "
              << storage_->last_commit_timestamp_.load();
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
-    DLOG(INFO) << "REPLICA UP TO DATE";
+    DLOG(INFO) << "Replica up to date";
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
   } else {
-    DLOG(INFO) << "REPLICA IS BEHIND";
+    DLOG(INFO) << "Replica is behind";
     {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::RECOVERY);
@@ -153,6 +153,7 @@ void Storage::ReplicationClient::StartTransactionReplication(
                           current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
+        replica_state_.store(replication::ReplicaState::INVALID);
         HandleRpcFailure();
       }
       return;
@@ -161,16 +162,34 @@ void Storage::ReplicationClient::StartTransactionReplication(
 
 void Storage::ReplicationClient::IfStreamingTransaction(
     const std::function<void(ReplicaStream &handler)> &callback) {
-  if (replica_stream_) {
-    try {
-      callback(*replica_stream_);
-    } catch (const rpc::RpcFailedException &) {
-      HandleRpcFailure();
+  // We can only check the state because it guarantees to be only
+  // valid during a single transaction replication (if the assumption
+  // that this and other transaction replication functions can only be
+  // called from a one thread stands)
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return;
+  }
+
+  try {
+    callback(*replica_stream_);
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard{client_lock_};
+      replica_state_.store(replication::ReplicaState::INVALID);
     }
+    HandleRpcFailure();
   }
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplication() {
+  // We can only check the state because it guarantees to be only
+  // valid during a single transaction replication (if the assumption
+  // that this and other transaction replication functions can only be
+  // called from a one thread stands)
+  if (replica_state_ != replication::ReplicaState::REPLICATING) {
+    return;
+  }
+
   if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask(
         [this] { this->FinalizeTransactionReplicationInternal(); });
@@ -192,10 +211,10 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 
     timeout_dispatcher_->StartTimeoutTask(*timeout_);
 
+    // Wait until one of the threads notifies us that they finished executing
+    // Both threads should first set the active flag to false
     {
       std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      // Wait until one of the threads notifies us that they finished executing
-      // Both threads should first set the active flag to false
       timeout_dispatcher_->main_cv.wait(
           main_guard, [&] { return !timeout_dispatcher_->active.load(); });
     }
@@ -217,26 +236,27 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 }
 
 void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
-  if (replica_stream_) {
-    try {
-      auto response = replica_stream_->Finalize();
-      std::unique_lock client_guard{client_lock_};
-      if (!response.success ||
-          replica_state_ == replication::ReplicaState::RECOVERY) {
-        replica_state_.store(replication::ReplicaState::RECOVERY);
-        thread_pool_.AddTask([&, this] {
-          this->RecoverReplica(response.current_commit_timestamp);
-        });
-      }
-    } catch (const rpc::RpcFailedException &) {
-      HandleRpcFailure();
-    }
+  CHECK(replica_stream_) << "Missing stream for transaction deltas";
+  try {
+    auto response = replica_stream_->Finalize();
     replica_stream_.reset();
-  }
-
-  std::unique_lock guard(client_lock_);
-  if (replica_state_.load() == replication::ReplicaState::REPLICATING) {
-    replica_state_.store(replication::ReplicaState::READY);
+    std::unique_lock client_guard(client_lock_);
+    if (!response.success ||
+        replica_state_ == replication::ReplicaState::RECOVERY) {
+      replica_state_.store(replication::ReplicaState::RECOVERY);
+      thread_pool_.AddTask([&, this] {
+        this->RecoverReplica(response.current_commit_timestamp);
+      });
+    } else {
+      replica_state_.store(replication::ReplicaState::READY);
+    }
+  } catch (const rpc::RpcFailedException &) {
+    replica_stream_.reset();
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure();
   }
 }
 
@@ -254,13 +274,13 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                 DLOG(INFO) << "Sending the latest snapshot file: " << arg;
                 auto response = TransferSnapshot(arg);
                 replica_commit = response.current_commit_timestamp;
-                DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                DLOG(INFO) << "Current timestamp on replica: "
                            << replica_commit;
               } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
                 DLOG(INFO) << "Sending the latest wal files";
                 auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
-                DLOG(INFO) << "CURRENT TIMESTAMP ON REPLICA: "
+                DLOG(INFO) << "Current timestamp on replica: "
                            << replica_commit;
               } else if constexpr (std::is_same_v<StepType,
                                                   RecoveryCurrentWal>) {
@@ -273,7 +293,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                   DLOG(INFO) << "Sending current wal file";
                   replica_commit = ReplicateCurrentWal();
                   DLOG(INFO)
-                      << "CURRENT TIMESTAMP ON REPLICA: " << replica_commit;
+                      << "Current timestamp on replica: " << replica_commit;
                   storage_->wal_file_->EnableFlushing();
                 }
               } else if constexpr (std::is_same_v<StepType,
@@ -290,12 +310,25 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
             },
             recovery_step);
       } catch (const rpc::RpcFailedException &) {
+        {
+          std::unique_lock client_guard{client_lock_};
+          replica_state_.store(replication::ReplicaState::INVALID);
+        }
         HandleRpcFailure();
       }
     }
 
+    // To avoid the situation where we read a correct commit timestamp in
+    // one thread, and after that another thread commits a different a
+    // transaction and THEN we set the state to READY in the first thread,
+    // we set this lock before checking the timestamp.
+    // We will detect that the state is invalid during the next commit,
+    // because AppendDeltasRpc sends the last commit timestamp which
+    // replica checks if it's the same last commit timestamp it received
+    // and we will go to recovery.
+    // By adding this lock, we can avoid that, and go to RECOVERY immediately.
+    std::unique_lock client_guard{client_lock_};
     if (storage_->last_commit_timestamp_.load() == replica_commit) {
-      std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::READY);
       return;
     }
@@ -491,14 +524,14 @@ void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
 
 void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
     const double timeout) {
-  timeout_pool.AddTask([&, this] {
+  timeout_pool.AddTask([timeout, this] {
     finished = false;
     using std::chrono::steady_clock;
     const auto timeout_duration =
         std::chrono::duration_cast<steady_clock::duration>(
             std::chrono::duration<double>(timeout));
     const auto end_time = steady_clock::now() + timeout_duration;
-    while (active && steady_clock::now() < end_time) {
+    while (active && (steady_clock::now() < end_time)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
