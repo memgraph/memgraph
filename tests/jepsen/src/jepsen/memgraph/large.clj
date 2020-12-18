@@ -36,11 +36,6 @@
                 (c/with-session conn session
                   (create-nodes session)
                   (assoc op :type :ok))
-                (assoc op :type :fail))
-      :delete (if (= replication-role :main)
-                (c/with-session conn session
-                  (c/detach-delete-all session)
-                  (assoc op :type :ok))
                 (assoc op :type :fail))))
   (teardown! [this test]
     (when (= replication-role :main)
@@ -58,11 +53,6 @@
   "Read nodes"
   [test process]
   {:type :invoke :f :read :value nil})
-
-(defn delete-nodes
-  "Delete all nodes"
-  [test process]
-  {:type :invoke :f :delete :value nil})
 
 (defn large-checker
   "Check if all nodes have nodes with ids that are strictly increasing by 1.
@@ -107,6 +97,5 @@
               {:large    (large-checker)
                :timeline (timeline/html)})
    :generator (c/replication-gen
-                (gen/phases (cycle [(gen/time-limit 2 (gen/mix [read-nodes add-nodes]))
-                                    (gen/once delete-nodes)])))
+                (gen/mix [read-nodes add-nodes]))
    :final-generator (gen/once read-nodes)})
