@@ -8,12 +8,18 @@
             [jepsen.checker.timeline :as timeline]
             [jepsen.memgraph.client :as c]))
 
+(def node-num 100000)
+
 (dbclient/defquery get-node-count
   "MATCH (n:Node) RETURN count(n) as c;")
 
-(dbclient/defquery create-nodes
-  "UNWIND range(1, 100000) as i
-  CREATE (n:Node:Additional {id: i, property: 0, property2: 1, property3: 2});")
+(defn create-nodes-builder
+  []
+  (dbclient/create-query
+    (str "UNWIND range(1, " node-num ") AS i "
+         "CREATE (n:Node:Additional {id: i, property1: 0, property2: 1, property3: 2});")))
+
+(def create-nodes (create-nodes-builder))
 
 (c/replication-client Client []
   (open! [this test node]
@@ -66,7 +72,7 @@
             bad-reads (->> ok-reads
                            (map (fn [op]
                                   (let [count (-> op :value :count)]
-                                    (when (not= 0 (mod count 100000))
+                                    (when (not= 0 (mod count node-num))
                                       {:type :invalid-count
                                        :op op}))))
                            (filter identity)
