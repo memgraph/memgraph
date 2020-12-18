@@ -35,7 +35,8 @@
           [(cycle (map op [:start-partition-halves :stop-partition-halves]))])]
        (apply concat)
        gen/mix
-       (gen/stagger (:interval opts))))
+       (gen/stagger (:interval opts))
+       (gen/phases (gen/sleep 10))))
 
 (defn nemesis
   "Composite nemesis and generator"
