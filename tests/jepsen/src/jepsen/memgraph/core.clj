@@ -12,6 +12,7 @@
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
                              [bank :as bank]
+                             [sequential :as sequential]
                              [support :as s]
                              [nemesis :as nemesis]
                              [edn :as e]]))
@@ -19,7 +20,8 @@
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-   {:bank  bank/workload})
+   {:bank       bank/workload
+    :sequential sequential/workload})
 
 (def nemesis-configuration
   "Nemesis configuration"
