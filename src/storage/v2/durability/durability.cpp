@@ -89,7 +89,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
     try {
       auto info = ReadWalInfo(item.path());
       if ((uuid.empty() || info.uuid == uuid) &&
-          (!current_seq_num || info.seq_num < current_seq_num))
+          (!current_seq_num || info.seq_num < *current_seq_num))
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
                                info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
@@ -285,6 +285,7 @@ std::optional<RecoveryInfo> RecoverData(
                    << *previous_seq_num + 1 << "!";
       }
       previous_seq_num = wal_file.seq_num;
+      DLOG(INFO) << "LOADING WAL FILE " << wal_file.path;
 
       if (wal_file.epoch_id != *epoch_id) {
         // This way we skip WALs finalized only because of role change.
