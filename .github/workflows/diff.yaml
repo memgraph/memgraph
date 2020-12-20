@@ -323,6 +323,7 @@ jobs:
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v2
+        if: ${{ always() }}
         with:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz

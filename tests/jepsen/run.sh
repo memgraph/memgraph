@@ -108,7 +108,11 @@ case $1 in
         # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
         # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
         #       because some Jepsen config is there.
-        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS"
+        set +e
+        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" > /dev/null
+        # To be able to archive the run result even if the run fails.
+        jepsen_run_exit_status=$?
+        set -e
 
         # Just pack all the latest test workloads. They might not be generated
         # within this run.
@@ -120,5 +124,10 @@ case $1 in
         docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_latest_workflow_runs"
         docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
         INFO "Test and results packing DONE."
+
+        # If the run has failed, this script also has to return non-zero status.
+        if [ "$jepsen_run_exit_status" -ne 0 ]; then
+            exit "$jepsen_run_exit_status"
+        fi
     ;;
 esac
