@@ -116,25 +116,22 @@ class ReplicationQueryHandler {
     std::optional<double> timeout;
   };
 
-  /// returns false if the replication role can't be set
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetReplicationRole(
+  virtual void SetReplicationRole(
       ReplicationQuery::ReplicationRole replication_role,
       std::optional<int64_t> port) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
 
-  /// returns false if the replica can't be registered
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool RegisterReplica(const std::string &name,
+  virtual void RegisterReplica(const std::string &name,
                                const std::string &socket_address,
                                const ReplicationQuery::SyncMode sync_mode,
                                const std::optional<double> timeout) = 0;
 
-  /// returns false if the desired replica couldn't be dropped
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropReplica(const std::string &replica_name) = 0;
+  virtual void DropReplica(const std::string &replica_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<Replica> ShowReplicas() const = 0;

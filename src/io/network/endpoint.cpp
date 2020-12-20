@@ -6,8 +6,8 @@
 
 #include "glog/logging.h"
 
-#include "utils/string.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/string.hpp"
 
 namespace io::network {
 
@@ -51,6 +51,10 @@ Endpoint::ParseSocketOrIpAddress(
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
       LOG(ERROR) << "Invalid port number: " << parts[1];
+      return std::nullopt;
+    }
+    if (int_port < 0) {
+      LOG(ERROR) << "Port number must be a positive integer!";
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
