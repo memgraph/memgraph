@@ -179,7 +179,7 @@ if args.version:
 # script needs master to be the local branch. `git fetch origin master:master`
 # is creating the local master branch without checking it out. Does nothing is
 # master is already there.
-get_output("git" "fetch" "origin" "master:master")
+get_output("git", "fetch", "origin", "master:master")
 
 # Get current commit hashes.
 current_hash = get_output("git", "rev-parse", "HEAD")
