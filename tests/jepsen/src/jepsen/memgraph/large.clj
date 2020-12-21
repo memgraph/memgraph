@@ -1,5 +1,5 @@
 (ns jepsen.memgraph.large
-  "Large test"
+  "Large write test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [jepsen [client :as client]
@@ -56,13 +56,12 @@
   {:type :invoke :f :add :value nil})
 
 (defn read-nodes
-  "Read nodes"
+  "Read node count"
   [test process]
   {:type :invoke :f :read :value nil})
 
 (defn large-checker
-  "Check if all nodes have nodes with ids that are strictly increasing by 1.
-  All nodes need to have at leas 1 non-empty read."
+  "Check if every read has a count divisible with node-num."
   []
   (reify checker/Checker
     (check [this test history opts]
