@@ -407,7 +407,7 @@ Storage::ReplicationClient::GetRecoverySteps(
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
     } else {
       CHECK(latest_snapshot);
-      locker_acc.AddFile(latest_snapshot->path);
+      locker_acc.AddPath(latest_snapshot->path);
       recovery_steps.emplace_back(
           RecoveryFinalSnapshot{latest_snapshot->start_timestamp});
     }
@@ -426,7 +426,7 @@ Storage::ReplicationClient::GetRecoverySteps(
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
     } else {
       CHECK(latest_snapshot);
-      locker_acc.AddFile(latest_snapshot->path);
+      locker_acc.AddPath(latest_snapshot->path);
       recovery_steps.emplace_back(
           RecoveryFinalSnapshot{latest_snapshot->start_timestamp});
     }
@@ -457,7 +457,7 @@ Storage::ReplicationClient::GetRecoverySteps(
       // We need to lock these files and add them to the chain
       for (auto result_wal_it = wal_files->begin() + distance_from_first;
            result_wal_it != wal_files->end(); ++result_wal_it) {
-        locker_acc.AddFile(result_wal_it->path);
+        locker_acc.AddPath(result_wal_it->path);
         wal_chain.push_back(std::move(result_wal_it->path));
       }
 
@@ -476,7 +476,7 @@ Storage::ReplicationClient::GetRecoverySteps(
   CHECK(latest_snapshot) << "Invalid durability state, missing snapshot";
   // We didn't manage to find a WAL chain, we need to send the latest snapshot
   // with its WALs
-  locker_acc.AddFile(latest_snapshot->path);
+  locker_acc.AddPath(latest_snapshot->path);
   recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{},
                               std::move(latest_snapshot->path));
 
@@ -496,13 +496,13 @@ Storage::ReplicationClient::GetRecoverySteps(
   }
 
   for (; wal_it != wal_files->end(); ++wal_it) {
-    locker_acc.AddFile(wal_it->path);
+    locker_acc.AddPath(wal_it->path);
     recovery_wal_files.push_back(std::move(wal_it->path));
   }
 
   // We only have a WAL before the snapshot
   if (recovery_wal_files.empty()) {
-    locker_acc.AddFile(wal_files->back().path);
+    locker_acc.AddPath(wal_files->back().path);
     recovery_wal_files.push_back(std::move(wal_files->back().path));
   }
 
