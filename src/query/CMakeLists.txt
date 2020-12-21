@@ -35,7 +35,11 @@ add_dependencies(mg-query generate_lcp_query)
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query dl cppitertools)
 target_link_libraries(mg-query mg-storage-v2)
-find_package(Python3 3.5 REQUIRED COMPONENTS Development)
+if("${MG_PYTHON_VERSION}" STREQUAL "")
+    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
+else()
+    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
+endif()
 target_link_libraries(mg-query Python3::Python)
 
 # Generate Antlr openCypher parser

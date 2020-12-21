@@ -307,6 +307,8 @@ if (UBSAN)
   # Make sure llvm-symbolizer binary is in path
 endif()
 
+set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact python version used by the query modules")
+
 # Add subprojects
 include_directories(src)
 add_subdirectory(src)
