@@ -12,6 +12,7 @@
             [slingshot.slingshot :refer [try+ throw+]]
             [jepsen.memgraph [basic :as basic]
                              [bank :as bank]
+                             [large :as large]
                              [sequential :as sequential]
                              [support :as s]
                              [nemesis :as nemesis]
@@ -21,7 +22,8 @@
   "A map of workload names to functions that can take opts and construct
    workloads."
    {:bank       bank/workload
-    :sequential sequential/workload})
+    :sequential sequential/workload
+    :large      large/workload})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -43,7 +45,7 @@
                                (gen/log "Healing cluster.")
                                (gen/nemesis (:final-generator nemesis))
                                (gen/log "Waiting for recovery")
-                               (gen/sleep 10)
+                               (gen/sleep 20)
                                (gen/clients final-generator))
                    gen)]
     (merge tests/noop-test
