@@ -60,6 +60,7 @@ void FileRetainer::DeleteOrAddToQueue(const std::filesystem::path &path) {
 }
 
 void FileRetainer::CleanQueue() {
+  std::unique_lock guard(main_lock_);
   files_for_deletion_.WithLock([&](auto &files) {
     for (auto it = files.cbegin(); it != files.cend();) {
       if (!FileLocked(*it)) {
@@ -114,7 +115,6 @@ bool FileRetainer::LockerEntry::LocksFile(
 FileRetainer::FileLocker::~FileLocker() {
   file_retainer_->lockers_.WithLock(
       [this](auto &lockers) { lockers.erase(locker_id_); });
-  std::unique_lock guard(file_retainer_->main_lock_);
   file_retainer_->CleanQueue();
 }
 

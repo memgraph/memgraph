@@ -110,6 +110,11 @@ class FileRetainer {
      */
     bool AddPath(const std::filesystem::path &path);
 
+    /**
+     * Remove a single path form the current locker.
+     */
+    bool RemovePath(const std::filesystem::path &path);
+
     FileLockerAccessor(const FileLockerAccessor &) = delete;
     FileLockerAccessor(FileLockerAccessor &&) = default;
     FileLockerAccessor &operator=(const FileLockerAccessor &) = delete;
@@ -138,6 +143,17 @@ class FileRetainer {
    */
   FileLocker AddLocker();
 
+  /**
+   * Delete the files that were queued for deletion.
+   * This is already called after a locker is destroyed.
+   * Call this only if you want to trigger cleaning of the
+   * queue before a locker is destroyed (e.g. a file was removed
+   * from a locker).
+   * This method CANNOT be called while an accessor is active
+   * in the same thread as a deadlock will occure.
+   */
+  void CleanQueue();
+
   explicit FileRetainer() = default;
   FileRetainer(const FileRetainer &) = delete;
   FileRetainer(FileRetainer &&) = delete;
@@ -149,7 +165,6 @@ class FileRetainer {
  private:
   [[nodiscard]] bool FileLocked(const std::filesystem::path &path);
   void DeleteOrAddToQueue(const std::filesystem::path &path);
-  void CleanQueue();
 
   utils::RWLock main_lock_{RWLock::Priority::WRITE};
 
