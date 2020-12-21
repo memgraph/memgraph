@@ -7,9 +7,10 @@ HELP_EXIT() {
     echo ""
     echo "HELP: $0 help|cluster-up|test [args]"
     echo ""
-    echo "    test args --binary   MEMGRAPH_BINARY_PATH"
-    echo "              --nodes-no JEPSEN_ACTIVE_NODES_NO"
-    echo "              --run-args \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
+    echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
+    echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
+    echo "              --nodes-no               JEPSEN_ACTIVE_NODES_NO"
+    echo "              --run-args               \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
     echo ""
     exit 1
 }
@@ -30,9 +31,14 @@ fi
 MEMGRAPH_BINARY_PATH="../../build/memgraph"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all"
+CONTROL_LEIN_RUN_STDOUT_LOGS=1
 
 if [ ! -d "$script_dir/jepsen" ]; then
     git clone https://github.com/jepsen-io/jepsen.git -b "0.2.1" "$script_dir/jepsen"
+fi
+
+if [ "$#" -lt 1 ]; then
+    HELP_EXIT
 fi
 
 # Initialize testing context by copying source/binary files. Inside CI,
@@ -61,6 +67,10 @@ case $1 in
                 --binary)
                     shift
                     MEMGRAPH_BINARY_PATH="$1"
+                    shift
+                ;;
+                --ignore-run-stdout-logs)
+                    CONTROL_LEIN_RUN_STDOUT_LOGS=0
                     shift
                 ;;
                 --nodes-no)
@@ -104,12 +114,19 @@ case $1 in
         docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
         INFO "Copying test files to jepsen-control DONE."
 
+        start_time=$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"')
+
         # Run the test.
         # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
         # NOTE: ~/.bashrc has to be manually sourced when bash -c is used
         #       because some Jepsen config is there.
         set +e
-        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" > /dev/null
+        if [ "$CONTROL_LEIN_RUN_STDOUT_LOGS" -eq 0 ]; then
+            redirect_logs="/dev/null"
+        else
+            redirect_logs="/dev/stdout"
+        fi
+        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" > $redirect_logs
         # To be able to archive the run result even if the run fails.
         jepsen_run_exit_status=$?
         set -e
@@ -117,11 +134,18 @@ case $1 in
         # Just pack all the latest test workloads. They might not be generated
         # within this run.
         all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
-        all_latest_workflow_runs=""
+        all_latest_workload_runs=""
         for workload in $all_workloads; do
-            all_latest_workflow_runs="$all_latest_workflow_runs "'$(readlink -f /jepsen/memgraph/store/'"$workload"'/latest)'
+            all_latest_workload_runs="$all_latest_workload_runs "'$(readlink -f /jepsen/memgraph/store/'"$workload"'/latest)'
         done
-        docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_latest_workflow_runs"
+        all_run_folders_resolved=$(docker exec jepsen-control bash -c "echo $all_latest_workload_runs")
+        all_run_folders_filtered=""
+        for folder in $all_run_folders_resolved; do
+            if [[ "$(basename "$folder")" > "$start_time" ]]; then
+                all_run_folders_filtered="$all_run_folders_filtered $folder"
+            fi
+        done
+        docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_run_folders_filtered"
         docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
         INFO "Test and results packing DONE."
 
@@ -129,5 +153,8 @@ case $1 in
         if [ "$jepsen_run_exit_status" -ne 0 ]; then
             exit "$jepsen_run_exit_status"
         fi
+    ;;
+    *)
+    HELP_EXIT
     ;;
 esac
