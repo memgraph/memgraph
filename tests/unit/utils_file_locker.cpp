@@ -155,6 +155,45 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
   std::filesystem::current_path(save_path);
 }
 
+TEST_P(FileLockerParameterizedTest, RemovePath) {
+  utils::FileRetainer file_retainer;
+  ASSERT_TRUE(std::filesystem::create_directory(testing_directory));
+  const auto save_path = std::filesystem::current_path();
+  std::filesystem::current_path(testing_directory);
+  const auto file = std::filesystem::path("1");
+  const auto file_absolute = std::filesystem::absolute(file);
+  auto remove_path_test = [&](const bool delete_explicitly_file) {
+    const auto [lock_absolute, delete_absolute] = GetParam();
+    // Create the file
+    std::ofstream(file.string());
+    auto locker = file_retainer.AddLocker();
+    {
+      auto acc = locker.Access();
+      acc.AddPath(lock_absolute ? file_absolute : file);
+    }
+
+    file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
+    ASSERT_TRUE(std::filesystem::exists(file));
+
+    {
+      auto acc = locker.Access();
+      // If absolute was sent to AddPath method, use relative now
+      // to test those combinations.
+      acc.RemovePath(lock_absolute ? file : file_absolute);
+    }
+    if (delete_explicitly_file) {
+      file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
+    } else {
+      file_retainer.CleanQueue();
+    }
+    ASSERT_FALSE(std::filesystem::exists(file));
+  };
+
+  remove_path_test(true);
+  remove_path_test(false);
+  std::filesystem::current_path(save_path);
+}
+
 INSTANTIATE_TEST_CASE_P(FileLockerPathVariantTests, FileLockerParameterizedTest,
                         ::testing::Values(std::make_tuple(false, false),
                                           std::make_tuple(false, true),
@@ -175,6 +214,7 @@ TEST_F(FileLockerTest, MultipleLockers) {
       acc.AddPath(file1);
       acc.AddPath(common_file);
     }
+    std::this_thread::sleep_for(200ms);
   });
 
   auto t2 = std::thread([&]() {
@@ -192,7 +232,7 @@ TEST_F(FileLockerTest, MultipleLockers) {
     file_retainer.DeleteFile(file1);
     file_retainer.DeleteFile(file2);
     file_retainer.DeleteFile(common_file);
-    ASSERT_FALSE(std::filesystem::exists(file1));
+    ASSERT_TRUE(std::filesystem::exists(file1));
     ASSERT_TRUE(std::filesystem::exists(file2));
     ASSERT_TRUE(std::filesystem::exists(common_file));
   });

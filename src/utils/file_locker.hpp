@@ -2,10 +2,9 @@
 #include <atomic>
 #include <deque>
 #include <functional>
-#include <map>
-#include <mutex>
 #include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
@@ -149,8 +148,8 @@ class FileRetainer {
    * Call this only if you want to trigger cleaning of the
    * queue before a locker is destroyed (e.g. a file was removed
    * from a locker).
-   * This method CANNOT be called while an accessor is active
-   * in the same thread as a deadlock will occure.
+   * This method CANNOT be called from a thread which has an active
+   * accessor as it will produce a deadlock.
    */
   void CleanQueue();
 
@@ -174,15 +173,16 @@ class FileRetainer {
   class LockerEntry {
    public:
     void LockPath(const std::filesystem::path &path);
+    bool RemovePath(const std::filesystem::path &path);
     bool LocksFile(const std::filesystem::path &path) const;
 
    private:
-    std::vector<std::filesystem::path> directories_;
+    std::set<std::filesystem::path> directories_;
     std::set<std::filesystem::path> files_;
   };
 
-  utils::Synchronized<std::map<size_t, LockerEntry>, utils::SpinLock> lockers_;
-
+  utils::Synchronized<std::unordered_map<size_t, LockerEntry>, utils::SpinLock>
+      lockers_;
   utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock>
       files_for_deletion_;
 };

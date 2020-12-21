@@ -77,10 +77,19 @@ void FileRetainer::CleanQueue() {
 void FileRetainer::LockerEntry::LockPath(const std::filesystem::path &path) {
   auto absolute_path = std::filesystem::absolute(path);
   if (std::filesystem::is_directory(absolute_path)) {
-    directories_.emplace_back(std::move(absolute_path));
+    directories_.emplace(std::move(absolute_path));
     return;
   }
   files_.emplace(std::move(absolute_path));
+}
+
+bool FileRetainer::LockerEntry::RemovePath(const std::filesystem::path &path) {
+  auto absolute_path = std::filesystem::absolute(path);
+  if (std::filesystem::is_directory(absolute_path)) {
+    return directories_.erase(absolute_path);
+  }
+
+  return files_.erase(absolute_path);
 }
 
 bool FileRetainer::LockerEntry::LocksFile(
@@ -137,6 +146,12 @@ bool FileRetainer::FileLockerAccessor::AddPath(
   file_retainer_->lockers_.WithLock(
       [&](auto &lockers) { lockers[locker_id_].LockPath(path); });
   return true;
+}
+
+bool FileRetainer::FileLockerAccessor::RemovePath(
+    const std::filesystem::path &path) {
+  return file_retainer_->lockers_.WithLock(
+      [&](auto &lockers) { return lockers[locker_id_].RemovePath(path); });
 }
 
 FileRetainer::FileLockerAccessor::~FileLockerAccessor() {
