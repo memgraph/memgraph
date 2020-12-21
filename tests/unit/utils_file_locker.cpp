@@ -97,8 +97,6 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
   // Create additional directory inside the testing directory with a single file
   const auto additional_directory = std::filesystem::path("additional");
   ASSERT_TRUE(std::filesystem::create_directory(additional_directory));
-  const auto additional_directory_absolute =
-      std::filesystem::absolute(additional_directory);
 
   const auto nested_file =
       std::filesystem::path(fmt::format("{}/2", additional_directory.string()));
@@ -106,51 +104,32 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
 
   const auto file = std::filesystem::path("1");
   const auto file_absolute = std::filesystem::absolute(file);
-  auto prepare_files = [&]() {
+  const auto directory_lock_test = [&](const bool lock_nested_directory) {
+    const auto directory_to_lock =
+        lock_nested_directory ? additional_directory : testing_directory;
+    const auto [lock_absolute, delete_absolute] = GetParam();
     std::ofstream(file.string());
     std::ofstream(nested_file.string());
+    {
+      auto locker = file_retainer.AddLocker();
+      {
+        auto acc = locker.Access();
+        acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock)
+                                  : directory_to_lock);
+      }
+
+      file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
+      ASSERT_NE(std::filesystem::exists(file), lock_nested_directory);
+      file_retainer.DeleteFile(delete_absolute ? nested_file_absolute
+                                               : nested_file);
+      ASSERT_TRUE(std::filesystem::exists(nested_file));
+    }
+    ASSERT_FALSE(std::filesystem::exists(file));
+    ASSERT_FALSE(std::filesystem::exists(nested_file));
   };
 
-  const auto [lock_absolute, delete_absolute] = GetParam();
-  {
-    prepare_files();
-    {
-      auto locker = file_retainer.AddLocker();
-      {
-        auto acc = locker.Access();
-        acc.AddPath(lock_absolute ? additional_directory_absolute
-                                  : additional_directory);
-      }
-
-      file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
-      ASSERT_FALSE(std::filesystem::exists(file));
-      file_retainer.DeleteFile(delete_absolute ? nested_file_absolute
-                                               : nested_file);
-      ASSERT_TRUE(std::filesystem::exists(nested_file));
-    }
-    ASSERT_FALSE(std::filesystem::exists(file));
-    ASSERT_FALSE(std::filesystem::exists(nested_file));
-  }
-
-  {
-    prepare_files();
-    {
-      auto locker = file_retainer.AddLocker();
-      {
-        auto acc = locker.Access();
-        acc.AddPath(lock_absolute ? std::filesystem::absolute(testing_directory)
-                                  : testing_directory);
-      }
-
-      file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
-      ASSERT_TRUE(std::filesystem::exists(file));
-      file_retainer.DeleteFile(delete_absolute ? nested_file_absolute
-                                               : nested_file);
-      ASSERT_TRUE(std::filesystem::exists(nested_file));
-    }
-    ASSERT_FALSE(std::filesystem::exists(file));
-    ASSERT_FALSE(std::filesystem::exists(nested_file));
-  }
+  directory_lock_test(true);
+  directory_lock_test(false);
 
   std::filesystem::current_path(save_path);
 }
