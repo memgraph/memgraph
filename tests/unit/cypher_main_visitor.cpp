@@ -3246,4 +3246,21 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
       SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const std::string query = "LOCK";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "LOCK path";
+    auto *parsed_query = dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_,
+              LockPathQuery::Action::LOCK_PATH);
+    EXPECT_EQ(parsed_query->path_, "path");
+  }
+}
+
 }  // namespace

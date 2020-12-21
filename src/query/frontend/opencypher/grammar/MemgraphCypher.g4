@@ -19,6 +19,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GRANT
                       | IDENTIFIED
+                      | LOCK
                       | MAIN
                       | MODE
                       | PASSWORD
@@ -35,6 +36,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SYNC
                       | TIMEOUT
                       | TO
+                      | UNLOCK
                       | USER
                       | USERS
                       ;
@@ -53,6 +55,7 @@ query : cypherQuery
       | authQuery
       | dumpQuery
       | replicationQuery
+      | lockPathQuery
       ;
 
 authQuery : createRole
@@ -78,6 +81,10 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  ;
+
+lockPathQuery : lockPath
+              | unlockPath
+              ;
 
 userOrRoleName : symbolicName ;
 
@@ -135,3 +142,9 @@ registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
 dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
+
+path : symbolicName ;
+
+lockPath : LOCK path ;
+
+unlockPath : UNLOCK path ;

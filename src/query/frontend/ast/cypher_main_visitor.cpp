@@ -285,6 +285,32 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicas(
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
+    MemgraphCypher::LockPathQueryContext *ctx) {
+  CHECK(ctx->children.size() == 1)
+    << "LockPathQuery should have exactly one child!";
+  auto *lock_path_query =
+    ctx->children[0]->accept(this).as<LockPathQuery *>();
+  query_ = lock_path_query;
+  return lock_path_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLockPath(
+    MemgraphCypher::LockPathContext *ctx) {
+  auto *lock_query = storage_->Create<LockPathQuery>();
+  lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
+  lock_query->path_ = ctx->path()->symbolicName()->accept(this).as<std::string>();
+  return lock_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUnlockPath(
+    MemgraphCypher::UnlockPathContext *ctx) {
+  auto *lock_query = storage_->Create<LockPathQuery>();
+  lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
+  lock_query->path_ = ctx->path()->symbolicName()->accept(this).as<std::string>();
+  return lock_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
