@@ -331,7 +331,8 @@ Storage::Storage(Config config)
       lock_file_path_(config_.durability.storage_directory /
                       durability::kLockFile),
       uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()) {
+      epoch_id_(utils::GenerateUUID()),
+      global_locker_(file_retainer_.AddLocker()) {
   if (config_.durability.snapshot_wal_mode !=
           Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit ||
@@ -1934,6 +1935,25 @@ void Storage::CreateSnapshot() {
   commit_log_.MarkFinished(transaction.start_timestamp);
 }
 
+bool Storage::LockPath(const std::filesystem::path &path) {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.AddPath(path);
+}
+
+bool Storage::UnlockPath(const std::filesystem::path &path) {
+  {
+    auto locker_accessor = global_locker_.Access();
+    if (!locker_accessor.RemovePath(path)) {
+      return false;
+    }
+  }
+
+  // We use locker accessor in seperate scope so we don't produce deadlock
+  // after we call clean queue.
+  file_retainer_.CleanQueue();
+  return true;
+}
+
 uint64_t Storage::CommitTimestamp(
     const std::optional<uint64_t> desired_commit_timestamp) {
 #ifdef MG_ENTERPRISE
@@ -1948,6 +1968,7 @@ uint64_t Storage::CommitTimestamp(
   return timestamp_++;
 #endif
 }
+
 
 #ifdef MG_ENTERPRISE
 bool Storage::SetReplicaRole(
