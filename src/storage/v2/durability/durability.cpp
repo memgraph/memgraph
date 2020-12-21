@@ -89,7 +89,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
     try {
       auto info = ReadWalInfo(item.path());
       if ((uuid.empty() || info.uuid == uuid) &&
-          (!current_seq_num || info.seq_num < current_seq_num))
+          (!current_seq_num || info.seq_num < *current_seq_num))
         wal_files.emplace_back(info.seq_num, info.from_timestamp,
                                info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
