@@ -443,8 +443,9 @@ Storage::ReplicationClient::GetRecoverySteps(
 
     // Find first WAL that contains up to replica commit, i.e. WAL
     // that is before the replica commit or conatins the replica commit
-    // as the last committed transaction.
-    if (replica_commit >= rwal_it->from_timestamp) {
+    // as the last committed transaction OR we managed to find the first WAL
+    // file.
+    if (replica_commit >= rwal_it->from_timestamp || rwal_it->seq_num == 0) {
       if (replica_commit >= rwal_it->to_timestamp) {
         // We want the WAL after because the replica already contains all the
         // commits from this WAL
