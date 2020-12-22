@@ -5,11 +5,11 @@
 #include <glog/logging.h>
 
 #include "glue/communication.hpp"
+#include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
-#include "query/constants.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -222,20 +222,20 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       }
     }
 
-      auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
-          socket_address, query::kDefaultReplicationPort);
-      if (maybe_ip_and_port) {
-        auto [ip, port] = *maybe_ip_and_port;
-        auto ret =
-            db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
-                                 {.timeout = timeout, .ssl = std::nullopt});
-        if (ret.HasError()) {
-          throw QueryRuntimeException(
-              fmt::format("Couldn't register replica '{}'!", name));
-        }
-      } else {
-        throw QueryRuntimeException("Invalid socket address!");
+    auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
+        socket_address, query::kDefaultReplicationPort);
+    if (maybe_ip_and_port) {
+      auto [ip, port] = *maybe_ip_and_port;
+      auto ret =
+          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                               {.timeout = timeout, .ssl = std::nullopt});
+      if (ret.HasError()) {
+        throw QueryRuntimeException(
+            fmt::format("Couldn't register replica '{}'!", name));
       }
+    } else {
+      throw QueryRuntimeException("Invalid socket address!");
+    }
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
