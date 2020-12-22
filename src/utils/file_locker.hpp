@@ -174,7 +174,7 @@ class FileRetainer {
    public:
     void LockPath(const std::filesystem::path &path);
     bool RemovePath(const std::filesystem::path &path);
-    bool LocksFile(const std::filesystem::path &path) const;
+    [[nodiscard]] bool LocksFile(const std::filesystem::path &path) const;
 
    private:
     std::set<std::filesystem::path> directories_;
