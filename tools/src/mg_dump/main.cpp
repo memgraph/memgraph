@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
     mg_session_params_set_username(params, FLAGS_username.c_str());
     mg_session_params_set_password(params, FLAGS_password.c_str());
   }
-  mg_session_params_set_client_name(params, bolt_client_version.c_str());
+  mg_session_params_set_user_agent(params, bolt_client_version.c_str());
   mg_session_params_set_sslmode(
       params, FLAGS_use_ssl ? MG_SSLMODE_REQUIRE : MG_SSLMODE_DISABLE);
 
@@ -56,7 +56,14 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (mg_session_run(session, "DUMP DATABASE", nullptr, nullptr) < 0) {
+  if (mg_session_run(session, "DUMP DATABASE", nullptr, nullptr, nullptr,
+                     nullptr) < 0) {
+    std::cerr << "Execution failed: " << mg_session_error(session) << std::endl;
+    mg_session_destroy(session);
+    return 1;
+  }
+
+  if (mg_session_pull(session, nullptr) < 0) {
     std::cerr << "Execution failed: " << mg_session_error(session) << std::endl;
     mg_session_destroy(session);
     return 1;
@@ -64,7 +71,7 @@ int main(int argc, char **argv) {
 
   // Fetch results
   mg_result *result;
-  while ((status = mg_session_pull(session, &result)) == 1) {
+  while ((status = mg_session_fetch(session, &result)) == 1) {
     const mg_list *row = mg_result_row(result);
     CHECK(mg_list_size(row) == 1)
         << "Error: dump client received data in unexpected format";

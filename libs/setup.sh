@@ -117,6 +117,6 @@ clone https://github.com/facebook/rocksdb.git rocksdb $rocksdb_tag
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # mgclient
-mgclient_tag="fe94b3631385ef5dbe40a3d8458860dbcc33e6ea" # May 27, 2019
+mgclient_tag="de9f60a9e08ebccda11b1f47513f2141f2527ccc" # (2020-12-07)
 clone https://github.com/memgraph/mgclient.git mgclient $mgclient_tag
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
