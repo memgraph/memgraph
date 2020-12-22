@@ -295,11 +295,7 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
   } else {
     throw SyntaxException("Expected LOCK or UNLOCK");
   }
-  if (!ctx->path()->literal()->StringLiteral()) {
-    throw SemanticException("Path should be a string literal");
-  }
 
-  lock_query->path_ = ctx->path()->accept(this);
   query_ = lock_query;
   return lock_query;
 }

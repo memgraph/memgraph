@@ -1226,19 +1226,16 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba,
                                 storage::View::OLD);
 
-  const auto path = lock_path_query->path_->Accept(evaluator);
   Callback callback;
   switch (lock_path_query->action_) {
     case LockPathQuery::Action::LOCK_PATH:
-      if (!interpreter_context->db->LockPath(path.ValueString())) {
-        throw QueryRuntimeException(
-            fmt::format("Couldn't lock data in {}", path.ValueString()));
+      if (!interpreter_context->db->LockPath()) {
+        throw QueryRuntimeException("Failed to lock the data directory");
       }
       break;
     case LockPathQuery::Action::UNLOCK_PATH:
-      if (!interpreter_context->db->UnlockPath(path.ValueString())) {
-        throw QueryRuntimeException(
-            fmt::format("Couldn't unlock data in {}", path.ValueString()));
+      if (!interpreter_context->db->UnlockPath()) {
+        throw QueryRuntimeException("Failed to unlock the data directory");
       }
       break;
   }

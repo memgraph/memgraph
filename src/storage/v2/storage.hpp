@@ -415,8 +415,8 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-  bool LockPath(const std::filesystem::path &path);
-  bool UnlockPath(const std::filesystem::path &path);
+  bool LockPath();
+  bool UnlockPath();
 
 #if MG_ENTERPRISE
   bool SetReplicaRole(io::network::Endpoint endpoint,

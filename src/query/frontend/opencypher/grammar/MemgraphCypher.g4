@@ -139,7 +139,5 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-path : literal ;
-
-lockPathQuery : ( LOCK | UNLOCK ) path ;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 

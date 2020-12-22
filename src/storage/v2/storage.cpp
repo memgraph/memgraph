@@ -1934,15 +1934,15 @@ void Storage::CreateSnapshot() {
   commit_log_.MarkFinished(transaction.start_timestamp);
 }
 
-bool Storage::LockPath(const std::filesystem::path &path) {
+bool Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
-  return locker_accessor.AddPath(path);
+  return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool Storage::UnlockPath(const std::filesystem::path &path) {
+bool Storage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(path)) {
+    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
       return false;
     }
   }

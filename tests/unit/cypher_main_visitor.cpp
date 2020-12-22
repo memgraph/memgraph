@@ -3249,20 +3249,31 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   auto &ast_generator = *GetParam();
 
-  constexpr std::array paths = {
-      "path", ".", "..", "../path", "../../path", "/home/user/directory"};
-
   const auto test_lock_path_query = [&](const std::string_view command,
                                         const LockPathQuery::Action action) {
     ASSERT_THROW(ast_generator.ParseQuery(command.data()), SyntaxException);
 
-    for (const auto *path : paths) {
-      const std::string query = fmt::format("{} \"{}\"", command, path);
+    {
+      const std::string query = fmt::format("{} ME", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA STUFF", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY", command);
       auto *parsed_query =
           dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+      ASSERT_TRUE(parsed_query);
       EXPECT_EQ(parsed_query->action_, action);
-      ASSERT_TRUE(parsed_query->path_);
-      ast_generator.CheckLiteral(parsed_query->path_, TypedValue(path));
     }
   };
 
