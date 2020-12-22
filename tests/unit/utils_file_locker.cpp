@@ -40,6 +40,10 @@ class FileLockerTest : public ::testing::Test {
   }
 };
 
+// Test are parameterized based on the type of path used for locking and
+// deleting. We test all of the combinations for absolute/relative paths for
+// locking path and absolute/relative paths for deleting
+// Parameter is represented by tuple (lock_absolute, delete_absolute).
 class FileLockerParameterizedTest
     : public FileLockerTest,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {};
@@ -90,6 +94,15 @@ TEST_P(FileLockerParameterizedTest, DeleteWhileInLocker) {
 
 TEST_P(FileLockerParameterizedTest, DirectoryLock) {
   utils::FileRetainer file_retainer;
+  // For this test we create the following file structure
+  // testing_directory
+  //     1
+  //     additional
+  //        2
+  // We check 2 cases:
+  //  - locking the subdirectory "additional", only "2" should be preserved
+  //  - locking the directory testing_directory, all of the files shold be
+  //    preserved
   ASSERT_TRUE(std::filesystem::create_directory(testing_directory));
   const auto save_path = std::filesystem::current_path();
   std::filesystem::current_path(testing_directory);
