@@ -6,8 +6,8 @@
 
 #include "glog/logging.h"
 
-#include "utils/string.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/string.hpp"
 
 namespace io::network {
 
