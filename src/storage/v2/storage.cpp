@@ -1,5 +1,4 @@
 #include "storage/v2/storage.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -1968,7 +1967,6 @@ uint64_t Storage::CommitTimestamp(
   return timestamp_++;
 #endif
 }
-
 
 #ifdef MG_ENTERPRISE
 bool Storage::SetReplicaRole(
