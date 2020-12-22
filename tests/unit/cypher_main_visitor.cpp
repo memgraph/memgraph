@@ -3249,18 +3249,25 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   auto &ast_generator = *GetParam();
 
-  {
-    const std::string query = "LOCK";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
-  }
+  constexpr std::array paths = {
+      "path", ".", "..", "../path", "../../path", "/home/user/directory"};
 
-  {
-    const std::string query = "LOCK path";
-    auto *parsed_query = dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_,
-              LockPathQuery::Action::LOCK_PATH);
-    EXPECT_EQ(parsed_query->path_, "path");
-  }
+  const auto test_lock_path_query = [&](const std::string_view command,
+                                        const LockPathQuery::Action action) {
+    ASSERT_THROW(ast_generator.ParseQuery(command.data()), SyntaxException);
+
+    for (const auto *path : paths) {
+      const std::string query = fmt::format("{} \"{}\"", command, path);
+      auto *parsed_query =
+          dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+      EXPECT_EQ(parsed_query->action_, action);
+      ASSERT_TRUE(parsed_query->path_);
+      ast_generator.CheckLiteral(parsed_query->path_, TypedValue(path));
+    }
+  };
+
+  test_lock_path_query("LOCK", LockPathQuery::Action::LOCK_PATH);
+  test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
 }
 
 }  // namespace
