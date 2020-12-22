@@ -164,7 +164,7 @@
         workloads (if-let [w (:workload opts)] [w] (keys workloads))
         node-configs (if (:node-configs opts)
                        (merge-node-configurations (:nodes opts) (:node-configs opts))
-                       [(resolve-all-node-hostnames (default-node-configuration (:nodes opts)))])
+                       (throw (Exception. "Node config is missing")))
         test-opts (for [i counts c node-configs w workloads]
                    (assoc opts
                           :node-config c
