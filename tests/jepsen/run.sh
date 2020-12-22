@@ -9,6 +9,7 @@ HELP_EXIT() {
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
+    echo "              --ignore-run-stderr-logs Ignore lein run stderr logs."
     echo "              --nodes-no               JEPSEN_ACTIVE_NODES_NO"
     echo "              --run-args               \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
     echo ""
@@ -32,6 +33,7 @@ MEMGRAPH_BINARY_PATH="../../build/memgraph"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
+CONTROL_LEIN_RUN_STDERR_LOGS=1
 
 if [ ! -d "$script_dir/jepsen" ]; then
     git clone https://github.com/jepsen-io/jepsen.git -b "0.2.1" "$script_dir/jepsen"
@@ -71,6 +73,10 @@ case $1 in
                 ;;
                 --ignore-run-stdout-logs)
                     CONTROL_LEIN_RUN_STDOUT_LOGS=0
+                    shift
+                ;;
+                --ignore-run-stderr-logs)
+                    CONTROL_LEIN_RUN_STDERR_LOGS=0
                     shift
                 ;;
                 --nodes-no)
@@ -122,13 +128,20 @@ case $1 in
         #       because some Jepsen config is there.
         set +e
         if [ "$CONTROL_LEIN_RUN_STDOUT_LOGS" -eq 0 ]; then
-            redirect_logs="/dev/null"
+            redirect_stdout_logs="/dev/null"
         else
-            redirect_logs="/dev/stdout"
+            redirect_stdout_logs="/dev/stdout"
         fi
-        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" > $redirect_logs
+        if [ "$CONTROL_LEIN_RUN_STDERR_LOGS" -eq 0 ]; then
+            redirect_stderr_logs="/dev/null"
+        else
+            redirect_stderr_logs="/dev/stderr"
+        fi
+        INFO "Jepsen run in progress..."
+        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
         # To be able to archive the run result even if the run fails.
         jepsen_run_exit_status=$?
+        INFO "Jepsen run DONE."
         set -e
 
         # Just pack all the latest test workloads. They might not be generated
