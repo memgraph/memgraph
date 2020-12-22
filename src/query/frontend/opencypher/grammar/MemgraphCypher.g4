@@ -82,10 +82,6 @@ replicationQuery : setReplicationRole
                  | showReplicas
                  ;
 
-lockPathQuery : lockPath
-              | unlockPath
-              ;
-
 userOrRoleName : symbolicName ;
 
 createRole : CREATE ROLE role=userOrRoleName ;
@@ -143,8 +139,7 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-path : symbolicName ;
+path : literal ;
 
-lockPath : LOCK path ;
+lockPathQuery : ( LOCK | UNLOCK ) path ;
 
-unlockPath : UNLOCK path ;

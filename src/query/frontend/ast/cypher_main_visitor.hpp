@@ -225,18 +225,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return LockPathQuery*
    */
-  antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
-
-  /**
-   * @return LockPathQuery*
-   */
-  antlrcpp::Any visitLockPath(MemgraphCypher::LockPathContext *ctx) override;
-
-  /**
-   * @return LockPathQuery*
-   */
-  antlrcpp::Any visitUnlockPath(
-      MemgraphCypher::UnlockPathContext *ctx) override;
+  antlrcpp::Any visitLockPathQuery(
+      MemgraphCypher::LockPathQueryContext *ctx) override;
 
   /**
    * @return CypherUnion*

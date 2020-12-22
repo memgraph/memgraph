@@ -287,27 +287,20 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicas(
 
 antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
     MemgraphCypher::LockPathQueryContext *ctx) {
-  CHECK(ctx->children.size() == 1)
-    << "LockPathQuery should have exactly one child!";
-  auto *lock_path_query =
-    ctx->children[0]->accept(this).as<LockPathQuery *>();
-  query_ = lock_path_query;
-  return lock_path_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitLockPath(
-    MemgraphCypher::LockPathContext *ctx) {
   auto *lock_query = storage_->Create<LockPathQuery>();
-  lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
-  lock_query->path_ = ctx->path()->symbolicName()->accept(this).as<std::string>();
-  return lock_query;
-}
+  if (ctx->LOCK()) {
+    lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
+  } else if (ctx->UNLOCK()) {
+    lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
+  } else {
+    throw SyntaxException("Expected LOCK or UNLOCK");
+  }
+  if (!ctx->path()->literal()->StringLiteral()) {
+    throw SemanticException("Path should be a string literal");
+  }
 
-antlrcpp::Any CypherMainVisitor::visitUnlockPath(
-    MemgraphCypher::UnlockPathContext *ctx) {
-  auto *lock_query = storage_->Create<LockPathQuery>();
-  lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
-  lock_query->path_ = ctx->path()->symbolicName()->accept(this).as<std::string>();
+  lock_query->path_ = ctx->path()->accept(this);
+  query_ = lock_query;
   return lock_query;
 }
 
