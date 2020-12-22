@@ -31,7 +31,7 @@ fi
 
 MEMGRAPH_BINARY_PATH="../../build/memgraph"
 JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all"
+CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 
@@ -120,7 +120,7 @@ case $1 in
         docker cp "$script_dir/project.clj" jepsen-control:/jepsen/memgraph/project.clj
         INFO "Copying test files to jepsen-control DONE."
 
-        start_time=$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"')
+        start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
 
         # Run the test.
         # NOTE: docker exec -t is NOT ok because gh CI user does NOT have TTY.
@@ -137,28 +137,34 @@ case $1 in
         else
             redirect_stderr_logs="/dev/stderr"
         fi
-        INFO "Jepsen run in progress..."
+        INFO "Jepsen run in progress... START_TIME: $start_time"
         docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
         # To be able to archive the run result even if the run fails.
         jepsen_run_exit_status=$?
-        INFO "Jepsen run DONE."
+        end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
+        INFO "Jepsen run DONE. END_TIME: $end_time"
         set -e
 
-        # Just pack all the latest test workloads. They might not be generated
-        # within this run.
+        # Pack all test workload runs between start and end time.
         all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
-        all_latest_workload_runs=""
+        all_workload_run_folders=""
         for workload in $all_workloads; do
-            all_latest_workload_runs="$all_latest_workload_runs "'$(readlink -f /jepsen/memgraph/store/'"$workload"'/latest)'
+            for time_folder in $(docker exec jepsen-control bash -c "ls /jepsen/memgraph/store/$workload"); do
+                if [[ "$time_folder" == "latest" ]]; then
+                    continue
+                fi
+                # The early continue pattern here is nice because bash doesn't
+                # have >= for the string comparison (marginal values).
+                if [[ "$time_folder" < "$start_time" ]]; then
+                    continue
+                fi
+                if [[ "$time_folder" > "$end_time" ]]; then
+                    continue
+                fi
+                all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/$time_folder"
+            done
         done
-        all_run_folders_resolved=$(docker exec jepsen-control bash -c "echo $all_latest_workload_runs")
-        all_run_folders_filtered=""
-        for folder in $all_run_folders_resolved; do
-            if [[ "$(basename "$folder")" > "$start_time" ]]; then
-                all_run_folders_filtered="$all_run_folders_filtered $folder"
-            fi
-        done
-        docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_run_folders_filtered"
+        docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_workload_run_folders"
         docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
         INFO "Test and results packing DONE."
 
