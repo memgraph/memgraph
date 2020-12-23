@@ -2335,10 +2335,7 @@ cpp<#
   (:clone))
 
 (lcp:define-class lock-path-query (query)
-  ((action "Action" :scope :public)
-   (path "Expression *" :initval "nullptr" :scope :public
-         :slk-save #'slk-save-ast-pointer
-         :slk-load (slk-load-ast-pointer "Expression")))
+  ((action "Action" :scope :public))
 
   (:public
     (lcp:define-enum action
