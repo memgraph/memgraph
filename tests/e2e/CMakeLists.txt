@@ -1,2 +1,1 @@
 add_subdirectory(replication_benchmark)
-add_subdirectory(replication_indexes)

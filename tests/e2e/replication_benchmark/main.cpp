@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Benchmark Test");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
+
   mg::Client::Init();
 
   {
@@ -33,6 +34,8 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("CREATE INDEX ON :Node(id);");
     client->DiscardAll();
+
+    // TODO(gitbuda): Add more threads in a configurable way and measure writes.
     for (int i = 0; i < FLAGS_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
@@ -48,6 +51,8 @@ int main(int argc, char **argv) {
                       "CREATE (n)-[:Edge]->(m);");
       client->DiscardAll();
     }
+
+    // TODO(gitbuda): Add more threads in a configurable way and measure reads.
   }
 
   mg::Client::Finalize();
