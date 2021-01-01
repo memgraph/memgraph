@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 
 import copy
-import mgclient
+import os
 import subprocess
 import sys
 import tempfile
 import time
-import os
 
+import mgclient
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -27,22 +27,23 @@ def wait_for_server(port, delay=0.01):
     time.sleep(delay)
 
 
+def extract_bolt_port(args):
+    # TODO(gitbuda): Handle when args is --bolt-port=PORT.
+    try:
+        return int(args[args.index('--bolt-port') + 1])
+    except ValueError:
+        pass
+    return 7687
+
+
 class MemgraphInstanceRunner():
     def __init__(self, binary_path=MEMGRAPH_BINARY, args=[]):
         self.host = '127.0.0.1'
-        self.bolt_port = self._extract_port(args)
+        self.bolt_port = extract_bolt_port(args)
         self.binary_path = binary_path
         self.args = args
         self.proc_mg = None
         self.conn = None
-
-    def _extract_port(self, args):
-        # TODO(gitbuda): Handle when args is --bolt-port=PORT.
-        try:
-            return int(args[args.index('--bolt-port') + 1])
-        except ValueError:
-            pass
-        return 7687
 
     def query(self, query):
         cursor = self.conn.cursor()
@@ -60,7 +61,7 @@ class MemgraphInstanceRunner():
                    "--storage-wal-enabled",
                    "--storage-snapshot-interval-sec", "300",
                    "--storage-properties-on-edges"] + self.args
-        self.bolt_port = self._extract_port(args_mg)
+        self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
         self.conn = mgclient.connect(
