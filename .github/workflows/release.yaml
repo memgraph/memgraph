@@ -281,6 +281,11 @@ jobs:
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
 
+      - name: Run e2e replication tests
+        run: |
+          cd tests/e2e
+          ./runner.py --workloads-path replication/workloads.yaml
+
       - name: Run stress test (plain)
         run: |
           cd tests/stress
