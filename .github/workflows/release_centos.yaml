@@ -282,7 +282,9 @@ jobs:
 
       - name: Run e2e replication tests
         run: |
-          cd tests/e2e
+          cd tests
+          source ve3/bin/activate
+          cd e2e
           ./runner.py --workloads-path replication/workloads.yaml
 
       - name: Run stress test (plain)

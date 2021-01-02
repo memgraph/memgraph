@@ -1,11 +1,12 @@
 #!/usr/bin/python3
 
-import atexit
 from argparse import ArgumentParser
+import atexit
 import logging
 import os
 import subprocess
 import yaml
+
 from memgraph import MemgraphInstanceRunner
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
