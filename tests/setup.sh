@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# shellcheck disable=1091
 set -Eeuo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -21,7 +22,9 @@ fi
 
 # Create new virtualenv.
 virtualenv -p python3 ve3
-source ve3/bin/activate
+set +u
+source "ve3/bin/activate"
+set -u
 
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
