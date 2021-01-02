@@ -32,6 +32,8 @@ done
 
 # Install mgclient from source becasue of full flexibility.
 pushd "$DIR/../libs/pymgclient" > /dev/null
+export MGCLIENT_INCLUDE_DIR="$DIR/../libs/mgclient/include"
+export MGCLIENT_LIB_DIR="$DIR/../libs/mgclient/lib"
 python3 setup.py build
 python3 setup.py install
 popd > /dev/null
