@@ -276,6 +276,7 @@ jobs:
       - name: Run e2e replication tests
         run: |
           cd tests
+          ./setup.sh
           source ve3/bin/activate
           cd e2e
           ./runner.py --workloads-path replication/workloads.yaml

@@ -96,10 +96,12 @@ setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
 
 # Setup tests dependencies.
-cd tests
-./setup.sh
-cd ..
-# TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3.
+# cd tests
+# ./setup.sh
+# cd ..
+# TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3. Take care
+# of the build order because tests/setup.py builds pymgclient which depends on
+# mgclient which is build after this script by calling make.
 
 echo "Done installing dependencies for Memgraph"
 
