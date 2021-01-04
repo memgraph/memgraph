@@ -1,10 +1,15 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
+#include <rocksdb/write_batch.h>
 
 #include "kvstore/kvstore.hpp"
+#include "kvstore/replication/rpc.hpp"
 #include "utils/file.hpp"
 
 namespace kvstore {
+
+DEFINE_bool(main, false, "Set to true to be the main");
+DEFINE_bool(replica, false, "Set to true to be the replica");
 
 struct KVStore::impl {
   std::filesystem::path storage;
@@ -14,6 +19,37 @@ struct KVStore::impl {
 
 KVStore::KVStore(std::filesystem::path storage)
     : pimpl_(std::make_unique<impl>()) {
+  if (FLAGS_main) {
+    DLOG(INFO) << "SETTING CLIENT FOR AUTH";
+    rpc_context_.emplace();
+    rpc_client_.emplace(io::network::Endpoint("127.0.0.1", 10000),
+                        &*rpc_context_);
+  } else if (FLAGS_replica) {
+    rpc_server_context_.emplace();
+    rpc_server_.emplace(io::network::Endpoint("127.0.0.1", 10000),
+                        &*rpc_server_context_);
+    rpc_server_->Register<AppendKvstoreRpc>([this](auto *req_reader,
+                                                   auto *res_builder) {
+      AppendKvstoreReq req;
+      slk::Load(&req, req_reader);
+      DLOG(INFO) << "Received AppendKvstoreRpc";
+      size_t updates_num;
+      slk::Load(&updates_num, req_reader);
+      for (size_t i = 0; i < updates_num; ++i) {
+        size_t update_size;
+        slk::Load(&update_size, req_reader);
+        std::vector<uint8_t> update_data(update_size);
+        req_reader->Load(update_data.data(), update_size);
+        rocksdb::WriteBatch write_batch(std::string(
+            reinterpret_cast<const char *>(update_data.data()), update_size));
+        pimpl_->db->Write(rocksdb::WriteOptions(), &write_batch);
+      }
+      const auto next_sequence_num = pimpl_->db->GetLatestSequenceNumber();
+      AppendKvstoreRes res{true, next_sequence_num};
+      slk::Save(res, res_builder);
+    });
+    rpc_server_->Start();
+  }
   pimpl_->storage = storage;
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " +
@@ -27,7 +63,12 @@ KVStore::KVStore(std::filesystem::path storage)
   pimpl_->db.reset(db);
 }
 
-KVStore::~KVStore() {}
+KVStore::~KVStore() {
+  if (rpc_server_) {
+    rpc_server_->Shutdown();
+    rpc_server_->AwaitShutdown();
+  }
+}
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
 
@@ -95,6 +136,34 @@ bool KVStore::PutAndDeleteMultiple(
   auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
   return s.ok();
 }
+
+void KVStore::Replicate() {
+  auto stream = rpc_client_->Stream<AppendKvstoreRpc>();
+  auto *builder = stream.GetBuilder();
+
+  std::vector<std::vector<std::uint8_t>> updates;
+  std::unique_ptr<rocksdb::TransactionLogIterator> iter;
+  auto status = pimpl_->db->GetUpdatesSince(next_sequence_num_, &iter);
+  if (status.ok()) {
+    for (; iter && iter->Valid(); iter->Next()) {
+      auto result = iter->GetBatch();
+      const auto &str = result.writeBatchPtr->Data();
+      std::vector<std::uint8_t> raw_data;
+      raw_data.resize(str.size());
+      memcpy(raw_data.data(), str.data(), str.size());
+      updates.emplace_back(std::move(raw_data));
+    }
+  }
+
+  slk::Save(updates.size(), builder);
+  for (const auto &update : updates) {
+    slk::Save(update.size(), builder);
+    builder->Save(update.data(), update.size());
+  }
+
+  const auto response = stream.AwaitResponse();
+  next_sequence_num_ = response.next_sequence_num;
+};
 
 // iterator
 

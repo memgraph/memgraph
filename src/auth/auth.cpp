@@ -9,6 +9,7 @@
 #include <glog/logging.h>
 
 #include "auth/exceptions.hpp"
+#include "io/network/endpoint.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
@@ -182,6 +183,7 @@ void Auth::SaveUser(const User &user) {
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
+  storage_.Replicate();
 }
 
 std::optional<User> Auth::AddUser(const std::string &username,
@@ -204,6 +206,7 @@ bool Auth::RemoveUser(const std::string &username_orig) {
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
+  storage_.Replicate();
   return true;
 }
 
@@ -218,6 +221,7 @@ std::vector<auth::User> Auth::AllUsers() {
       ret.push_back(*user);
     }
   }
+
   return ret;
 }
 
@@ -244,6 +248,7 @@ void Auth::SaveRole(const Role &role) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
+  storage_.Replicate();
 }
 
 std::optional<Role> Auth::AddRole(const std::string &rolename) {
@@ -270,6 +275,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
+  storage_.Replicate();
   return true;
 }
 

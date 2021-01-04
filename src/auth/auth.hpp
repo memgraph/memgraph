@@ -7,7 +7,11 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "communication/context.hpp"
 #include "kvstore/kvstore.hpp"
+
+#include "rpc/client.hpp"
+#include "rpc/server.hpp"
 
 namespace auth {
 

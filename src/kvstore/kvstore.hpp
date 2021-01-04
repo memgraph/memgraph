@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "rpc/client.hpp"
+#include "rpc/server.hpp"
 #include "utils/exceptions.hpp"
 
 namespace kvstore {
@@ -117,6 +119,8 @@ class KVStore final {
   bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
                             const std::vector<std::string> &keys);
 
+  void Replicate();
+
   /**
    * Returns total number of stored (key, value) pairs. The function takes an
    * optional prefix parameter used for filtering keys that start with that
@@ -202,6 +206,14 @@ class KVStore final {
  private:
   struct impl;
   std::unique_ptr<impl> pimpl_;
+
+  // RocksDB WAL sequence number always starts with 0 for a newly created DB
+  std::uint64_t next_sequence_num_ = 0;
+  std::optional<communication::ClientContext> rpc_context_;
+  std::optional<rpc::Client> rpc_client_;
+
+  std::optional<communication::ServerContext> rpc_server_context_;
+  std::optional<rpc::Server> rpc_server_;
 };
 
 }  // namespace kvstore

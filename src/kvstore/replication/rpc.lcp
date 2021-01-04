@@ -1,0 +1,18 @@
+#>cpp
+#pragma once
+
+#include <cstdint>
+#include <cstring>
+
+#include "rpc/messages.hpp"
+#include "slk/serialization.hpp"
+#include "slk/streams.hpp"
+cpp<#
+(lcp:namespace kvstore)
+
+(lcp:define-rpc append-kvstore
+  (:request ())
+  (:response
+    ((success :bool)
+     (next-sequence-num :uint64_t))))
+(lcp:pop-namespace) ;; storage
