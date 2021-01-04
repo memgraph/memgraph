@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  auto database_endpoints =
+  const auto database_endpoints =
       mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
 
   mg::Client::Init();
@@ -26,6 +26,26 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("CREATE INDEX ON :Node(id);");
     client->DiscardAll();
+
+    // Sleep a bit so the index get replicated.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    for (const auto &database_endpoint : database_endpoints) {
+      auto client = mg::e2e::replication::Connect(database_endpoint);
+      client->Execute("SHOW INDEX INFO;");
+      if (auto data = client->FetchAll()) {
+        auto label_name = (*data)[0][1].ValueString();
+        auto property_name = (*data)[0][2].ValueString();
+        if (label_name != "Node" || property_name != "id") {
+          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
+                     << " does NOT hava valid indexes created.";
+        }
+      } else {
+        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint.host
+                   << ":" << database_endpoint.port;
+      }
+    }
+    LOG(INFO) << "All indexes are in-place.";
+
     for (int i = 0; i < FLAGS_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
@@ -58,6 +78,7 @@ int main(int argc, char **argv) {
         mg::e2e::replication::IntGenerator node_generator(
             fmt::format("NodeReadGenerator {}", i), 0, FLAGS_nodes - 1);
         utils::Timer t;
+
         while (true) {
           local_duration = t.Elapsed().count();
           if (local_duration >= FLAGS_reads_duration_limit) break;
@@ -87,6 +108,28 @@ int main(int argc, char **argv) {
     LOG(INFO) << "Total duration: " << all_duration;
     LOG(INFO) << "Query count: " << query_counter;
     LOG(INFO) << "Reads per second: " << reads_per_second;
+  }
+
+  {
+    auto client = mg::e2e::replication::Connect(database_endpoints[0]);
+    client->Execute("DROP INDEX ON :Node(id);");
+    client->DiscardAll();
+    // Sleep a bit so the index get replicated.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    for (const auto &database_endpoint : database_endpoints) {
+      auto client = mg::e2e::replication::Connect(database_endpoint);
+      client->Execute("SHOW INDEX INFO;");
+      if (const auto data = client->FetchAll()) {
+        if ((*data).size() != 0) {
+          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
+                     << " still have some indexes.";
+        }
+      } else {
+        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint.host
+                   << ":" << database_endpoint.port;
+      }
+    }
+    LOG(INFO) << "All indexes were deleted.";
   }
 
   mg::Client::Finalize();

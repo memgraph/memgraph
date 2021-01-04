@@ -1,6 +1,5 @@
 add_executable(memgraph__e2e__replication__constraints constraints.cpp)
-
-add_executable(memgraph__e2e__replication__indexes indexes.cpp)
+target_link_libraries(memgraph__e2e__replication__constraints glog gflags mgclient mg-utils Threads::Threads)
 
 add_executable(memgraph__e2e__replication__read_write_benchmark read_write_benchmark.cpp)
 target_link_libraries(memgraph__e2e__replication__read_write_benchmark glog gflags mgclient mg-utils Threads::Threads)
