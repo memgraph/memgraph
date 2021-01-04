@@ -1175,9 +1175,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, storage::PropertyValue> &params) {
   if (!in_explicit_transaction_) {
-    // TODO(antonio2368): Should this throw?
-    CHECK(!ActiveQueryExecutions()) << "Only one active execution allowed "
-                                       "while not in explicit transaction!";
     query_executions_.clear();
   }
 
