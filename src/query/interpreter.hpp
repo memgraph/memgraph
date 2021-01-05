@@ -146,6 +146,7 @@ struct PreparedQuery {
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream,
                                                   std::optional<int> n)>
       query_handler;
+  std::string rw_type;
 };
 
 // TODO: Maybe this should move to query/plan/planner.

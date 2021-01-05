@@ -17,6 +17,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
@@ -552,6 +553,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
+        // ToDo(jseljan):
+        //  Remove CHECK as the parser should make sure it's a string
         CHECK(socket_address.IsString());
         handler->RegisterReplica(name,
                                  std::string(socket_address.ValueString()),
@@ -876,6 +879,9 @@ PreparedQuery PrepareCypherQuery(
       &interpreter_context->plan_cache, dba);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(plan->plan()));
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
@@ -905,7 +911,8 @@ PreparedQuery PrepareCypherQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.TypeToString()};
 }
 
 PreparedQuery PrepareExplainQuery(
@@ -960,7 +967,8 @@ PreparedQuery PrepareExplainQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      "none"};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -1015,6 +1023,10 @@ PreparedQuery PrepareProfileQuery(
       std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
 
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
+
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
       std::move(parsed_query.required_privileges),
@@ -1047,7 +1059,8 @@ PreparedQuery PrepareProfileQuery(
         }
 
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.TypeToString()};
 }
 
 PreparedQuery PrepareDumpQuery(
@@ -1063,7 +1076,8 @@ PreparedQuery PrepareDumpQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      "r"};
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -1132,7 +1146,8 @@ PreparedQuery PrepareIndexQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
         handler();
         return QueryHandlerResult::NOTHING;
-      }};
+      },
+      "w"};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -1202,7 +1217,8 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      "none"};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -1300,7 +1316,8 @@ PreparedQuery PrepareInfoQuery(
           return action;
         }
         return std::nullopt;
-      }};
+      },
+      "none"};
 }
 
 PreparedQuery PrepareConstraintQuery(
@@ -1460,7 +1477,8 @@ PreparedQuery PrepareConstraintQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
         handler();
         return QueryHandlerResult::COMMIT;
-      }};
+      },
+      "none"};
 }
 
 void Interpreter::BeginTransaction() {
@@ -1524,7 +1542,10 @@ Interpreter::PrepareResult Interpreter::Prepare(
     // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
     // toplevel operator). For now we always set "rw" because something must be
     // set, but it doesn't have to be correct (for Bolt clients).
-    query_execution->summary["type"] = "rw";
+    query_execution->summary["type"] =
+        query_execution->prepared_query
+            ? query_execution->prepared_query->rw_type
+            : "rw";
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
