@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
       const auto &database_endpoint =
           database_endpoints[i % database_endpoints.size()];
       threads.emplace_back([i, &database_endpoint, &query_counter,
-                            &local_duration = thread_duration[i]]() {
+                            &local_duration = thread_duration[i]] {
         utils::ThreadSetName(fmt::format("BenchWriter{}", i));
         auto client = mg::e2e::replication::Connect(database_endpoint);
         mg::e2e::replication::IntGenerator node_generator(

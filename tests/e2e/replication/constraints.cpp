@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
           database_endpoints[i % database_endpoints.size()];
       threads.emplace_back([i, &database_endpoint,
                             cluster_size = database_endpoints.size(),
-                            &local_duration = thread_duration[i]]() {
+                            &local_duration = thread_duration[i]] {
         auto client = mg::e2e::replication::Connect(database_endpoint);
         mg::e2e::replication::IntGenerator node_update_generator(
             fmt::format("NodeUpdateGenerator {}", i), 0, FLAGS_nodes - 1);

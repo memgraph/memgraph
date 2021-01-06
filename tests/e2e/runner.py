@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 from argparse import ArgumentParser
 import atexit
 import logging

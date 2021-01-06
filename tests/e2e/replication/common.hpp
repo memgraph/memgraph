@@ -32,7 +32,8 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
   const auto db_endpoints_strs = utils::Split(database_endpoints_str, ",");
   std::vector<mg::e2e::replication::DatabaseEndpoint> database_endpoints;
   for (const auto &db_endpoint_str : db_endpoints_strs) {
-    const auto &hps = utils::Split(db_endpoint_str, ":");
+    const auto hps = utils::Split(db_endpoint_str, ":");
+    CHECK(hps.size() == 2) << "Wrong database endpoint format.";
     database_endpoints.emplace_back(mg::e2e::replication::DatabaseEndpoint{
         .host = hps[0], .port = static_cast<uint16_t>(std::stoi(hps[1]))});
   }

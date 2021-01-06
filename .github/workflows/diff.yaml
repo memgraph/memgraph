@@ -279,7 +279,7 @@ jobs:
           ./setup.sh
           source ve3/bin/activate
           cd e2e
-          ./runner.py --workloads-path replication/workloads.yaml
+          python runner.py --workloads-path replication/workloads.yaml
 
       - name: Run stress test (plain)
         run: |
