@@ -6,6 +6,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/file_locker.hpp"
 
 namespace storage {
@@ -39,23 +40,31 @@ Storage::ReplicationClient::ReplicationClient(
 /// @throws rpc::RpcFailedException
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
-  auto stream{
-      rpc_client_->Stream<HeartbeatRpc>(storage_->last_commit_timestamp_)};
-  replication::Encoder encoder{stream.GetBuilder()};
-  // Write epoch id
-  {
-    // We need to lock so the epoch id isn't overwritten
-    std::unique_lock engine_guard{storage_->engine_lock_};
-    encoder.WriteString(storage_->epoch_id_);
-  }
+  auto stream{rpc_client_->Stream<HeartbeatRpc>(
+      storage_->last_commit_timestamp_, storage_->epoch_id_)};
   const auto response = stream.AwaitResponse();
-  if (!response.success) {
-    LOG(ERROR)
-        << "Replica " << name_
-        << " is ahead of this instance. The branching point is on commit "
-        << response.current_commit_timestamp;
+  std::optional<uint64_t> branching_point;
+  if (response.epoch_id != storage_->epoch_id_ &&
+      response.current_commit_timestamp != kTimestampInitialId) {
+    const auto &epoch_history = storage_->epoch_history_;
+    const auto epoch_info_iter =
+        std::find_if(epoch_history.crbegin(), epoch_history.crend(),
+                     [&](const auto &epoch_info) {
+                       return epoch_info.first == response.epoch_id;
+                     });
+    if (epoch_info_iter == epoch_history.crend()) {
+      branching_point = 0;
+    } else if (epoch_info_iter->second != response.current_commit_timestamp) {
+      branching_point = epoch_info_iter->second;
+    }
+  }
+  if (branching_point) {
+    LOG(ERROR) << "Replica " << name_ << " cannot be used with this instance."
+               << " Please start a clean instance of Memgraph server"
+               << " on the specified endpoint.";
     return;
   }
+
   current_commit_timestamp = response.current_commit_timestamp;
   DLOG(INFO) << "Current timestamp on replica: " << current_commit_timestamp;
   DLOG(INFO) << "Current MAIN timestamp: "
