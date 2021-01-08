@@ -158,7 +158,7 @@ SHOW REPLICAS;
 To delete a replica, issue the following query:
 
 ```plaintext
-DELETE REPLICA 'name';
+DROP REPLICA 'name';
 ```
 
 ### How to Promote a New Main?
