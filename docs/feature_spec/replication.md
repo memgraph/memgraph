@@ -131,11 +131,12 @@ main -[asynchronous]-> replica 1 -[semi-synchronous]-> replica 2
 
 To configure the above scenario, issue the following commands:
 ```plaintext
-SET REPLICATION ROLE TO REPLICA;  # on replica 1
-SET REPLICATION ROLE TO REPLICA;  # on replica 2
+SET REPLICATION ROLE TO REPLICA WITH PORT <port1>;  # on replica 1
+SET REPLICATION ROLE TO REPLICA WITH PORT <port2>;  # on replica 2
 
-REGISTER REPLICA replica1 ASYNC TO <replica1_sa>;  # on main
-REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO <replica2_sa>;  # on replica 1
+REGISTER REPLICA replica1 ASYNC TO "replica1_ip_address:port1";  # on main
+REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5
+  TO "replica2_ip_address:port2";  # on replica 1
 ```
 
 ### How to See the Current Replication Status?
