@@ -91,6 +91,7 @@ communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
       }
       return {std::move(map)};
     }
+    case nlohmann::json::value_t::binary:
     case nlohmann::json::value_t::discarded:
       LOG(FATAL) << "Unexpected JSON type!";
   }

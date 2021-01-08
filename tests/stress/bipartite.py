@@ -128,6 +128,7 @@ def execution_handler():
     cleanup_end_time = time.time()
     output_data.add_measurement("cleanup_time",
                                 cleanup_end_time - start_time)
+    log.info("Database is clean.")
 
     # create indices
     session.run('CREATE INDEX ON :U').consume()
@@ -145,6 +146,7 @@ def execution_handler():
     output_data.add_measurement(
         'vertices_create_time',
         vertices_create_end_time - cleanup_end_time)
+    log.info("All nodes created.")
 
     # concurrent create execution & tests
     with multiprocessing.Pool(args.worker_count) as p:

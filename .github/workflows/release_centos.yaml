@@ -5,7 +5,7 @@ on: [workflow_dispatch]
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
     timeout-minutes: 960
@@ -69,7 +69,7 @@ jobs:
 
   coverage_build:
     name: "Coverage build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
 
@@ -124,7 +124,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
 
@@ -198,7 +198,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
     timeout-minutes: 960
@@ -267,16 +267,18 @@ jobs:
             --num-database-workers 9 --num-clients-workers 30 \
             --no-strict
 
-      - name: Run quality assurance tests
+      - name: Run GQL Behave tests
         run: |
-          cd tests/qa
+          cd tests/gql_behave
           ./continuous_integration
 
       - name: Save quality assurance status
         uses: actions/upload-artifact@v2
         with:
-          name: "Quality assurance status"
-          path: tests/qa/quality_assurance_status.txt
+          name: "GQL Behave Status"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
 
       - name: Run stress test (plain)
         run: |
