@@ -17,7 +17,7 @@ TEST(Endpoint, IPv4) {
   EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP4);
 
   // test address invalid
-  EXPECT_DEATH(endpoint_t("invalid", 12345), "address");
+  EXPECT_THROW(endpoint_t("invalid", 12345), io::network::NetworkError);
 }
 
 TEST(Endpoint, IPv6) {
@@ -30,7 +30,7 @@ TEST(Endpoint, IPv6) {
   EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP6);
 
   // test address invalid
-  EXPECT_DEATH(endpoint_t("::g", 12345), "address");
+  EXPECT_THROW(endpoint_t("::g", 12345), io::network::NetworkError);
 }
 
 int main(int argc, char **argv) {
