@@ -1,4 +1,5 @@
 #include <chrono>
+#include <fstream>
 #include <random>
 #include <ranges>
 #include <thread>
@@ -6,10 +7,15 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <json/json.hpp>
 
 #include "common.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
+
+DEFINE_string(output_file,
+              "memgraph__e2e__replication__read_write_benchmark.json",
+              "Output file where the results should be in JSON format.");
 
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
@@ -17,6 +23,9 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   const auto database_endpoints =
       mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
+  nlohmann::json output;
+  output["nodes"] = FLAGS_nodes;
+  output["edges"] = FLAGS_edges;
 
   mg::Client::Init();
 
@@ -46,21 +55,26 @@ int main(int argc, char **argv) {
     }
     LOG(INFO) << "All indexes are in-place.";
 
+    utils::Timer node_write_timer;
     for (int i = 0; i < FLAGS_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
     }
+    output["node_write_time"] = node_write_timer.Elapsed().count();
+
     mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0,
                                                       FLAGS_nodes - 1);
+    utils::Timer edge_write_timer;
     for (int i = 0; i < FLAGS_edges; ++i) {
       client->Execute("MATCH (n {id:" + std::to_string(edge_generator.Next()) +
                       "}), (m {id:" + std::to_string(edge_generator.Next()) +
                       "}) CREATE (n)-[:Edge]->(m);");
       client->DiscardAll();
     }
+    output["edge_write_time"] = node_write_timer.Elapsed().count();
   }
 
-  {
+  {  // Benchmark read queries.
     const int num_threads = std::thread::hardware_concurrency();
     std::atomic<int64_t> query_counter{0};
     std::vector<std::thread> threads;
@@ -102,19 +116,23 @@ int main(int argc, char **argv) {
 
     double all_duration = 0;
     for (auto &d : thread_duration) all_duration += d;
-    double per_thread_duration = all_duration / num_threads;
-    double reads_per_second = query_counter / per_thread_duration;
+    output["total_read_duration"] = all_duration;
+    double per_thread_read_duration = all_duration / num_threads;
+    output["per_thread_read_duration"] = per_thread_read_duration;
+    output["read_per_second"] = query_counter / per_thread_read_duration;
+    output["read_queries"] = query_counter.load();
 
-    LOG(INFO) << "Total duration: " << all_duration;
-    LOG(INFO) << "Query count: " << query_counter;
-    LOG(INFO) << "Reads per second: " << reads_per_second;
+    LOG(INFO) << "Output data: " << output.dump();
+    std::ofstream output_file(FLAGS_output_file);
+    output_file << output.dump();
+    output_file.close();
   }
 
   {
     auto client = mg::e2e::replication::Connect(database_endpoints[0]);
     client->Execute("DROP INDEX ON :Node(id);");
     client->DiscardAll();
-    // Sleep a bit so the index get replicated.
+    // Sleep a bit so the drop index get replicated.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
       auto client = mg::e2e::replication::Connect(database_endpoint);

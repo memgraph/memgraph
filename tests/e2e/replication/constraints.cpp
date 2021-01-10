@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
     auto client = mg::e2e::replication::Connect(database_endpoints[0]);
     client->Execute("DROP CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE");
     client->DiscardAll();
-    // Sleep a bit so the constraints get replicated.
+    // Sleep a bit so the drop constraints get replicated.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
       auto client = mg::e2e::replication::Connect(database_endpoint);

@@ -26,11 +26,17 @@ def wait_for_server(port, delay=0.01):
 
 
 def extract_bolt_port(args):
-    # TODO(gitbuda): Handle when args is --bolt-port=PORT.
-    try:
-        return int(args[args.index('--bolt-port') + 1])
-    except ValueError:
-        pass
+    for arg_index, arg in enumerate(args):
+        if arg.startswith('--bolt-port='):
+            maybe_port = arg.split('=')[1]
+            if not maybe_port.isdigit():
+                raise Exception('Unable to read Bolt port after --bolt-port=.')
+            return int(maybe_port)
+        elif arg == '--bolt-port':
+            maybe_port = args[arg_index + 1]
+            if not maybe_port.isdigit():
+                raise Exception('Unable to read Bolt port after --bolt-port.')
+            return int(maybe_port)
     return 7687
 
 
@@ -49,7 +55,7 @@ class MemgraphInstanceRunner():
         return cursor.fetchall()
 
     def start(self, restart=False, args=[]):
-        if args == self.args and self.is_running():
+        if not restart and self.is_running():
             return
         self.stop()
         self.args = copy.deepcopy(args)
