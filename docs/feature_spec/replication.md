@@ -189,6 +189,11 @@ However, users are able to setup their own recovery policies using the basic
 recovery mechanisms we currently provide, that can cover a wide range of
 real-life scenarios.
 
+Also, we do not yet support the replication of authentication configurations,
+rendering access control replication unavailable.
+
+The query and authentication modules, as well as audit logs are not replicated.
+
 ## Integration with Memgraph
 
 WAL `Delta`s are replicated between the replication main and replica. With
