@@ -122,22 +122,6 @@ assumed to be the default one (we specify it to be 10000).
 Each Memgraph instance will remember what the configuration was set to and will
 automatically resume with its role when restarted.
 
-### How to Setup an Advanced Replication Scenario?
-
-The configuration allows for a more advanced scenario like this:
-```plaintext
-main -[asynchronous]-> replica 1 -[semi-synchronous]-> replica 2
-```
-
-To configure the above scenario, issue the following commands:
-```plaintext
-SET REPLICATION ROLE TO REPLICA WITH PORT <port1>;  # on replica 1
-SET REPLICATION ROLE TO REPLICA WITH PORT <port2>;  # on replica 2
-
-REGISTER REPLICA replica1 ASYNC TO "replica1_ip_address:port1";  # on main
-REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5
-  TO "replica2_ip_address:port2";  # on replica 1
-```
 
 ### How to See the Current Replication Status?
 
@@ -174,6 +158,36 @@ After the command is issued, if the original main is still alive, it won't be
 able to replicate its data to the replica (the new main) anymore and will enter
 an error state. You must ensure that at any given point in time there aren't
 two mains in the cluster.
+
+## Limitations and Potential Features
+
+Currently, we do not support chained replicas, i.e. a replica can't have its
+own replica. When this feature becomes available, the user will be able to 
+configure scenarios such as the following one:
+
+```plaintext
+main -[asynchronous]-> replica 1 -[semi-synchronous]-> replica 2
+```
+
+To configure the above scenario, the user will be able to issue the following
+commands:
+```plaintext
+SET REPLICATION ROLE TO REPLICA WITH PORT <port1>;  # on replica 1
+SET REPLICATION ROLE TO REPLICA WITH PORT <port2>;  # on replica 2
+
+REGISTER REPLICA replica1 ASYNC TO "replica1_ip_address:port1";  # on main
+REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5
+  TO "replica2_ip_address:port2";  # on replica 1
+```
+
+In addition, we do not yet support advanced recovery mechanisms. For example,
+if a main crashes, a suitable replica will take its place as the new main. If
+the crashed main goes back online, it will not be able to reclaim its previous
+role, but will be forced to be a replica of the new main.
+In the upcoming releases, we might be adding more advanced recovery mechanisms.
+However, users are able to setup their own recovery policies using the basic
+recovery mechanisms we currently provide, that can cover a wide range of
+real-life scenarios.
 
 ## Integration with Memgraph
 
