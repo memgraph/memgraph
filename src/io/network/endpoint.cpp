@@ -7,6 +7,7 @@
 #include "glog/logging.h"
 
 #include "io/network/endpoint.hpp"
+#include "io/network/network_error.hpp"
 #include "utils/string.hpp"
 
 namespace io::network {
@@ -42,10 +43,16 @@ Endpoint::ParseSocketOrIpAddress(
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
     if (default_port) {
+      if (GetIpFamily(address) == IpFamily::NONE) {
+        return std::nullopt;
+      }
       return std::pair{address, *default_port};
     }
   } else if (parts.size() == 2) {
     ip_address = std::move(parts[0]);
+    if (GetIpFamily(ip_address) == IpFamily::NONE) {
+      return std::nullopt;
+    }
     int64_t int_port{0};
     try {
       int_port = utils::ParseInt(parts[1]);
@@ -77,8 +84,9 @@ Endpoint::Endpoint() {}
 Endpoint::Endpoint(std::string ip_address, uint16_t port)
     : address(std::move(ip_address)), port(port) {
   IpFamily ip_family = GetIpFamily(address);
-  CHECK(ip_family != IpFamily::NONE)
-      << "Not a valid IPv4 or IPv6 address: " << ip_address;
+  if (ip_family == IpFamily::NONE) {
+    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
+  }
   family = ip_family;
 }
 
