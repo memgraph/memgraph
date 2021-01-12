@@ -1191,7 +1191,7 @@ PreparedQuery PrepareAuthQuery(
                                              : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      }, "none"};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
@@ -1317,7 +1317,7 @@ PreparedQuery PrepareInfoQuery(
         }
         return std::nullopt;
       },
-      "none"};
+      "r"};
 }
 
 PreparedQuery PrepareConstraintQuery(
