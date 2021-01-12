@@ -969,9 +969,7 @@ void CreateSnapshot(
       for (uint64_t i = 0; i < *pos; ++i) {
         const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
             wal_files[i];
-        if (!utils::DeleteFile(wal_path)) {
-          LOG(WARNING) << "Couldn't delete WAL file " << wal_path << "!";
-        }
+        file_retainer->DeleteFile(wal_path);
       }
     }
   }

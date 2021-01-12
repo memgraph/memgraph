@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
@@ -23,10 +24,13 @@ cpp<#
      (current-commit-timestamp :uint64_t))))
 
 (lcp:define-rpc heartbeat
-  (:request ((main-commit-timestamp :uint64_t)))
+  (:request
+    ((main-commit-timestamp :uint64_t)
+     (epoch-id "std::string")))
   (:response
     ((success :bool)
-     (current-commit-timestamp :uint64_t))))
+     (current-commit-timestamp :uint64_t)
+     (epoch-id "std::string"))))
 
 (lcp:define-rpc snapshot
   (:request ())

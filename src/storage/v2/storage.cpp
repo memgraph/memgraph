@@ -30,12 +30,6 @@
 #include "storage/v2/replication/rpc.hpp"
 #endif
 
-#ifdef MG_ENTERPRISE
-DEFINE_bool(main, false, "Set to true to be the main");
-DEFINE_bool(replica, false, "Set to true to be the replica");
-DEFINE_bool(async_replica, false, "Set to true to be the replica");
-#endif
-
 namespace storage {
 
 namespace {
@@ -421,29 +415,6 @@ Storage::Storage(Config config)
     gc_runner_.Run("Storage GC", config_.gc.interval,
                    [this] { this->CollectGarbage(); });
   }
-
-#ifdef MG_ENTERPRISE
-  // For testing purposes until we can define the instance type from
-  // a query.
-  if (FLAGS_main) {
-    if (RegisterReplica("REPLICA_SYNC",
-                        io::network::Endpoint{"127.0.0.1", 10000},
-                        replication::ReplicationMode::SYNC)
-            .HasError()) {
-      LOG(WARNING) << "Couldn't connect to REPLICA_SYNC";
-    }
-    if (RegisterReplica("REPLICA_ASYNC",
-                        io::network::Endpoint{"127.0.0.1", 10002},
-                        replication::ReplicationMode::ASYNC)
-            .HasError()) {
-      LOG(WARNING) << "Couldn't connect to REPLICA_SYNC";
-    }
-  } else if (FLAGS_replica) {
-    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10000});
-  } else if (FLAGS_async_replica) {
-    SetReplicaRole(io::network::Endpoint{"127.0.0.1", 10002});
-  }
-#endif
 }
 
 Storage::~Storage() {
