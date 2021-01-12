@@ -40,8 +40,17 @@ Storage::ReplicationClient::ReplicationClient(
 /// @throws rpc::RpcFailedException
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
+
+  std::optional<std::string> epoch_id;
+  {
+    // epoch_id_ can be changed if we don't take this lock
+    std::unique_lock engine_guard(storage_->engine_lock_);
+    epoch_id.emplace(storage_->epoch_id_);
+  }
+
   auto stream{rpc_client_->Stream<HeartbeatRpc>(
-      storage_->last_commit_timestamp_, storage_->epoch_id_)};
+      storage_->last_commit_timestamp_, std::move(*epoch_id))};
+
   const auto response = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
   if (response.epoch_id != storage_->epoch_id_ &&
