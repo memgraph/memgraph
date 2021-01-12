@@ -416,6 +416,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
             break;
         }
         // As the transaction is done we can clear all the executions
+        // NOTE: we cannot clear query_execution inside the Abort and Commit
+        // methods as we will delete summary contained in them which we need
+        // after our query finished executing.
         query_executions_.clear();
       } else {
         // We can only clear this execution as some of the queries
