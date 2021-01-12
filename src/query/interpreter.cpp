@@ -1542,11 +1542,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
     // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
     // toplevel operator). For now we always set "rw" because something must be
     // set, but it doesn't have to be correct (for Bolt clients).
-    query_execution->summary["type"] =
-        query_execution->prepared_query
-            ? query_execution->prepared_query->rw_type
-            : "rw";
-
+    
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
@@ -1620,6 +1616,11 @@ Interpreter::PrepareResult Interpreter::Prepare(
     query_execution->summary["planning_time"] =
         planning_timer.Elapsed().count();
     query_execution->prepared_query.emplace(std::move(prepared_query));
+
+    query_execution->summary["type"] =
+        query_execution->prepared_query
+            ? query_execution->prepared_query->rw_type
+            : "rw";
 
     return {query_execution->prepared_query->header,
             query_execution->prepared_query->privileges, qid};

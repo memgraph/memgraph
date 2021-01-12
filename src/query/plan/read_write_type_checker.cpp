@@ -34,8 +34,8 @@ PRE_VISIT(ConstructNamedPath, RWType::R, true)
 PRE_VISIT(Filter, RWType::NONE, true)
 PRE_VISIT(EdgeUniquenessFilter, RWType::NONE, true)
 
-PRE_VISIT(Merge, RWType::RW, false)
-PRE_VISIT(Optional, RWType::NONE, false)
+PRE_VISIT(Merge, RWType::RW, true)
+PRE_VISIT(Optional, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
   op.left_op_->Accept(*this);
@@ -43,7 +43,7 @@ bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
   return false;
 }
 
-PRE_VISIT(Produce, RWType::NONE, false)
+PRE_VISIT(Produce, RWType::NONE, true)
 PRE_VISIT(Accumulate, RWType::NONE, true)
 PRE_VISIT(Aggregate, RWType::NONE, true)
 PRE_VISIT(Skip, RWType::NONE, true)
