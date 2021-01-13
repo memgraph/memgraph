@@ -83,7 +83,7 @@ void ReadWriteTypeChecker::InferRWType(LogicalOperator &root) {
   root.Accept(*this);
 }
 
-std::string ReadWriteTypeChecker::TypeToString() const {
+std::string ReadWriteTypeChecker::TypeToString(const RWType &type) {
   switch (type) {
     case RWType::NONE:
       return "none";

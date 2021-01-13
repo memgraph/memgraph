@@ -10,6 +10,7 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
@@ -146,7 +147,7 @@ struct PreparedQuery {
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream,
                                                   std::optional<int> n)>
       query_handler;
-  std::string rw_type;
+  plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
 // TODO: Maybe this should move to query/plan/planner.

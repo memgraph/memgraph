@@ -17,7 +17,6 @@
 #include "query/interpret/eval.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
-#include "query/plan/read_write_type_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
@@ -810,6 +809,8 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(
       .first->second;
 }
 
+using RWType = plan::ReadWriteTypeChecker::RWType;
+
 PreparedQuery Interpreter::PrepareTransactionQuery(
     std::string_view query_upper) {
   std::function<void()> handler;
@@ -862,11 +863,13 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
     LOG(FATAL) << "Should not get here -- unknown transaction query!";
   }
 
-  return {
-      {}, {}, [handler = std::move(handler)](AnyStream *, std::optional<int>) {
-        handler();
-        return QueryHandlerResult::NOTHING;
-      }};
+  return {{},
+          {},
+          [handler = std::move(handler)](AnyStream *, std::optional<int>) {
+            handler();
+            return QueryHandlerResult::NOTHING;
+          },
+          RWType::NONE};
 }
 
 PreparedQuery PrepareCypherQuery(
@@ -912,7 +915,7 @@ PreparedQuery PrepareCypherQuery(
         }
         return std::nullopt;
       },
-      rw_type_checker.TypeToString()};
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareExplainQuery(
@@ -968,7 +971,7 @@ PreparedQuery PrepareExplainQuery(
         }
         return std::nullopt;
       },
-      "none"};
+      RWType::NONE};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -1060,7 +1063,7 @@ PreparedQuery PrepareProfileQuery(
 
         return std::nullopt;
       },
-      rw_type_checker.TypeToString()};
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(
@@ -1077,7 +1080,7 @@ PreparedQuery PrepareDumpQuery(
         }
         return std::nullopt;
       },
-      "r"};
+      RWType::R};
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -1147,7 +1150,7 @@ PreparedQuery PrepareIndexQuery(
         handler();
         return QueryHandlerResult::NOTHING;
       },
-      "w"};
+      RWType::W};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -1191,7 +1194,8 @@ PreparedQuery PrepareAuthQuery(
                                              : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }, "none"};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
@@ -1218,7 +1222,7 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
         }
         return std::nullopt;
       },
-      "none"};
+      RWType::NONE};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -1317,7 +1321,7 @@ PreparedQuery PrepareInfoQuery(
         }
         return std::nullopt;
       },
-      "r"};
+      RWType::NONE};
 }
 
 PreparedQuery PrepareConstraintQuery(
@@ -1478,7 +1482,7 @@ PreparedQuery PrepareConstraintQuery(
         handler();
         return QueryHandlerResult::COMMIT;
       },
-      "none"};
+      RWType::NONE};
 }
 
 void Interpreter::BeginTransaction() {
@@ -1619,7 +1623,8 @@ Interpreter::PrepareResult Interpreter::Prepare(
 
     query_execution->summary["type"] =
         query_execution->prepared_query
-            ? query_execution->prepared_query->rw_type
+            ? plan::ReadWriteTypeChecker::TypeToString(
+                  query_execution->prepared_query->rw_type)
             : "rw";
 
     return {query_execution->prepared_query->header,

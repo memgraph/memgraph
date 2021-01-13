@@ -24,7 +24,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   RWType type{RWType::NONE};
   void InferRWType(LogicalOperator &root);
-  std::string TypeToString() const;
+  static std::string TypeToString(const RWType &type);
 
   bool PreVisit(CreateNode &) override;
   bool PreVisit(CreateExpand &) override;
