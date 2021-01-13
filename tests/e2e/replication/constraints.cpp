@@ -39,12 +39,12 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
+          LOG(FATAL) << database_endpoint
                      << " does NOT hava valid constraint created.";
         }
       } else {
         LOG(FATAL) << "Unable to get CONSTRAINT INFO from "
-                   << database_endpoint.host << ":" << database_endpoint.port;
+                   << database_endpoint;
       }
     }
     LOG(INFO) << "All constraints are in-place.";
@@ -132,12 +132,11 @@ int main(int argc, char **argv) {
       client->Execute("SHOW CONSTRAINT INFO;");
       if (const auto data = client->FetchAll()) {
         if ((*data).size() != 0) {
-          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
-                     << " still have some constraints.";
+          LOG(FATAL) << database_endpoint << " still have some constraints.";
         }
       } else {
         LOG(FATAL) << "Unable to get CONSTRAINT INFO from "
-                   << database_endpoint.host << ":" << database_endpoint.port;
+                   << database_endpoint;
       }
     }
     LOG(INFO) << "All constraints were deleted.";

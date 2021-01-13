@@ -45,12 +45,11 @@ int main(int argc, char **argv) {
         auto label_name = (*data)[0][1].ValueString();
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
+          LOG(FATAL) << database_endpoint
                      << " does NOT hava valid indexes created.";
         }
       } else {
-        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint.host
-                   << ":" << database_endpoint.port;
+        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint;
       }
     }
     LOG(INFO) << "All indexes are in-place.";
@@ -139,12 +138,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
         if ((*data).size() != 0) {
-          LOG(FATAL) << database_endpoint.host << ":" << database_endpoint.port
-                     << " still have some indexes.";
+          LOG(FATAL) << database_endpoint << " still have some indexes.";
         }
       } else {
-        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint.host
-                   << ":" << database_endpoint.port;
+        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint;
       }
     }
     LOG(INFO) << "All indexes were deleted.";

@@ -4,6 +4,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "io/network/endpoint.hpp"
 #include "mgclient.hpp"
 #include "utils/string.hpp"
 
@@ -23,26 +24,22 @@ DEFINE_double(reads_duration_limit, 10.0,
 
 namespace mg::e2e::replication {
 
-struct DatabaseEndpoint {
-  std::string host;
-  uint16_t port;
-};
-
 auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
   const auto db_endpoints_strs = utils::Split(database_endpoints_str, ",");
-  std::vector<mg::e2e::replication::DatabaseEndpoint> database_endpoints;
+  std::vector<io::network::Endpoint> database_endpoints;
   for (const auto &db_endpoint_str : db_endpoints_strs) {
-    const auto hps = utils::Split(db_endpoint_str, ":");
-    CHECK(hps.size() == 2) << "Wrong database endpoint format.";
-    database_endpoints.emplace_back(mg::e2e::replication::DatabaseEndpoint{
-        .host = hps[0], .port = static_cast<uint16_t>(std::stoi(hps[1]))});
+    const auto maybe_host_port =
+        io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
+    CHECK(maybe_host_port);
+    database_endpoints.emplace_back(
+        io::network::Endpoint(maybe_host_port->first, maybe_host_port->second));
   }
   return database_endpoints;
 }
 
-auto Connect(const DatabaseEndpoint &database_endpoint) {
+auto Connect(const io::network::Endpoint &database_endpoint) {
   mg::Client::Params params;
-  params.host = database_endpoint.host;
+  params.host = database_endpoint.address;
   params.port = database_endpoint.port;
   params.use_ssl = FLAGS_use_ssl;
   auto client = mg::Client::Connect(params);
