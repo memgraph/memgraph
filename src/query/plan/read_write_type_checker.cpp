@@ -34,7 +34,7 @@ PRE_VISIT(ConstructNamedPath, RWType::R, true)
 PRE_VISIT(Filter, RWType::NONE, true)
 PRE_VISIT(EdgeUniquenessFilter, RWType::NONE, true)
 
-PRE_VISIT(Merge, RWType::RW, true)
+PRE_VISIT(Merge, RWType::RW, false)
 PRE_VISIT(Optional, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
@@ -63,14 +63,14 @@ PRE_VISIT(CallProcedure, RWType::NONE, true)
 bool ReadWriteTypeChecker::Visit(Once &op) { return false; }
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
-  // update type only if it's not the NONE type and the current operator's type
-  // is different than the one that's currently inferred
+  // Update type only if it's not the NONE type and the current operator's type
+  // is different than the one that's currently inferred.
   if (type != RWType::NONE && type != op_type) {
     type = RWType::RW;
   }
-  // stop inference because RW is the most "dominant" type, i.e. it isn't
+  // Stop inference because RW is the most "dominant" type, i.e. it isn't
   // affected by the type of nodes in the plan appearing after the node for
-  // which the type is set to RW
+  // which the type is set to RW.
   if (type == RWType::RW) {
     return;
   }
@@ -95,5 +95,7 @@ std::string ReadWriteTypeChecker::TypeToString(const RWType &type) {
       return "rw";
   }
 }
+
+#undef PRE_VISIT
 
 }  // namespace query::plan
