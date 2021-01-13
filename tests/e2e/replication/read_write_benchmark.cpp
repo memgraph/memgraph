@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
           LOG(FATAL) << database_endpoint
-                     << " does NOT hava valid indexes created.";
+                     << " does NOT have valid indexes created.";
         }
       } else {
         LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint;
