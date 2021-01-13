@@ -552,9 +552,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
-        // ToDo(jseljan):
-        //  Remove CHECK as the parser should make sure it's a string
-        CHECK(socket_address.IsString());
         handler->RegisterReplica(name,
                                  std::string(socket_address.ValueString()),
                                  sync_mode, maybe_timeout);
