@@ -64,6 +64,10 @@ target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-qu
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
+add_unit_test(query_plan_read_write_typecheck.cpp
+  ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
+target_link_libraries(${test_prefix}query_plan_read_write_typecheck mg-query)
+
 add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
 

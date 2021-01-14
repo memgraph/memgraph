@@ -85,8 +85,13 @@ void ReadWriteTypeChecker::InferRWType(LogicalOperator &root) {
 
 std::string ReadWriteTypeChecker::TypeToString(const RWType &type) {
   switch (type) {
+    // Unfortunately, neo4j Java drivers do not allow query types that differ
+    // from the ones defined by neo4j. We'll keep using the NONE type internally
+    // but we'll convert it to "rw" to keep in line with the neo4j definition.
+    // Oddly enough, but not surprisingly, Python drivers don't have any problems
+    // with non-neo4j query types.
     case RWType::NONE:
-      return "none";
+      return "rw";
     case RWType::R:
       return "r";
     case RWType::W:
