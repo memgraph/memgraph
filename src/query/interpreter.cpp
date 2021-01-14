@@ -1538,12 +1538,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
   }
 
   try {
-    // TODO: Set summary['type'] based on transaction metadata. The type can't
-    // be determined based only on the toplevel logical operator -- for example
-    // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
-    // toplevel operator). For now we always set "rw" because something must be
-    // set, but it doesn't have to be correct (for Bolt clients).
-    
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;

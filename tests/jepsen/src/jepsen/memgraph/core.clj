@@ -21,8 +21,7 @@
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-   {:bank       bank/workload
-    :sequential sequential/workload
+   {:sequential sequential/workload
     :large      large/workload})
 
 (def nemesis-configuration
