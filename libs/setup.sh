@@ -122,5 +122,5 @@ clone https://github.com/memgraph/mgclient.git mgclient $mgclient_tag
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # pymgclient
-pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # TODO(gitbuda): Last stable.
+pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 clone https://github.com/memgraph/pymgclient.git pymgclient $pymgclient_tag
