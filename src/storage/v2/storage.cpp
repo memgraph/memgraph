@@ -365,11 +365,9 @@ Storage::Storage(Config config)
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
 #if MG_ENTERPRISE
-      // After we finished the recovery, the info->next_timestamp will
-      // basically be
-      // `std::max(latest_snapshot.start_timestamp + 1, latest_wal.to_timestamp
-      // + 1)` So the last commited transaction is one before that.
-      last_commit_timestamp_ = timestamp_ - 1;
+      if (info->last_commit_timestamp) {
+        last_commit_timestamp_ = *info->last_commit_timestamp;
+      }
 #endif
     }
   } else if (config_.durability.snapshot_wal_mode !=

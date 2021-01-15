@@ -40,11 +40,6 @@ Storage::ReplicationServer::ReplicationServer(
         DLOG(INFO) << "Received SnapshotRpc";
         this->SnapshotHandler(req_reader, res_builder);
       });
-  rpc_server_->Register<OnlySnapshotRpc>(
-      [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received OnlySnapshotRpc";
-        this->OnlySnapshotHandler(req_reader, res_builder);
-      });
   rpc_server_->Register<WalFilesRpc>(
       [this](auto *req_reader, auto *res_builder) {
         DLOG(INFO) << "Received WalFilesRpc";
@@ -525,7 +520,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
   } catch (const durability::RecoveryFailure &e) {
     LOG(FATAL) << "Couldn't load the snapshot because of: " << e.what();
   }
-  storage_->last_commit_timestamp_ = storage_->timestamp_ - 1;
   storage_guard.unlock();
 
   SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
@@ -549,31 +543,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
 
     storage_->wal_file_.reset();
   }
-}
-
-void Storage::ReplicationServer::OnlySnapshotHandler(
-    slk::Reader *req_reader, slk::Builder *res_builder) {
-  OnlySnapshotReq req;
-  slk::Load(&req, req_reader);
-
-  CHECK(storage_->last_commit_timestamp_.load() < req.snapshot_timestamp)
-      << "Invalid snapshot timestamp, it should be less than the last"
-         "commited timestamp";
-
-  replication::Decoder decoder{req_reader};
-  auto maybe_epoch_id = decoder.ReadString();
-  CHECK(maybe_epoch_id) << "Invalid replication message";
-
-  if (*maybe_epoch_id != storage_->epoch_id_) {
-    storage_->epoch_history_.emplace_back(std::move(storage_->epoch_id_),
-                                          storage_->last_commit_timestamp_);
-    storage_->epoch_id_ = std::move(*maybe_epoch_id);
-  }
-
-  storage_->last_commit_timestamp_.store(req.snapshot_timestamp);
-
-  OnlySnapshotRes res{true, storage_->last_commit_timestamp_.load()};
-  slk::Save(res, res_builder);
 }
 
 void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader,
@@ -670,15 +639,15 @@ Storage::ReplicationServer::LoadWal(
       storage_->epoch_id_ = std::move(wal_info.epoch_id);
     }
     auto info = durability::LoadWal(
-        *maybe_wal_path, indices_constraints, storage_->last_commit_timestamp_,
+        *maybe_wal_path, indices_constraints, storage_->timestamp_,
         &storage_->vertices_, &storage_->edges_, &storage_->name_id_mapper_,
         &storage_->edge_count_, storage_->config_.items);
     storage_->vertex_id_ =
         std::max(storage_->vertex_id_.load(), info.next_vertex_id);
     storage_->edge_id_ = std::max(storage_->edge_id_.load(), info.next_edge_id);
     storage_->timestamp_ = std::max(storage_->timestamp_, info.next_timestamp);
-    if (info.next_timestamp != 0) {
-      storage_->last_commit_timestamp_ = info.next_timestamp - 1;
+    if (info.last_commit_timestamp) {
+      storage_->last_commit_timestamp_ = *info.last_commit_timestamp;
     }
     DLOG(INFO) << *maybe_wal_path << " loaded successfully";
     return {std::move(wal_info), std::move(*maybe_wal_path)};

@@ -106,10 +106,6 @@ class Storage::ReplicationClient {
   // @param path Path of the snapshot file.
   SnapshotRes TransferSnapshot(const std::filesystem::path &path);
 
-  // Transfer the timestamp of the snapshot if it's the only difference
-  // between main and replica
-  OnlySnapshotRes TransferOnlySnapshot(uint64_t snapshot_timestamp);
-
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
@@ -141,14 +137,8 @@ class Storage::ReplicationClient {
         : current_wal_seq_num(current_wal_seq_num) {}
   };
   using RecoverySnapshot = std::filesystem::path;
-  struct RecoveryFinalSnapshot {
-    uint64_t snapshot_timestamp;
-
-    explicit RecoveryFinalSnapshot(const uint64_t snapshot_timestamp)
-        : snapshot_timestamp(snapshot_timestamp) {}
-  };
-  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals,
-                                    RecoveryCurrentWal, RecoveryFinalSnapshot>;
+  using RecoveryStep =
+      std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
 
   std::vector<RecoveryStep> GetRecoverySteps(
       uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
