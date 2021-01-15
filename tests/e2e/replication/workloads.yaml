@@ -23,7 +23,7 @@ template_cluster: &template_cluster
       setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"]
       <<: *template_validation_queries
     main:
-      args: ["--main", "--bolt-port", "7687"]
+      args: ["--bolt-port", "7687"]
       setup_queries: [
         "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001'",
         "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
