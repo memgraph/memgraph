@@ -117,6 +117,10 @@ clone https://github.com/facebook/rocksdb.git rocksdb $rocksdb_tag
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # mgclient
-mgclient_tag="fe94b3631385ef5dbe40a3d8458860dbcc33e6ea" # May 27, 2019
+mgclient_tag="v1.2.0" # (2021-01-14)
 clone https://github.com/memgraph/mgclient.git mgclient $mgclient_tag
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
+
+# pymgclient
+pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
+clone https://github.com/memgraph/pymgclient.git pymgclient $pymgclient_tag
