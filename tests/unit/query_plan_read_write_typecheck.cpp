@@ -240,7 +240,7 @@ TEST_F(ReadWriteTypeCheckTest, CallProcedure) {
   call_op.result_symbols_ = {GetSymbol("name_alias"),
                              GetSymbol("signature_alias")};
 
-  CheckPlanType(&call_op, RWType::NONE);
+  CheckPlanType(&call_op, RWType::R);
 }
 
 TEST_F(ReadWriteTypeCheckTest, ConstructNamedPath) {
