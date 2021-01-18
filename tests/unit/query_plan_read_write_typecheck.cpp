@@ -54,6 +54,37 @@ TEST_F(ReadWriteTypeCheckTest, Filter) {
   Check(filter.get(), RWType::R);
 }
 
+TEST_F(ReadWriteTypeCheckTest, OrderByAndLimit) {
+  // We build an operator tree that would result from e.g.
+  // MATCH (node:label)
+  // WHERE n.property = 5
+  // RETURN n
+  // ORDER BY n.property
+  // LIMIT 10
+  Symbol node_sym = GetSymbol("node");
+  storage::LabelId label = dba.NameToLabel("label");
+  storage::PropertyId prop = dba.NameToProperty("property");
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
+
+  last_op = std::make_shared<ScanAllByLabel>(last_op, node_sym, label);
+
+  last_op = std::make_shared<Filter>(
+      last_op, EQ(PROPERTY_LOOKUP("node", prop), LITERAL(5)));
+
+  last_op = std::make_shared<Produce>(
+      last_op, std::vector<NamedExpression *>{NEXPR("n", IDENT("n"))});
+
+  last_op = std::make_shared<OrderBy>(
+      last_op,
+      std::vector<SortItem>{{Ordering::DESC, PROPERTY_LOOKUP("node", prop)}},
+      std::vector<Symbol>{node_sym});
+
+  last_op = std::make_shared<Limit>(last_op, LITERAL(10));
+
+  Check(last_op.get(), RWType::R);
+}
+
 TEST_F(ReadWriteTypeCheckTest, Cartesian) {
   Symbol x = GetSymbol("x");
   std::shared_ptr<LogicalOperator> lhs = std::make_shared<plan::Unwind>(
@@ -85,3 +116,42 @@ TEST_F(ReadWriteTypeCheckTest, Union) {
   Check(union_op.get(), RWType::R);
 }
 
+TEST_F(ReadWriteTypeCheckTest, Delete) {
+  auto node_sym = GetSymbol("node1");
+  std::shared_ptr<LogicalOperator> last_op =
+      std::make_shared<ScanAll>(nullptr, node_sym);
+
+  last_op = std::make_shared<Expand>(
+      last_op, node_sym, GetSymbol("node2"), GetSymbol("edge"),
+      EdgeAtom::Direction::BOTH, std::vector<storage::EdgeTypeId>{}, false,
+      storage::View::OLD);
+
+  last_op = std::make_shared<plan::Delete>(
+      last_op, std::vector<Expression *>{IDENT("node2")}, true);
+
+  Check(last_op.get(), RWType::RW);
+}
+
+TEST_F(ReadWriteTypeCheckTest, EdgeUniquenessFilter) {
+  auto node1_sym = GetSymbol("node1");
+  auto node2_sym = GetSymbol("node2");
+  auto node3_sym = GetSymbol("node3");
+  auto node4_sym = GetSymbol("node4");
+
+  auto edge1_sym = GetSymbol("edge1");
+  auto edge2_sym = GetSymbol("edge2");
+
+  std::shared_ptr<LogicalOperator> last_op =
+      std::make_shared<ScanAll>(nullptr, node1_sym);
+  last_op = std::make_shared<Expand>(
+      last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+  last_op = std::make_shared<ScanAll>(last_op, node3_sym);
+  last_op = std::make_shared<Expand>(
+      last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
+      std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+  last_op = std::make_shared<EdgeUniquenessFilter>(
+      last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
+
+  Check(last_op.get(), RWType::R);
+}
