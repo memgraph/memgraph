@@ -122,10 +122,10 @@ add_unit_test(bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
 
 add_unit_test(bolt_session.cpp)
-target_link_libraries(${test_prefix}bolt_session mg-communication)
+target_link_libraries(${test_prefix}bolt_session mg-communication mg-utils)
 
 add_unit_test(communication_buffer.cpp)
-target_link_libraries(${test_prefix}communication_buffer mg-communication)
+target_link_libraries(${test_prefix}communication_buffer mg-communication mg-utils)
 
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
@@ -134,7 +134,7 @@ target_link_libraries(${test_prefix}network_timeouts mg-communication)
 # Test mg-kvstore
 
 add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore mg-kvstore glog)
+target_link_libraries(${test_prefix}kvstore mg-kvstore mg-utils)
 
 
 # Test data structures
@@ -208,7 +208,7 @@ target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
+target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils)
 
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
@@ -232,7 +232,7 @@ add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
 
 add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
@@ -265,10 +265,10 @@ endif()
 
 if (MG_ENTERPRISE)
 add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
 add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 endif()
 
 

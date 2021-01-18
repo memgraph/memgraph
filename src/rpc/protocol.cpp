@@ -57,11 +57,11 @@ void Session::Execute() {
       throw SessionException(
           "Session trying to execute an unregistered RPC call!");
     }
-    VLOG(12) << "[RpcServer] received " << extended_it->second.req_type.name;
+    SPDLOG_TRACE("[RpcServer] received {}", extended_it->second.req_type.name);
     slk::Save(extended_it->second.res_type.id, &res_builder);
     extended_it->second.callback(endpoint_, &req_reader, &res_builder);
   } else {
-    VLOG(12) << "[RpcServer] received " << it->second.req_type.name;
+    SPDLOG_TRACE("[RpcServer] received {}", it->second.req_type.name);
     slk::Save(it->second.res_type.id, &res_builder);
     it->second.callback(&req_reader, &res_builder);
   }
@@ -70,10 +70,10 @@ void Session::Execute() {
   req_reader.Finalize();
   res_builder.Finalize();
 
-  VLOG(12) << "[RpcServer] sent "
-           << (it != server_->callbacks_.end()
-                   ? it->second.res_type.name
-                   : extended_it->second.res_type.name);
+  SPDLOG_TRACE(
+      "[RpcServer] sent {}",
+      (it != server_->callbacks_.end() ? it->second.res_type.name
+                                       : extended_it->second.res_type.name));
 }
 
 }  // namespace rpc

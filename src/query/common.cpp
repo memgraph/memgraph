@@ -42,7 +42,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
       throw QueryRuntimeException(
           "Comparison is not defined for values of type {}.", a.type());
     default:
-      LOG(FATAL) << "Unhandled comparison for types";
+      LOG_FATAL("Unhandled comparison for types");
   }
 }
 

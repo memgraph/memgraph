@@ -7,7 +7,6 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "utils/stack.hpp"
 #include "utils/timer.hpp"
@@ -18,7 +17,6 @@ DEFINE_int32(max_value, 100000000, "Maximum value that should be inserted");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   utils::Stack<uint64_t, 8190> stack;
 
@@ -40,13 +38,13 @@ int main(int argc, char **argv) {
     std::optional<uint64_t> item;
     while (run || (item = stack.Pop())) {
       if (item) {
-        CHECK(*item < FLAGS_max_value);
+        MG_ASSERT(*item < FLAGS_max_value);
         found[*item] = true;
       }
     }
-    CHECK(!stack.Pop());
+    MG_ASSERT(!stack.Pop());
     for (uint64_t i = 0; i < FLAGS_max_value; ++i) {
-      CHECK(found[i]);
+      MG_ASSERT(found[i]);
     }
   });
 

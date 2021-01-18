@@ -4,7 +4,6 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/ha_client.hpp"
 #include "io/network/endpoint.hpp"
@@ -26,7 +25,6 @@ DEFINE_int32(retry_delay_ms, 1000, "Delay before retrying in ms.");
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

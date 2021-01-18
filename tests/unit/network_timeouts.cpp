@@ -3,7 +3,6 @@
 #include <thread>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include "gtest/gtest.h"
 
 #include "communication/server.hpp"
@@ -21,11 +20,10 @@ class TestSession {
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
-    LOG(INFO) << "Received data: '"
-              << std::string(
-                     reinterpret_cast<const char *>(input_stream_->data()),
-                     input_stream_->size())
-              << "'";
+    spdlog::info(
+        "Received data: '{}'",
+        std::string(reinterpret_cast<const char *>(input_stream_->data()),
+                    input_stream_->size()));
     if (input_stream_->data()[0] == 'e') {
       std::this_thread::sleep_for(std::chrono::seconds(5));
     }
@@ -121,6 +119,5 @@ TEST(NetworkTimeouts, ActiveSession) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::InitGoogleLogging(argv[0]);
   return RUN_ALL_TESTS();
 }

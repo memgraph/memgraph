@@ -115,12 +115,12 @@ class Yield : public query::plan::LogicalOperator {
     input_ = input;
   }
   bool Accept(query::plan::HierarchicalLogicalOperatorVisitor &) override {
-    LOG(FATAL) << "Please go away, visitor!";
+    LOG_FATAL("Please go away, visitor!");
   }
 
   std::unique_ptr<LogicalOperator> Clone(
       query::AstStorage *storage) const override {
-    LOG(FATAL) << "Don't clone Yield operator!";
+    LOG_FATAL("Don't clone Yield operator!");
   }
 
   std::shared_ptr<query::plan::LogicalOperator> input_;

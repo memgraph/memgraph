@@ -1,6 +1,5 @@
 #include <benchmark/benchmark.h>
 #include <benchmark/benchmark_api.h>
-#include <glog/logging.h>
 #include <iostream>
 
 #include "data_structures/ring_buffer.hpp"

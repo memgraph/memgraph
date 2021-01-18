@@ -1,9 +1,9 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
+#include "utils/logging.hpp"
 
 using communication::bolt::ClientError;
 using communication::bolt::Session;
@@ -964,7 +964,6 @@ TEST(BoltSession, Noop) {
 }
 
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

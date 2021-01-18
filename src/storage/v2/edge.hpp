@@ -2,11 +2,11 @@
 
 #include <limits>
 
-#include "utils/spin_lock.hpp"
-
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/logging.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace storage {
 
@@ -14,8 +14,8 @@ struct Vertex;
 
 struct Edge {
   Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    CHECK(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT)
-        << "Edge must be created with an initial DELETE_OBJECT delta!";
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 
   Gid gid;

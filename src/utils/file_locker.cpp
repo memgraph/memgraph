@@ -6,7 +6,7 @@ namespace utils {
 namespace {
 void DeleteFromSystem(const std::filesystem::path &path) {
   if (!utils::DeleteFile(path)) {
-    LOG(WARNING) << "Couldn't delete file " << path << "!";
+    spdlog::warn("Couldn't delete file {}!", path);
   }
 }
 }  // namespace
@@ -37,7 +37,7 @@ FileRetainer::FileLocker FileRetainer::AddLocker() {
 }
 
 FileRetainer::~FileRetainer() {
-  CHECK(files_for_deletion_->empty()) << "Files weren't properly deleted";
+  MG_ASSERT(files_for_deletion_->empty(), "Files weren't properly deleted");
 }
 
 [[nodiscard]] bool FileRetainer::FileLocked(const std::filesystem::path &path) {

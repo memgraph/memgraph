@@ -16,6 +16,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "utils/logging.hpp"
 
 namespace storage::durability {
 
@@ -31,9 +32,8 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     // The directory doesn't currently exist.
     return;
   }
-  CHECK(ret == 0) << "Couldn't get stat for '" << storage_directory
-                  << "' because of: " << strerror(errno) << " (" << errno
-                  << ")";
+  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})",
+            storage_directory, strerror(errno), errno);
   auto directory_owner = statbuf.st_uid;
 
   auto get_username = [](auto uid) {
@@ -44,10 +44,10 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
 
   auto user_process = get_username(process_euid);
   auto user_directory = get_username(directory_owner);
-  CHECK(process_euid == directory_owner)
-      << "The process is running as user " << user_process
-      << ", but the data directory is owned by user " << user_directory
-      << ". Please start the process as user " << user_directory << "!";
+  MG_ASSERT(process_euid == directory_owner,
+            "The process is running as user {}, but the data directory is "
+            "owned by user {}. Please start the process as user {}!",
+            user_process, user_directory, user_directory);
 }
 
 std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
@@ -69,8 +69,9 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
         continue;
       }
     }
-    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                       << error_code.message() << "!";
+    MG_ASSERT(!error_code,
+              "Couldn't recover data because an error occurred: {}!",
+              error_code.message());
   }
 
   return snapshot_files;
@@ -94,12 +95,12 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
                                info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
     } catch (const RecoveryFailure &e) {
-      DLOG(WARNING) << "Failed to read " << item.path();
+      spdlog::warn("Failed to read {}", item.path());
       continue;
     }
   }
-  CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                     << error_code.message() << "!";
+  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!",
+            error_code.message());
 
   std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
@@ -170,26 +171,28 @@ std::optional<RecoveryInfo> RecoverData(
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
       const auto &[path, file_uuid, _] = *it;
       if (file_uuid != *uuid) {
-        LOG(WARNING) << "The snapshot file " << path
-                     << " isn't related to the latest snapshot file!";
+        spdlog::warn(
+            "The snapshot file {} isn't related to the latest snapshot file!",
+            path);
         continue;
       }
-      LOG(INFO) << "Starting snapshot recovery from " << path;
+      spdlog::info("Starting snapshot recovery from {}", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history,
                                           name_id_mapper, edge_count, items);
-        LOG(INFO) << "Snapshot recovery successful!";
+        spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
-        LOG(WARNING) << "Couldn't recover snapshot from " << path
-                     << " because of: " << e.what();
+        spdlog::warn("Couldn't recover snapshot from {} because of: {}", path,
+                     e.what());
         continue;
       }
     }
-    CHECK(recovered_snapshot)
-        << "The database is configured to recover on startup, but couldn't "
-           "recover using any of the specified snapshots! Please inspect them "
-           "and restart the database.";
+    MG_ASSERT(
+        recovered_snapshot,
+        "The database is configured to recover on startup, but couldn't "
+        "recover using any of the specified snapshots! Please inspect them "
+        "and restart the database.");
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
@@ -230,8 +233,9 @@ std::optional<RecoveryInfo> RecoverData(
         continue;
       }
     }
-    CHECK(!error_code) << "Couldn't recover data because an error occurred: "
-                       << error_code.message() << "!";
+    MG_ASSERT(!error_code,
+              "Couldn't recover data because an error occurred: {}!",
+              error_code.message());
     if (wal_files.empty()) return std::nullopt;
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
@@ -253,9 +257,10 @@ std::optional<RecoveryInfo> RecoverData(
   // a WAL file. The above `else` has an early exit in case there are no WAL
   // files. Because we reached this point there must have been some WAL files
   // and we must have some WAL files after this second WAL directory iteration.
-  CHECK(snapshot_timestamp || !wal_files.empty())
-      << "The database didn't recover from a snapshot and didn't find any WAL "
-         "files that match the last WAL file!";
+  MG_ASSERT(
+      snapshot_timestamp || !wal_files.empty(),
+      "The database didn't recover from a snapshot and didn't find any WAL "
+      "files that match the last WAL file!");
 
   if (!wal_files.empty()) {
     {
@@ -266,14 +271,16 @@ std::optional<RecoveryInfo> RecoverData(
           // We didn't recover from a snapshot and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
-          LOG(FATAL) << "There are missing prefix WAL files and data can't be "
-                        "recovered without them!";
+          LOG_FATAL(
+              "There are missing prefix WAL files and data can't be "
+              "recovered without them!");
         } else if (first_wal.to_timestamp >= *snapshot_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // whose all deltas were created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
-          LOG(FATAL) << "You must have at least one WAL file that contains "
-                        "deltas that were created before the snapshot file!";
+          LOG_FATAL(
+              "You must have at least one WAL file that contains "
+              "deltas that were created before the snapshot file!");
         }
       }
     }
@@ -281,8 +288,8 @@ std::optional<RecoveryInfo> RecoverData(
     auto last_loaded_timestamp = snapshot_timestamp;
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
-        LOG(FATAL) << "You are missing a WAL file with the sequence number "
-                   << *previous_seq_num + 1 << "!";
+        LOG_FATAL("You are missing a WAL file with the sequence number {}!",
+                  *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
@@ -310,8 +317,8 @@ std::optional<RecoveryInfo> RecoverData(
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
       } catch (const RecoveryFailure &e) {
-        LOG(FATAL) << "Couldn't recover WAL deltas from " << wal_file.path
-                   << " because of: " << e.what();
+        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}",
+                  wal_file.path, e.what());
       }
 
       if (recovery_info.next_timestamp != 0) {

@@ -1,7 +1,6 @@
 #include <atomic>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/client.hpp"
 #include "communication/server.hpp"
@@ -28,11 +27,11 @@ class EchoSession {
 
   void Execute() {
     if (input_stream_->size() < message.size()) return;
-    LOG(INFO) << "Server received message.";
+    spdlog::info("Server received message.");
     if (!output_stream_->Write(input_stream_->data(), message.size())) {
       throw utils::BasicException("Output stream write failed!");
     }
-    LOG(INFO) << "Server sent message.";
+    spdlog::info("Server sent message.");
     input_stream_->Shift(message.size());
   }
 
@@ -43,7 +42,6 @@ class EchoSession {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   // Initialize the communication stack.
   communication::SSLInit sslInit;
@@ -63,16 +61,16 @@ int main(int argc, char **argv) {
   communication::Client client(&client_context);
 
   // Connect to the server.
-  CHECK(client.Connect(server.endpoint())) << "Couldn't connect to server!";
+  MG_ASSERT(client.Connect(server.endpoint()), "Couldn't connect to server!");
 
   // Perform echo.
-  CHECK(client.Write(message)) << "Client couldn't send message!";
-  LOG(INFO) << "Client sent message.";
-  CHECK(client.Read(message.size())) << "Client couldn't receive message!";
-  LOG(INFO) << "Client received message.";
-  CHECK(std::string(reinterpret_cast<const char *>(client.GetData()),
-                    message.size()) == message)
-      << "Received message isn't equal to sent message!";
+  MG_ASSERT(client.Write(message), "Client couldn't send message!");
+  spdlog::info("Client sent message.");
+  MG_ASSERT(client.Read(message.size()), "Client couldn't receive message!");
+  spdlog::info("Client received message.");
+  MG_ASSERT(std::string(reinterpret_cast<const char *>(client.GetData()),
+                        message.size()) == message,
+            "Received message isn't equal to sent message!");
 
   // Shutdown the server.
   server.Shutdown();

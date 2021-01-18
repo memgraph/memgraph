@@ -3,7 +3,7 @@
 #include <limits>
 #include <optional>
 
-#include "glog/logging.h"
+#include "utils/logging.hpp"
 
 namespace utils::sysinfo {
 
@@ -25,8 +25,7 @@ inline std::optional<uint64_t> AvailableMemoryKilobytes() {
     }
     meminfo.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
   }
-  DLOG(WARNING)
-      << "Failed to read amount of available memory from /proc/meminfo";
+  SPDLOG_WARN("Failed to read amount of available memory from /proc/meminfo");
   return std::nullopt;
 }
 

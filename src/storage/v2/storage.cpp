@@ -6,7 +6,6 @@
 #include <variant>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -18,6 +17,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -348,12 +348,12 @@ Storage::Storage(Config config)
     // holding the file opened.
     lock_file_handle_.Open(lock_file_path_,
                            utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    CHECK(lock_file_handle_.AcquireLock())
-        << "Couldn't acquire lock on the storage directory "
-        << config_.durability.storage_directory
-        << "!\nAnother Memgraph process is currently running with the same "
-           "storage directory, please stop it first before starting this "
-           "process!";
+    MG_ASSERT(lock_file_handle_.AcquireLock(),
+              "Couldn't acquire lock on the storage directory {}"
+              "!\nAnother Memgraph process is currently running with the same "
+              "storage directory, please stop it first before starting this "
+              "process!",
+              config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(
@@ -390,19 +390,20 @@ Storage::Storage(Config config)
         std::error_code item_error_code;
         std::filesystem::rename(
             item.path(), backup_curr / item.path().filename(), item_error_code);
-        CHECK(!item_error_code)
-            << "Couldn't move " << what << " file " << item.path()
-            << " because of: " << item_error_code.message();
+        MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}",
+                  what, item.path(), item_error_code.message());
         files_moved = true;
       }
-      CHECK(!error_code) << "Couldn't backup " << what
-                         << " files because of: " << error_code.message();
+      MG_ASSERT(!error_code, "Couldn't backup {} files because of: {}", what,
+                error_code.message());
     }
-    LOG_IF(WARNING, files_moved)
-        << "Since Memgraph was not supposed to recover on startup and "
-           "durability is enabled, your current durability files will likely "
-           "be overridden. To prevent important data loss, Memgraph has stored "
-           "those files into a .backup directory inside the storage directory.";
+    if (files_moved) {
+      spdlog::warn(
+          "Since Memgraph was not supposed to recover on startup and "
+          "durability is enabled, your current durability files will likely "
+          "be overridden. To prevent important data loss, Memgraph has stored "
+          "those files into a .backup directory inside the storage directory.");
+    }
   }
   if (config_.durability.snapshot_wal_mode !=
       Config::Durability::SnapshotWalMode::DISABLED) {
@@ -469,8 +470,8 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
-  CHECK(inserted) << "The vertex must be inserted here!";
-  CHECK(it != acc.end()) << "Invalid Vertex accessor!";
+  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   return VertexAccessor(&*it, &transaction_, &storage_->indices_,
                         &storage_->constraints_, config_);
@@ -491,8 +492,8 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  CHECK(inserted) << "The vertex must be inserted here!";
-  CHECK(it != acc.end()) << "Invalid Vertex accessor!";
+  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   return VertexAccessor(&*it, &transaction_, &storage_->indices_,
                         &storage_->constraints_, config_);
@@ -509,9 +510,9 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid,
 }
 
 Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
-  CHECK(vertex->transaction_ == &transaction_)
-      << "VertexAccessor must be from the same transaction as the storage "
-         "accessor when deleting a vertex!";
+  MG_ASSERT(vertex->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
   auto vertex_ptr = vertex->vertex_;
 
   std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
@@ -531,9 +532,9 @@ Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
 }
 
 Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
-  CHECK(vertex->transaction_ == &transaction_)
-      << "VertexAccessor must be from the same transaction as the storage "
-         "accessor when deleting a vertex!";
+  MG_ASSERT(vertex->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
   auto vertex_ptr = vertex->vertex_;
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
@@ -557,8 +558,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
                    &storage_->indices_, &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
-      CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
-          << "Invalid database state!";
+      MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR,
+                "Invalid database state!");
       return ret;
     }
   }
@@ -568,8 +569,8 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
                    &storage_->indices_, &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
-      CHECK(ret.GetError() == Error::SERIALIZATION_ERROR)
-          << "Invalid database state!";
+      MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR,
+                "Invalid database state!");
       return ret;
     }
   }
@@ -583,7 +584,7 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   if (!PrepareForWrite(&transaction_, vertex_ptr))
     return Error::SERIALIZATION_ERROR;
 
-  CHECK(!vertex_ptr->deleted) << "Invalid database state!";
+  MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
@@ -594,12 +595,12 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                                                    VertexAccessor *to,
                                                    EdgeTypeId edge_type) {
-  CHECK(from->transaction_ == to->transaction_)
-      << "VertexAccessors must be from the same transaction when creating "
-         "an edge!";
-  CHECK(from->transaction_ == &transaction_)
-      << "VertexAccessors must be from the same transaction in when "
-         "creating an edge!";
+  MG_ASSERT(from->transaction_ == to->transaction_,
+            "VertexAccessors must be from the same transaction when creating "
+            "an edge!");
+  MG_ASSERT(from->transaction_ == &transaction_,
+            "VertexAccessors must be from the same transaction in when "
+            "creating an edge!");
 
   auto from_vertex = from->vertex_;
   auto to_vertex = to->vertex_;
@@ -636,8 +637,8 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
     auto acc = storage_->edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
-    CHECK(inserted) << "The edge must be inserted here!";
-    CHECK(it != acc.end()) << "Invalid Edge accessor!";
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
   }
@@ -662,12 +663,12 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
                                                    VertexAccessor *to,
                                                    EdgeTypeId edge_type,
                                                    storage::Gid gid) {
-  CHECK(from->transaction_ == to->transaction_)
-      << "VertexAccessors must be from the same transaction when creating "
-         "an edge!";
-  CHECK(from->transaction_ == &transaction_)
-      << "VertexAccessors must be from the same transaction in when "
-         "creating an edge!";
+  MG_ASSERT(from->transaction_ == to->transaction_,
+            "VertexAccessors must be from the same transaction when creating "
+            "an edge!");
+  MG_ASSERT(from->transaction_ == &transaction_,
+            "VertexAccessors must be from the same transaction in when "
+            "creating an edge!");
 
   auto from_vertex = from->vertex_;
   auto to_vertex = to->vertex_;
@@ -713,8 +714,8 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
     auto acc = storage_->edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
-    CHECK(inserted) << "The edge must be inserted here!";
-    CHECK(it != acc.end()) << "Invalid Edge accessor!";
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
   }
@@ -736,9 +737,9 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from,
 #endif
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
-  CHECK(edge->transaction_ == &transaction_)
-      << "EdgeAccessor must be from the same transaction as the storage "
-         "accessor when deleting an edge!";
+  MG_ASSERT(edge->transaction_ == &transaction_,
+            "EdgeAccessor must be from the same transaction as the storage "
+            "accessor when deleting an edge!");
   auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
@@ -773,12 +774,12 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
 
   if (!PrepareForWrite(&transaction_, from_vertex))
     return Error::SERIALIZATION_ERROR;
-  CHECK(!from_vertex->deleted) << "Invalid database state!";
+  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex))
       return Error::SERIALIZATION_ERROR;
-    CHECK(!to_vertex->deleted) << "Invalid database state!";
+    MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }
 
   auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex,
@@ -786,7 +787,7 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
     std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
     auto it = std::find(edges->begin(), edges->end(), link);
     if (config_.properties_on_edges) {
-      CHECK(it != edges->end()) << "Invalid database state!";
+      MG_ASSERT(it != edges->end(), "Invalid database state!");
     } else if (it == edges->end()) {
       return false;
     }
@@ -799,9 +800,9 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
 
   if (config_.properties_on_edges) {
-    CHECK((op1 && op2)) << "Invalid database state!";
+    MG_ASSERT((op1 && op2), "Invalid database state!");
   } else {
-    CHECK((op1 && op2) || (!op1 && !op2)) << "Invalid database state!";
+    MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
     if (!op1 && !op2) {
       // The edge is already deleted.
       return false;
@@ -855,8 +856,8 @@ void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
 utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
-  CHECK(is_transaction_active_) << "The transaction is already terminated!";
-  CHECK(!transaction_.must_abort) << "The transaction can't be committed!";
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
@@ -950,8 +951,8 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
             [&](auto &committed_transactions) {
               // TODO: release lock, and update all deltas to have a local copy
               // of the commit timestamp
-              CHECK(transaction_.commit_timestamp != nullptr)
-                  << "Invalid database state!";
+              MG_ASSERT(transaction_.commit_timestamp != nullptr,
+                        "Invalid database state!");
               transaction_.commit_timestamp->store(commit_timestamp,
                                                    std::memory_order_release);
 #ifdef MG_ENTERPRISE
@@ -986,7 +987,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 }
 
 void Storage::Accessor::Abort() {
-  CHECK(is_transaction_active_) << "The transaction is already terminated!";
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
   // We collect vertices and edges we've created here and then splice them into
   // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -1008,7 +1009,7 @@ void Storage::Accessor::Abort() {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
                                   current->label);
-              CHECK(it != vertex->labels.end()) << "Invalid database state!";
+              MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
               std::swap(*it, *vertex->labels.rbegin());
               vertex->labels.pop_back();
               break;
@@ -1016,7 +1017,7 @@ void Storage::Accessor::Abort() {
             case Delta::Action::ADD_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(),
                                   current->label);
-              CHECK(it == vertex->labels.end()) << "Invalid database state!";
+              MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
               vertex->labels.push_back(current->label);
               break;
             }
@@ -1031,7 +1032,8 @@ void Storage::Accessor::Abort() {
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
                                   vertex->in_edges.end(), link);
-              CHECK(it == vertex->in_edges.end()) << "Invalid database state!";
+              MG_ASSERT(it == vertex->in_edges.end(),
+                        "Invalid database state!");
               vertex->in_edges.push_back(link);
               break;
             }
@@ -1041,7 +1043,8 @@ void Storage::Accessor::Abort() {
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),
                                   vertex->out_edges.end(), link);
-              CHECK(it == vertex->out_edges.end()) << "Invalid database state!";
+              MG_ASSERT(it == vertex->out_edges.end(),
+                        "Invalid database state!");
               vertex->out_edges.push_back(link);
               // Increment edge count. We only increment the count here because
               // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
@@ -1056,7 +1059,8 @@ void Storage::Accessor::Abort() {
                   current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(),
                                   vertex->in_edges.end(), link);
-              CHECK(it != vertex->in_edges.end()) << "Invalid database state!";
+              MG_ASSERT(it != vertex->in_edges.end(),
+                        "Invalid database state!");
               std::swap(*it, *vertex->in_edges.rbegin());
               vertex->in_edges.pop_back();
               break;
@@ -1067,7 +1071,8 @@ void Storage::Accessor::Abort() {
                   current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(),
                                   vertex->out_edges.end(), link);
-              CHECK(it != vertex->out_edges.end()) << "Invalid database state!";
+              MG_ASSERT(it != vertex->out_edges.end(),
+                        "Invalid database state!");
               std::swap(*it, *vertex->out_edges.rbegin());
               vertex->out_edges.pop_back();
               // Decrement edge count. We only decrement the count here because
@@ -1124,7 +1129,7 @@ void Storage::Accessor::Abort() {
             case Delta::Action::ADD_OUT_EDGE:
             case Delta::Action::REMOVE_IN_EDGE:
             case Delta::Action::REMOVE_OUT_EDGE: {
-              LOG(FATAL) << "Invalid database state!";
+              LOG_FATAL("Invalid database state!");
               break;
             }
           }
@@ -1549,7 +1554,7 @@ void Storage::CollectGarbage() {
                   guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
                   break;
                 case PreviousPtr::Type::DELTA:
-                  LOG(FATAL) << "Invalid database state!";
+                  LOG_FATAL("Invalid database state!");
               }
             }
             if (delta.prev.Get() != prev) {
@@ -1621,15 +1626,15 @@ void Storage::CollectGarbage() {
     auto vertex_acc = vertices_.access();
     while (!garbage_vertices_.empty() &&
            garbage_vertices_.front().first < oldest_active_start_timestamp) {
-      CHECK(vertex_acc.remove(garbage_vertices_.front().second))
-          << "Invalid database state!";
+      MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second),
+                "Invalid database state!");
       garbage_vertices_.pop_front();
     }
   }
   {
     auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
-      CHECK(edge_acc.remove(edge)) << "Invalid database state!";
+      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
 }
@@ -1881,7 +1886,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation,
 void Storage::CreateSnapshot() {
 #ifdef MG_ENTERPRISE
   if (replication_role_.load() != ReplicationRole::MAIN) {
-    LOG(WARNING) << "Snapshots are disabled for replicas!";
+    spdlog::warn("Snapshots are disabled for replicas!");
     return;
   }
 #endif
@@ -1986,8 +1991,8 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint,
     const replication::ReplicationMode replication_mode,
     const replication::ReplicationClientConfig &config) {
-  CHECK(replication_role_.load() == ReplicationRole::MAIN)
-      << "Only main instance can register a replica!";
+  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN,
+            "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(),
@@ -1998,9 +2003,9 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::NAME_EXISTS;
   }
 
-  CHECK(replication_mode == replication::ReplicationMode::SYNC ||
-        !config.timeout)
-      << "Only SYNC mode can have a timeout set";
+  MG_ASSERT(
+      replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
+      "Only SYNC mode can have a timeout set");
 
   auto client = std::make_unique<ReplicationClient>(
       std::move(name), this, endpoint, replication_mode, config);
@@ -2025,8 +2030,8 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 }
 
 bool Storage::UnregisterReplica(const std::string_view name) {
-  CHECK(replication_role_.load() == ReplicationRole::MAIN)
-      << "Only main instance can unregister a replica!";
+  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN,
+            "Only main instance can unregister a replica!");
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(
         clients, [&](const auto &client) { return client->Name() == name; });

@@ -35,7 +35,7 @@ target_include_directories(${test_prefix}ha_proxy PRIVATE ${CMAKE_BINARY_DIR}/sr
 target_link_libraries(${test_prefix}ha_proxy mg-utils mg-communication)
 
 add_manual_test(kvstore_console.cpp)
-target_link_libraries(${test_prefix}kvstore_console mg-kvstore gflags glog)
+target_link_libraries(${test_prefix}kvstore_console mg-kvstore gflags mg-utils)
 
 add_manual_test(query_hash.cpp)
 target_link_libraries(${test_prefix}query_hash mg-query)

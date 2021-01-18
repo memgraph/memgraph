@@ -6,7 +6,6 @@
 #include <string>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -262,7 +261,7 @@ class InteractiveDbAccessor {
       if (in.fail()) {
         throw utils::BasicException("Unable to load {}", name);
       }
-      DLOG(INFO) << "Load " << name << " " << size;
+      SPDLOG_INFO("Load {} {}", name, size);
       return size;
     };
     vertices_count_ = load_named_size("vertex-count");
@@ -275,7 +274,7 @@ class InteractiveDbAccessor {
         throw utils::BasicException("Unable to load label count");
       }
       label_vertex_count_[label] = count;
-      DLOG(INFO) << "Load " << label << " " << count;
+      SPDLOG_INFO("Load {} {}", label, count);
     }
     auto load_label_prop_map = [&](const auto &name, auto &label_prop_map) {
       int size = load_named_size(name);
@@ -288,7 +287,7 @@ class InteractiveDbAccessor {
         if (in.fail()) {
           throw utils::BasicException("Unable to load label property");
         }
-        DLOG(INFO) << "Load " << label << " " << property << " " << mapped;
+        SPDLOG_INFO("Load {} {} {}", label, property, mapped);
       }
     };
     load_label_prop_map("label-property-index-exists", label_property_index_);
@@ -304,7 +303,7 @@ class InteractiveDbAccessor {
       if (in.fail()) {
         throw utils::BasicException("Unable to load label property value");
       }
-      DLOG(INFO) << "Load " << label << " " << property << " " << value_count;
+      SPDLOG_INFO("Load {} {} {}", label, property, value_count);
       for (int v = 0; v < value_count; ++v) {
         auto value = LoadPropertyValue(in);
         int64_t count;
@@ -312,7 +311,7 @@ class InteractiveDbAccessor {
         if (in.fail()) {
           throw utils::BasicException("Unable to load label property value");
         }
-        DLOG(INFO) << "Load " << value.type() << " " << value << " " << count;
+        SPDLOG_INFO("Load {} {} {}", value.type(), value, count);
         property_value_vertex_count_[std::make_pair(label, property)][value] =
             count;
       }

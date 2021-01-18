@@ -2,8 +2,6 @@
 
 #include <limits>
 
-#include <glog/logging.h>
-
 #include "glue/communication.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -22,6 +20,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
@@ -92,8 +91,7 @@ ParsedQuery ParseQuery(
 
         // If an exception was not thrown here, the stripper messed something
         // up.
-        LOG(FATAL)
-            << "The stripped query can't be parsed, but the original can.";
+        LOG_FATAL("The stripped query can't be parsed, but the original can.");
       }
     }
 
@@ -363,7 +361,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
+        MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString()
                                             ? std::make_optional(std::string(
                                                   password.ValueString()))
@@ -383,7 +381,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
       return callback;
     case AuthQuery::Action::SET_PASSWORD:
       callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
+        MG_ASSERT(password.IsString() || password.IsNull());
         auth->SetPassword(
             username,
             password.IsString()
@@ -607,7 +605,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
     : interpreter_context_(interpreter_context) {
-  CHECK(interpreter_context_) << "Interpreter context must not be NULL";
+  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 namespace {
@@ -857,7 +855,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
       in_explicit_transaction_ = false;
     };
   } else {
-    LOG(FATAL) << "Should not get here -- unknown transaction query!";
+    LOG_FATAL("Should not get here -- unknown transaction query!");
   }
 
   return {{},
@@ -920,10 +918,10 @@ PreparedQuery PrepareExplainQuery(
     InterpreterContext *interpreter_context, DbAccessor *dba,
     utils::MonotonicBufferResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
-  CHECK(
+  MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()),
-                        kExplainQueryStart))
-      << "Expected stripped query to start with '" << kExplainQueryStart << "'";
+                        kExplainQueryStart),
+      "Expected stripped query to start with '{}'", kExplainQueryStart);
 
   // Parse and cache the inner query separately (as if it was a standalone
   // query), producing a fresh AST. Note that currently we cannot just reuse
@@ -937,8 +935,8 @@ PreparedQuery PrepareExplainQuery(
                  &interpreter_context->antlr_lock);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
-  CHECK(cypher_query)
-      << "Cypher grammar should not allow other queries in EXPLAIN";
+  MG_ASSERT(cypher_query,
+            "Cypher grammar should not allow other queries in EXPLAIN");
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(),
@@ -978,10 +976,10 @@ PreparedQuery PrepareProfileQuery(
     utils::MonotonicBufferResource *execution_memory) {
   const std::string kProfileQueryStart = "profile ";
 
-  CHECK(
+  MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()),
-                        kProfileQueryStart))
-      << "Expected stripped query to start with '" << kProfileQueryStart << "'";
+                        kProfileQueryStart),
+      "Expected stripped query to start with '{}'", kProfileQueryStart);
 
   // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
   // because PROFILE executes each PROFILE'd query and collects additional
@@ -1015,8 +1013,8 @@ PreparedQuery PrepareProfileQuery(
                  &interpreter_context->antlr_lock);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
-  CHECK(cypher_query)
-      << "Cypher grammar should not allow other queries in PROFILE";
+  MG_ASSERT(cypher_query,
+            "Cypher grammar should not allow other queries in PROFILE");
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(),
@@ -1048,7 +1046,7 @@ PreparedQuery PrepareProfileQuery(
               ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
 
-        CHECK(ctx) << "Failed to execute the query!";
+        MG_ASSERT(ctx, "Failed to execute the query!");
 
         if (pull_plan->Pull(stream, n)) {
           summary->insert_or_assign(
@@ -1118,7 +1116,7 @@ PreparedQuery PrepareIndexQuery(
         if (properties.empty()) {
           interpreter_context->db->CreateIndex(label);
         } else {
-          CHECK(properties.size() == 1U);
+          MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->CreateIndex(label, properties[0]);
         }
         invalidate_plan_cache();
@@ -1131,7 +1129,7 @@ PreparedQuery PrepareIndexQuery(
         if (properties.empty()) {
           interpreter_context->db->DropIndex(label);
         } else {
-          CHECK(properties.size() == 1U);
+          MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->DropIndex(label, properties[0]);
         }
         invalidate_plan_cache();
@@ -1403,7 +1401,7 @@ PreparedQuery PrepareConstraintQuery(
               auto violation = res.GetError();
               auto label_name =
                   interpreter_context->db->LabelToName(violation.label);
-              CHECK(violation.properties.size() == 1U);
+              MG_ASSERT(violation.properties.size() == 1U);
               auto property_name = interpreter_context->db->PropertyToName(
                   *violation.properties.begin());
               throw QueryRuntimeException(
@@ -1548,8 +1546,9 @@ Interpreter::PrepareResult Interpreter::Prepare(
     const std::map<std::string, storage::PropertyValue> &params) {
   if (!in_explicit_transaction_) {
     // TODO(antonio2368): Should this throw?
-    CHECK(!ActiveQueryExecutions()) << "Only one active execution allowed "
-                                       "while not in explicit transaction!";
+    MG_ASSERT(
+        !ActiveQueryExecutions(),
+        "Only one active execution allowed while not in explicit transaction!");
     query_executions_.clear();
   }
 
@@ -1653,7 +1652,7 @@ Interpreter::PrepareResult Interpreter::Prepare(
           std::move(parsed_query), in_explicit_transaction_,
           interpreter_context_, &*execution_db_accessor_);
     } else {
-      LOG(FATAL) << "Should not get here -- unknown query type!";
+      LOG_FATAL("Should not get here -- unknown query type!");
     }
 
     query_execution->summary["planning_time"] =
@@ -1697,7 +1696,7 @@ void Interpreter::Commit() {
       case storage::ConstraintViolation::Type::EXISTENCE: {
         auto label_name =
             execution_db_accessor_->LabelToName(constraint_violation.label);
-        CHECK(constraint_violation.properties.size() == 1U);
+        MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(
             *constraint_violation.properties.begin());
         execution_db_accessor_ = std::nullopt;

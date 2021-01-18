@@ -4,6 +4,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
+#include "utils/logging.hpp"
 
 using endpoint_t = io::network::Endpoint;
 
@@ -35,5 +36,6 @@ TEST(Endpoint, IPv6) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  logging::RedirectToStderr();
   return RUN_ALL_TESTS();
 }

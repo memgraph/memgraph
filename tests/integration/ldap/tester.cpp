@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
 #include "communication/bolt/client.hpp"
@@ -23,7 +22,6 @@ DEFINE_bool(query_should_fail, false,
  */
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -41,11 +39,12 @@ int main(int argc, char **argv) {
       what = e.what();
     }
     if (FLAGS_auth_should_fail) {
-      CHECK(!what.empty()) << "The authentication should have failed!";
+      MG_ASSERT(!what.empty(), "The authentication should have failed!");
     } else {
-      CHECK(what.empty()) << "The authentication should have succeeded, but "
-                             "failed with message: "
-                          << what;
+      MG_ASSERT(what.empty(),
+                "The authentication should have succeeded, but "
+                "failed with message: {}",
+                what);
     }
   }
 
@@ -58,11 +57,12 @@ int main(int argc, char **argv) {
       what = e.what();
     }
     if (FLAGS_query_should_fail) {
-      CHECK(!what.empty()) << "The query execution should have failed!";
+      MG_ASSERT(!what.empty(), "The query execution should have failed!");
     } else {
-      CHECK(what.empty()) << "The query execution should have succeeded, but "
-                             "failed with message: "
-                          << what;
+      MG_ASSERT(what.empty(),
+                "The query execution should have succeeded, but "
+                "failed with message: {}",
+                what);
     }
   }
 

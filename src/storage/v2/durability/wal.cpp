@@ -7,6 +7,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/logging.hpp"
 
 namespace storage::durability {
 
@@ -545,7 +546,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case Delta::Action::REMOVE_IN_EDGE:
       // These actions are already encoded in the *_OUT_EDGE actions. This
       // function should never be called for this type of deltas.
-      LOG(FATAL) << "Invalid delta action!";
+      LOG_FATAL("Invalid delta action!");
   }
 }
 
@@ -578,7 +579,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
       // these deltas don't contain any information about the from vertex, to
       // vertex or edge type so they are useless. This function should never
       // be called for this type of deltas.
-      LOG(FATAL) << "Invalid delta action!";
+      LOG_FATAL("Invalid delta action!");
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL:
     case Delta::Action::ADD_OUT_EDGE:
@@ -586,7 +587,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case Delta::Action::ADD_IN_EDGE:
     case Delta::Action::REMOVE_IN_EDGE:
       // These deltas shouldn't appear for edges.
-      LOG(FATAL) << "Invalid database state!";
+      LOG_FATAL("Invalid database state!");
   }
 }
 
@@ -605,7 +606,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
   switch (operation) {
     case StorageGlobalOperation::LABEL_INDEX_CREATE:
     case StorageGlobalOperation::LABEL_INDEX_DROP: {
-      CHECK(properties.empty()) << "Invalid function call!";
+      MG_ASSERT(properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
@@ -614,7 +615,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP: {
-      CHECK(properties.size() == 1) << "Invalid function call!";
+      MG_ASSERT(properties.size() == 1, "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       encoder->WriteString(
@@ -623,7 +624,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     }
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP: {
-      CHECK(!properties.empty()) << "Invalid function call!";
+      MG_ASSERT(!properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       encoder->WriteUint(properties.size());
@@ -937,7 +938,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
     }
   }
 
-  LOG(INFO) << "Applied " << deltas_applied << " deltas from WAL " << path;
+  spdlog::info("Applied {} deltas from WAL", deltas_applied, path);
 
   return ret;
 }

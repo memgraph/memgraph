@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 
+#include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
 namespace storage {
@@ -74,8 +75,8 @@ class NameIdMapper final {
   const std::string &IdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();
     auto result = id_to_name_acc.find(id);
-    CHECK(result != id_to_name_acc.end())
-        << "Trying to get a name for an invalid ID!";
+    MG_ASSERT(result != id_to_name_acc.end(),
+              "Trying to get a name for an invalid ID!");
     return result->name;
   }
 

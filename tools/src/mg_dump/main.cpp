@@ -2,8 +2,8 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <mgclient.h>
+#include <spdlog/spdlog.h>
 
 #include "version.hpp"
 
@@ -73,11 +73,15 @@ int main(int argc, char **argv) {
   mg_result *result;
   while ((status = mg_session_fetch(session, &result)) == 1) {
     const mg_list *row = mg_result_row(result);
-    CHECK(mg_list_size(row) == 1)
-        << "Error: dump client received data in unexpected format";
+    if (mg_list_size(row) != 1) {
+      spdlog::critical("Error: dump client received data in unexpected format");
+      std::abort();
+    }
     const mg_value *value = mg_list_at(row, 0);
-    CHECK(mg_value_get_type(value) == MG_VALUE_TYPE_STRING)
-        << "Error: dump client received data in unexpected format";
+    if (mg_value_get_type(value) != MG_VALUE_TYPE_STRING) {
+      spdlog::critical("Error: dump client received data in unexpected format");
+      std::abort();
+    };
     const mg_string *str_value = mg_value_string(value);
     std::cout.write(mg_string_data(str_value), mg_string_size(str_value));
     std::cout << std::endl;  // `std::endl` flushes

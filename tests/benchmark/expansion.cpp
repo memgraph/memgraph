@@ -1,6 +1,5 @@
 #include <benchmark/benchmark.h>
 #include <benchmark/benchmark_api.h>
-#include <glog/logging.h>
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
@@ -24,16 +23,16 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
       // the fixed part is one vertex expanding to 1000 others
       auto start = dba.CreateVertex();
-      CHECK(start.AddLabel(label).HasValue());
+      MG_ASSERT(start.AddLabel(label).HasValue());
       auto edge_type = dba.NameToEdgeType("edge_type");
       for (int i = 0; i < 1000; i++) {
         auto dest = dba.CreateVertex();
-        CHECK(dba.CreateEdge(&start, &dest, edge_type).HasValue());
+        MG_ASSERT(dba.CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      CHECK(!dba.Commit().HasError());
+      MG_ASSERT(!dba.Commit().HasError());
     }
 
-    CHECK(db->CreateIndex(label));
+    MG_ASSERT(db->CreateIndex(label));
 
     interpreter_context.emplace(&*db);
     interpreter.emplace(&*interpreter_context);
@@ -77,8 +76,6 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->Unit(benchmark::kMillisecond);
 
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-
   ::benchmark::Initialize(&argc, argv);
   ::benchmark::RunSpecifiedBenchmarks();
   return 0;

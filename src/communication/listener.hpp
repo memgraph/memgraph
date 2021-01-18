@@ -8,11 +8,11 @@
 #include <thread>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/session.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/thread.hpp"
@@ -55,9 +55,9 @@ class Listener final {
     for (auto &thread : worker_threads_) {
       if (thread.joinable()) worker_alive = true;
     }
-    CHECK(!alive_ && !worker_alive && !timeout_thread_.joinable())
-        << "You should call Shutdown and AwaitShutdown on "
-           "communication::Listener!";
+    MG_ASSERT(!alive_ && !worker_alive && !timeout_thread_.joinable(),
+              "You should call Shutdown and AwaitShutdown on "
+              "communication::Listener!");
   }
 
   Listener(const Listener &) = delete;
@@ -94,11 +94,10 @@ class Listener final {
    * This function starts the listener
    */
   void Start() {
-    CHECK(!alive_) << "The listener is already started!";
+    MG_ASSERT(!alive_, "The listener is already started!");
     alive_.store(true);
 
-    std::cout << "Starting " << workers_count_ << " " << service_name_
-              << " workers" << std::endl;
+    spdlog::info("Starting {} {} workers", workers_count_, service_name_);
 
     std::string service_name(service_name_);
     for (size_t i = 0; i < workers_count_; ++i) {
@@ -118,8 +117,8 @@ class Listener final {
             std::lock_guard<utils::SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
-                LOG(WARNING) << service_name << " session associated with "
-                             << session->socket().endpoint() << " timed out.";
+                spdlog::warn("{} session associated with {} timed out",
+                             service_name, session->socket().endpoint());
                 // Here we shutdown the socket to terminate any leftover
                 // blocking `Write` calls and to signal an event that the
                 // session is closed. Session cleanup will be done in the event
@@ -193,20 +192,20 @@ class Listener final {
         ;
     } else if (event.events & EPOLLRDHUP) {
       // The client closed the connection.
-      LOG(INFO) << service_name_ << " client " << session.socket().endpoint()
-                << " closed the connection.";
+      spdlog::info("{} client {} closed the connection.", service_name_,
+                   session.socket().endpoint());
       CloseSession(session);
     } else if (!(event.events & EPOLLIN) ||
                event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      LOG(ERROR) << "Error occured in " << service_name_
-                 << " session associated with " << session.socket().endpoint();
+      spdlog::error("Error occured in {} session associated with {}",
+                    service_name_, session.socket().endpoint());
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      LOG(ERROR) << "Unhandled event occured in " << service_name_
-                 << " session associated with " << session.socket().endpoint()
-                 << " events: " << event.events;
+      spdlog::error(
+          "Unhandled event occured in {} session associated with {} events: {}",
+          service_name_, session.socket().endpoint(), event.events);
       CloseSession(session);
     }
   }
@@ -221,16 +220,17 @@ class Listener final {
         return false;
       }
     } catch (const SessionClosedException &e) {
-      LOG(INFO) << service_name_ << " client " << session.socket().endpoint()
-                << " closed the connection.";
+      spdlog::info("{} client {} closed the connection.", service_name_,
+                   session.socket().endpoint());
       CloseSession(session);
       return false;
     } catch (const std::exception &e) {
       // Catch all exceptions.
-      LOG(ERROR) << "Exception was thrown while processing event in "
-                 << service_name_ << " session associated with "
-                 << session.socket().endpoint()
-                 << " with message: " << e.what();
+      spdlog::error(
+          "Exception was thrown while processing event in {} session "
+          "associated with {}",
+          service_name_, session.socket().endpoint());
+      spdlog::debug("Exception message: {}", e.what());
       CloseSession(session);
       return false;
     }
@@ -248,8 +248,8 @@ class Listener final {
     auto it = std::find_if(sessions_.begin(), sessions_.end(),
                            [&](const auto &l) { return l.get() == &session; });
 
-    CHECK(it != sessions_.end())
-        << "Trying to remove session that is not found in sessions!";
+    MG_ASSERT(it != sessions_.end(),
+              "Trying to remove session that is not found in sessions!");
     int i = it - sessions_.begin();
     swap(sessions_[i], sessions_.back());
 

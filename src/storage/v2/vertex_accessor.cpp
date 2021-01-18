@@ -6,15 +6,13 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "utils/logging.hpp"
 
 namespace storage {
 
-std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex,
-                                                     Transaction *transaction,
-                                                     Indices *indices,
-                                                     Constraints *constraints,
-                                                     Config::Items config,
-                                                     View view) {
+std::optional<VertexAccessor> VertexAccessor::Create(
+    Vertex *vertex, Transaction *transaction, Indices *indices,
+    Constraints *constraints, Config::Items config, View view) {
   bool is_visible = true;
   Delta *delta = nullptr;
   {
@@ -104,14 +102,14 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
         switch (delta.action) {
           case Delta::Action::REMOVE_LABEL: {
             if (delta.label == label) {
-              CHECK(has_label) << "Invalid database state!";
+              MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
             }
             break;
           }
           case Delta::Action::ADD_LABEL: {
             if (delta.label == label) {
-              CHECK(!has_label) << "Invalid database state!";
+              MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
@@ -155,7 +153,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
           case Delta::Action::REMOVE_LABEL: {
             // Remove the label because we don't see the addition.
             auto it = std::find(labels.begin(), labels.end(), delta.label);
-            CHECK(it != labels.end()) << "Invalid database state!";
+            MG_ASSERT(it != labels.end(), "Invalid database state!");
             std::swap(*it, *labels.rbegin());
             labels.pop_back();
             break;
@@ -163,7 +161,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
           case Delta::Action::ADD_LABEL: {
             // Add the label because we don't see the removal.
             auto it = std::find(labels.begin(), labels.end(), delta.label);
-            CHECK(it == labels.end()) << "Invalid database state!";
+            MG_ASSERT(it == labels.end(), "Invalid database state!");
             labels.push_back(delta.label);
             break;
           }
@@ -335,8 +333,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
     View view, const std::vector<EdgeTypeId> &edge_types,
     const VertexAccessor *destination) const {
-  CHECK(!destination || destination->transaction_ == transaction_)
-      << "Invalid accessor!";
+  MG_ASSERT(!destination || destination->transaction_ == transaction_,
+            "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
@@ -376,7 +374,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
-            CHECK(it == in_edges.end()) << "Invalid database state!";
+            MG_ASSERT(it == in_edges.end(), "Invalid database state!");
             in_edges.push_back(link);
             break;
           }
@@ -392,7 +390,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
-            CHECK(it != in_edges.end()) << "Invalid database state!";
+            MG_ASSERT(it != in_edges.end(), "Invalid database state!");
             std::swap(*it, *in_edges.rbegin());
             in_edges.pop_back();
             break;
@@ -428,8 +426,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
     View view, const std::vector<EdgeTypeId> &edge_types,
     const VertexAccessor *destination) const {
-  CHECK(!destination || destination->transaction_ == transaction_)
-      << "Invalid accessor!";
+  MG_ASSERT(!destination || destination->transaction_ == transaction_,
+            "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -469,7 +467,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);
-            CHECK(it == out_edges.end()) << "Invalid database state!";
+            MG_ASSERT(it == out_edges.end(), "Invalid database state!");
             out_edges.push_back(link);
             break;
           }
@@ -485,7 +483,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
                 delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
                 delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);
-            CHECK(it != out_edges.end()) << "Invalid database state!";
+            MG_ASSERT(it != out_edges.end(), "Invalid database state!");
             std::swap(*it, *out_edges.rbegin());
             out_edges.pop_back();
             break;

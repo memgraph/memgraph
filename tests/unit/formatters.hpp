@@ -3,8 +3,6 @@
 #include <sstream>
 #include <string>
 
-#include <glog/logging.h>
-
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 
@@ -20,14 +18,14 @@ inline std::string ToString(const query::VertexAccessor &vertex,
   std::ostringstream os;
   os << "V(";
   auto maybe_labels = vertex.Labels(storage::View::NEW);
-  CHECK(maybe_labels.HasValue());
+  MG_ASSERT(maybe_labels.HasValue());
   utils::PrintIterable(os, *maybe_labels, ":", [&](auto &stream, auto label) {
     stream << acc.LabelToName(label);
   });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
   auto maybe_properties = vertex.Properties(storage::View::NEW);
-  CHECK(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.HasValue());
   utils::PrintIterable(
       os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
         stream << acc.PropertyToName(pair.first) << ": " << pair.second;
@@ -43,7 +41,7 @@ inline std::string ToString(const query::EdgeAccessor &edge,
   os << "E[" << acc.EdgeTypeToName(edge.EdgeType());
   os << " {";
   auto maybe_properties = edge.Properties(storage::View::NEW);
-  CHECK(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.HasValue());
   utils::PrintIterable(
       os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
         stream << acc.PropertyToName(pair.first) << ": " << pair.second;
@@ -57,7 +55,7 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
   std::ostringstream os;
   const auto &vertices = path.vertices();
   const auto &edges = path.edges();
-  CHECK(vertices.size() > 0U) << "Attempting to stream out an invalid path";
+  MG_ASSERT(vertices.empty(), "Attempting to stream out an invalid path");
   os << ToString(vertices[0], acc);
   for (size_t i = 0; i < edges.size(); ++i) {
     bool arrow_to_left = vertices[i] == edges[i].To();

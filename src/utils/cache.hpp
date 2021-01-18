@@ -5,6 +5,8 @@
 #include <optional>
 #include <unordered_map>
 
+#include "utils/logging.hpp"
+
 namespace utils {
 namespace impl {
 template <typename TKey, typename TValue>
@@ -31,8 +33,8 @@ class LruList {
     if (!front_ && !rear_) {
       front_ = rear_ = page;
     } else {
-      CHECK(front_ != nullptr && rear_ != nullptr)
-        << "Both front_ and rear_ must be valid";
+      MG_ASSERT(front_ != nullptr && rear_ != nullptr,
+                "Both front_ and rear_ must be valid");
       page->next = front_;
       front_->prev = page;
       front_ = page;
@@ -41,8 +43,8 @@ class LruList {
   }
 
   void MovePageToHead(Node<TKey, TValue> *page) {
-    CHECK(front_ != nullptr && rear_ != nullptr)
-      << "Both front_ and rear_ must be valid";
+    MG_ASSERT(front_ != nullptr && rear_ != nullptr,
+              "Both front_ and rear_ must be valid");
     if (page == front_) {
       return;
     }
@@ -89,7 +91,7 @@ class LruList {
   Node<TKey, TValue> *front_{nullptr};
   Node<TKey, TValue> *rear_{nullptr};
 };
-} // namespace impl
+}  // namespace impl
 
 /// Used for caching objects. Uses least recently used page replacement
 /// algorithm for evicting elements when maximum size is reached. This class

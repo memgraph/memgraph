@@ -17,10 +17,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "glog/logging.h"
-
 #include "io/network/addrinfo.hpp"
 #include "utils/likely.hpp"
+#include "utils/logging.hpp"
 
 namespace io::network {
 
@@ -129,37 +128,40 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
 void Socket::SetNonBlocking() {
   int flags = fcntl(socket_, F_GETFL, 0);
-  CHECK(flags != -1) << "Can't get socket mode";
+  MG_ASSERT(flags != -1, "Can't get socket mode");
   flags |= O_NONBLOCK;
-  CHECK(fcntl(socket_, F_SETFL, flags) != -1) << "Can't set socket nonblocking";
+  MG_ASSERT(fcntl(socket_, F_SETFL, flags) != -1,
+            "Can't set socket nonblocking");
 }
 
 void Socket::SetKeepAlive() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen))
-      << "Can't set socket keep alive";
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen),
+            "Can't set socket keep alive");
 
   optval = 20;  // wait 20s before sending keep-alive packets
-  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen))
-      << "Can't set socket keep alive";
+  MG_ASSERT(
+      !setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen),
+      "Can't set socket keep alive");
 
   optval = 4;  // 4 keep-alive packets must fail to close
-  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen))
-      << "Can't set socket keep alive";
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen),
+            "Can't set socket keep alive");
 
   optval = 15;  // send keep-alive packets every 15s
-  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen))
-      << "Can't set socket keep alive";
+  MG_ASSERT(
+      !setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen),
+      "Can't set socket keep alive");
 }
 
 void Socket::SetNoDelay() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  CHECK(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen))
-      << "Can't set socket no delay";
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen),
+            "Can't set socket no delay");
 }
 
 void Socket::SetTimeout(long sec, long usec) {
@@ -167,18 +169,18 @@ void Socket::SetTimeout(long sec, long usec) {
   tv.tv_sec = sec;
   tv.tv_usec = usec;
 
-  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)))
-      << "Can't set socket timeout";
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)),
+            "Can't set socket timeout");
 
-  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)))
-      << "Can't set socket timeout";
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)),
+            "Can't set socket timeout");
 }
 
 int Socket::ErrorStatus() const {
   int optval;
   socklen_t optlen = sizeof(optval);
   auto status = getsockopt(socket_, SOL_SOCKET, SO_ERROR, &optval, &optlen);
-  CHECK(!status) << "getsockopt failed";
+  MG_ASSERT(!status, "getsockopt failed");
   return optval;
 }
 

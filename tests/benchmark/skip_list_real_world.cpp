@@ -7,21 +7,20 @@ DEFINE_int32(max_range, 2000000, "Maximum range used for the test");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   utils::SkipList<uint64_t> list;
 
   {
     auto acc = list.access();
     for (uint64_t i = 0; i <= FLAGS_max_element; ++i) {
-      CHECK(acc.insert(i).second);
+      MG_ASSERT(acc.insert(i).second);
     }
     uint64_t val = 0;
     for (auto item : acc) {
-      CHECK(item == val);
+      MG_ASSERT(item == val);
       ++val;
     }
-    CHECK(val == FLAGS_max_element + 1);
+    MG_ASSERT(val == FLAGS_max_element + 1);
   }
 
   RunConcurrentTest([&list](auto *run, auto *stats) {

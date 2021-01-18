@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include <pwd.h>
 #include <signal.h>
@@ -18,6 +17,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/terminate_handler.hpp"
@@ -548,8 +548,8 @@ int main(int argc, char **argv) {
     }
     SetStdinEcho(true);
   }
-  FLAGS_min_log_level = google::ERROR;
-  google::InitGoogleLogging(argv[0]);
+
+  spdlog::set_level(spdlog::level::err);
 
   communication::SSLInit sslInit;
 

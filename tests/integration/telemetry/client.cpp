@@ -13,7 +13,6 @@ DEFINE_string(storage_directory, "",
 int main(int argc, char **argv) {
   gflags::SetVersionString("telemetry");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   requests::Init();
   telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory,

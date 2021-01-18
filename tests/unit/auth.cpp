@@ -2,7 +2,6 @@
 #include <iostream>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "auth/auth.hpp"
@@ -686,6 +685,5 @@ TEST(AuthWithoutStorage, Crypto) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::InitGoogleLogging(argv[0]);
   return RUN_ALL_TESTS();
 }

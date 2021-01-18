@@ -6,8 +6,6 @@
 #include <string>
 #include <vector>
 
-#include "glog/logging.h"
-
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
@@ -15,6 +13,7 @@
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
 #include "utils/fnv.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace query::frontend {
@@ -87,7 +86,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     int token_index = token_strings.size() + parameters_.size();
     switch (token.first) {
       case Token::UNMATCHED:
-        LOG(FATAL) << "Shouldn't happen";
+        LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
         // We don't strip NULL, since it can appear in special expressions
         // like IS NULL and IS NOT NULL, but we strip true and false keywords.

@@ -3,7 +3,6 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/ha_client.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
@@ -152,25 +151,19 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
     shutdown_fun();
   };
 
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate,
-                                              shutdown, block_shutdown_signals))
-      << "Unable to register SIGTERM handler!";
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown,
-                                              block_shutdown_signals))
-      << "Unable to register SIGINT handler!";
-
-  // Setup SIGUSR1 to be used for reopening log files, when e.g. logrotate
-  // rotates our logs.
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::User1, []() {
-    google::CloseLogDestination(google::INFO);
-  })) << "Unable to register SIGUSR1 handler!";
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(
+                utils::Signal::Terminate, shutdown, block_shutdown_signals),
+            "Unable to register SIGTERM handler!");
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(
+                utils::Signal::Interupt, shutdown, block_shutdown_signals),
+            "Unable to register SIGINT handler!");
 }
 
 std::vector<io::network::Endpoint> GetEndpoints() {
   std::vector<io::network::Endpoint> ret;
   for (const auto &endpoint : utils::Split(FLAGS_endpoints, ",")) {
     auto split = utils::Split(utils::Trim(endpoint), ":");
-    CHECK(split.size() == 2) << "Invalid endpoint!";
+    MG_ASSERT(split.size() == 2, "Invalid endpoint!");
     ret.emplace_back(
         io::network::ResolveHostname(std::string(utils::Trim(split[0]))),
         static_cast<uint16_t>(std::stoi(std::string(utils::Trim(split[1])))));
@@ -180,7 +173,6 @@ std::vector<io::network::Endpoint> GetEndpoints() {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -200,7 +192,7 @@ int main(int argc, char **argv) {
   // Handler for regular termination signals
   InitSignalHandlers([&server] { server.Shutdown(); });
 
-  CHECK(server.Start()) << "Couldn't start the Bolt server!";
+  MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   server.AwaitShutdown();
 
   return 0;
