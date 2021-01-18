@@ -60,6 +60,8 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 PRE_VISIT(Unwind, RWType::NONE, true)
 PRE_VISIT(CallProcedure, RWType::NONE, true)
 
+#undef PRE_VISIT
+
 bool ReadWriteTypeChecker::Visit(Once &op) { return false; }
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
@@ -83,7 +85,7 @@ void ReadWriteTypeChecker::InferRWType(LogicalOperator &root) {
   root.Accept(*this);
 }
 
-std::string ReadWriteTypeChecker::TypeToString(const RWType &type) {
+std::string ReadWriteTypeChecker::TypeToString(const RWType type) {
   switch (type) {
     // Unfortunately, neo4j Java drivers do not allow query types that differ
     // from the ones defined by neo4j. We'll keep using the NONE type internally
@@ -100,7 +102,5 @@ std::string ReadWriteTypeChecker::TypeToString(const RWType &type) {
       return "rw";
   }
 }
-
-#undef PRE_VISIT
 
 }  // namespace query::plan

@@ -19,12 +19,18 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::Visit;
 
   // NONE type describes an operator whose action neither reads nor writes from
-  // the database
+  // the database (e.g. Produce or Once).
+  // R type describes an operator whose action involves reading from the
+  // database.
+  // W type describes an operator whose action involves writing to the
+  // database.
+  // RW type describes an operator whose action involves both reading and
+  // writing to the database.
   enum class RWType : uint8_t { NONE, R, W, RW };
 
   RWType type{RWType::NONE};
   void InferRWType(LogicalOperator &root);
-  static std::string TypeToString(const RWType &type);
+  static std::string TypeToString(const RWType type);
 
   bool PreVisit(CreateNode &) override;
   bool PreVisit(CreateExpand &) override;
