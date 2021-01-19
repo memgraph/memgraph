@@ -1928,9 +1928,8 @@ uint64_t Storage::CommitTimestamp(
   if (!desired_commit_timestamp) {
     return timestamp_++;
   } else {
-    const auto commit_timestamp = *desired_commit_timestamp;
     timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-    return commit_timestamp;
+    return *desired_commit_timestamp;
   }
 #else
   return timestamp_++;
