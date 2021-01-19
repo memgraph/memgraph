@@ -638,8 +638,11 @@ Storage::ReplicationServer::LoadWal(
                                             storage_->last_commit_timestamp_);
       storage_->epoch_id_ = std::move(wal_info.epoch_id);
     }
+    const auto last_loaded_timestamp =
+        storage_->timestamp_ == kTimestampInitialId ? storage_->timestamp_
+                                                    : storage_->timestamp_ - 1;
     auto info = durability::LoadWal(
-        *maybe_wal_path, indices_constraints, storage_->timestamp_,
+        *maybe_wal_path, indices_constraints, last_loaded_timestamp,
         &storage_->vertices_, &storage_->edges_, &storage_->name_id_mapper_,
         &storage_->edge_count_, storage_->config_.items);
     storage_->vertex_id_ =
