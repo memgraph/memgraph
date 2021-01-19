@@ -2,10 +2,9 @@
 #include <atomic>
 #include <deque>
 #include <functional>
-#include <map>
-#include <mutex>
 #include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "utils/file.hpp"
 #include "utils/rw_lock.hpp"
@@ -30,6 +29,8 @@ namespace utils {
  * - FileLockerAccessor prevents deletion of any file, so you can safely add
  *   multiple files to the locker with no risk of having files deleted during
  *   the process.
+ * - You can also add directories to the locker which prevents deletion
+ *   of ANY files in that directory.
  * - After a FileLocker or FileLockerAccessor is destroyed, FileRetainer scans
  *   the list of the files that wait to be deleted, and deletes all the files
  *   that are not inside any of currently present lockers.
@@ -49,8 +50,8 @@ namespace utils {
  *     // Accesor prevents deletion of any files
  *     // so you safely add multiple files in atomic way
  *     auto accessor = locker.Access();
- *     accessor.AddFile(file1);
- *     accessor.AddFile(file2);
+ *     accessor.AddPath(file1);
+ *     accessor.AddPath(file2);
  *   }
  *   // DO SOMETHING WITH THE FILES
  * }
@@ -104,9 +105,14 @@ class FileRetainer {
     friend FileLocker;
 
     /**
-     * Add a single file to the current locker.
+     * Add a single path to the current locker.
      */
-    bool AddFile(const std::filesystem::path &path);
+    bool AddPath(const std::filesystem::path &path);
+
+    /**
+     * Remove a single path form the current locker.
+     */
+    bool RemovePath(const std::filesystem::path &path);
 
     FileLockerAccessor(const FileLockerAccessor &) = delete;
     FileLockerAccessor(FileLockerAccessor &&) = default;
@@ -136,6 +142,17 @@ class FileRetainer {
    */
   FileLocker AddLocker();
 
+  /**
+   * Delete the files that were queued for deletion.
+   * This is already called after a locker is destroyed.
+   * Call this only if you want to trigger cleaning of the
+   * queue before a locker is destroyed (e.g. a file was removed
+   * from a locker).
+   * This method CANNOT be called from a thread which has an active
+   * accessor as it will produce a deadlock.
+   */
+  void CleanQueue();
+
   explicit FileRetainer() = default;
   FileRetainer(const FileRetainer &) = delete;
   FileRetainer(FileRetainer &&) = delete;
@@ -147,16 +164,25 @@ class FileRetainer {
  private:
   [[nodiscard]] bool FileLocked(const std::filesystem::path &path);
   void DeleteOrAddToQueue(const std::filesystem::path &path);
-  void CleanQueue();
 
   utils::RWLock main_lock_{RWLock::Priority::WRITE};
 
   std::atomic<size_t> active_accessors_{0};
   std::atomic<size_t> next_locker_id_{0};
-  utils::Synchronized<std::map<size_t, std::set<std::filesystem::path>>,
-                      utils::SpinLock>
-      lockers_;
 
+  class LockerEntry {
+   public:
+    void LockPath(const std::filesystem::path &path);
+    bool RemovePath(const std::filesystem::path &path);
+    [[nodiscard]] bool LocksFile(const std::filesystem::path &path) const;
+
+   private:
+    std::set<std::filesystem::path> directories_;
+    std::set<std::filesystem::path> files_;
+  };
+
+  utils::Synchronized<std::unordered_map<size_t, LockerEntry>, utils::SpinLock>
+      lockers_;
   utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock>
       files_for_deletion_;
 };

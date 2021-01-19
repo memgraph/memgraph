@@ -415,8 +415,10 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
-#if MG_ENTERPRISE
+  bool LockPath();
+  bool UnlockPath();
 
+#if MG_ENTERPRISE
   bool SetReplicaRole(io::network::Endpoint endpoint,
                       const replication::ReplicationServerConfig &config = {});
 
@@ -567,6 +569,9 @@ class Storage final {
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;
+
+  // Global locker that is used for clients file locking
+  utils::FileRetainer::FileLocker global_locker_;
 
   // Replication
 #ifdef MG_ENTERPRISE

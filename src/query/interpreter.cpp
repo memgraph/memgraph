@@ -573,7 +573,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
         const auto &replicas = handler->ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
-        for (auto &replica : replicas) {
+        for (const auto &replica : replicas) {
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
@@ -1222,6 +1222,49 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
       RWType::NONE};
 }
 
+PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
+                                   const bool in_explicit_transaction,
+                                   InterpreterContext *interpreter_context,
+                                   DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw LockPathModificationInMulticommandTxException();
+  }
+
+  auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
+
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parsed_query.parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba,
+                                storage::View::OLD);
+
+  Callback callback;
+  switch (lock_path_query->action_) {
+    case LockPathQuery::Action::LOCK_PATH:
+      if (!interpreter_context->db->LockPath()) {
+        throw QueryRuntimeException("Failed to lock the data directory");
+      }
+      break;
+    case LockPathQuery::Action::UNLOCK_PATH:
+      if (!interpreter_context->db->UnlockPath()) {
+        throw QueryRuntimeException("Failed to unlock the data directory");
+      }
+      break;
+  }
+
+  return PreparedQuery{
+      callback.header, std::move(parsed_query.required_privileges),
+      [](AnyStream *stream,
+         std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        return QueryHandlerResult::COMMIT;
+      }};
+}
+
 PreparedQuery PrepareInfoQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction,
     std::map<std::string, TypedValue> *summary,
@@ -1602,6 +1645,10 @@ Interpreter::PrepareResult Interpreter::Prepare(
           &query_execution->execution_memory);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query = PrepareReplicationQuery(
+          std::move(parsed_query), in_explicit_transaction_,
+          interpreter_context_, &*execution_db_accessor_);
+    } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
+      prepared_query = PrepareLockPathQuery(
           std::move(parsed_query), in_explicit_transaction_,
           interpreter_context_, &*execution_db_accessor_);
     } else {
