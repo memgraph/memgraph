@@ -27,13 +27,6 @@ target_link_libraries(${test_prefix}antlr_tree_pretty_print antlr_opencypher_par
 add_manual_test(bolt_client.cpp)
 target_link_libraries(${test_prefix}bolt_client mg-communication)
 
-add_manual_test(ha_client.cpp)
-target_link_libraries(${test_prefix}ha_client mg-utils mg-communication)
-
-add_manual_test(ha_proxy.cpp)
-target_include_directories(${test_prefix}ha_proxy PRIVATE ${CMAKE_BINARY_DIR}/src)
-target_link_libraries(${test_prefix}ha_proxy mg-utils mg-communication)
-
 add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console mg-kvstore gflags mg-utils)
 
