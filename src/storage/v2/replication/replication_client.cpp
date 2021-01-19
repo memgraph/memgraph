@@ -329,8 +329,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     std::unique_lock client_guard{client_lock_};
-    DLOG(INFO) << "Replica timestamp: " << replica_commit;
-    DLOG(INFO) << "Last commit: " << storage_->last_commit_timestamp_;
+    SPDLOG_INFO("Replica timestamp: {}", replica_commit);
+    SPDLOG_INFO("Last commit: {}", storage_->last_commit_timestamp_);
     if (storage_->last_commit_timestamp_.load() == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
@@ -408,7 +408,7 @@ Storage::ReplicationClient::GetRecoverySteps(
   if (wal_files->empty()) {
     if (current_wal_from_timestamp &&
         replica_commit >= *current_wal_from_timestamp) {
-      CHECK(current_wal_seq_num);
+      MG_ASSERT(current_wal_seq_num);
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
       return recovery_steps;
     }
@@ -424,7 +424,7 @@ Storage::ReplicationClient::GetRecoverySteps(
     // if there are no finalized WAL files, snapshot left the current WAL
     // as the WAL file containing a transaction before snapshot creation
     // so we can be sure that the current WAL is present
-    CHECK(current_wal_seq_num);
+    MG_ASSERT(current_wal_seq_num);
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
     return recovery_steps;
   }

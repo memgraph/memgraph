@@ -14,7 +14,7 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    LOG(INFO) << "File " << path << " doesn't exist.";
+    spdlog::info("File {} doesn't exist.", path);
     return;
   }
 
@@ -94,8 +94,8 @@ bool FileRetainer::LockerEntry::RemovePath(const std::filesystem::path &path) {
 
 bool FileRetainer::LockerEntry::LocksFile(
     const std::filesystem::path &path) const {
-  CHECK(path.is_absolute())
-      << "Absolute path needed to check if the file is locked.";
+  MG_ASSERT(path.is_absolute(),
+            "Absolute path needed to check if the file is locked.");
 
   if (files_.count(path)) {
     return true;
