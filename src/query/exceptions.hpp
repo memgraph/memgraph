@@ -174,4 +174,11 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
             "Replication clause not allowed in multicommand transactions.") {}
 };
 
+class LockPathModificationInMulticommandTxException : public QueryException {
+ public:
+  LockPathModificationInMulticommandTxException()
+      : QueryException(
+            "Lock path clause not allowed in multicommand transactions.") {}
+};
+
 }  // namespace query

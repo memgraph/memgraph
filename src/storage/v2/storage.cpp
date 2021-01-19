@@ -1,5 +1,4 @@
 #include "storage/v2/storage.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -325,7 +324,8 @@ Storage::Storage(Config config)
       lock_file_path_(config_.durability.storage_directory /
                       durability::kLockFile),
       uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()) {
+      epoch_id_(utils::GenerateUUID()),
+      global_locker_(file_retainer_.AddLocker()) {
   if (config_.durability.snapshot_wal_mode !=
           Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit ||
@@ -1903,6 +1903,25 @@ void Storage::CreateSnapshot() {
 
   // Finalize snapshot transaction.
   commit_log_.MarkFinished(transaction.start_timestamp);
+}
+
+bool Storage::LockPath() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.AddPath(config_.durability.storage_directory);
+}
+
+bool Storage::UnlockPath() {
+  {
+    auto locker_accessor = global_locker_.Access();
+    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
+      return false;
+    }
+  }
+
+  // We use locker accessor in seperate scope so we don't produce deadlock
+  // after we call clean queue.
+  file_retainer_.CleanQueue();
+  return true;
 }
 
 uint64_t Storage::CommitTimestamp(
