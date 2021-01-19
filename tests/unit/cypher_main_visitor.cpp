@@ -3246,4 +3246,39 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
       SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
+  auto &ast_generator = *GetParam();
+
+  const auto test_lock_path_query = [&](const std::string_view command,
+                                        const LockPathQuery::Action action) {
+    ASSERT_THROW(ast_generator.ParseQuery(command.data()), SyntaxException);
+
+    {
+      const std::string query = fmt::format("{} ME", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA STUFF", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY", command);
+      auto *parsed_query =
+          dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+      ASSERT_TRUE(parsed_query);
+      EXPECT_EQ(parsed_query->action_, action);
+    }
+  };
+
+  test_lock_path_query("LOCK", LockPathQuery::Action::LOCK_PATH);
+  test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
+}
+
 }  // namespace

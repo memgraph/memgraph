@@ -285,6 +285,21 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicas(
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
+    MemgraphCypher::LockPathQueryContext *ctx) {
+  auto *lock_query = storage_->Create<LockPathQuery>();
+  if (ctx->LOCK()) {
+    lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
+  } else if (ctx->UNLOCK()) {
+    lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
+  } else {
+    throw SyntaxException("Expected LOCK or UNLOCK");
+  }
+
+  query_ = lock_query;
+  return lock_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();

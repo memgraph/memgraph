@@ -9,27 +9,31 @@ namespace auth {
 
 // These permissions must have values that are applicable for usage in a
 // bitmask.
+// clang-format off
 enum class Permission : uint64_t {
-  MATCH = 0x00000001,
-  CREATE = 0x00000002,
-  MERGE = 0x00000004,
-  DELETE = 0x00000008,
-  SET = 0x00000010,
-  REMOVE = 0x00000020,
-  INDEX = 0x00000040,
-  STATS = 0x00000080,
-  CONSTRAINT = 0x00000100,
-  DUMP = 0x00000200,
-  REPLICATION = 0x00000400,
-  AUTH = 0x00010000,
+  MATCH       = 1,
+  CREATE      = 1U << 1U,
+  MERGE       = 1U << 2U,
+  DELETE      = 1U << 3U,
+  SET         = 1U << 4U,
+  REMOVE      = 1U << 5U,
+  INDEX       = 1U << 6U,
+  STATS       = 1U << 7U,
+  CONSTRAINT  = 1U << 8U,
+  DUMP        = 1U << 9U,
+  REPLICATION = 1U << 10U,
+  LOCK_PATH   = 1U << 11U,
+  AUTH        = 1U << 16U
 };
+// clang-format on
 
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,  Permission::CREATE, Permission::MERGE,
-    Permission::DELETE, Permission::SET,    Permission::REMOVE,
-    Permission::INDEX,  Permission::STATS,  Permission::CONSTRAINT,
-    Permission::DUMP,   Permission::AUTH,   Permission::REPLICATION};
+    Permission::MATCH,    Permission::CREATE, Permission::MERGE,
+    Permission::DELETE,   Permission::SET,    Permission::REMOVE,
+    Permission::INDEX,    Permission::STATS,  Permission::CONSTRAINT,
+    Permission::DUMP,     Permission::AUTH,   Permission::REPLICATION,
+    Permission::LOCK_PATH};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
