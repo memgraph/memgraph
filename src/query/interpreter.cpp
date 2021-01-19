@@ -552,7 +552,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
-        CHECK(socket_address.IsString());
         handler->RegisterReplica(name,
                                  std::string(socket_address.ValueString()),
                                  sync_mode, maybe_timeout);
@@ -807,6 +806,8 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(
       .first->second;
 }
 
+using RWType = plan::ReadWriteTypeChecker::RWType;
+
 PreparedQuery Interpreter::PrepareTransactionQuery(
     std::string_view query_upper) {
   std::function<void()> handler;
@@ -859,11 +860,13 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
     LOG(FATAL) << "Should not get here -- unknown transaction query!";
   }
 
-  return {
-      {}, {}, [handler = std::move(handler)](AnyStream *, std::optional<int>) {
-        handler();
-        return QueryHandlerResult::NOTHING;
-      }};
+  return {{},
+          {},
+          [handler = std::move(handler)](AnyStream *, std::optional<int>) {
+            handler();
+            return QueryHandlerResult::NOTHING;
+          },
+          RWType::NONE};
 }
 
 PreparedQuery PrepareCypherQuery(
@@ -876,6 +879,9 @@ PreparedQuery PrepareCypherQuery(
       &interpreter_context->plan_cache, dba);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(plan->plan()));
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
@@ -905,7 +911,8 @@ PreparedQuery PrepareCypherQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareExplainQuery(
@@ -960,7 +967,8 @@ PreparedQuery PrepareExplainQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -1015,6 +1023,10 @@ PreparedQuery PrepareProfileQuery(
       std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
 
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
+
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
       std::move(parsed_query.required_privileges),
@@ -1047,7 +1059,8 @@ PreparedQuery PrepareProfileQuery(
         }
 
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(
@@ -1063,7 +1076,8 @@ PreparedQuery PrepareDumpQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::R};
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -1132,7 +1146,8 @@ PreparedQuery PrepareIndexQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
         handler();
         return QueryHandlerResult::NOTHING;
-      }};
+      },
+      RWType::W};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -1176,7 +1191,8 @@ PreparedQuery PrepareAuthQuery(
                                              : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
@@ -1202,7 +1218,8 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -1300,7 +1317,8 @@ PreparedQuery PrepareInfoQuery(
           return action;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareConstraintQuery(
@@ -1460,7 +1478,8 @@ PreparedQuery PrepareConstraintQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
         handler();
         return QueryHandlerResult::COMMIT;
-      }};
+      },
+      RWType::NONE};
 }
 
 void Interpreter::BeginTransaction() {
@@ -1519,13 +1538,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
   }
 
   try {
-    // TODO: Set summary['type'] based on transaction metadata. The type can't
-    // be determined based only on the toplevel logical operator -- for example
-    // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
-    // toplevel operator). For now we always set "rw" because something must be
-    // set, but it doesn't have to be correct (for Bolt clients).
-    query_execution->summary["type"] = "rw";
-
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
@@ -1599,6 +1611,12 @@ Interpreter::PrepareResult Interpreter::Prepare(
     query_execution->summary["planning_time"] =
         planning_timer.Elapsed().count();
     query_execution->prepared_query.emplace(std::move(prepared_query));
+
+    query_execution->summary["type"] =
+        query_execution->prepared_query
+            ? plan::ReadWriteTypeChecker::TypeToString(
+                  query_execution->prepared_query->rw_type)
+            : "rw";
 
     return {query_execution->prepared_query->header,
             query_execution->prepared_query->privileges, qid};
