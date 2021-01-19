@@ -63,7 +63,6 @@ TEST_F(ReadWriteTypeCheckTest, ScanAllBy) {
           dba.NameToProperty("prop"), "prop",
           utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
           utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
-
   last_op = std::make_shared<ScanAllByLabelPropertyValue>(
       last_op, GetSymbol("node"), dba.NameToLabel("Label"),
       dba.NameToProperty("prop"), "prop", ADD(LITERAL(21), LITERAL(21)));
@@ -83,20 +82,15 @@ TEST_F(ReadWriteTypeCheckTest, OrderByAndLimit) {
   storage::PropertyId prop = dba.NameToProperty("property");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
-
   last_op = std::make_shared<ScanAllByLabel>(last_op, node_sym, label);
-
   last_op = std::make_shared<Filter>(
       last_op, EQ(PROPERTY_LOOKUP("node", prop), LITERAL(5)));
-
   last_op = std::make_shared<Produce>(
       last_op, std::vector<NamedExpression *>{NEXPR("n", IDENT("n"))});
-
   last_op = std::make_shared<OrderBy>(
       last_op,
       std::vector<SortItem>{{Ordering::DESC, PROPERTY_LOOKUP("node", prop)}},
       std::vector<Symbol>{node_sym});
-
   last_op = std::make_shared<Limit>(last_op, LITERAL(10));
 
   CheckPlanType(last_op.get(), RWType::R);
@@ -111,7 +105,6 @@ TEST_F(ReadWriteTypeCheckTest, Delete) {
       last_op, node_sym, GetSymbol("node2"), GetSymbol("edge"),
       EdgeAtom::Direction::BOTH, std::vector<storage::EdgeTypeId>{}, false,
       storage::View::OLD);
-
   last_op = std::make_shared<plan::Delete>(
       last_op, std::vector<Expression *>{IDENT("node2")}, true);
 
@@ -149,17 +142,13 @@ TEST_F(ReadWriteTypeCheckTest, EdgeUniquenessFilter) {
 
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, node1_sym);
-
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
       std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
-
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
-
   last_op = std::make_shared<Expand>(
       last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
       std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
-
   last_op = std::make_shared<EdgeUniquenessFilter>(
       last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
@@ -172,26 +161,21 @@ TEST_F(ReadWriteTypeCheckTest, SetRemovePropertiesLabels) {
 
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<ScanAll>(nullptr, GetSymbol("node"));
-
   last_op = std::make_shared<plan::SetProperty>(
       last_op, prop, PROPERTY_LOOKUP("node", prop),
       ADD(PROPERTY_LOOKUP("node", prop), LITERAL(1)));
-
   last_op = std::make_shared<plan::RemoveProperty>(
       last_op, dba.NameToProperty("prop"),
       PROPERTY_LOOKUP("node", dba.NameToProperty("prop")));
-
   last_op = std::make_shared<plan::SetProperties>(
       last_op, node_sym,
       MAP({{storage.GetPropertyIx("prop1"), LITERAL(1)},
            {storage.GetPropertyIx("prop2"), LITERAL("this is a property")}}),
       plan::SetProperties::Op::REPLACE);
-
   last_op = std::make_shared<plan::SetLabels>(
       last_op, node_sym,
       std::vector<storage::LabelId>{dba.NameToLabel("label1"),
                                     dba.NameToLabel("label2")});
-
   last_op = std::make_shared<plan::RemoveLabels>(
       last_op, node_sym,
       std::vector<storage::LabelId>{dba.NameToLabel("label1"),
@@ -204,11 +188,9 @@ TEST_F(ReadWriteTypeCheckTest, Cartesian) {
   Symbol x = GetSymbol("x");
   std::shared_ptr<LogicalOperator> lhs = std::make_shared<plan::Unwind>(
       nullptr, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), x);
-
   Symbol node = GetSymbol("node");
   std::shared_ptr<LogicalOperator> rhs =
       std::make_shared<ScanAll>(nullptr, node);
-
   std::shared_ptr<LogicalOperator> cartesian = std::make_shared<Cartesian>(
       lhs, std::vector<Symbol>{x}, rhs, std::vector<Symbol>{node});
 
@@ -219,11 +201,9 @@ TEST_F(ReadWriteTypeCheckTest, Union) {
   Symbol x = GetSymbol("x");
   std::shared_ptr<LogicalOperator> lhs = std::make_shared<plan::Unwind>(
       nullptr, LIST(LITERAL(2), LITERAL(3), LITERAL(2)), x);
-
   Symbol node = GetSymbol("x");
   std::shared_ptr<LogicalOperator> rhs =
       std::make_shared<ScanAll>(nullptr, node);
-
   std::shared_ptr<LogicalOperator> union_op = std::make_shared<Union>(
       lhs, rhs, std::vector<Symbol>{GetSymbol("x")}, std::vector<Symbol>{x},
       std::vector<Symbol>{node});
