@@ -1245,7 +1245,8 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
       [](AnyStream *stream,
          std::optional<int> n) -> std::optional<QueryHandlerResult> {
         return QueryHandlerResult::COMMIT;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareInfoQuery(

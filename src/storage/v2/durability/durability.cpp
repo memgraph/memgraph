@@ -307,6 +307,8 @@ std::optional<RecoveryInfo> RecoverData(
             std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp =
             std::max(recovery_info.next_timestamp, info.next_timestamp);
+
+        recovery_info.last_commit_timestamp = info.last_commit_timestamp;
       } catch (const RecoveryFailure &e) {
         LOG(FATAL) << "Couldn't recover WAL deltas from " << wal_file.path
                    << " because of: " << e.what();
