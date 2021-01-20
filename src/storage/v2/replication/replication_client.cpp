@@ -133,14 +133,6 @@ WalFilesRes Storage::ReplicationClient::TransferWalFiles(
   return stream.AwaitResponse();
 }
 
-OnlySnapshotRes Storage::ReplicationClient::TransferOnlySnapshot(
-    const uint64_t snapshot_timestamp) {
-  auto stream{rpc_client_->Stream<OnlySnapshotRpc>(snapshot_timestamp)};
-  replication::Encoder encoder{stream.GetBuilder()};
-  encoder.WriteString(storage_->epoch_id_);
-  return stream.AwaitResponse();
-}
-
 void Storage::ReplicationClient::StartTransactionReplication(
     const uint64_t current_wal_seq_num) {
   std::unique_lock guard(client_lock_);
@@ -314,13 +306,6 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                       << "Current timestamp on replica: " << replica_commit;
                   storage_->wal_file_->EnableFlushing();
                 }
-              } else if constexpr (std::is_same_v<StepType,
-                                                  RecoveryFinalSnapshot>) {
-                DLOG(INFO) << "Snapshot timestamp is the latest";
-                auto response = TransferOnlySnapshot(arg.snapshot_timestamp);
-                if (response.success) {
-                  replica_commit = response.current_commit_timestamp;
-                }
               } else {
                 static_assert(always_false_v<T>,
                               "Missing type from variant visitor");
@@ -333,6 +318,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
           replica_state_.store(replication::ReplicaState::INVALID);
         }
         HandleRpcFailure();
+        return;
       }
     }
 
@@ -346,6 +332,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     std::unique_lock client_guard{client_lock_};
+    DLOG(INFO) << "Replica timestamp: " << replica_commit;
+    DLOG(INFO) << "Last commit: " << storage_->last_commit_timestamp_;
     if (storage_->last_commit_timestamp_.load() == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
@@ -354,12 +342,12 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
 }
 
 uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
+  const auto &wal_file = storage_->wal_file_;
   auto stream = TransferCurrentWalFile();
-  stream.AppendFilename(storage_->wal_file_->Path().filename());
+  stream.AppendFilename(wal_file->Path().filename());
   utils::InputFile file;
-  CHECK(file.Open(storage_->wal_file_->Path()))
-      << "Failed to open current WAL file!";
-  const auto [buffer, buffer_size] = storage_->wal_file_->CurrentFileBuffer();
+  CHECK(file.Open(wal_file->Path())) << "Failed to open current WAL file!";
+  const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
   stream.AppendSize(file.GetSize() + buffer_size);
   stream.AppendFileData(&file);
   stream.AppendBufferData(buffer, buffer_size);
@@ -384,11 +372,9 @@ uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
 /// the current WAL, we add the sequence number we read from it to the recovery
 /// process. After all the other steps are finished, if the current WAL contains
 /// the same sequence number, it's the same WAL we read while fetching the
-/// recovery steps, so we can safely send it to the replica. There's also one
-/// edge case, if MAIN instance restarted and the snapshot contained the last
-/// change (creation of that snapshot) the latest timestamp is contained in it.
-/// As no changes were made to the data, we only need to send the timestamp of
-/// the snapshot so replica can set its last timestamp to that value.
+/// recovery steps, so we can safely send it to the replica.
+/// We assume that the property of preserving at least 1 WAL before the snapshot
+/// is satisfied as we extract the timestamp information from it.
 std::vector<Storage::ReplicationClient::RecoveryStep>
 Storage::ReplicationClient::GetRecoverySteps(
     const uint64_t replica_commit,
@@ -397,9 +383,11 @@ Storage::ReplicationClient::GetRecoverySteps(
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
+  std::optional<uint64_t> current_wal_from_timestamp;
   if (std::unique_lock transtacion_guard(storage_->engine_lock_);
       storage_->wal_file_) {
     current_wal_seq_num.emplace(storage_->wal_file_->SequenceNumber());
+    current_wal_from_timestamp.emplace(storage_->wal_file_->FromTimestamp());
   }
 
   auto locker_acc = file_locker->Access();
@@ -418,17 +406,28 @@ Storage::ReplicationClient::GetRecoverySteps(
   std::vector<RecoveryStep> recovery_steps;
 
   // No finalized WAL files were found. This means the difference is contained
-  // inside the current WAL or the snapshot was loaded back without any WALs
-  // after.
+  // inside the current WAL or the snapshot.
   if (wal_files->empty()) {
-    if (current_wal_seq_num) {
+    if (current_wal_from_timestamp &&
+        replica_commit >= *current_wal_from_timestamp) {
+      CHECK(current_wal_seq_num);
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
-    } else {
-      CHECK(latest_snapshot);
-      locker_acc.AddPath(latest_snapshot->path);
-      recovery_steps.emplace_back(
-          RecoveryFinalSnapshot{latest_snapshot->start_timestamp});
+      return recovery_steps;
     }
+
+    // Without the finalized WAL containing the current timestamp of replica,
+    // we cannot know if the difference is only in the current WAL or we need
+    // to send the snapshot.
+    if (latest_snapshot) {
+      locker_acc.AddPath(latest_snapshot->path);
+      recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{},
+                                  std::move(latest_snapshot->path));
+    }
+    // if there are no finalized WAL files, snapshot left the current WAL
+    // as the WAL file containing a transaction before snapshot creation
+    // so we can be sure that the current WAL is present
+    CHECK(current_wal_seq_num);
+    recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
     return recovery_steps;
   }
 
@@ -437,17 +436,10 @@ Storage::ReplicationClient::GetRecoverySteps(
   auto rwal_it = wal_files->rbegin();
 
   // if the last finalized WAL is before the replica commit
-  // then we can recovery only from current WAL or from snapshot
-  // if the main just recovered
+  // then we can recovery only from current WAL
   if (rwal_it->to_timestamp <= replica_commit) {
-    if (current_wal_seq_num) {
-      recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
-    } else {
-      CHECK(latest_snapshot);
-      locker_acc.AddPath(latest_snapshot->path);
-      recovery_steps.emplace_back(
-          RecoveryFinalSnapshot{latest_snapshot->start_timestamp});
-    }
+    CHECK(current_wal_seq_num);
+    recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
     return recovery_steps;
   }
 
