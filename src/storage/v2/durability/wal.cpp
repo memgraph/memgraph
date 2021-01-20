@@ -652,6 +652,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 
   // Read wal info.
   auto info = ReadWalInfo(path);
+  ret.last_commit_timestamp = info.to_timestamp;
 
   // Check timestamp.
   if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp)
