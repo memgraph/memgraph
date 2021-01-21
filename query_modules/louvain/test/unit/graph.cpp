@@ -1,4 +1,3 @@
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "data_structures/graph.hpp"
@@ -10,8 +9,7 @@ bool CommunityCheck(const comdata::Graph &graph,
                     const std::vector<uint32_t> &c) {
   if (graph.Size() != c.size()) return false;
   for (uint32_t node_id = 0; node_id < graph.Size(); ++node_id)
-    if (graph.Community(node_id) != c[node_id])
-      return false;
+    if (graph.Community(node_id) != c[node_id]) return false;
   return true;
 }
 
@@ -20,8 +18,7 @@ bool DegreeCheck(const comdata::Graph &graph,
                  const std::vector<uint32_t> &deg) {
   if (graph.Size() != deg.size()) return false;
   for (uint32_t node_id = 0; node_id < graph.Size(); ++node_id)
-    if (graph.Degree(node_id) != deg[node_id])
-      return false;
+    if (graph.Degree(node_id) != deg[node_id]) return false;
   return true;
 }
 
@@ -127,10 +124,7 @@ TEST(Graph, Degrees) {
 
   // Chain
   // (0)--(1)--(2)--(3)--(4)
-  graph = BuildGraph(5, {{0, 1, 1},
-                     {1, 2, 1},
-                     {2, 3, 1},
-                     {3, 4, 1}});
+  graph = BuildGraph(5, {{0, 1, 1}, {1, 2, 1}, {2, 3, 1}, {3, 4, 1}});
   deg = {1, 2, 2, 2, 1};
   ASSERT_TRUE(DegreeCheck(graph, deg));
 
@@ -140,12 +134,8 @@ TEST(Graph, Degrees) {
   //   (1)   (2)
   //    |   /   \
   //   (4) (5)  (6)
-  graph = BuildGraph(7, {{0, 1, 1},
-                     {0, 2, 1},
-                     {0, 3, 1},
-                     {1, 4, 1},
-                     {2, 5, 1},
-                     {2, 6, 1}});
+  graph = BuildGraph(
+      7, {{0, 1, 1}, {0, 2, 1}, {0, 3, 1}, {1, 4, 1}, {2, 5, 1}, {2, 6, 1}});
   deg = {3, 2, 3, 1, 1, 1, 1};
   ASSERT_TRUE(DegreeCheck(graph, deg));
 
@@ -155,12 +145,12 @@ TEST(Graph, Degrees) {
   //  |  \ |  \
   // (2)--(3)-(4)
   graph = BuildGraph(5, {{0, 1, 1},
-                     {0, 2, 1},
-                     {0, 3, 1},
-                     {1, 3, 1},
-                     {1, 4, 1},
-                     {2, 3, 1},
-                     {3, 4, 1}});
+                         {0, 2, 1},
+                         {0, 3, 1},
+                         {1, 3, 1},
+                         {1, 4, 1},
+                         {2, 3, 1},
+                         {3, 4, 1}});
   deg = {3, 3, 2, 4, 2};
   ASSERT_TRUE(DegreeCheck(graph, deg));
 
@@ -170,15 +160,15 @@ TEST(Graph, Degrees) {
   //  |  \ |  \
   // (2*)--(3)-(4*)
   graph = BuildGraph(5, {{0, 1, 1},
-                     {0, 2, 1},
-                     {0, 3, 1},
-                     {1, 3, 1},
-                     {1, 4, 1},
-                     {2, 3, 1},
-                     {3, 4, 1},
-                     {1, 1, 1},
-                     {2, 2, 2},
-                     {4, 4, 4}});
+                         {0, 2, 1},
+                         {0, 3, 1},
+                         {1, 3, 1},
+                         {1, 4, 1},
+                         {2, 3, 1},
+                         {3, 4, 1},
+                         {1, 1, 1},
+                         {2, 2, 2},
+                         {4, 4, 4}});
   deg = {3, 4, 3, 4, 3};
   ASSERT_TRUE(DegreeCheck(graph, deg));
 
@@ -196,10 +186,7 @@ TEST(Graph, Weights) {
 
   // Chain
   // (0)--(1)--(2)--(3)--(4)
-  graph = BuildGraph(5, {{0, 1, 0.1},
-                     {1, 2, 0.5},
-                     {2, 3, 2.3},
-                     {3, 4, 4.2}});
+  graph = BuildGraph(5, {{0, 1, 0.1}, {1, 2, 0.5}, {2, 3, 2.3}, {3, 4, 4.2}});
   inc_w = {0.1, 0.6, 2.8, 6.5, 4.2};
   ASSERT_TRUE(IncidentWeightCheck(graph, inc_w));
   ASSERT_NEAR(graph.TotalWeight(), 7.1, 1e-6);
@@ -211,11 +198,11 @@ TEST(Graph, Weights) {
   //    |   /   \
   //   (4) (5)  (6)
   graph = BuildGraph(7, {{0, 1, 1.3},
-                     {0, 2, 0.2},
-                     {0, 3, 1},
-                     {1, 4, 3.2},
-                     {2, 5, 4.2},
-                     {2, 6, 0.7}});
+                         {0, 2, 0.2},
+                         {0, 3, 1},
+                         {1, 4, 3.2},
+                         {2, 5, 4.2},
+                         {2, 6, 0.7}});
   inc_w = {2.5, 4.5, 5.1, 1, 3.2, 4.2, 0.7};
   ASSERT_TRUE(IncidentWeightCheck(graph, inc_w));
   EXPECT_NEAR(graph.TotalWeight(), 10.6, 1e-6);
@@ -226,12 +213,12 @@ TEST(Graph, Weights) {
   //  |  \ |  \
   // (2)--(3)-(4)
   graph = BuildGraph(5, {{0, 1, 0.1},
-                     {0, 2, 0.2},
-                     {0, 3, 0.3},
-                     {1, 3, 0.4},
-                     {1, 4, 0.5},
-                     {2, 3, 0.6},
-                     {3, 4, 0.7}});
+                         {0, 2, 0.2},
+                         {0, 3, 0.3},
+                         {1, 3, 0.4},
+                         {1, 4, 0.5},
+                         {2, 3, 0.6},
+                         {3, 4, 0.7}});
   inc_w = {0.6, 1, 0.8, 2, 1.2};
   ASSERT_TRUE(IncidentWeightCheck(graph, inc_w));
   EXPECT_NEAR(graph.TotalWeight(), 2.8, 1e-6);
@@ -242,15 +229,15 @@ TEST(Graph, Weights) {
   //  |  \ |  \
   // (2*)--(3)-(4*)
   graph = BuildGraph(5, {{0, 1, 0.1},
-                     {0, 2, 0.2},
-                     {0, 3, 0.3},
-                     {1, 3, 0.4},
-                     {1, 4, 0.5},
-                     {2, 3, 0.6},
-                     {3, 4, 0.7},
-                     {1, 1, 0.8},
-                     {2, 2, 0.9},
-                     {4, 4, 1}});
+                         {0, 2, 0.2},
+                         {0, 3, 0.3},
+                         {1, 3, 0.4},
+                         {1, 4, 0.5},
+                         {2, 3, 0.6},
+                         {3, 4, 0.7},
+                         {1, 1, 0.8},
+                         {2, 2, 0.9},
+                         {4, 4, 1}});
   inc_w = {0.6, 1.8, 1.7, 2, 2.2};
   ASSERT_TRUE(IncidentWeightCheck(graph, inc_w));
   EXPECT_NEAR(graph.TotalWeight(), 5.5, 1e-6);
@@ -267,10 +254,7 @@ TEST(Graph, Modularity) {
 
   // Chain
   // (0)--(1)--(2)--(3)--(4)
-  graph = BuildGraph(5, {{0, 1, 0.1},
-                     {1, 2, 0.5},
-                     {2, 3, 2.3},
-                     {3, 4, 4.2}});
+  graph = BuildGraph(5, {{0, 1, 0.1}, {1, 2, 0.5}, {2, 3, 2.3}, {3, 4, 4.2}});
   std::vector<uint32_t> c = {0, 1, 1, 2, 2};
   SetCommunities(&graph, c);
   EXPECT_NEAR(graph.Modularity(), 0.036798254314620096, 1e-6);
@@ -282,11 +266,11 @@ TEST(Graph, Modularity) {
   //    |   /   \
   //   (4) (5)  (6)
   graph = BuildGraph(7, {{0, 1, 1.3},
-                     {0, 2, 0.2},
-                     {0, 3, 1},
-                     {1, 4, 3.2},
-                     {2, 5, 4.2},
-                     {2, 6, 0.7}});
+                         {0, 2, 0.2},
+                         {0, 3, 1},
+                         {1, 4, 3.2},
+                         {2, 5, 4.2},
+                         {2, 6, 0.7}});
   c = {0, 0, 1, 0, 0, 1, 2};
   SetCommunities(&graph, c);
   EXPECT_NEAR(graph.Modularity(), 0.4424617301530794, 1e-6);
@@ -297,12 +281,12 @@ TEST(Graph, Modularity) {
   //  |  \ |  \
   // (2)--(3)-(4)
   graph = BuildGraph(5, {{0, 1, 0.1},
-                     {0, 2, 0.2},
-                     {0, 3, 0.3},
-                     {1, 3, 0.4},
-                     {1, 4, 0.5},
-                     {2, 3, 0.6},
-                     {3, 4, 0.7}});
+                         {0, 2, 0.2},
+                         {0, 3, 0.3},
+                         {1, 3, 0.4},
+                         {1, 4, 0.5},
+                         {2, 3, 0.6},
+                         {3, 4, 0.7}});
   c = {0, 1, 1, 1, 1};
   SetCommunities(&graph, c);
   EXPECT_NEAR(graph.Modularity(), -0.022959183673469507, 1e-6);
@@ -313,15 +297,15 @@ TEST(Graph, Modularity) {
   //  |  \ |  \
   // (2*)--(3)-(4*)
   graph = BuildGraph(5, {{0, 1, 0.1},
-                     {0, 2, 0.2},
-                     {0, 3, 0.3},
-                     {1, 3, 0.4},
-                     {1, 4, 0.5},
-                     {2, 3, 0.6},
-                     {3, 4, 0.7},
-                     {1, 1, 0.8},
-                     {2, 2, 0.9},
-                     {4, 4, 1}});
+                         {0, 2, 0.2},
+                         {0, 3, 0.3},
+                         {1, 3, 0.4},
+                         {1, 4, 0.5},
+                         {2, 3, 0.6},
+                         {3, 4, 0.7},
+                         {1, 1, 0.8},
+                         {2, 2, 0.9},
+                         {4, 4, 1}});
   c = {0, 0, 0, 0, 1};
   SetCommunities(&graph, c);
   EXPECT_NEAR(graph.Modularity(), 0.188842975206611, 1e-6);

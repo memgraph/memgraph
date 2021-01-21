@@ -5,7 +5,6 @@
 #include <sys/utsname.h>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"

@@ -16,14 +16,13 @@ DEFINE_int32(num_vertices, kNumVertices, "number of vertices");
 DEFINE_int32(num_iterations, kNumIterations, "number of iterations");
 
 std::pair<std::string, storage::Config> TestConfigurations[] = {
-    {"NoGc",
-     storage::Config{.gc = {.type = storage::Config::Gc::Type::NONE}}},
-     {"100msPeriodicGc",
-      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                             .interval = std::chrono::milliseconds(100)}}},
-     {"1000msPeriodicGc",
-      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                             .interval = std::chrono::milliseconds(1000)}}}};
+    {"NoGc", storage::Config{.gc = {.type = storage::Config::Gc::Type::NONE}}},
+    {"100msPeriodicGc",
+     storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
+                            .interval = std::chrono::milliseconds(100)}}},
+    {"1000msPeriodicGc",
+     storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
+                            .interval = std::chrono::milliseconds(1000)}}}};
 
 void UpdateLabelFunc(int thread_id, storage::Storage *storage,
                      const std::vector<storage::Gid> &vertices,
@@ -38,11 +37,11 @@ void UpdateLabelFunc(int thread_id, storage::Storage *storage,
     storage::Gid gid = vertices.at(vertex_dist(gen));
     std::optional<storage::VertexAccessor> vertex =
         acc.FindVertex(gid, storage::View::OLD);
-    CHECK(vertex.has_value())
-        << "Vertex with GID " << gid.AsUint() << " doesn't exist";
+    MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist",
+              gid.AsUint());
     if (vertex->AddLabel(storage::LabelId::FromUint(label_dist(gen)))
             .HasValue()) {
-      CHECK(!acc.Commit().HasError());
+      MG_ASSERT(!acc.Commit().HasError());
     } else {
       acc.Abort();
     }
@@ -60,7 +59,7 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
         vertices.push_back(acc.CreateVertex().Gid());
       }
-      CHECK(!acc.Commit().HasError());
+      MG_ASSERT(!acc.Commit().HasError());
     }
 
     utils::Timer timer;

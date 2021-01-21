@@ -328,8 +328,6 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
   storage::PropertyId property_;
 };
 
-
-
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
@@ -386,7 +384,7 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg) {
 }
 
 template <class T, class... Rest>
-std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&... rest) {
+std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
   auto l = MakeCheckers(std::forward<Rest>(rest)...);
   l.emplace_front(std::make_unique<T>(arg));
   return std::move(l);
@@ -482,7 +480,7 @@ class FakeDbAccessor {
     for (const auto &kv : properties_) {
       if (kv.second == property) return kv.first;
     }
-    LOG(FATAL) << "Unable to find property name";
+    LOG_FATAL("Unable to find property name");
   }
 
   std::string PropertyName(storage::PropertyId property) const {

@@ -6,16 +6,17 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "common.hpp"
+#include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  logging::RedirectToStderr();
+
   auto database_endpoints =
       mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
 
@@ -39,15 +40,14 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG(FATAL) << database_endpoint
-                     << " does NOT hava valid constraint created.";
+          LOG_FATAL("{} does NOT hava valid constraint created.",
+                    database_endpoint)
         }
       } else {
-        LOG(FATAL) << "Unable to get CONSTRAINT INFO from "
-                   << database_endpoint;
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
       }
     }
-    LOG(INFO) << "All constraints are in-place.";
+    spdlog::info("All constraints are in-place.");
 
     for (int i = 0; i < FLAGS_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
@@ -105,10 +105,10 @@ int main(int argc, char **argv) {
                 unique.insert(value[0].ValueInt());
               }
               if ((*data).size() != unique.size()) {
-                LOG(FATAL) << "Some ids are equal.";
+                LOG_FATAL("Some ids are equal.");
               }
             } catch (const std::exception &e) {
-              LOG(FATAL) << e.what();
+              LOG_FATAL(e.what());
               break;
             }
           }
@@ -132,14 +132,13 @@ int main(int argc, char **argv) {
       client->Execute("SHOW CONSTRAINT INFO;");
       if (const auto data = client->FetchAll()) {
         if ((*data).size() != 0) {
-          LOG(FATAL) << database_endpoint << " still have some constraints.";
+          LOG_FATAL("{} still have some constraints.", database_endpoint);
         }
       } else {
-        LOG(FATAL) << "Unable to get CONSTRAINT INFO from "
-                   << database_endpoint;
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
       }
     }
-    LOG(INFO) << "All constraints were deleted.";
+    spdlog::info("All constraints were deleted.");
   }
 
   return 0;

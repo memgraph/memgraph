@@ -3,7 +3,6 @@
 
 #include "utils/on_scope_exit.hpp"
 
-
 TEST(OnScopeExit, BasicUsage) {
   int variable = 1;
   {

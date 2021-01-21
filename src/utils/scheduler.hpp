@@ -7,8 +7,7 @@
 #include <functional>
 #include <thread>
 
-#include "glog/logging.h"
-
+#include "utils/logging.hpp"
 #include "utils/thread.hpp"
 
 namespace utils {
@@ -33,8 +32,8 @@ class Scheduler {
   void Run(const std::string &service_name,
            const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f) {
-    DCHECK(is_working_ == false) << "Thread already running.";
-    DCHECK(pause > std::chrono::seconds(0)) << "Pause is invalid.";
+    DMG_ASSERT(is_working_ == false, "Thread already running.");
+    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
 
     is_working_ = true;
     thread_ = std::thread([this, pause, f, service_name]() {

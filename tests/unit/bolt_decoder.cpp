@@ -1,5 +1,3 @@
-#include <glog/logging.h>
-
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 
@@ -40,7 +38,12 @@ class TestDecoderBuffer {
 
 using DecoderT = communication::bolt::Decoder<TestDecoderBuffer>;
 
-TEST(BoltDecoder, NullAndBool) {
+struct BoltDecoder : ::testing::Test {
+  // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
+  static void SetUpTestCase() { InitializeData(data, SIZE); }
+};
+
+TEST_F(BoltDecoder, NullAndBool) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
   Value dv;
@@ -63,7 +66,7 @@ TEST(BoltDecoder, NullAndBool) {
   ASSERT_EQ(dv.ValueBool(), false);
 }
 
-TEST(BoltDecoder, Int) {
+TEST_F(BoltDecoder, Int) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -89,7 +92,7 @@ TEST(BoltDecoder, Int) {
   }
 }
 
-TEST(BoltDecoder, Double) {
+TEST_F(BoltDecoder, Double) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -110,7 +113,7 @@ TEST(BoltDecoder, Double) {
   }
 }
 
-TEST(BoltDecoder, String) {
+TEST_F(BoltDecoder, String) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -143,7 +146,7 @@ TEST(BoltDecoder, String) {
   }
 }
 
-TEST(BoltDecoder, StringLarge) {
+TEST_F(BoltDecoder, StringLarge) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
   Value dv;
@@ -166,7 +169,7 @@ TEST(BoltDecoder, StringLarge) {
   for (int j = 0; j < 100000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
 }
 
-TEST(BoltDecoder, List) {
+TEST_F(BoltDecoder, List) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -200,7 +203,7 @@ TEST(BoltDecoder, List) {
   }
 }
 
-TEST(BoltDecoder, Map) {
+TEST_F(BoltDecoder, Map) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -272,7 +275,7 @@ TEST(BoltDecoder, Map) {
   }
 }
 
-TEST(BoltDecoder, Vertex) {
+TEST_F(BoltDecoder, Vertex) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -346,7 +349,7 @@ TEST(BoltDecoder, Vertex) {
   ASSERT_EQ(vertex.properties[std::string("a")].ValueInt(), 1);
 }
 
-TEST(BoltDecoder, Edge) {
+TEST_F(BoltDecoder, Edge) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -433,11 +436,4 @@ TEST(BoltDecoder, Edge) {
   ASSERT_EQ(edge.to.AsUint(), 3);
   ASSERT_EQ(edge.type, std::string("a"));
   ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
-}
-
-int main(int argc, char **argv) {
-  InitializeData(data, SIZE);
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

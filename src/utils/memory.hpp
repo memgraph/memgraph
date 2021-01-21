@@ -21,6 +21,7 @@
 #include <memory_resource>
 #endif
 
+#include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -141,7 +142,7 @@ class Allocator {
   }
 
   template <class U, class... TArgs>
-  void construct(U *ptr, TArgs &&... args) {
+  void construct(U *ptr, TArgs &&...args) {
     if constexpr (std::uses_allocator_v<U, Allocator>) {
       if constexpr (std::is_constructible_v<U, std::allocator_arg_t,
                                             MemoryResource *, TArgs...>) {
@@ -207,7 +208,7 @@ class Allocator {
   }
 
   template <class U, class... TArgs>
-  U *new_object(TArgs &&... args) {
+  U *new_object(TArgs &&...args) {
     U *p = static_cast<U *>(memory_->Allocate(sizeof(U), alignof(U)));
     try {
       construct(p, std::forward<TArgs>(args)...);
@@ -592,7 +593,8 @@ class LimitedMemoryResource final : public utils::MemoryResource {
   }
 
   void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    CHECK(available_bytes_ + bytes > available_bytes_);
+    MG_ASSERT(available_bytes_ + bytes > available_bytes_,
+              "Failed deallocation");
     available_bytes_ += bytes;
     return memory_->Deallocate(p, bytes, alignment);
   }

@@ -6,7 +6,6 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -117,7 +116,7 @@ class GraphSession {
   }
 
   QueryDataT ExecuteWithoutCatch(const std::string &query) {
-    DLOG(INFO) << "Runner " << id_ << " executing query: " << query;
+    SPDLOG_INFO("Runner {} executing query: {}", id_, query);
     executed_queries_ += 1;
     return client_->Execute(query, {});
   }
@@ -139,20 +138,21 @@ class GraphSession {
           "UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
           vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
     } catch (const ExceptionT &e) {
-      LOG(FATAL) << "Runner " << id_
-                 << " vertices creation failed because of: " << e.what();
+      LOG_FATAL("Runner {} vertices creation failed because of: {}", id_,
+                e.what());
     }
-    CHECK(ret.records.size())
-        << "Runner " << id_
-        << " the vertices creation query should have returned a row!";
+    MG_ASSERT(
+        ret.records.size(),
+        "Runner {} the vertices creation query should have returned a row!",
+        id_);
 
-    CHECK(ret.records[0][0].ValueInt() == vertices_count)
-        << "Runner " << id_ << " created " << ret.records[0][0].ValueInt()
-        << " vertices instead of " << vertices_count << "!";
+    MG_ASSERT(ret.records[0][0].ValueInt() == vertices_count,
+              "Runner {} created {} vertices instead of {}!", id_,
+              ret.records[0][0].ValueInt(), vertices_count);
     for (uint64_t i = 0; i < vertices_count; ++i) {
-      CHECK(vertices_.insert(vertex_id_ + i).second)
-          << "Runner " << id_ << " vertex with ID " << vertex_id_ + i
-          << " shouldn't exist!";
+      MG_ASSERT(vertices_.insert(vertex_id_ + i).second,
+                "Runner {} vertex with ID {} shouldn't exist!", id_,
+                vertex_id_ + i);
     }
     vertex_id_ += vertices_count;
   }
@@ -170,8 +170,8 @@ class GraphSession {
       // remove vertex but note there could be duplicates
       auto n_id = record[0].ValueInt();
       if (processed_vertices.insert(n_id).second) {
-        CHECK(vertices_.erase(n_id)) << "Runner " << id_ << " vertex with ID "
-                                     << n_id << " should exist!";
+        MG_ASSERT(vertices_.erase(n_id),
+                  "Runner {} vertex with ID {} should exist!", id_, n_id);
         for (auto &label : record[1].ValueList()) {
           if (label.ValueString() == indexed_label_) {
             continue;
@@ -183,9 +183,9 @@ class GraphSession {
       auto &edges = record[2];
       for (auto &edge : edges.ValueList()) {
         if (edge.type() == ValueT::Type::Int) {
-          CHECK(edges_.erase(edge.ValueInt()))
-              << "Runner " << id_ << " edge with ID " << edge.ValueInt()
-              << " should exist!";
+          MG_ASSERT(edges_.erase(edge.ValueInt()),
+                    "Runner {} edge with ID {} should exist!", id_,
+                    edge.ValueInt());
         }
       }
     }
@@ -194,8 +194,8 @@ class GraphSession {
   void CreateEdges(uint64_t edges_count) {
     if (edges_count == 0) return;
     auto edges_per_node = (double)edges_count / vertices_.size();
-    CHECK(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001)
-        << "Runner " << id_ << " edges per node not a whole number!";
+    MG_ASSERT(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001,
+              "Runner {} edges per node not a whole number!", id_);
 
     QueryDataT ret;
     try {
@@ -208,18 +208,18 @@ class GraphSession {
           indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(),
           edge_id_));
     } catch (const ExceptionT &e) {
-      LOG(FATAL) << "Runner " << id_
-                 << " edges creation failed because of: " << e.what();
+      LOG_FATAL("Runner {} edges creation failed because of: {}", id_,
+                e.what());
     }
-    CHECK(ret.records.size())
-        << "Runner " << id_
-        << " the edges creation query should have returned a row!";
+    MG_ASSERT(ret.records.size(),
+              "Runner {} the edges creation query should have returned a row!",
+              id_);
 
     uint64_t count = ret.records[0][0].ValueInt();
     for (uint64_t i = 0; i < count; ++i) {
-      CHECK(edges_.insert(edge_id_ + i).second)
-          << "Runner " << id_ << " edge with ID " << edge_id_ + i
-          << " shouldn't exist!";
+      MG_ASSERT(edges_.insert(edge_id_ + i).second,
+                "Runner {} edge with ID {} shouldn't exist!", id_,
+                edge_id_ + i);
     }
     edge_id_ += count;
   }
@@ -231,9 +231,8 @@ class GraphSession {
                     indexed_label_, RandomElement(vertices_), indexed_label_,
                     RandomElement(vertices_), edge_id_));
     if (ret.records.size() > 0) {
-      CHECK(edges_.insert(edge_id_).second)
-          << "Runner " << id_ << " edge with ID " << edge_id_
-          << " shouldn't exist!";
+      MG_ASSERT(edges_.insert(edge_id_).second,
+                "Runner {} edge with ID {} shouldn't exist!", id_, edge_id_);
       ++edge_id_;
     }
   }
@@ -280,21 +279,20 @@ class GraphSession {
       try {
         ret = ExecuteWithoutCatch(query);
       } catch (const ExceptionT &e) {
-        LOG(FATAL) << "Runner " << id_ << " couldn't execute " << what
-                   << " ID retrieval because of: " << e.what();
+        LOG_FATAL("Runner {} couldn't execute {} ID retrieval because of: {}",
+                  id_, what, e.what());
       }
-      CHECK(ret.records.size() == container.size())
-          << "Runner " << id_ << " expected " << container.size() << " " << what
-          << ", found " << ret.records.size() << "!";
+      MG_ASSERT(ret.records.size() == container.size(),
+                "Runner {} expected {} {}, found {}!", id_, container.size(),
+                what, ret.records.size());
       for (size_t i = 0; i < ret.records.size(); ++i) {
-        CHECK(ret.records[i].size() == 1)
-            << "Runner " << id_ << " received an invalid ID row for " << what
-            << "!";
+        MG_ASSERT(ret.records[i].size() == 1,
+                  "Runner {} received an invalid ID row for {}!", id_, what);
         auto id = ret.records[i][0].ValueInt();
-        CHECK(container.find(id) != container.end())
-            << "Runner " << id_ << " couldn't find ID " << id << " for " << what
-            << "! Examined " << i << " items out of " << ret.records.size()
-            << " items!";
+        MG_ASSERT(container.find(id) != container.end(),
+                  "Runner {} couldn't find ID {} for {}! Examined {} items out "
+                  "of {} items!",
+                  id_, id, what, i, ret.records.size());
       }
     };
 
@@ -333,7 +331,7 @@ class GraphSession {
                << std::endl;
       }
     }
-    LOG(INFO) << report.str();
+    spdlog::info(report.str());
   }
 
  public:
@@ -413,14 +411,13 @@ class GraphSession {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
-  CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
-  CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";
+  MG_ASSERT(FLAGS_vertex_count > 0, "Vertex count must be greater than 0!");
+  MG_ASSERT(FLAGS_edge_count > 0, "Edge count must be greater than 0!");
 
-  LOG(INFO) << "Starting Memgraph long running test";
+  spdlog::info("Starting Memgraph long running test");
 
   // create client
   EndpointT endpoint(FLAGS_address, FLAGS_port);
@@ -464,11 +461,10 @@ int main(int argc, char **argv) {
     }
     std::ofstream stream(FLAGS_stats_file);
     stream << executed << std::endl << failed << std::endl;
-    LOG(INFO) << fmt::format("Written statistics to file: {}",
-                             FLAGS_stats_file);
+    spdlog::info("Written statistics to file: {}", FLAGS_stats_file);
   }
 
-  LOG(INFO) << "All query runners done";
+  spdlog::info("All query runners done");
 
   return 0;
 }

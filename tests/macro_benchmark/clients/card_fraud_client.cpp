@@ -34,16 +34,16 @@ int64_t MaxIdForLabel(Client &client, std::string label) {
 
 void CreateIndex(Client &client, const std::string &label,
                  const std::string &property) {
-  LOG(INFO) << fmt::format("Creating indexes for :{}({})...", label, property);
+  spdlog::info("Creating indexes for :{}({})...", label, property);
   ExecuteNTimesTillSuccess(
       client, fmt::format("CREATE INDEX ON :{}({});", label, property), {},
       MAX_RETRIES);
   try {
-    LOG(INFO) << fmt::format("Trying to sync indexes...");
+    spdlog::info("Trying to sync indexes...");
     ExecuteNTimesTillSuccess(client, "CALL db.awaitIndexes(14400);", {},
                              MAX_RETRIES);
   } catch (utils::BasicException &e) {
-    LOG(WARNING) << "Index sync failed: " << e.what();
+    spdlog::warn("Index sync failed: {}", e.what());
   }
 }
 
@@ -62,7 +62,7 @@ class CardFraudClient : public TestClient {
         "MATCH (t:Transaction {fraud_reported: true}) "
         "RETURN t.id as id",
         {}, "GetFraudulentTransactions");
-    CHECK(result) << "Read-only query should not fail!";
+    MG_ASSERT(result, "Read-only query should not fail!");
   }
 
   /* This query could be rewritten into an equivalent one:
@@ -78,7 +78,7 @@ class CardFraudClient : public TestClient {
         "WITH COLLECT(t.id) as ids "
         "RETURN head(ids)",
         {}, "HeavyRead");
-    CHECK(result) << "Read-only query should not fail";
+    MG_ASSERT(result, "Read-only query should not fail");
   }
 
   /* If a card was used in a fraudulent transaction, we mark all POS it was used
@@ -95,7 +95,7 @@ class CardFraudClient : public TestClient {
         "RETURN pos, connected_frauds "
         "ORDER BY connected_frauds DESC LIMIT $pos_limit",
         {{"pos_limit", pos_limit}}, "GetCompromisedPos");
-    CHECK(result) << "Read-only query should not fail";
+    MG_ASSERT(result, "Read-only query should not fail");
   }
 
   /* The following two queries approximate the above one. `UpdateFraudScores`
@@ -111,7 +111,9 @@ class CardFraudClient : public TestClient {
         "$tx_id})-[:Using]->(:Card)<-[:Using]-(:Transaction)-[:At]->(p:Pos) "
         "SET p.connected_frauds = p.connected_frauds + 1",
         {{"tx_id", tx_id}}, "UpdateFraudScores");
-    LOG_IF(WARNING, !result) << "`UpdateFraudScores` failed too many times!";
+    if (!result) {
+      spdlog::warn("`UpdateFraudScores` failed too many times!");
+    }
   }
 
   void GetCompromisedPosInc(int64_t pos_limit) {
@@ -121,25 +123,26 @@ class CardFraudClient : public TestClient {
         "ORDER BY p.connected_frauds DESC "
         "LIMIT $pos_limit",
         {{"pos_limit", pos_limit}}, "GetCompromisedPosInc");
-    CHECK(result) << "Read-only query should not fail";
+    MG_ASSERT(result, "Read-only query should not fail");
   }
 
   /* This is used to approximate Memgraph's TEPS (traversed edges per seconds)
    * metric by multiplying the throughput with the size of the dataset. */
   void TepsQuery() {
     auto result = Execute("MATCH (u)--(v) RETURN count(1)", {}, "TepsQuery");
-    CHECK(result) << "Read-only query should not fail";
-    CHECK(result->records[0][0].ValueInt() == num_transactions * 4)
-        << "Wrong count returned from TEPS query";
+    MG_ASSERT(result, "Read-only query should not fail");
+    MG_ASSERT(result->records[0][0].ValueInt() == num_transactions * 4,
+              "Wrong count returned from TEPS query");
   }
 
   /* Simple point lookup. */
   void GetTransaction(int64_t id) {
     auto result = Execute("MATCH (t:Transaction {id: $id}) RETURN (t)",
                           {{"id", id}}, "GetTransaction");
-    CHECK(result) << "Read-only query should not fail";
-    CHECK(result->records[0][0].ValueVertex().properties["id"].ValueInt() == id)
-        << "Transaction with wrong ID returned from point lookup";
+    MG_ASSERT(result, "Read-only query should not fail");
+    MG_ASSERT(
+        result->records[0][0].ValueVertex().properties["id"].ValueInt() == id,
+        "Transaction with wrong ID returned from point lookup");
   }
 
   void CreateTransaction(int64_t pos_id, int64_t card_id, int64_t tx_id,
@@ -155,14 +158,14 @@ class CardFraudClient : public TestClient {
         "CreateTransaction");
 
     if (!result) {
-      LOG(WARNING) << "`CreateTransaction` failed too many times!";
+      spdlog::warn("`CreateTransaction` failed too many times!");
       return;
     }
 
-    CHECK(result->records.size() == 1) << fmt::format(
-        "Failed to create transaction: (:Card {{id: {}}})<-(:Transaction "
-        "{{id: {}}})->(:Pos {{id: {}}})",
-        card_id, tx_id, pos_id);
+    MG_ASSERT(result->records.size() == 1,
+              "Failed to create transaction: (:Card {{id: {}}})<-(:Transaction "
+              "{{id: {}}})->(:Pos {{id: {}}})",
+              card_id, tx_id, pos_id);
 
     num_transactions++;
   }
@@ -216,18 +219,19 @@ class CardFraudClient : public TestClient {
   int64_t NumTransactions() {
     auto result =
         Execute("MATCH (t:Transaction) RETURN count(1)", {}, "NumTransactions");
-    CHECK(result) << "Read-only query should not fail!";
+    MG_ASSERT(result, "Read-only query should not fail!");
     return result->records[0][0].ValueInt();
   }
 
   void CleanupStep() {
     if (num_transactions >= config_["cleanup"]["tx_hi"].get<int64_t>()) {
-      LOG(INFO) << "Trying to obtain world lock...";
+      spdlog::info("Trying to obtain world lock...");
       std::unique_lock<utils::RWLock> lock(world_lock);
       int64_t id_limit = max_tx_id - config_["cleanup"]["tx_lo"].get<int>() + 1;
-      LOG(INFO) << "Transaction cleanup started, deleting transactions "
-                   "with ids less than "
-                << id_limit;
+      spdlog::info(
+          "Transaction cleanup started, deleting transactions "
+          "with ids less than {}",
+          id_limit);
       utils::Timer timer;
       auto result = Execute(
           "MATCH (t:Transaction) WHERE t.id < $id_limit "
@@ -237,17 +241,17 @@ class CardFraudClient : public TestClient {
       if (result) {
         deleted = result->records[0][0].ValueInt();
       } else {
-        LOG(ERROR) << "Transaction cleanup failed";
+        spdlog::error("Transaction cleanup failed");
       }
-      LOG(INFO) << "Deleted " << deleted << " transactions in "
-                << timer.Elapsed().count() << " seconds";
+      spdlog::info("Deleted {} transactions in {} seconds", deleted,
+                   timer.Elapsed().count());
       int64_t num_transactions_db = NumTransactions();
-      CHECK(num_transactions_db == num_transactions - deleted) << fmt::format(
-          "Number of transactions after deletion doesn't match: "
-          "before = {}, after = {}, reported deleted = {}, actual = "
-          "{}",
-          num_transactions, num_transactions_db, deleted,
-          num_transactions - num_transactions_db);
+      MG_ASSERT(num_transactions_db == num_transactions - deleted,
+                "Number of transactions after deletion doesn't match: "
+                "before = {}, after = {}, reported deleted = {}, actual = "
+                "{}",
+                num_transactions, num_transactions_db, deleted,
+                num_transactions - num_transactions_db);
       num_transactions = num_transactions_db;
     }
 
@@ -299,25 +303,24 @@ class CardFraudClient : public TestClient {
       return;
     }
 
-    LOG(FATAL) << "Should not get here: unknown scenario!";
+    LOG_FATAL("Should not get here: unknown scenario!");
   }
 };
 
 nlohmann::json LoadConfig() {
   nlohmann::json config;
   if (FLAGS_config != "") {
-    LOG(INFO) << "Loading config from: " << FLAGS_config;
+    spdlog::info("Loading config from: {}", FLAGS_config);
     std::ifstream is(FLAGS_config);
     is >> config;
   } else {
-    LOG(INFO) << "No test config provided";
+    spdlog::info("No test config provided");
   }
   return config;
 }
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -335,7 +338,7 @@ int main(int argc, char **argv) {
   CreateIndex(client, "Card", "id");
   CreateIndex(client, "Transaction", "fraud_reported");
   CreateIndex(client, "Transaction", "id");
-  LOG(INFO) << "Done building indexes.";
+  spdlog::info("Done building indexes.");
 
   client.Close();
 
@@ -343,14 +346,15 @@ int main(int argc, char **argv) {
 
   std::vector<std::unique_ptr<TestClient>> clients;
   if (FLAGS_scenario == "card_fraud_inc") {
-    CHECK(FLAGS_num_workers >= 2)
-        << "There should be at least 2 client workers (analytic and cleanup)";
-    CHECK(num_pos == config["num_workers"].get<int>() *
-                         config["pos_per_worker"].get<int>())
-        << "Wrong number of POS per worker";
-    CHECK(num_cards == config["num_workers"].get<int>() *
-                           config["cards_per_worker"].get<int>())
-        << "Wrong number of cards per worker";
+    MG_ASSERT(
+        FLAGS_num_workers >= 2,
+        "There should be at least 2 client workers (analytic and cleanup)");
+    MG_ASSERT(num_pos == config["num_workers"].get<int>() *
+                             config["pos_per_worker"].get<int>(),
+              "Wrong number of POS per worker");
+    MG_ASSERT(num_cards == config["num_workers"].get<int>() *
+                               config["cards_per_worker"].get<int>(),
+              "Wrong number of cards per worker");
     for (int i = 0; i < FLAGS_num_workers - 2; ++i) {
       clients.emplace_back(std::make_unique<CardFraudClient>(i, config));
     }

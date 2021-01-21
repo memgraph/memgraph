@@ -5,11 +5,11 @@
 #include <utility>
 
 #include <antlr4-runtime.h>
-#include <glog/logging.h>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace query {
 namespace frontend {
@@ -104,7 +104,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       std::vector<TExpression *> _expressions,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    DCHECK(_expressions.size()) << "can't happen";
+    DMG_ASSERT(_expressions.size(), "can't happen");
     std::vector<Expression *> expressions;
     auto operators = ExtractOperators(all_children, allowed_operators);
 
@@ -125,7 +125,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       TExpression *_expression,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    DCHECK(_expression) << "can't happen";
+    DMG_ASSERT(_expression, "can't happen");
     auto operators = ExtractOperators(all_children, allowed_operators);
 
     Expression *expression = _expression->accept(this);

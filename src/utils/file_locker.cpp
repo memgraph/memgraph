@@ -6,7 +6,7 @@ namespace utils {
 namespace {
 void DeleteFromSystem(const std::filesystem::path &path) {
   if (!utils::DeleteFile(path)) {
-    LOG(WARNING) << "Couldn't delete file " << path << "!";
+    spdlog::warn("Couldn't delete file {}!", path);
   }
 }
 }  // namespace
@@ -14,7 +14,7 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    LOG(INFO) << "File " << path << " doesn't exist.";
+    spdlog::info("File {} doesn't exist.", path);
     return;
   }
 
@@ -37,7 +37,7 @@ FileRetainer::FileLocker FileRetainer::AddLocker() {
 }
 
 FileRetainer::~FileRetainer() {
-  CHECK(files_for_deletion_->empty()) << "Files weren't properly deleted";
+  MG_ASSERT(files_for_deletion_->empty(), "Files weren't properly deleted");
 }
 
 [[nodiscard]] bool FileRetainer::FileLocked(const std::filesystem::path &path) {
@@ -94,8 +94,8 @@ bool FileRetainer::LockerEntry::RemovePath(const std::filesystem::path &path) {
 
 bool FileRetainer::LockerEntry::LocksFile(
     const std::filesystem::path &path) const {
-  CHECK(path.is_absolute())
-      << "Absolute path needed to check if the file is locked.";
+  MG_ASSERT(path.is_absolute(),
+            "Absolute path needed to check if the file is locked.");
 
   if (files_.count(path)) {
     return true;

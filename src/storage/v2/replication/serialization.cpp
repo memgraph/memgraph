@@ -48,8 +48,8 @@ void Encoder::WriteFileData(utils::InputFile *file) {
 
 void Encoder::WriteFile(const std::filesystem::path &path) {
   utils::InputFile file;
-  CHECK(file.Open(path)) << "Failed to open file " << path;
-  CHECK(path.has_filename()) << "Path does not have a filename!";
+  MG_ASSERT(file.Open(path), "Failed to open file {}", path);
+  MG_ASSERT(path.has_filename(), "Path does not have a filename!");
   const auto &filename = path.filename().generic_string();
   WriteString(filename);
   auto file_size = file.GetSize();
@@ -130,18 +130,18 @@ bool Decoder::SkipPropertyValue() {
 
 std::optional<std::filesystem::path> Decoder::ReadFile(
     const std::filesystem::path &directory, const std::string &suffix) {
-  CHECK(std::filesystem::exists(directory) &&
-        std::filesystem::is_directory(directory))
-      << "Sent path for streamed files should be a valid directory!";
+  MG_ASSERT(std::filesystem::exists(directory) &&
+                std::filesystem::is_directory(directory),
+            "Sent path for streamed files should be a valid directory!");
   utils::OutputFile file;
   const auto maybe_filename = ReadString();
-  CHECK(maybe_filename) << "Filename missing for the file";
+  MG_ASSERT(maybe_filename, "Filename missing for the file");
   const auto filename = *maybe_filename + suffix;
   auto path = directory / filename;
 
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   std::optional<size_t> maybe_file_size = ReadUint();
-  CHECK(maybe_file_size) << "File size missing";
+  MG_ASSERT(maybe_file_size, "File size missing");
   auto file_size = *maybe_file_size;
   uint8_t buffer[utils::kFileBufferSize];
   while (file_size > 0) {

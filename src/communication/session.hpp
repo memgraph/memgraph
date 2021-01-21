@@ -7,8 +7,6 @@
 #include <mutex>
 #include <thread>
 
-#include <glog/logging.h>
-
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -19,6 +17,7 @@
 #include "communication/helpers.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
+#include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -97,14 +96,14 @@ class Session final {
     if (context->use_ssl()) {
       // Create a new SSL object that will be used for SSL communication.
       ssl_ = SSL_new(context->context());
-      CHECK(ssl_ != nullptr) << "Couldn't create server SSL object!";
+      MG_ASSERT(ssl_ != nullptr, "Couldn't create server SSL object!");
 
       // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
       // using our socket. We specify `BIO_NOCLOSE` to indicate to OpenSSL that
       // it doesn't need to close the socket when destructing all objects (we
       // handle that in our socket destructor).
       bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
-      CHECK(bio_ != nullptr) << "Couldn't create server BIO object!";
+      MG_ASSERT(bio_ != nullptr, "Couldn't create server BIO object!");
 
       // Connect the BIO object to the SSL object so that OpenSSL knows which
       // stream it should use for communication. We use the same object for both
@@ -189,6 +188,10 @@ class Session final {
           throw utils::BasicException(SslGetLastError());
         } else {
           // This is a fatal error.
+          spdlog::error(
+              "An unknown error occured while processing SSL message."
+              " Please make sure that you have SSL properly configured on "
+              "the server and the client.");
           throw utils::BasicException(SslGetLastError());
         }
       } else if (len == 0) {

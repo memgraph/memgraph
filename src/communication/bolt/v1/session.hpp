@@ -3,8 +3,6 @@
 #include <optional>
 #include <thread>
 
-#include "glog/logging.h"
-
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
@@ -16,6 +14,7 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -105,8 +104,8 @@ class Session {
 
       // Receive the handshake.
       if (input_stream_.size() < kHandshakeSize) {
-        DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
-                                     input_stream_.size());
+        spdlog::trace("Received partial handshake of size {}",
+                      input_stream_.size());
         return;
       }
       state_ = StateHandshakeRun(*this);

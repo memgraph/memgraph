@@ -7,8 +7,7 @@
 #include <thread>
 #include <utility>
 
-#include "glog/logging.h"
-
+#include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
 
 /**
@@ -38,7 +37,7 @@ class RingBuffer {
    * available, there are no order-of-entrace guarantees.
    */
   template <typename... TArgs>
-  void emplace(TArgs &&... args) {
+  void emplace(TArgs &&...args) {
     while (true) {
       {
         std::lock_guard<utils::SpinLock> guard(lock_);
@@ -50,8 +49,8 @@ class RingBuffer {
         }
       }
 
-      // Log a warning approximately once per second if buffer is full.
-      DLOG_EVERY_N(WARNING, 4000) << "RingBuffer full: worker waiting";
+      SPDLOG_WARN("RingBuffer full: worker waiting");
+
       // Sleep time determined using tests/benchmark/ring_buffer.cpp
       std::this_thread::sleep_for(std::chrono::microseconds(250));
     }

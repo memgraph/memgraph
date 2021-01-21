@@ -1,7 +1,5 @@
 #pragma once
 
-#include <glog/logging.h>
-
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
@@ -10,6 +8,7 @@
 #include "communication/context.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -23,7 +22,7 @@ class ClientQueryException : public utils::BasicException {
   ClientQueryException() : utils::BasicException("Couldn't execute query!") {}
 
   template <class... Args>
-  ClientQueryException(const std::string &code, Args &&... args)
+  ClientQueryException(const std::string &code, Args &&...args)
       : utils::BasicException(std::forward<Args>(args)...), code_(code) {}
 
   const std::string &code() const { return code_; }
@@ -88,22 +87,22 @@ class Client final {
     }
 
     if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
-      DLOG(ERROR) << "Couldn't send preamble!";
+      SPDLOG_ERROR("Couldn't send preamble!");
       throw ServerCommunicationException();
     }
     for (int i = 0; i < 4; ++i) {
       if (!client_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
-        DLOG(ERROR) << "Couldn't send protocol version!";
+        SPDLOG_ERROR("Couldn't send protocol version!");
         throw ServerCommunicationException();
       }
     }
 
     if (!client_.Read(sizeof(kProtocol))) {
-      DLOG(ERROR) << "Couldn't get negotiated protocol version!";
+      SPDLOG_ERROR("Couldn't get negotiated protocol version!");
       throw ServerCommunicationException();
     }
     if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
-      DLOG(ERROR) << "Server negotiated unsupported protocol version!";
+      SPDLOG_ERROR("Server negotiated unsupported protocol version!");
       throw ClientFatalException(
           "The server negotiated an usupported protocol version!");
     }
@@ -112,22 +111,22 @@ class Client final {
     if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
                                             {"principal", username},
                                             {"credentials", password}})) {
-      DLOG(ERROR) << "Couldn't send init message!";
+      SPDLOG_ERROR("Couldn't send init message!");
       throw ServerCommunicationException();
     }
 
     Signature signature;
     Value metadata;
     if (!ReadMessage(&signature, &metadata)) {
-      DLOG(ERROR) << "Couldn't read init message response!";
+      SPDLOG_ERROR("Couldn't read init message response!");
       throw ServerCommunicationException();
     }
     if (signature != Signature::Success) {
-      DLOG(ERROR) << "Handshake failed!";
+      SPDLOG_ERROR("Handshake failed!");
       throw ClientFatalException("Handshake with the server failed!");
     }
 
-    DLOG(INFO) << "Metadata of init message response: " << metadata;
+    SPDLOG_INFO("Metadata of init message response: {}", metadata);
   }
 
   /// Function used to execute queries against the server. Before you can
@@ -143,13 +142,13 @@ class Client final {
           "You must first connect to the server before using the client!");
     }
 
-    DLOG(INFO) << "Sending run message with statement: '" << query
-               << "'; parameters: " << parameters;
+    SPDLOG_INFO("Sending run message with statement: '{}'; parameters: {}",
+                query, parameters);
 
     encoder_.MessageRun(query, parameters);
     encoder_.MessagePullAll();
 
-    DLOG(INFO) << "Reading run message response";
+    SPDLOG_INFO("Reading run message response");
     Signature signature;
     Value fields;
     if (!ReadMessage(&signature, &fields)) {
@@ -177,7 +176,7 @@ class Client final {
       throw ServerMalformedDataException();
     }
 
-    DLOG(INFO) << "Reading pull_all message response";
+    SPDLOG_INFO("Reading pull_all message response");
     Marker marker;
     Value metadata;
     std::vector<std::vector<Value>> records;

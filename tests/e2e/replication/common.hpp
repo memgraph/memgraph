@@ -2,10 +2,10 @@
 #include <random>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
+#include <mgclient.hpp>
 
 #include "io/network/endpoint.hpp"
-#include "mgclient.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 DEFINE_string(database_endpoints,
@@ -30,7 +30,7 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
   for (const auto &db_endpoint_str : db_endpoints_strs) {
     const auto maybe_host_port =
         io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
-    CHECK(maybe_host_port);
+    MG_ASSERT(maybe_host_port);
     database_endpoints.emplace_back(
         io::network::Endpoint(maybe_host_port->first, maybe_host_port->second));
   }
@@ -44,7 +44,7 @@ auto Connect(const io::network::Endpoint &database_endpoint) {
   params.use_ssl = FLAGS_use_ssl;
   auto client = mg::Client::Connect(params);
   if (!client) {
-    LOG(FATAL) << "Failed to connect!";
+    LOG_FATAL("Failed to connect!");
   }
   return client;
 }
@@ -57,7 +57,7 @@ class IntGenerator {
                   .count()),
         rng_(seed_),
         dist_(start, end) {
-    LOG(INFO) << purpose << " int generator seed: " << seed_;
+    spdlog::info("{} int generator seed: {}", purpose, seed_);
   }
 
   int Next() { return dist_(rng_); }

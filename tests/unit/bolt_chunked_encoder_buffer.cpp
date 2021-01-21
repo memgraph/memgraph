@@ -13,6 +13,11 @@ using communication::bolt::kChunkWholeSize;
 constexpr const int kTestDataSize = 100000;
 uint8_t test_data[kTestDataSize];
 
+struct BoltChunkedEncoderBuffer : ::testing::Test {
+  // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
+  static void SetUpTestCase() { InitializeData(test_data, kTestDataSize); }
+};
+
 /**
  * Verifies a single chunk. The chunk should be constructed from a header
  * (chunk size) and data. The header is a two byte long number written in big
@@ -37,7 +42,7 @@ void VerifyChunkOfTestData(uint8_t *data, int size, uint64_t offset = 0) {
   }
 }
 
-TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
+TEST_F(BoltChunkedEncoderBuffer, OneSmallChunk) {
   int size = 100;
 
   // initialize tested buffer
@@ -53,7 +58,7 @@ TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
   VerifyChunkOfTestData(output_stream.output.data(), size);
 }
 
-TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
+TEST_F(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   int size1 = 100;
   int size2 = 200;
 
@@ -76,7 +81,7 @@ TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   VerifyChunkOfTestData(data + kChunkHeaderSize + size1, size2, size1);
 }
 
-TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
+TEST_F(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // initialize tested buffer
   TestOutputStream output_stream;
   BufferT buffer(output_stream);
@@ -93,11 +98,4 @@ TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   VerifyChunkOfTestData(output, kChunkMaxDataSize);
   VerifyChunkOfTestData(output + kChunkWholeSize,
                         kTestDataSize - kChunkMaxDataSize, kChunkMaxDataSize);
-}
-
-int main(int argc, char **argv) {
-  InitializeData(test_data, kTestDataSize);
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

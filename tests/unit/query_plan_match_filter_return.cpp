@@ -260,7 +260,7 @@ TEST(QueryPlan, Cartesian) {
 
   auto add_vertex = [&dba](std::string label) {
     auto vertex = dba.InsertVertex();
-    CHECK(vertex.AddLabel(dba.NameToLabel(label)).HasValue());
+    MG_ASSERT(vertex.AddLabel(dba.NameToLabel(label)).HasValue());
     return vertex;
   };
 
@@ -332,7 +332,7 @@ TEST(QueryPlan, CartesianThreeWay) {
   query::DbAccessor dba(&storage_dba);
   auto add_vertex = [&dba](std::string label) {
     auto vertex = dba.InsertVertex();
-    CHECK(vertex.AddLabel(dba.NameToLabel(label)).HasValue());
+    MG_ASSERT(vertex.AddLabel(dba.NameToLabel(label)).HasValue());
     return vertex;
   };
 
@@ -561,8 +561,9 @@ class QueryPlanExpandVariable : public testing::Test {
       auto convert = [this](std::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
-      CHECK(view == storage::View::OLD)
-          << "ExpandVariable should only be planned with storage::View::OLD";
+      MG_ASSERT(
+          view == storage::View::OLD,
+          "ExpandVariable should only be planned with storage::View::OLD");
 
       return std::make_shared<ExpandVariable>(
           filter_op, n_from.sym_, n_to_sym, edge_sym,
@@ -2315,11 +2316,4 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   count_with_index(prop_value2, vertex_count - vertex_prop_count);
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
-}
-
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
-  return RUN_ALL_TESTS();
 }

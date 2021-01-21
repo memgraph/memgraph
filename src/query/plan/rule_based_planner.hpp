@@ -8,6 +8,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/logging.hpp"
 
 namespace query::plan {
 
@@ -94,20 +95,20 @@ template <typename T>
 auto ReducePattern(
     Pattern &pattern, std::function<T(NodeAtom *)> base,
     std::function<T(T, NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  CHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
+  MG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-  CHECK(current_node) << "First pattern atom is not a node";
+  MG_ASSERT(current_node, "First pattern atom is not a node");
   auto last_res = base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
-    CHECK(edge) << "Expected an edge atom in pattern.";
-    CHECK(atoms_it != pattern.atoms_.end())
-        << "Edge atom should not end the pattern.";
+    MG_ASSERT(edge, "Expected an edge atom in pattern.");
+    MG_ASSERT(atoms_it != pattern.atoms_.end(),
+              "Edge atom should not end the pattern.");
     auto prev_node = current_node;
     current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-    CHECK(current_node) << "Expected a node atom in pattern.";
+    MG_ASSERT(current_node, "Expected a node atom in pattern.");
     last_res = collect(std::move(last_res), prev_node, edge, current_node);
   }
   return last_res;
@@ -179,8 +180,8 @@ class RuleBasedPlanner {
       }
       uint64_t merge_id = 0;
       for (auto *clause : query_part.remaining_clauses) {
-        CHECK(!utils::IsSubtype(*clause, Match::kType))
-            << "Unexpected Match in remaining clauses";
+        MG_ASSERT(!utils::IsSubtype(*clause, Match::kType),
+                  "Unexpected Match in remaining clauses");
         if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(
               *ret, std::move(input_op), *context.symbol_table, is_write,
@@ -303,7 +304,7 @@ class RuleBasedPlanner {
       }
       const auto &edge_symbol = symbol_table.at(*edge->identifier_);
       if (!bound_symbols.insert(edge_symbol).second) {
-        LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
+        LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
       std::vector<std::pair<storage::PropertyId, Expression *>> properties;
@@ -311,8 +312,9 @@ class RuleBasedPlanner {
       for (const auto &kv : edge->properties_) {
         properties.push_back({GetProperty(kv.first), kv.second});
       }
-      CHECK(edge->edge_types_.size() == 1)
-          << "Creating an edge with a single type should be required by syntax";
+      MG_ASSERT(
+          edge->edge_types_.size() == 1,
+          "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties,
                                  GetEdgeType(edge->edge_types_[0]),
                                  edge->direction_};
@@ -425,8 +427,8 @@ class RuleBasedPlanner {
             symbol_table.at(*expansion.node2->identifier_);
         auto existing_node = utils::Contains(bound_symbols, node_symbol);
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-        CHECK(!utils::Contains(bound_symbols, edge_symbol))
-            << "Existing edges are not supported";
+        MG_ASSERT(!utils::Contains(bound_symbols, edge_symbol),
+                  "Existing edges are not supported");
         std::vector<storage::EdgeTypeId> edge_types;
         edge_types.reserve(edge->edge_types_.size());
         for (const auto &type : edge->edge_types_) {
@@ -457,8 +459,8 @@ class RuleBasedPlanner {
                 bound_symbols.insert(filter_lambda.inner_edge_symbol).second;
             bool inner_node_bound =
                 bound_symbols.insert(filter_lambda.inner_node_symbol).second;
-            CHECK(inner_edge_bound && inner_node_bound)
-                << "An inner edge and node can't be bound from before";
+            MG_ASSERT(inner_edge_bound && inner_node_bound,
+                      "An inner edge and node can't be bound from before");
           }
           // Join regular filters with lambda filter expression, so that they
           // are done inline together. Semantic analysis should guarantee that
@@ -488,19 +490,19 @@ class RuleBasedPlanner {
           }
 
           // TODO: Pass weight lambda.
-          CHECK(match_context.view == storage::View::OLD)
-              << "ExpandVariable should only be planned with "
-                 "storage::View::OLD";
+          MG_ASSERT(
+              match_context.view == storage::View::OLD,
+              "ExpandVariable should only be planned with storage::View::OLD");
           last_op = std::make_unique<ExpandVariable>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
               edge->type_, expansion.direction, edge_types,
               expansion.is_flipped, edge->lower_bound_, edge->upper_bound_,
               existing_node, filter_lambda, weight_lambda, total_weight);
         } else {
-          last_op = std::make_unique<Expand>(
-              std::move(last_op), node1_symbol, node_symbol, edge_symbol,
-              expansion.direction, edge_types, existing_node,
-              match_context.view);
+          last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol,
+                                             node_symbol, edge_symbol,
+                                             expansion.direction, edge_types,
+                                             existing_node, match_context.view);
         }
 
         // Bind the expanded edge and node.
@@ -537,14 +539,14 @@ class RuleBasedPlanner {
                                    storage);
       }
     }
-    CHECK(named_paths.empty()) << "Expected to generate all named paths";
+    MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
     for (const auto &named_path : matching.named_paths) {
-      CHECK(utils::Contains(bound_symbols, named_path.first))
-          << "Expected generated named path to have bound symbol";
+      MG_ASSERT(utils::Contains(bound_symbols, named_path.first),
+                "Expected generated named path to have bound symbol");
       match_context.new_symbols.emplace_back(named_path.first);
     }
-    CHECK(filters.empty()) << "Expected to generate all filters";
+    MG_ASSERT(filters.empty(), "Expected to generate all filters");
     return last_op;
   }
 
@@ -563,12 +565,12 @@ class RuleBasedPlanner {
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table,
                                     context_->bound_symbols);
-      CHECK(on_create) << "Expected SET in MERGE ... ON CREATE";
+      MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
     }
     for (auto &set : merge.on_match_) {
       on_match = HandleWriteClause(set, on_match, *context_->symbol_table,
                                    context_->bound_symbols);
-      CHECK(on_match) << "Expected SET in MERGE ... ON MATCH";
+      MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(
         std::move(input_op), std::move(on_match), std::move(on_create));

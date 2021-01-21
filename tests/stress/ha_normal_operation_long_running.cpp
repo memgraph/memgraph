@@ -5,7 +5,6 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/ha_client.hpp"
 #include "io/network/endpoint.hpp"
@@ -47,7 +46,7 @@ std::vector<EndpointT> GetEndpoints() {
   std::vector<io::network::Endpoint> ret;
   for (const auto &endpoint : utils::Split(FLAGS_endpoints, ",")) {
     auto split = utils::Split(utils::Trim(endpoint), ":");
-    CHECK(split.size() == 2) << "Invalid endpoint!";
+    MG_ASSERT(split.size() == 2, "Invalid endpoint!");
     ret.emplace_back(
         io::network::ResolveHostname(std::string(utils::Trim(split[0]))),
         static_cast<uint16_t>(std::stoi(std::string(utils::Trim(split[1])))));
@@ -128,7 +127,7 @@ class GraphSession {
 
   QueryDataT Execute(std::string query) {
     try {
-      DLOG(INFO) << "Runner " << id_ << " executing query: " << query;
+      SPDLOG_INFO("Runner {} executing query: {}", id_, query);
       executed_queries_ += 1;
       return client_->Execute(query, {});
     } catch (const ExceptionT &e) {
@@ -142,10 +141,10 @@ class GraphSession {
     auto ret = Execute(fmt::format(
         "UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
         vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
-    CHECK(ret.records.size() == 1) << "Vertices creation failed!";
-    CHECK(ret.records[0][0].ValueInt() == vertices_count)
-        << "Created " << ret.records[0][0].ValueInt() << " vertices instead of "
-        << vertices_count << "!";
+    MG_ASSERT(ret.records.size() == 1, "Vertices creation failed!");
+    MG_ASSERT(ret.records[0][0].ValueInt() == vertices_count,
+              "Created {} vertices instead of {}!",
+              ret.records[0][0].ValueInt(), vertices_count);
     for (uint64_t i = 0; i < vertices_count; ++i) {
       vertices_.insert(vertex_id_ + i);
     }
@@ -184,8 +183,8 @@ class GraphSession {
   void CreateEdges(uint64_t edges_count) {
     if (edges_count == 0) return;
     auto edges_per_node = (double)edges_count / vertices_.size();
-    CHECK(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001)
-        << "Edges per node not a whole number";
+    MG_ASSERT(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001,
+              "Edges per node not a whole number");
 
     auto ret = Execute(fmt::format(
         "MATCH (a:{0}) WITH a "
@@ -196,7 +195,7 @@ class GraphSession {
         indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(),
         edge_id_));
 
-    CHECK(ret.records.size() == 1) << "Failed to create edges";
+    MG_ASSERT(ret.records.size() == 1, "Failed to create edges");
     uint64_t count = ret.records[0][0].ValueInt();
     for (uint64_t i = 0; i < count; ++i) {
       edges_.insert(edge_id_ + i);
@@ -303,7 +302,7 @@ class GraphSession {
                << std::endl;
       }
     }
-    LOG(INFO) << report.str();
+    spdlog::info(report.str());
   }
 
  public:
@@ -375,14 +374,13 @@ class GraphSession {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
-  CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
-  CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";
+  MG_ASSERT(FLAGS_vertex_count > 0, "Vertex count must be greater than 0!");
+  MG_ASSERT(FLAGS_edge_count > 0, "Edge count must be greater than 0!");
 
   communication::SSLInit sslInit;
 
-  LOG(INFO) << "Starting Memgraph HA normal operation long running test";
+  spdlog::info("Starting Memgraph HA normal operation long running test");
 
   try {
     std::vector<EndpointT> endpoints = GetEndpoints();
@@ -401,15 +399,15 @@ int main(int argc, char **argv) {
                      {});
     }
   } catch (const communication::bolt::ClientFatalException &e) {
-    LOG(WARNING) << "Unable to find cluster leader";
+    spdlog::warn("Unable to find cluster leader");
     return 1;
   } catch (const communication::bolt::ClientQueryException &e) {
-    LOG(WARNING)
-        << "Transient error while executing query. (eg. mistyped query, etc.)\n"
-        << e.what();
+    spdlog::warn(
+        "Transient error while executing query. (eg. mistyped query, etc.)\n{}",
+        e.what());
     return 1;
   } catch (const utils::BasicException &e) {
-    LOG(WARNING) << "Error while executing query\n" << e.what();
+    spdlog::warn("Error while executing query\n{}", e.what());
     return 1;
   }
 
@@ -435,11 +433,10 @@ int main(int argc, char **argv) {
     }
     std::ofstream stream(FLAGS_stats_file);
     stream << executed << std::endl << failed << std::endl;
-    LOG(INFO) << fmt::format("Written statistics to file: {}",
-                             FLAGS_stats_file);
+    spdlog::info("Written statistics to file: {}", FLAGS_stats_file);
   }
 
-  LOG(INFO) << "All query runners done";
+  spdlog::info("All query runners done");
 
   return 0;
 }

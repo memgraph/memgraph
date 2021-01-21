@@ -16,6 +16,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
 using testing::Contains;
@@ -690,7 +691,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
 void DestroySnapshot(const std::filesystem::path &path) {
   auto info = storage::durability::ReadSnapshotInfo(path);
-  LOG(INFO) << "Destroying snapshot " << path;
+  spdlog::info("Destroying snapshot {}", path);
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(utils::OutputFile::Position::SET, info.offset_vertices);
@@ -702,7 +703,7 @@ void DestroySnapshot(const std::filesystem::path &path) {
 
 void DestroyWalFirstDelta(const std::filesystem::path &path) {
   auto info = storage::durability::ReadWalInfo(path);
-  LOG(INFO) << "Destroying WAL " << path;
+  spdlog::info("Destroying WAL {}", path);
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(utils::OutputFile::Position::SET, info.offset_deltas);
@@ -714,7 +715,7 @@ void DestroyWalFirstDelta(const std::filesystem::path &path) {
 
 void DestroyWalSuffix(const std::filesystem::path &path) {
   auto info = storage::durability::ReadWalInfo(path);
-  LOG(INFO) << "Destroying WAL " << path;
+  spdlog::info("Destroying WAL {}", path);
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   ASSERT_LT(
@@ -910,7 +911,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     for (const auto &snapshot : snapshots) {
       auto info = storage::durability::ReadSnapshotInfo(snapshot);
       if (info.uuid == unrelated_uuid) {
-        LOG(INFO) << "Skipping snapshot " << snapshot;
+        spdlog::info("Skipping snapshot {}", snapshot);
         continue;
       }
       DestroySnapshot(snapshot);
@@ -1815,7 +1816,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       for (uint64_t i = 0; i < 1000000; ++i) {
         auto acc = store.Access();
         acc.CreateVertex();
-        CHECK(!acc.Commit().HasError()) << "Couldn't commit transaction!";
+        MG_ASSERT(!acc.Commit().HasError(), "Couldn't commit transaction!");
       }
     }
   } else if (pid > 0) {
@@ -1827,7 +1828,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     EXPECT_EQ(waitpid(pid, &status, 0), pid);
     EXPECT_NE(status, 0);
   } else {
-    LOG(FATAL) << "Couldn't create process to execute test!";
+    LOG_FATAL("Couldn't create process to execute test!");
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -1971,7 +1972,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     auto wals = GetWalsList();
     ASSERT_GT(wals.size(), unrelated_wals + 2);
     const auto &wal_file = wals[wals.size() - unrelated_wals - 2];
-    LOG(INFO) << "Deleting WAL file " << wal_file;
+    spdlog::info("Deleting WAL file {}", wal_file);
     ASSERT_TRUE(std::filesystem::remove(wal_file));
   }
 
@@ -2481,7 +2482,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   ASSERT_EQ(snapshots.size(), 3);
 
   for (uint64_t i = 0; i < snapshots.size(); ++i) {
-    LOG(INFO) << "Recovery attempt " << i;
+    spdlog::info("Recovery attempt {}", i);
 
     // Recover and verify data.
     {

@@ -11,7 +11,6 @@ TEST(RingBuffer, MultithreadedUsage) {
   auto test_f = [](int producer_count, int elems_per_producer,
                    int producer_sleep_ms, int consumer_count,
                    int consumer_sleep_ms) {
-
     std::unordered_set<int> consumed;
     utils::SpinLock consumed_lock;
     RingBuffer<int> buffer{20};
@@ -64,13 +63,13 @@ TEST(RingBuffer, MultithreadedUsage) {
 TEST(RingBuffer, ComplexValues) {
   RingBuffer<std::vector<int>> buffer{10};
   std::vector<int> element;
-  for (int i = 0 ; i < 5 ; i++) {
+  for (int i = 0; i < 5; i++) {
     element.emplace_back(i);
     buffer.emplace(element);
   }
 
   element.clear();
-  for (int i = 0 ; i < 5 ; i++) {
+  for (int i = 0; i < 5; i++) {
     element.emplace_back(i);
     EXPECT_EQ(*buffer.pop(), element);
   }
