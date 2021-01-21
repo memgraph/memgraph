@@ -32,7 +32,7 @@
 namespace storage {
 
 namespace {
-constexpr uint16_t kEpochHistoryRetention = 1000;
+[[maybe_unused]] constexpr uint16_t kEpochHistoryRetention = 1000;
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
