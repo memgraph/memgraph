@@ -1,1 +1,2 @@
 /etc/memgraph/memgraph.conf
+/etc/logrotate.d/memgraph
