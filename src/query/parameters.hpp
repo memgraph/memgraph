@@ -1,12 +1,11 @@
 #pragma once
 
-#include "glog/logging.h"
-
 #include <algorithm>
 #include <utility>
 #include <vector>
 
 #include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)
@@ -36,8 +35,8 @@ struct Parameters {
     auto found =
         std::find_if(storage_.begin(), storage_.end(),
                      [&](const auto &a) { return a.first == position; });
-    CHECK(found != storage_.end())
-        << "Token position must be present in container";
+    MG_ASSERT(found != storage_.end(),
+              "Token position must be present in container");
     return found->second;
   }
 
@@ -49,7 +48,7 @@ struct Parameters {
    * @return Token position and value for sought param.
    */
   const std::pair<int, storage::PropertyValue> &At(int position) const {
-    CHECK(position < static_cast<int>(storage_.size())) << "Invalid position";
+    MG_ASSERT(position < static_cast<int>(storage_.size()), "Invalid position");
     return storage_[position];
   }
 

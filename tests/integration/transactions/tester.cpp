@@ -1,7 +1,6 @@
 #include <iostream>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "communication/bolt/client.hpp"
@@ -476,7 +475,6 @@ TEST_F(BoltClient, MixedCaseAndWhitespace) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

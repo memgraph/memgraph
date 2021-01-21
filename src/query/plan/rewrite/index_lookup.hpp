@@ -454,9 +454,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
-    CHECK(input);
+    MG_ASSERT(input);
     if (prev_ops_.empty()) {
-      CHECK(!new_root_);
+      MG_ASSERT(!new_root_);
       new_root_ = input;
       return;
     }
@@ -481,8 +481,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   std::optional<LabelIx> FindBestLabelIndex(
       const std::unordered_set<LabelIx> &labels) {
-    CHECK(!labels.empty())
-        << "Trying to find the best label without any labels.";
+    MG_ASSERT(!labels.empty(),
+              "Trying to find the best label without any labels.");
     std::optional<LabelIx> best_label;
     for (const auto &label : labels) {
       if (!db_->LabelIndexExists(GetLabel(label))) continue;
@@ -641,8 +641,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             GetProperty(prop_filter.property_), prop_filter.property_.name,
             view);
       } else {
-        CHECK(prop_filter.value_) << "Property filter should either have "
-                                     "bounds or a value expression.";
+        MG_ASSERT(
+            prop_filter.value_,
+            "Property filter should either have bounds or a value expression.");
         return std::make_unique<ScanAllByLabelPropertyValue>(
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
@@ -679,8 +680,8 @@ std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter
     // removes Filter operations and they cannot be the root op. In case we
-    // somehow missed this, raise NotYetImplemented instead of CHECK crashing
-    // the application.
+    // somehow missed this, raise NotYetImplemented instead of MG_ASSERT
+    // crashing the application.
     throw utils::NotYetImplemented("optimizing index lookup");
   }
   return root_op;

@@ -31,8 +31,8 @@ class Server {
   template <class TRequestResponse>
   void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    CHECK(!server_.IsRunning())
-        << "You can't register RPCs when the server is running!";
+    MG_ASSERT(!server_.IsRunning(),
+              "You can't register RPCs when the server is running!");
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
@@ -40,13 +40,13 @@ class Server {
 
     if (extended_callbacks_.find(TRequestResponse::Request::kType.id) !=
         extended_callbacks_.end()) {
-      LOG(FATAL) << "Callback for that message type already registered!";
+      LOG_FATAL("Callback for that message type already registered!");
     }
 
     auto got = callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
-    CHECK(got.second) << "Callback for that message type already registered";
-    VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
-             << rpc.res_type.name;
+    MG_ASSERT(got.second, "Callback for that message type already registered");
+    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name,
+                 rpc.res_type.name);
   }
 
   template <class TRequestResponse>
@@ -54,8 +54,8 @@ class Server {
                                    slk::Builder *)>
                     callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    CHECK(!server_.IsRunning())
-        << "You can't register RPCs when the server is running!";
+    MG_ASSERT(!server_.IsRunning(),
+              "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
@@ -63,9 +63,9 @@ class Server {
 
     auto got =
         extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
-    CHECK(got.second) << "Callback for that message type already registered";
-    VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
-             << rpc.res_type.name;
+    MG_ASSERT(got.second, "Callback for that message type already registered");
+    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name,
+                 rpc.res_type.name);
   }
 
  private:

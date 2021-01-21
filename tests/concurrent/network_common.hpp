@@ -7,7 +7,6 @@
 #include <random>
 #include <vector>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "communication/server.hpp"
@@ -59,24 +58,24 @@ void client_run(int num, const char *interface, uint16_t port,
   Socket socket;
   ASSERT_TRUE(socket.Connect(endpoint));
   socket.SetTimeout(2, 0);
-  DLOG(INFO) << "Socket create: " << socket.fd();
+  SPDLOG_INFO("Socket create: {}", socket.fd());
   for (int len = lo; len <= hi; len += 100) {
     have = 0;
     head[0] = (len >> 8) & 0xff;
     head[1] = len & 0xff;
     ASSERT_TRUE(socket.Write(head, 2));
     ASSERT_TRUE(socket.Write(data, len));
-    DLOG(INFO) << "Socket write: " << socket.fd();
+    SPDLOG_INFO("Socket write: {}", socket.fd());
     while (have < len * REPLY) {
       read = socket.Read(buffer + have, SIZE);
-      DLOG(INFO) << "Socket read: " << socket.fd();
+      SPDLOG_INFO("Socket read: {}", socket.fd());
       if (read == -1) break;
       have += read;
     }
     for (int i = 0; i < REPLY; ++i)
       for (int j = 0; j < len; ++j) ASSERT_EQ(buffer[i * len + j], data[j]);
   }
-  DLOG(INFO) << "Socket done: " << socket.fd();
+  SPDLOG_INFO("Socket done: {}", socket.fd());
   socket.Close();
 }
 

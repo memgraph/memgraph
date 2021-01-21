@@ -17,7 +17,7 @@ function(add_unit_test test_cpp)
   # TODO: this is a temporary workaround the test build warnings
   target_compile_options(${target_name} PRIVATE -Wno-comment -Wno-sign-compare
                                                 -Wno-unused-variable)
-  target_link_libraries(${target_name} glog gflags gtest gtest_main Threads::Threads
+  target_link_libraries(${target_name} spdlog gflags gtest gtest_main Threads::Threads
                                        louvain-core louvain-test)
   # register test
   add_test(${target_name} ${exec_name})

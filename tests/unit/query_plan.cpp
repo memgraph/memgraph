@@ -784,8 +784,6 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   }
 }
 
-
-
 TYPED_TEST(TestPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
   FakeDbAccessor dba;

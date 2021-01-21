@@ -6,9 +6,8 @@
 #include <regex>
 #include <type_traits>
 
-#include <glog/logging.h>
-
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/string.hpp"
 
@@ -79,7 +78,7 @@ namespace {
 // May throw whatever the constructor of U throws. `std::bad_alloc` is handled
 // by returning nullptr.
 template <class U, class... TArgs>
-U *new_mgp_object(utils::MemoryResource *memory, TArgs &&... args) {
+U *new_mgp_object(utils::MemoryResource *memory, TArgs &&...args) {
   utils::Allocator<U> allocator(memory);
   try {
     return allocator.template new_object<U>(std::forward<TArgs>(args)...);
@@ -89,7 +88,7 @@ U *new_mgp_object(utils::MemoryResource *memory, TArgs &&... args) {
 }
 
 template <class U, class... TArgs>
-U *new_mgp_object(mgp_memory *memory, TArgs &&... args) {
+U *new_mgp_object(mgp_memory *memory, TArgs &&...args) {
   return new_mgp_object<U, TArgs...>(memory->impl,
                                      std::forward<TArgs>(args)...);
 }
@@ -165,8 +164,8 @@ query::TypedValue ToTypedValue(const mgp_value &val,
       return query::TypedValue(mgp_value_get_edge(&val)->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
       const auto *path = mgp_value_get_path(&val);
-      CHECK(!path->vertices.empty());
-      CHECK(path->vertices.size() == path->edges.size() + 1);
+      MG_ASSERT(!path->vertices.empty());
+      MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
       query::Path tv_path(path->vertices[0].impl, memory);
       for (size_t i = 0; i < path->edges.size(); ++i) {
         tv_path.Expand(path->edges[i].impl);
@@ -196,32 +195,32 @@ mgp_value::mgp_value(const char *val, utils::MemoryResource *m)
 
 mgp_value::mgp_value(mgp_list *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_LIST), memory(m), list_v(val) {
-  CHECK(val->GetMemoryResource() == m)
-      << "Unable to take ownership of a pointer with different allocator.";
+  MG_ASSERT(val->GetMemoryResource() == m,
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
 mgp_value::mgp_value(mgp_map *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_MAP), memory(m), map_v(val) {
-  CHECK(val->GetMemoryResource() == m)
-      << "Unable to take ownership of a pointer with different allocator.";
+  MG_ASSERT(val->GetMemoryResource() == m,
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
 mgp_value::mgp_value(mgp_vertex *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_VERTEX), memory(m), vertex_v(val) {
-  CHECK(val->GetMemoryResource() == m)
-      << "Unable to take ownership of a pointer with different allocator.";
+  MG_ASSERT(val->GetMemoryResource() == m,
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
 mgp_value::mgp_value(mgp_edge *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_EDGE), memory(m), edge_v(val) {
-  CHECK(val->GetMemoryResource() == m)
-      << "Unable to take ownership of a pointer with different allocator.";
+  MG_ASSERT(val->GetMemoryResource() == m,
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
 mgp_value::mgp_value(mgp_path *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_PATH), memory(m), path_v(val) {
-  CHECK(val->GetMemoryResource() == m)
-      << "Unable to take ownership of a pointer with different allocator.";
+  MG_ASSERT(val->GetMemoryResource() == m,
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
 mgp_value::mgp_value(const query::TypedValue &tv, const mgp_graph *graph,
@@ -402,7 +401,7 @@ mgp_value::mgp_value(const mgp_value &other, utils::MemoryResource *m)
 namespace {
 
 void DeleteValueMember(mgp_value *value) noexcept {
-  CHECK(value);
+  MG_ASSERT(value);
   utils::Allocator<mgp_value> allocator(value->GetMemoryResource());
   switch (mgp_value_get_type(value)) {
     case MGP_VALUE_TYPE_NULL:
@@ -735,14 +734,16 @@ mgp_path *mgp_path_make_with_start(const mgp_vertex *vertex,
 }
 
 mgp_path *mgp_path_copy(const mgp_path *path, mgp_memory *memory) {
-  CHECK(mgp_path_size(path) == path->vertices.size() - 1) << "Invalid mgp_path";
+  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1,
+            "Invalid mgp_path");
   return new_mgp_object<mgp_path>(memory, *path);
 }
 
 void mgp_path_destroy(mgp_path *path) { delete_mgp_object(path); }
 
 int mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
-  CHECK(mgp_path_size(path) == path->vertices.size() - 1) << "Invalid mgp_path";
+  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1,
+            "Invalid mgp_path");
   // Check that the both the last vertex on path and dst_vertex are endpoints of
   // the given edge.
   const auto *src_vertex = &path->vertices.back();
@@ -760,37 +761,37 @@ int mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
   try {
     path->edges.push_back(*edge);
   } catch (...) {
-    CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+    MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
     return 0;
   }
   try {
     path->vertices.push_back(*dst_vertex);
   } catch (...) {
     path->edges.pop_back();
-    CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+    MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
     return 0;
   }
-  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
   return 1;
 }
 
 size_t mgp_path_size(const mgp_path *path) { return path->edges.size(); }
 
 const mgp_vertex *mgp_path_vertex_at(const mgp_path *path, size_t i) {
-  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
   if (i > mgp_path_size(path)) return nullptr;
   return &path->vertices[i];
 }
 
 const mgp_edge *mgp_path_edge_at(const mgp_path *path, size_t i) {
-  CHECK(mgp_path_size(path) == path->vertices.size() - 1);
+  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
   if (i >= mgp_path_size(path)) return nullptr;
   return &path->edges[i];
 }
 
 int mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2) {
-  CHECK(mgp_path_size(p1) == p1->vertices.size() - 1);
-  CHECK(mgp_path_size(p2) == p2->vertices.size() - 1);
+  MG_ASSERT(mgp_path_size(p1) == p1->vertices.size() - 1);
+  MG_ASSERT(mgp_path_size(p2) == p2->vertices.size() - 1);
   if (mgp_path_size(p1) != mgp_path_size(p2)) return 0;
   const auto *start1 = mgp_path_vertex_at(p1, 0);
   const auto *start2 = mgp_path_vertex_at(p2, 0);
@@ -817,7 +818,7 @@ int mgp_result_set_error_msg(mgp_result *res, const char *msg) {
 
 mgp_result_record *mgp_result_new_record(mgp_result *res) {
   auto *memory = res->rows.get_allocator().GetMemoryResource();
-  CHECK(res->signature) << "Expected to have a valid signature";
+  MG_ASSERT(res->signature, "Expected to have a valid signature");
   try {
     res->rows.push_back(mgp_result_record{
         res->signature,
@@ -832,7 +833,7 @@ int mgp_result_record_insert(mgp_result_record *record, const char *field_name,
                              const mgp_value *val) {
   auto *memory = record->values.get_allocator().GetMemoryResource();
   // Validate field_name & val satisfy the procedure's result signature.
-  CHECK(record->signature) << "Expected to have a valid signature";
+  MG_ASSERT(record->signature, "Expected to have a valid signature");
   auto find_it = record->signature->find(field_name);
   if (find_it == record->signature->end()) return 0;
   const auto *type = find_it->second.first;
@@ -867,8 +868,9 @@ const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
   // try ... catch just to be sure.
   try {
     if (it->current_it == it->pvs.end()) {
-      CHECK(!it->current) << "Iteration is already done, so it->current should "
-                             "have been set to std::nullopt";
+      MG_ASSERT(!it->current,
+                "Iteration is already done, so it->current should "
+                "have been set to std::nullopt");
       return nullptr;
     }
     if (++it->current_it == it->pvs.end()) {
@@ -914,7 +916,7 @@ size_t mgp_vertex_labels_count(const mgp_vertex *v) {
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
-        LOG(ERROR) << "Unexpected error when getting vertex labels.";
+        spdlog::error("Unexpected error when getting vertex labels.");
         return 0;
     }
   }
@@ -932,7 +934,7 @@ mgp_label mgp_vertex_label_at(const mgp_vertex *v, size_t i) {
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
-        LOG(ERROR) << "Unexpected error when getting vertex labels.";
+        spdlog::error("Unexpected error when getting vertex labels.");
         return mgp_label{nullptr};
     }
   }
@@ -956,7 +958,7 @@ int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
     // creating a new LabelId mapping and we need to handle that.
     label = v->graph->impl->NameToLabel(name);
   } catch (...) {
-    LOG(ERROR) << "Unable to allocate a LabelId mapping";
+    spdlog::error("Unable to allocate a LabelId mapping");
     // If we need to allocate a new mapping, then the vertex does not have such
     // a label, so return 0.
     return 0;
@@ -970,7 +972,7 @@ int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
       case storage::Error::PROPERTIES_DISABLED:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
-        LOG(ERROR) << "Unexpected error when checking vertex has label.";
+        spdlog::error("Unexpected error when checking vertex has label.");
         return 0;
     }
   }
@@ -995,7 +997,7 @@ mgp_value *mgp_vertex_get_property(const mgp_vertex *v, const char *name,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting vertex property";
+          spdlog::error("Unexpected error when getting vertex property");
           return nullptr;
       }
     }
@@ -1024,7 +1026,7 @@ mgp_properties_iterator *mgp_vertex_iter_properties(const mgp_vertex *v,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting vertex properties";
+          spdlog::error("Unexpected error when getting vertex properties");
           return nullptr;
       }
     }
@@ -1056,7 +1058,7 @@ mgp_edges_iterator *mgp_vertex_iter_in_edges(const mgp_vertex *v,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting in edges";
+          spdlog::error("Unexpected error when getting in edges");
           mgp_edges_iterator_destroy(it);
           return nullptr;
       }
@@ -1089,7 +1091,7 @@ mgp_edges_iterator *mgp_vertex_iter_out_edges(const mgp_vertex *v,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting out edges";
+          spdlog::error("Unexpected error when getting out edges");
           mgp_edges_iterator_destroy(it);
           return nullptr;
       }
@@ -1116,8 +1118,9 @@ const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
   if (!it->in && !it->out) return nullptr;
   auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
     if (*impl_it == end) {
-      CHECK(!it->current_e) << "Iteration is already done, so it->current_e "
-                               "should have been set to std::nullopt";
+      MG_ASSERT(!it->current_e,
+                "Iteration is already done, so it->current_e "
+                "should have been set to std::nullopt");
       return nullptr;
     }
     if (++(*impl_it) == end) {
@@ -1184,7 +1187,7 @@ mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting edge property";
+          spdlog::error("Unexpected error when getting edge property");
           return nullptr;
       }
     }
@@ -1214,7 +1217,7 @@ mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e,
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::SERIALIZATION_ERROR:
-          LOG(ERROR) << "Unexpected error when getting edge properties";
+          spdlog::error("Unexpected error when getting edge properties");
           return nullptr;
       }
     }
@@ -1257,8 +1260,9 @@ const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
 const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
   try {
     if (it->current_it == it->vertices.end()) {
-      CHECK(!it->current_v) << "Iteration is already done, so it->current_v "
-                               "should have been set to std::nullopt";
+      MG_ASSERT(!it->current_v,
+                "Iteration is already done, so it->current_v "
+                "should have been set to std::nullopt");
       return nullptr;
     }
     if (++it->current_it == it->vertices.end()) {
@@ -1479,7 +1483,7 @@ int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name,
 }
 
 int mgp_must_abort(const mgp_graph *graph) {
-  CHECK(graph->ctx);
+  MG_ASSERT(graph->ctx);
   return query::MustAbort(*graph->ctx);
 }
 
@@ -1521,7 +1525,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
-      LOG(FATAL) << "value must not be a graph element";
+      LOG_FATAL("value must not be a graph element");
   }
 }
 

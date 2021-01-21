@@ -1,6 +1,6 @@
-#include "glog/logging.h"
-
 #include "communication/buffer.hpp"
+
+#include "utils/logging.hpp"
 
 namespace communication {
 
@@ -40,7 +40,7 @@ uint8_t *Buffer::data() { return data_.data(); }
 size_t Buffer::size() const { return have_; }
 
 void Buffer::Shift(size_t len) {
-  DCHECK(len <= have_) << "Tried to shift more data than the buffer has!";
+  DMG_ASSERT(len <= have_, "Tried to shift more data than the buffer has!");
   if (len == have_) {
     have_ = 0;
   } else {
@@ -50,15 +50,16 @@ void Buffer::Shift(size_t len) {
 }
 
 io::network::StreamBuffer Buffer::Allocate() {
-  DCHECK(data_.size() > have_) << "The buffer thinks that there is more data "
-                                  "in the buffer than there is underlying "
-                                  "storage space!";
+  DMG_ASSERT(data_.size() > have_,
+             "The buffer thinks that there is more data "
+             "in the buffer than there is underlying "
+             "storage space!");
   return {data_.data() + have_, data_.size() - have_};
 }
 
 void Buffer::Written(size_t len) {
   have_ += len;
-  DCHECK(have_ <= data_.size()) << "Written more than storage has space!";
+  DMG_ASSERT(have_ <= data_.size(), "Written more than storage has space!");
 }
 
 void Buffer::Resize(size_t len) {

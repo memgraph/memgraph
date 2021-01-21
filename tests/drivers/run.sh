@@ -31,7 +31,9 @@ $binary_dir/memgraph \
     --bolt-session-inactivity-timeout=10 \
     --bolt-cert-file="" \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --min-log-level 1 &
+    --log-file=$tmpdir/logs/memgarph.log \
+    --also-log-to-stderr \
+    --log-level ERROR &
 pid=$!
 wait_for_server 7687
 

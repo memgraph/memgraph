@@ -6,10 +6,10 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
 #include "common.hpp"
+#include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
@@ -20,7 +20,8 @@ DEFINE_string(output_file,
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  logging::RedirectToStderr();
+
   const auto database_endpoints =
       mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
   nlohmann::json output;
@@ -45,14 +46,14 @@ int main(int argc, char **argv) {
         auto label_name = (*data)[0][1].ValueString();
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG(FATAL) << database_endpoint
-                     << " does NOT have valid indexes created.";
+          LOG_FATAL("{} does NOT have valid indexes created.",
+                    database_endpoint);
         }
       } else {
-        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint;
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
       }
     }
-    LOG(INFO) << "All indexes are in-place.";
+    spdlog::info("All indexes are in-place.");
 
     utils::Timer node_write_timer;
     for (int i = 0; i < FLAGS_nodes; ++i) {
@@ -102,7 +103,7 @@ int main(int argc, char **argv) {
             client->DiscardAll();
             query_counter.fetch_add(1);
           } catch (const std::exception &e) {
-            LOG(FATAL) << e.what();
+            LOG_FATAL(e.what());
             break;
           }
         }
@@ -121,7 +122,7 @@ int main(int argc, char **argv) {
     output["read_per_second"] = query_counter / per_thread_read_duration;
     output["read_queries"] = query_counter.load();
 
-    LOG(INFO) << "Output data: " << output.dump();
+    spdlog::info("Output data: {}", output.dump());
     std::ofstream output_file(FLAGS_output_file);
     output_file << output.dump();
     output_file.close();
@@ -138,13 +139,13 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
         if ((*data).size() != 0) {
-          LOG(FATAL) << database_endpoint << " still have some indexes.";
+          LOG_FATAL("{} still have some indexes.", database_endpoint);
         }
       } else {
-        LOG(FATAL) << "Unable to get INDEX INFO from " << database_endpoint;
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
       }
     }
-    LOG(INFO) << "All indexes were deleted.";
+    spdlog::info("All indexes were deleted.");
   }
 
   mg::Client::Finalize();

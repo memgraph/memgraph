@@ -1,8 +1,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "utils/skip_list.hpp"
 
 const int kNumThreads = 8;
@@ -14,8 +12,8 @@ int main() {
   for (int i = 0; i < kMaxNum * kNumThreads; ++i) {
     auto acc = list.access();
     auto ret = acc.insert(i);
-    CHECK(ret.first != acc.end());
-    CHECK(ret.second);
+    MG_ASSERT(ret.first != acc.end());
+    MG_ASSERT(ret.second);
   }
 
   std::vector<std::thread> threads;
@@ -23,7 +21,7 @@ int main() {
     threads.push_back(std::thread([&list, i] {
       for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
         auto acc = list.access();
-        CHECK(acc.remove(num));
+        MG_ASSERT(acc.remove(num));
       }
     }));
   }
@@ -31,13 +29,13 @@ int main() {
     threads[i].join();
   }
 
-  CHECK(list.size() == 0);
+  MG_ASSERT(list.size() == 0);
   uint64_t count = 0;
   auto acc = list.access();
   for (auto it = acc.begin(); it != acc.end(); ++it) {
     ++count;
   }
-  CHECK(count == 0);
+  MG_ASSERT(count == 0);
 
   return 0;
 }

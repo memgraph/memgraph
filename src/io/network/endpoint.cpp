@@ -4,10 +4,9 @@
 
 #include <algorithm>
 
-#include "glog/logging.h"
-
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace io::network {
@@ -57,15 +56,15 @@ Endpoint::ParseSocketOrIpAddress(
     try {
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
-      LOG(ERROR) << "Invalid port number: " << parts[1];
+      spdlog::error("Invalid port number: {}", parts[1]);
       return std::nullopt;
     }
     if (int_port < 0) {
-      LOG(ERROR) << "Port number must be a positive integer!";
+      spdlog::error("Port number must be a positive integer!");
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
-      LOG(ERROR) << "Port number exceeded maximum possible size!";
+      spdlog::error("Port number exceeded maximum possible size!");
       return std::nullopt;
     }
 

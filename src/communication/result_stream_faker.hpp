@@ -2,8 +2,6 @@
 
 #include <map>
 
-#include "glog/logging.h"
-
 #include "communication/bolt/v1/value.hpp"
 #include "glue/communication.hpp"
 #include "query/typed_value.hpp"
@@ -38,7 +36,7 @@ class ResultStreamFaker {
     bvalues.reserve(values.size());
     for (const auto &value : values) {
       auto maybe_value = glue::ToBoltValue(value, *store_, storage::View::NEW);
-      CHECK(maybe_value.HasValue());
+      MG_ASSERT(maybe_value.HasValue());
       bvalues.push_back(std::move(*maybe_value));
     }
     results_.push_back(std::move(bvalues));
@@ -54,7 +52,7 @@ class ResultStreamFaker {
     for (const auto &item : summary) {
       auto maybe_value =
           glue::ToBoltValue(item.second, *store_, storage::View::NEW);
-      CHECK(maybe_value.HasValue());
+      MG_ASSERT(maybe_value.HasValue());
       bsummary.insert({item.first, std::move(*maybe_value)});
     }
     summary_ = std::move(bsummary);

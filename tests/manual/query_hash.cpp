@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 
-#include <glog/logging.h>
+#include <gflags/gflags.h>
 
 #include "query/frontend/stripped.hpp"
 
@@ -15,7 +15,6 @@ DEFINE_string(q, "CREATE (n) RETURN n", "Query");
  */
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   // take query from input args
   auto query = FLAGS_q;

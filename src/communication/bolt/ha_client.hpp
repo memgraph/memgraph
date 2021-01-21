@@ -5,8 +5,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "communication/bolt/client.hpp"
 
 namespace communication::bolt {

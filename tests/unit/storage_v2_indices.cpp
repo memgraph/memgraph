@@ -31,7 +31,8 @@ class IndexTest : public testing::Test {
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
-    CHECK(!vertex.SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
+    MG_ASSERT(
+        !vertex.SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
     return vertex;
   }
 

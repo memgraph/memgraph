@@ -10,6 +10,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/logging.hpp"
 
 namespace storage::durability {
 
@@ -625,7 +626,7 @@ void CreateSnapshot(
   // Create snapshot file.
   auto path =
       snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
-  LOG(INFO) << "Starting snapshot creation to " << path;
+  spdlog::info("Starting snapshot creation to {}", path);
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
 
@@ -710,7 +711,7 @@ void CreateSnapshot(
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
-      CHECK(maybe_props.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
 
       // Store the edge.
       {
@@ -742,13 +743,13 @@ void CreateSnapshot(
       // TODO (mferencevic): All of these functions could be written into a
       // single function so that we traverse the undo deltas only once.
       auto maybe_labels = va->Labels(View::OLD);
-      CHECK(maybe_labels.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
-      CHECK(maybe_props.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
       auto maybe_in_edges = va->InEdges(View::OLD);
-      CHECK(maybe_in_edges.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
       auto maybe_out_edges = va->OutEdges(View::OLD);
-      CHECK(maybe_out_edges.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
 
       // Store the vertex.
       {
@@ -886,7 +887,7 @@ void CreateSnapshot(
 
   // Finalize snapshot file.
   snapshot.Finalize();
-  LOG(INFO) << "Snapshot creation successful!";
+  spdlog::info("Snapshot creation successful!");
 
   // Ensure exactly `snapshot_retention_count` snapshots exist.
   std::vector<std::pair<uint64_t, std::filesystem::path>> old_snapshot_files;
@@ -901,15 +902,18 @@ void CreateSnapshot(
         if (info.uuid != uuid) continue;
         old_snapshot_files.emplace_back(info.start_timestamp, item.path());
       } catch (const RecoveryFailure &e) {
-        LOG(WARNING) << "Found a corrupt snapshot file " << item.path()
-                     << " because of: " << e.what();
+        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}",
+                     item.path(), e.what());
         continue;
       }
     }
-    LOG_IF(ERROR, error_code)
-        << "Couldn't ensure that exactly " << snapshot_retention_count
-        << " snapshots exist because an error occurred: "
-        << error_code.message() << "!";
+
+    if (error_code) {
+      spdlog::error(
+          "Couldn't ensure that exactly {} snapshots exist because an error "
+          "occurred: {}",
+          snapshot_retention_count, error_code.message());
+    }
     std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
     if (old_snapshot_files.size() > snapshot_retention_count - 1) {
       auto num_to_erase =
@@ -941,10 +945,13 @@ void CreateSnapshot(
         continue;
       }
     }
-    LOG_IF(ERROR, error_code)
-        << "Couldn't ensure that only the absolutely necessary WAL files exist "
-           "because an error occurred: "
-        << error_code.message() << "!";
+
+    if (error_code) {
+      spdlog::error(
+          "Couldn't ensure that only the absolutely necessary WAL files exist "
+          "because an error occurred: {}",
+          error_code.message());
+    }
     std::sort(wal_files.begin(), wal_files.end());
     uint64_t snapshot_start_timestamp = transaction->start_timestamp;
     if (!old_snapshot_files.empty()) {

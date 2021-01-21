@@ -1192,7 +1192,7 @@ class FunctionTest : public ExpressionEvaluatorTest {
 
   template <class... TArgs>
   TypedValue EvaluateFunction(const std::string &function_name,
-                              TArgs &&... args) {
+                              TArgs &&...args) {
     return EvaluateFunctionWithExprs(
         function_name, ExpressionsFromTypedValues(
                            std::vector<TypedValue>{TypedValue(args)...}));
@@ -1200,7 +1200,7 @@ class FunctionTest : public ExpressionEvaluatorTest {
 };
 
 template <class... TArgs>
-static TypedValue MakeTypedValueList(TArgs &&... args) {
+static TypedValue MakeTypedValueList(TArgs &&...args) {
   return TypedValue(std::vector<TypedValue>{TypedValue(args)...});
 }
 

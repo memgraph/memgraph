@@ -6,7 +6,7 @@
 #include <limits>
 #include <type_traits>
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace utils {
 
@@ -35,9 +35,7 @@ MonotonicBufferResource::MonotonicBufferResource(size_t initial_size,
 MonotonicBufferResource::MonotonicBufferResource(void *buffer,
                                                  size_t buffer_size,
                                                  MemoryResource *memory)
-    : memory_(memory),
-      initial_buffer_(buffer),
-      initial_size_(buffer_size) {}
+    : memory_(memory), initial_buffer_(buffer), initial_size_(buffer_size) {}
 
 MonotonicBufferResource::MonotonicBufferResource(
     MonotonicBufferResource &&other) noexcept
@@ -156,7 +154,7 @@ Pool::Pool(size_t block_size, unsigned char blocks_per_chunk,
       chunks_(memory) {}
 
 Pool::~Pool() {
-  CHECK(chunks_.empty()) << "You need to call Release before destruction!";
+  MG_ASSERT(chunks_.empty(), "You need to call Release before destruction!");
 }
 
 void *Pool::Allocate() {
@@ -206,9 +204,10 @@ void *Pool::Allocate() {
 }
 
 void Pool::Deallocate(void *p) {
-  CHECK(last_dealloc_chunk_);
-  CHECK(!chunks_.empty()) << "Expected a call to Deallocate after at least a "
-                             "single Allocate has been done.";
+  MG_ASSERT(last_dealloc_chunk_, "No chunk to deallocate");
+  MG_ASSERT(!chunks_.empty(),
+            "Expected a call to Deallocate after at least a "
+            "single Allocate has been done.");
   auto is_in_chunk = [this, p](const Chunk &chunk) {
     auto ptr = reinterpret_cast<uintptr_t>(p);
     size_t data_size = blocks_per_chunk_ * block_size_;
@@ -217,9 +216,9 @@ void Pool::Deallocate(void *p) {
   };
   auto deallocate_block_from_chunk = [this, p](Chunk *chunk) {
     // NOTE: This check is not enough to cover all double-free issues.
-    CHECK(chunk->blocks_available < blocks_per_chunk_)
-        << "Deallocating more blocks than a chunk can contain, possibly a "
-           "double-free situation or we have a bug in the allocator.";
+    MG_ASSERT(chunk->blocks_available < blocks_per_chunk_,
+              "Deallocating more blocks than a chunk can contain, possibly a "
+              "double-free situation or we have a bug in the allocator.");
     // Link the block into the free-list
     auto *block = reinterpret_cast<unsigned char *>(p);
     *block = chunk->first_available_block_ix;
@@ -266,8 +265,8 @@ PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
           std::min(max_blocks_per_chunk,
                    static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
       max_block_size_(max_block_size) {
-  CHECK(max_blocks_per_chunk_ > 0U);
-  CHECK(max_block_size_ > 0U);
+  MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
+  MG_ASSERT(max_block_size_ > 0U, "Invalid size of block");
 }
 
 void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
@@ -322,23 +321,25 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
 
 void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max(bytes, alignment);
-  CHECK(block_size % alignment == 0)
-      << "PoolResource shouldn't serve allocation requests where bytes aren't "
-         "a multiple of alignment";
+  MG_ASSERT(
+      block_size % alignment == 0,
+      "PoolResource shouldn't serve allocation requests where bytes aren't "
+      "a multiple of alignment");
   if (block_size > max_block_size_) {
     // Deallocate a big block.
     BigBlock big_block{bytes, alignment, p};
     auto it = std::lower_bound(
         unpooled_.begin(), unpooled_.end(), big_block,
         [](const auto &a, const auto &b) { return a.data < b.data; });
-    CHECK(it != unpooled_.end());
-    CHECK(it->data == p && it->bytes == bytes && it->alignment == alignment);
+    MG_ASSERT(it != unpooled_.end(), "Failed deallocation");
+    MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment,
+              "Failed deallocation");
     unpooled_.erase(it);
     GetUpstreamResource()->Deallocate(p, bytes, alignment);
     return;
   }
   // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
-  CHECK(last_dealloc_pool_);
+  MG_ASSERT(last_dealloc_pool_, "Failed deallocation");
   if (last_dealloc_pool_->GetBlockSize() == block_size)
     return last_dealloc_pool_->Deallocate(p);
   // Find the pool with equal block_size.
@@ -347,8 +348,8 @@ void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
                              [](const auto &a, const auto &b) {
                                return a.GetBlockSize() < b.GetBlockSize();
                              });
-  CHECK(it != pools_.end());
-  CHECK(it->GetBlockSize() == block_size);
+  MG_ASSERT(it != pools_.end(), "Failed deallocation");
+  MG_ASSERT(it->GetBlockSize() == block_size, "Failed deallocation");
   last_alloc_pool_ = &*it;
   last_dealloc_pool_ = &*it;
   return it->Deallocate(p);

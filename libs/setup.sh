@@ -59,10 +59,8 @@ cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 clone https://github.com/ryanhaining/cppitertools.git cppitertools $cppitertools_ref
 
 # fmt
-fmt_tag="7fa8f8fa48b0903deab5bb42e6760477173ac485" # v3.0.1
-# Commit which fixes an issue when compiling with C++14 and higher.
-fmt_cxx14_fix="b9aaa507fc49680d037fd84c043f747a395bce04"
-clone https://github.com/fmtlib/fmt.git fmt $fmt_tag $fmt_cxx14_fix
+fmt_tag="7bdf0628b1276379886c7f6dda2cef2b3b374f0b" # (2020-11-25) 
+clone https://github.com/fmtlib/fmt.git fmt $fmt_tag
 
 # rapidcheck
 rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
@@ -75,10 +73,6 @@ clone https://github.com/google/benchmark.git benchmark $benchmark_tag
 # google test
 googletest_tag="ec44c6c1675c25b9827aacd08c02433cccde7780" # v1.8.0
 clone https://github.com/google/googletest.git googletest $googletest_tag
-
-# google logging
-glog_tag="042a21657e79784226babab8b942f7bd0949635f" # custom version (v0.3.5+)
-clone https://github.com/memgraph/glog.git glog $glog_tag
 
 # google flags
 gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)
@@ -124,3 +118,6 @@ sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 # pymgclient
 pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 clone https://github.com/memgraph/pymgclient.git pymgclient $pymgclient_tag
+
+spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)
+clone https://github.com/gabime/spdlog spdlog $spdlog_tag

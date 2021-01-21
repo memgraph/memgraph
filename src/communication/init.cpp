@@ -1,12 +1,11 @@
 #include "init.hpp"
 
-#include <glog/logging.h>
-
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <thread>
 
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -59,7 +58,8 @@ SSLInit::SSLInit() {
   ERR_load_crypto_strings();
 
   // Ignore SIGPIPE.
-  CHECK(utils::SignalIgnore(utils::Signal::Pipe)) << "Couldn't ignore SIGPIPE!";
+  MG_ASSERT(utils::SignalIgnore(utils::Signal::Pipe),
+            "Couldn't ignore SIGPIPE!");
 
   SetupThreading();
 }

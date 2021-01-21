@@ -32,10 +32,11 @@ class SingleNodeDb : public Database {
 
     for (size_t id = 0; id < vertex_locations.size(); ++id) {
       auto vertex = dba->InsertVertex();
-      CHECK(vertex
-                .SetProperty(dba->NameToProperty("id"),
-                             storage::PropertyValue(static_cast<int64_t>(id)))
-                .HasValue());
+      MG_ASSERT(
+          vertex
+              .SetProperty(dba->NameToProperty("id"),
+                           storage::PropertyValue(static_cast<int64_t>(id)))
+              .HasValue());
       vertex_addr.push_back(vertex);
     }
 
@@ -46,12 +47,12 @@ class SingleNodeDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      CHECK(edge->SetProperty(dba->NameToProperty("from"),
-                              storage::PropertyValue(u))
-                .HasValue());
-      CHECK(edge->SetProperty(dba->NameToProperty("to"),
-                              storage::PropertyValue(v))
-                .HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"),
+                                  storage::PropertyValue(u))
+                    .HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"),
+                                  storage::PropertyValue(v))
+                    .HasValue());
       edge_addr.push_back(*edge);
     }
 

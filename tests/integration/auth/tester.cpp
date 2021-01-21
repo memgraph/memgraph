@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -22,7 +21,6 @@ DEFINE_string(failure_message, "", "Set to the expected failure message.");
  */
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -42,33 +40,35 @@ int main(int argc, char **argv) {
       if (!FLAGS_check_failure) {
         if (!FLAGS_failure_message.empty() &&
             e.what() == FLAGS_failure_message) {
-          LOG(FATAL)
-              << "The query should have succeeded or failed with an error "
-                 "message that isn't equal to '"
-              << FLAGS_failure_message
-              << "' but it failed with that error message";
+          LOG_FATAL(
+              "The query should have succeeded or failed with an error "
+              "message that isn't equal to '{}' but it failed with that error "
+              "message",
+              FLAGS_failure_message);
         }
         continue;
       }
       if (FLAGS_should_fail) {
         if (!FLAGS_failure_message.empty() &&
             e.what() != FLAGS_failure_message) {
-          LOG(FATAL)
-              << "The query should have failed with an error message of '"
-              << FLAGS_failure_message << "' but instead it failed with '"
-              << e.what() << "'";
+          LOG_FATAL(
+              "The query should have failed with an error message of '{}'' but "
+              "instead it failed with '{}'",
+              FLAGS_failure_message, e.what());
         }
         return 0;
       } else {
-        LOG(FATAL) << "The query shoudn't have failed but it failed with an "
-                      "error message '"
-                   << e.what() << "'";
+        LOG_FATAL(
+            "The query shoudn't have failed but it failed with an "
+            "error message '{}'",
+            e.what());
       }
     }
     if (!FLAGS_check_failure) continue;
     if (FLAGS_should_fail) {
-      LOG(FATAL) << "The query should have failed but instead it executed "
-                    "successfully!";
+      LOG_FATAL(
+          "The query should have failed but instead it executed "
+          "successfully!");
     }
   }
 

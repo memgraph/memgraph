@@ -5,6 +5,7 @@
 #include <map>
 
 #include "storage/v2/mvcc.hpp"
+#include "utils/logging.hpp"
 
 namespace storage {
 namespace {
@@ -32,7 +33,7 @@ bool LastCommittedVersionHasLabelProperty(
     const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
     const std::vector<PropertyValue> &value_array,
     const Transaction &transaction, uint64_t commit_timestamp) {
-  CHECK(properties.size() == value_array.size()) << "Invalid database state!";
+  MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
@@ -78,25 +79,25 @@ bool LastCommittedVersionHasLabelProperty(
         break;
       }
       case Delta::Action::DELETE_OBJECT: {
-        CHECK(!deleted) << "Invalid database state!";
+        MG_ASSERT(!deleted, "Invalid database state!");
         deleted = true;
         break;
       }
       case Delta::Action::RECREATE_OBJECT: {
-        CHECK(deleted) << "Invalid database state!";
+        MG_ASSERT(deleted, "Invalid database state!");
         deleted = false;
         break;
       }
       case Delta::Action::ADD_LABEL: {
         if (delta->label == label) {
-          CHECK(!has_label) << "Invalid database state!";
+          MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
           break;
         }
       }
       case Delta::Action::REMOVE_LABEL: {
         if (delta->label == label) {
-          CHECK(has_label) << "Invalid database state!";
+          MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
           break;
         }
@@ -127,7 +128,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
                                 const std::set<PropertyId> &properties,
                                 const std::vector<PropertyValue> &values,
                                 uint64_t timestamp) {
-  CHECK(properties.size() == values.size()) << "Invalid database state!";
+  MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
@@ -172,13 +173,13 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
     switch (delta->action) {
       case Delta::Action::ADD_LABEL:
         if (delta->label == label) {
-          CHECK(!has_label) << "Invalid database state!";
+          MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
         break;
       case Delta::Action::REMOVE_LABEL:
         if (delta->label == label) {
-          CHECK(has_label) << "Invalid database state!";
+          MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
         break;
@@ -191,12 +192,12 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
         break;
       }
       case Delta::Action::RECREATE_OBJECT: {
-        CHECK(deleted) << "Invalid database state!";
+        MG_ASSERT(deleted, "Invalid database state!");
         deleted = false;
         break;
       }
       case Delta::Action::DELETE_OBJECT: {
-        CHECK(!deleted) << "Invalid database state!";
+        MG_ASSERT(!deleted, "Invalid database state!");
         deleted = true;
         break;
       }

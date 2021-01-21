@@ -1,6 +1,5 @@
 #include <unistd.h>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "kvstore/kvstore.hpp"

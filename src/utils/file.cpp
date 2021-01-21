@@ -11,7 +11,7 @@
 #include <shared_mutex>
 #include <type_traits>
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace utils {
 
@@ -41,9 +41,10 @@ bool EnsureDir(const std::filesystem::path &dir) noexcept {
 }
 
 void EnsureDirOrDie(const std::filesystem::path &dir) {
-  CHECK(EnsureDir(dir)) << "Couldn't create directory '" << dir
-                        << "' due to a permission issue or the path exists and "
-                           "isn't a directory!";
+  MG_ASSERT(EnsureDir(dir),
+            "Couldn't create directory '{}' due to a permission issue or the "
+            "path exists and isn't a directory!",
+            dir);
 }
 
 bool DirExists(const std::filesystem::path &dir) {
@@ -235,16 +236,15 @@ void InputFile::Close() noexcept {
       // The call was interrupted, try again...
       continue;
     } else {
-      // All other possible errors are fatal errors and are handled in the CHECK
-      // below.
+      // All other possible errors are fatal errors and are handled in the
+      // MG_ASSERT below.
       break;
     }
   }
 
   if (ret != 0) {
-    LOG(ERROR) << "While trying to close " << path_
-               << " an error occurred: " << strerror(errno) << " (" << errno
-               << ").";
+    spdlog::error("While trying to close {} an error occured: {} ({})", path_,
+                  strerror(errno), errno);
   }
 
   fd_ = -1;
@@ -316,11 +316,10 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
 }
 
 void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
-  CHECK(!IsOpen())
-      << "While trying to open " << path
-      << " for writing the database used a handle that already has " << path_
-      << " opened in it!";
-
+  MG_ASSERT(!IsOpen(),
+            "While trying to open {} for writing the database"
+            " used a handle that already has {} opened in it!",
+            path, path_);
   path_ = path;
   written_since_last_sync_ = 0;
 
@@ -334,15 +333,15 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
       // The call was interrupted, try again...
       continue;
     } else {
-      // All other possible errors are fatal errors and are handled in the CHECK
-      // below.
+      // All other possible errors are fatal errors and are handled in the
+      // MG_ASSERT below.
       break;
     }
   }
 
-  CHECK(fd_ != -1) << "While trying to open " << path_
-                   << " for writing an error occurred: " << strerror(errno)
-                   << " (" << errno << ").";
+  MG_ASSERT(fd_ != -1,
+            "While trying to open {} for writing an error occured: {} ({})",
+            path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -395,9 +394,10 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    CHECK(pos >= 0) << "While trying to set the position in " << path_
-                    << " an error occurred: " << strerror(errno) << " ("
-                    << errno << ").";
+    MG_ASSERT(
+        pos >= 0,
+        "While trying to set the position in {} an error occured: {} ({})",
+        path_, strerror(errno), errno);
     return pos;
   }
 }
@@ -412,7 +412,7 @@ size_t OutputFile::SetPosition(Position position, ssize_t offset) {
 }
 
 bool OutputFile::AcquireLock() {
-  CHECK(IsOpen()) << "Trying to acquire a write lock on an unopened file!";
+  MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
   while (true) {
     struct flock lock;
@@ -443,8 +443,8 @@ void OutputFile::Sync() {
       // The call was interrupted, try again...
       continue;
     } else {
-      // All other possible errors are fatal errors and are handled in the CHECK
-      // below.
+      // All other possible errors are fatal errors and are handled in the
+      // MG_ASSERT below.
       break;
     }
   }
@@ -472,10 +472,10 @@ void OutputFile::Sync() {
   // The PostgreSQL developers decided to do the same thing (die) when such an
   // error occurs:
   // https://www.postgresql.org/message-id/20180427222842.in2e4mibx45zdth5@alap3.anarazel.de
-  CHECK(ret == 0) << "While trying to sync " << path_
-                  << " an error occurred: " << strerror(errno) << " (" << errno
-                  << "). Possibly " << written_since_last_sync_
-                  << " bytes from previous write calls were lost.";
+  MG_ASSERT(ret == 0,
+            "While trying to sync {}, an error occurred: {} ({}). Possibly {} "
+            "bytes from previous write calls were lost.",
+            path_, strerror(errno), errno, written_since_last_sync_);
 
   // Reset the counter.
   written_since_last_sync_ = 0;
@@ -491,16 +491,16 @@ void OutputFile::Close() noexcept {
       // The call was interrupted, try again...
       continue;
     } else {
-      // All other possible errors are fatal errors and are handled in the CHECK
-      // below.
+      // All other possible errors are fatal errors and are handled in the
+      // MG_ASSERT below.
       break;
     }
   }
 
-  CHECK(ret == 0) << "While trying to close " << path_
-                  << " an error occurred: " << strerror(errno) << " (" << errno
-                  << "). Possibly " << written_since_last_sync_
-                  << " bytes from previous write calls were lost.";
+  MG_ASSERT(ret == 0,
+            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+            "bytes from previous write calls were lost.",
+            path_, strerror(errno), errno, written_since_last_sync_);
 
   fd_ = -1;
   written_since_last_sync_ = 0;
@@ -508,7 +508,7 @@ void OutputFile::Close() noexcept {
 }
 
 void OutputFile::FlushBuffer(bool force_flush) {
-  CHECK(IsOpen());
+  MG_ASSERT(IsOpen(), "Flushing an unopend file.");
 
   if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
 
@@ -517,9 +517,10 @@ void OutputFile::FlushBuffer(bool force_flush) {
 }
 
 void OutputFile::FlushBufferInternal() {
-  CHECK(buffer_position_ <= kFileBufferSize)
-      << "While trying to write to " << path_
-      << " more file was written to the buffer than the buffer has space!";
+  MG_ASSERT(buffer_position_ <= kFileBufferSize,
+            "While trying to write to {} more file was written to the "
+            "buffer than the buffer has space!",
+            path_);
 
   auto *buffer = buffer_;
   auto buffer_position = buffer_position_.load();
@@ -529,12 +530,12 @@ void OutputFile::FlushBufferInternal() {
       continue;
     }
 
-    CHECK(written > 0)
-        << "While trying to write to " << path_
-        << " an error occurred: " << strerror(errno) << " (" << errno
-        << "). Possibly " << buffer_position_
-        << " bytes of data were lost from this call and possibly "
-        << written_since_last_sync_ << " bytes were lost from previous calls.";
+    MG_ASSERT(written > 0,
+              "while trying to write to {} an error occurred: {} ({}). "
+              "Possibly {} bytes of data were lost from this call and "
+              "possibly {} bytes were lost from previous calls.",
+              path_, strerror(errno), errno, buffer_position_,
+              written_since_last_sync_);
 
     buffer_position -= written;
     buffer += written;

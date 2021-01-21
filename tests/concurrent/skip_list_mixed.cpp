@@ -4,8 +4,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "utils/skip_list.hpp"
 
 // kNumThreadsRemove should be smaller than kNumThreadsInsert because there
@@ -27,7 +25,7 @@ int main() {
     threads_modify.push_back(std::thread([&list, i] {
       for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
         auto acc = list.access();
-        CHECK(acc.insert(num).second);
+        MG_ASSERT(acc.insert(num).second);
       }
     }));
   }
@@ -52,8 +50,8 @@ int main() {
         auto it = acc.find(num);
         if (modify_done.load(std::memory_order_relaxed) &&
             num >= kNumThreadsRemove * kMaxNum) {
-          CHECK(it != acc.end());
-          CHECK(*it == num);
+          MG_ASSERT(it != acc.end());
+          MG_ASSERT(*it == num);
         }
       }
     }));
@@ -71,13 +69,13 @@ int main() {
     threads_find[i].join();
   }
 
-  CHECK(list.size() == (kNumThreadsInsert - kNumThreadsRemove) * kMaxNum);
+  MG_ASSERT(list.size() == (kNumThreadsInsert - kNumThreadsRemove) * kMaxNum);
   for (uint64_t i = kMaxNum * kNumThreadsRemove;
        i < kMaxNum * kNumThreadsInsert; ++i) {
     auto acc = list.access();
     auto it = acc.find(i);
-    CHECK(it != acc.end());
-    CHECK(*it == i);
+    MG_ASSERT(it != acc.end());
+    MG_ASSERT(*it == i);
   }
 
   return 0;

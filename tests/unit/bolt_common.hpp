@@ -5,8 +5,9 @@
 #include <random>
 #include <vector>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
+
+#include "utils/logging.hpp"
 
 /**
  * TODO (mferencevic): document
@@ -30,7 +31,7 @@ class TestInputStream {
   }
 
   void Shift(size_t count) {
-    CHECK(count <= data_.size());
+    MG_ASSERT(count <= data_.size());
     data_.erase(data_.begin(), data_.begin() + count);
   }
 
