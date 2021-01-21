@@ -42,9 +42,8 @@ bool EnsureDir(const std::filesystem::path &dir) noexcept {
 
 void EnsureDirOrDie(const std::filesystem::path &dir) {
   MG_ASSERT(EnsureDir(dir),
-            "Couldn't create directory '{}' due to "
-            "a permission issue or the path exists and "
-            "isn't a directory!",
+            "Couldn't create directory '{}' due to a permission issue or the "
+            "path exists and isn't a directory!",
             dir);
 }
 
@@ -474,8 +473,8 @@ void OutputFile::Sync() {
   // error occurs:
   // https://www.postgresql.org/message-id/20180427222842.in2e4mibx45zdth5@alap3.anarazel.de
   MG_ASSERT(ret == 0,
-            "While trying to sync {}, an error occurred: {} ({}). "
-            "Possibly bytes from previous write calls were lost.",
+            "While trying to sync {}, an error occurred: {} ({}). Possibly {} "
+            "bytes from previous write calls were lost.",
             path_, strerror(errno), errno, written_since_last_sync_);
 
   // Reset the counter.
@@ -499,8 +498,8 @@ void OutputFile::Close() noexcept {
   }
 
   MG_ASSERT(ret == 0,
-            "While trying to close {}, an error occurred: {} ({}). "
-            "Possibly bytes from previous write calls were lost.",
+            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+            "bytes from previous write calls were lost.",
             path_, strerror(errno), errno, written_since_last_sync_);
 
   fd_ = -1;
