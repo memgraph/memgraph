@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <benchmark/benchmark_api.h>
-#include <glog/logging.h>
 
 #include "query/frontend/stripped.hpp"
 
@@ -47,8 +46,6 @@ auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {
 };
 
 int main(int argc, char *argv[]) {
-  google::InitGoogleLogging(argv[0]);
-
   auto preprocess = [](const std::string &query) {
     return query::frontend::StrippedQuery(query);
   };

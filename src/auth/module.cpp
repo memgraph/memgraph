@@ -24,7 +24,8 @@
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
+
+#include "utils/logging.hpp"
 
 namespace {
 
@@ -361,13 +362,15 @@ bool Module::Startup() {
 
   // Setup communication pipes.
   if (pipe2(pipe_to_module_, O_CLOEXEC) != 0) {
-    LOG(ERROR) << "Couldn't create communication pipe from the database to "
-                  "the auth module!";
+    spdlog::error(
+        "Couldn't create communication pipe from the database to "
+        "the auth module!");
     return false;
   }
   if (pipe2(pipe_from_module_, O_CLOEXEC) != 0) {
-    LOG(ERROR) << "Couldn't create communication pipe from the auth module to "
-                  "the database!";
+    spdlog::error(
+        "Couldn't create communication pipe from the auth module to "
+        "the database!");
     close(pipe_to_module_[kPipeReadEnd]);
     close(pipe_to_module_[kPipeWriteEnd]);
     return false;
@@ -384,7 +387,7 @@ bool Module::Startup() {
   // Create the process.
   pid_ = clone(Target, stack_top, CLONE_VFORK, target_arguments_.get());
   if (pid_ == -1) {
-    LOG(ERROR) << "Couldn't start the auth module process!";
+    spdlog::error("Couldn't start the auth module process!");
     close(pipe_to_module_[kPipeReadEnd]);
     close(pipe_to_module_[kPipeWriteEnd]);
     close(pipe_from_module_[kPipeReadEnd]);
@@ -394,7 +397,7 @@ bool Module::Startup() {
 
   // Check whether the process is still running.
   if (waitpid(pid_, &status_, WNOHANG | WUNTRACED) != 0) {
-    LOG(ERROR) << "The auth module process couldn't be started!";
+    spdlog::error("The auth module process couldn't be started!");
     return false;
   }
 
@@ -416,18 +419,18 @@ nlohmann::json Module::Call(const nlohmann::json &params,
 
   // Put the request to the module process.
   if (!PutData(pipe_to_module_[kPipeWriteEnd], params, timeout_millisec)) {
-    LOG(ERROR) << "Couldn't send data to the auth module process!";
+    spdlog::error("Couldn't send data to the auth module process!");
     return {};
   }
 
   // Get the response from the module process.
   auto ret = GetData(pipe_from_module_[kPipeReadEnd], timeout_millisec);
   if (ret.is_null()) {
-    LOG(ERROR) << "Couldn't receive data from the auth module process!";
+    spdlog::error("Couldn't receive data from the auth module process!");
     return {};
   }
   if (!ret.is_object()) {
-    LOG(ERROR) << "Data received from the auth module is of wrong type!";
+    spdlog::error("Data received from the auth module is of wrong type!");
     return {};
   }
   return ret;
@@ -441,7 +444,7 @@ void Module::Shutdown() {
   // Try to terminate the process gracefully in `kTerminateTimeoutSec`.
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   for (int i = 0; i < kTerminateTimeoutSec * 10; ++i) {
-    LOG(INFO) << "Terminating the auth module process with pid " << pid_;
+    spdlog::info("Terminating the auth module process with pid {}", pid_);
     kill(pid_, SIGTERM);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     int ret = waitpid(pid_, &status_, WNOHANG | WUNTRACED);
@@ -452,7 +455,7 @@ void Module::Shutdown() {
 
   // If the process is still alive, kill it and wait for it to die.
   if (waitpid(pid_, &status_, WNOHANG | WUNTRACED) == 0) {
-    LOG(WARNING) << "Killing the auth module process with pid " << pid_;
+    spdlog::warn("Killing the auth module process with pid {}", pid_);
     kill(pid_, SIGKILL);
     waitpid(pid_, &status_, 0);
   }

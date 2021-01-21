@@ -6,10 +6,10 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "slk/streams.hpp"
+#include "utils/logging.hpp"
 
 namespace slk {
 
@@ -19,13 +19,13 @@ namespace slk {
 class Loopback {
  public:
   ~Loopback() {
-    CHECK(builder_) << "You haven't created a builder!";
-    CHECK(reader_) << "You haven't created a reader!";
+    MG_ASSERT(builder_, "You haven't created a builder!");
+    MG_ASSERT(reader_, "You haven't created a reader!");
     reader_->Finalize();
   }
 
   slk::Builder *GetBuilder() {
-    CHECK(!builder_) << "You have already allocated a builder!";
+    MG_ASSERT(!builder_, "You have already allocated a builder!");
     builder_ = std::make_unique<slk::Builder>(
         [this](const uint8_t *data, size_t size, bool have_more) {
           Write(data, size, have_more);
@@ -34,12 +34,13 @@ class Loopback {
   }
 
   slk::Reader *GetReader() {
-    CHECK(builder_) << "You must first get a builder before getting a reader!";
-    CHECK(!reader_) << "You have already allocated a reader!";
+    MG_ASSERT(builder_,
+              "You must first get a builder before getting a reader!");
+    MG_ASSERT(!reader_, "You have already allocated a reader!");
     builder_->Finalize();
     auto ret = slk::CheckStreamComplete(data_.data(), data_.size());
-    CHECK(ret.status == slk::StreamStatus::COMPLETE);
-    CHECK(ret.stream_size == data_.size());
+    MG_ASSERT(ret.status == slk::StreamStatus::COMPLETE);
+    MG_ASSERT(ret.stream_size == data_.size());
     size_ = ret.encoded_data_size;
     Dump();
     reader_ = std::make_unique<slk::Reader>(data_.data(), data_.size());

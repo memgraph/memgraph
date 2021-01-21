@@ -4,7 +4,6 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/init.hpp"
 #include "utils/algorithm.hpp"
@@ -80,8 +79,8 @@ void ExecuteQueries(const std::vector<std::string> &queries,
           metadata[pos] = ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES)
                               .first.metadata;
         } catch (const utils::BasicException &e) {
-          LOG(FATAL) << "Could not execute query '" << str << "' "
-                     << MAX_RETRIES << " times! Error message: " << e.what();
+          LOG_FATAL("Could not execute query '{}' {} times! Error message: {}",
+                    str, MAX_RETRIES, e.what());
         }
       }
       client.Close();
@@ -100,7 +99,6 @@ void ExecuteQueries(const std::vector<std::string> &queries,
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

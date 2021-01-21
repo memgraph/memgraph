@@ -27,7 +27,7 @@ if(MG_ENTERPRISE)
 endif()
 
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils glog gflags)
+target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
 
 if(MG_ENTERPRISE)
     add_dependencies(mg-storage-v2 generate_lcp_storage)

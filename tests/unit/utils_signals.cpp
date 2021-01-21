@@ -1,9 +1,9 @@
-#include "gtest/gtest.h"
-
 #include <iostream>
 #include <string>
 #include <thread>
 #include <utility>
+
+#include <gtest/gtest.h>
 
 #include "utils/signals.hpp"
 #include "utils/stacktrace.hpp"
@@ -38,9 +38,4 @@ TEST(SignalsMultithreaded, Ignore) {
   ASSERT_TRUE(utils::SignalIgnore(utils::Signal::BusError));
   std::thread thread([] { std::raise(SIGBUS); });
   thread.join();
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

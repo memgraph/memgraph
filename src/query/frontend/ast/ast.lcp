@@ -468,11 +468,11 @@ cpp<#
     Aggregation(Expression *expression1, Expression *expression2, Op op)
         : BinaryOperator(expression1, expression2), op_(op) {
       // COUNT without expression denotes COUNT(*) in cypher.
-      DCHECK(expression1 || op == Aggregation::Op::COUNT)
-          << "All aggregations, except COUNT require expression";
-      DCHECK((expression2 == nullptr) ^ (op == Aggregation::Op::COLLECT_MAP))
-          << "The second expression is obligatory in COLLECT_MAP and "
-             "invalid otherwise";
+      DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT,
+                 "All aggregations, except COUNT require expression");
+      DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::COLLECT_MAP),
+                 "The second expression is obligatory in COLLECT_MAP and "
+                 "invalid otherwise");
     }
     cpp<#)
   (:private
@@ -815,7 +815,7 @@ cpp<#
         : arguments_(arguments),
           function_name_(function_name),
           function_(NameToFunction(function_name_)) {
-      DCHECK(function_) << "Unexpected missing function: " << function_name_;
+      DMG_ASSERT(function_, "Unexpected missing function: {}", function_name_);
     }
     cpp<#)
   (:private
@@ -2163,7 +2163,7 @@ cpp<#
     #>cpp
     explicit Unwind(NamedExpression *named_expression)
         : named_expression_(named_expression) {
-      DCHECK(named_expression) << "Unwind cannot take nullptr for named_expression";
+      DMG_ASSERT(named_expression, "Unwind cannot take nullptr for named_expression");
     }
     cpp<#)
   (:private

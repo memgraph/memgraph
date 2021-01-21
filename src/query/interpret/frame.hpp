@@ -2,10 +2,9 @@
 
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/typed_value.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -15,11 +14,11 @@ class Frame {
  public:
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
   explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) {
-    CHECK(size >= 0);
+    MG_ASSERT(size >= 0);
   }
 
   Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) {
-    CHECK(size >= 0);
+    MG_ASSERT(size >= 0);
   }
 
   TypedValue &operator[](const Symbol &symbol) {

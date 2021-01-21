@@ -19,6 +19,7 @@
 #include "utils/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/visitor.hpp"
+#include "utils/logging.hpp"
 cpp<#
 
 (lcp:namespace query)
@@ -2059,7 +2060,7 @@ of symbols used by each of the inputs.")
                std::vector<std::vector<TypedValue>> rows);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &) override {
-     LOG(FATAL) << "OutputTable operator should not be visited!";
+     LOG_FATAL("OutputTable operator should not be visited!");
    }
 
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2093,7 +2094,7 @@ at once. Instead, each call of the callback should return a single row of the ta
            callback);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &) override {
-     LOG(FATAL) << "OutputTableStream operator should not be visited!";
+     LOG_FATAL("OutputTableStream operator should not be visited!");
    }
 
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

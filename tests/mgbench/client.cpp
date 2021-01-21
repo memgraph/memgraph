@@ -10,7 +10,6 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
 #include "communication/bolt/client.hpp"
@@ -51,15 +50,14 @@ ExecuteNTimesTillSuccess(
       return {std::move(ret.metadata), i};
     } catch (const utils::BasicException &e) {
       if (i == max_attempts - 1) {
-        LOG(FATAL) << "Could not execute query '" << query << "' "
-                   << max_attempts << " times! Error message: " << e.what();
+        LOG_FATAL("Could not execute query '{}' {} times! Error message: {}",
+                  query, max_attempts, e.what());
       } else {
         continue;
       }
     }
   }
-  LOG(FATAL) << "Could not execute query '" << query << "' " << max_attempts
-             << " times!";
+  LOG_FATAL("Could not execute query '{}' {} times!", query, max_attempts);
 }
 
 communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
@@ -93,7 +91,7 @@ communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
     }
     case nlohmann::json::value_t::binary:
     case nlohmann::json::value_t::discarded:
-      LOG(FATAL) << "Unexpected JSON type!";
+      LOG_FATAL("Unexpected JSON type!");
   }
 }
 
@@ -229,17 +227,16 @@ void Execute(
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};
   if (FLAGS_input != "") {
-    CHECK(std::filesystem::is_regular_file(FLAGS_input))
-        << "Input file isn't a regular file or it doesn't exist!";
+    MG_ASSERT(std::filesystem::is_regular_file(FLAGS_input),
+              "Input file isn't a regular file or it doesn't exist!");
     ifile.open(FLAGS_input);
-    CHECK(ifile) << "Couldn't open input file!";
+    MG_ASSERT(ifile, "Couldn't open input file!");
     istream = &ifile;
   }
 
@@ -247,7 +244,7 @@ int main(int argc, char **argv) {
   std::ostream *ostream{&std::cout};
   if (FLAGS_output != "") {
     ofile.open(FLAGS_output);
-    CHECK(ifile) << "Couldn't open output file!";
+    MG_ASSERT(ifile, "Couldn't open output file!");
     ostream = &ofile;
   }
 
@@ -272,26 +269,26 @@ int main(int argc, char **argv) {
     std::string row;
     while (std::getline(*istream, row)) {
       auto data = nlohmann::json::parse(row);
-      CHECK(data.is_array() && data.size() > 0)
-          << "The root item of the loaded JSON queries must be a non-empty "
-             "array!";
-      CHECK(data.is_array() && data.size() == 2)
-          << "Each item of the loaded JSON queries must be an array!";
+      MG_ASSERT(data.is_array() && data.size() > 0,
+                "The root item of the loaded JSON queries must be a non-empty "
+                "array!");
+      MG_ASSERT(data.is_array() && data.size() == 2,
+                "Each item of the loaded JSON queries must be an array!");
       if (data.size() == 0) {
         Execute(queries, ostream);
         queries.clear();
         continue;
       }
-      CHECK(data.size() == 2)
-          << "Each item of the loaded JSON queries that has "
-             "data must be an array of length 2!";
+      MG_ASSERT(data.size() == 2,
+                "Each item of the loaded JSON queries that has "
+                "data must be an array of length 2!");
       const auto &query = data[0];
       const auto &param = data[1];
-      CHECK(query.is_string() && param.is_object())
-          << "The query must be a string and the parameters must be a "
-             "dictionary!";
+      MG_ASSERT(query.is_string() && param.is_object(),
+                "The query must be a string and the parameters must be a "
+                "dictionary!");
       auto bolt_param = JsonToBoltValue(param);
-      CHECK(bolt_param.IsMap()) << "The Bolt parameters must be a map!";
+      MG_ASSERT(bolt_param.IsMap(), "The Bolt parameters must be a map!");
       queries.emplace_back(query, std::move(bolt_param.ValueMap()));
     }
   }

@@ -3,7 +3,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "query/frontend/opencypher/parser.hpp"
@@ -86,7 +85,6 @@ TEST(Antlr, Sigsegv) {
 }
 
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
 
   // Signal handling init.

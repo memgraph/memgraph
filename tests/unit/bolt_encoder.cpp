@@ -62,7 +62,12 @@ TestBuffer encoder_buffer(output_stream);
 communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
 std::vector<uint8_t> &output = output_stream.output;
 
-TEST(BoltEncoder, NullAndBool) {
+struct BoltEncoder : ::testing::Test {
+  // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
+  static void SetUpTestCase() { InitializeData(data, SIZE); }
+};
+
+TEST_F(BoltEncoder, NullAndBool) {
   output.clear();
   std::vector<Value> vals;
   vals.push_back(Value());
@@ -73,7 +78,7 @@ TEST(BoltEncoder, NullAndBool) {
   CheckOutput(output, (const uint8_t *)"\xC0\xC3\xC2", 3);
 }
 
-TEST(BoltEncoder, Int) {
+TEST_F(BoltEncoder, Int) {
   int N = 28;
   output.clear();
   std::vector<Value> vals;
@@ -85,7 +90,7 @@ TEST(BoltEncoder, Int) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST(BoltEncoder, Double) {
+TEST_F(BoltEncoder, Double) {
   int N = 4;
   output.clear();
   std::vector<Value> vals;
@@ -96,7 +101,7 @@ TEST(BoltEncoder, Double) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST(BoltEncoder, String) {
+TEST_F(BoltEncoder, String) {
   output.clear();
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i)
@@ -110,7 +115,7 @@ TEST(BoltEncoder, String) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST(BoltEncoder, List) {
+TEST_F(BoltEncoder, List) {
   output.clear();
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
@@ -131,7 +136,7 @@ TEST(BoltEncoder, List) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST(BoltEncoder, Map) {
+TEST_F(BoltEncoder, Map) {
   output.clear();
   std::vector<Value> vals;
   uint8_t buff[10];
@@ -159,7 +164,7 @@ TEST(BoltEncoder, Map) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST(BoltEncoder, VertexAndEdge) {
+TEST_F(BoltEncoder, VertexAndEdge) {
   output.clear();
 
   // create vertex
@@ -210,7 +215,7 @@ TEST(BoltEncoder, VertexAndEdge) {
   CheckOutput(output, vertexedge_encoded + 48, 26);
 }
 
-TEST(BoltEncoder, BoltV1ExampleMessages) {
+TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   // this test checks example messages from: http://boltprotocol.org/v1/
 
   output.clear();
@@ -250,11 +255,4 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
   // ignored message
   bolt_encoder.MessageIgnored();
   CheckOutput(output, (const uint8_t *)"\xB0\x7E", 2);
-}
-
-int main(int argc, char **argv) {
-  InitializeData(data, SIZE);
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

@@ -9,7 +9,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "communication/server.hpp"
@@ -87,7 +86,6 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 }
 
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

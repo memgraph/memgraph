@@ -90,7 +90,6 @@ int main(int argc, char **argv) {
   ::benchmark::Initialize(&argc, argv);
   gflags::AllowCommandLineReparsing();
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   if (FLAGS_run_server) {
     if (!FLAGS_server_cert_file.empty() && !FLAGS_server_key_file.empty()) {

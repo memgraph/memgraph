@@ -5,7 +5,8 @@
 #include <curl/curl.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
+
+#include "utils/logging.hpp"
 
 namespace requests {
 
@@ -52,13 +53,13 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data,
   curl_easy_cleanup(curl);
 
   if (res != CURLE_OK) {
-    DLOG(WARNING) << "Couldn't perform request: " << curl_easy_strerror(res);
+    SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));
     return false;
   }
 
   if (response_code != 200) {
-    DLOG(WARNING) << "Request response code isn't 200 (received "
-                  << response_code << ")!";
+    SPDLOG_WARN("Request response code isn't 200 (received {})!",
+                response_code);
     return false;
   }
 
@@ -94,13 +95,13 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path,
   std::fclose(file);
 
   if (res != CURLE_OK) {
-    DLOG(WARNING) << "Couldn't perform request: " << curl_easy_strerror(res);
+    SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));
     return false;
   }
 
   if (response_code != 200) {
-    DLOG(WARNING) << "Request response code isn't 200 (received "
-                  << response_code << ")!";
+    SPDLOG_WARN("Request response code isn't 200 (received {})!",
+                response_code);
     return false;
   }
 

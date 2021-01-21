@@ -9,6 +9,7 @@ extern "C" {
 #include "py/py.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
@@ -93,9 +94,11 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock,
   auto load_cb = [module_registry, with_unlock_shared](
                      const mgp_list *args, const mgp_graph *, mgp_result *res,
                      mgp_memory *) {
-    CHECK(mgp_list_size(args) == 1U) << "Should have been type checked already";
+    MG_ASSERT(mgp_list_size(args) == 1U,
+              "Should have been type checked already");
     const mgp_value *arg = mgp_list_at(args, 0);
-    CHECK(mgp_value_is_string(arg)) << "Should have been type checked already";
+    MG_ASSERT(mgp_value_is_string(arg),
+              "Should have been type checked already");
     bool succ = false;
     with_unlock_shared([&]() {
       succ = module_registry->LoadOrReloadModuleFromName(
@@ -226,13 +229,13 @@ SharedLibraryModule::~SharedLibraryModule() {
 }
 
 bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
-  CHECK(!handle_) << "Attempting to load an already loaded module...";
-  LOG(INFO) << "Loading module " << file_path << " ...";
+  MG_ASSERT(!handle_, "Attempting to load an already loaded module...");
+  spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   dlerror();  // Clear any existing error.
   handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle_) {
-    LOG(ERROR) << "Unable to load module " << file_path << "; " << dlerror();
+    spdlog::error("Unable to load module {}; {}", file_path, dlerror());
     return false;
   }
   // Get required mgp_init_module
@@ -240,52 +243,52 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
       dlsym(handle_, "mgp_init_module"));
   const char *error = dlerror();
   if (!init_fn_ || error) {
-    LOG(ERROR) << "Unable to load module " << file_path << "; " << error;
+    spdlog::error("Unable to load module {}; {}", file_path, error);
     dlclose(handle_);
     handle_ = nullptr;
     return false;
   }
-  if (!WithModuleRegistration(
-          &procedures_, [&](auto *module_def, auto *memory) {
-            // Run mgp_init_module which must succeed.
-            int init_res = init_fn_(module_def, memory);
-            if (init_res != 0) {
-              LOG(ERROR) << "Unable to load module " << file_path
-                         << "; mgp_init_module returned " << init_res;
-              dlclose(handle_);
-              handle_ = nullptr;
-              return false;
-            }
-            return true;
-          })) {
+  if (!WithModuleRegistration(&procedures_, [&](auto *module_def,
+                                                auto *memory) {
+        // Run mgp_init_module which must succeed.
+        int init_res = init_fn_(module_def, memory);
+        if (init_res != 0) {
+          spdlog::error("Unable to load module {}; mgp_init_module_returned {}",
+                        file_path, init_res);
+          dlclose(handle_);
+          handle_ = nullptr;
+          return false;
+        }
+        return true;
+      })) {
     return false;
   }
   // Get optional mgp_shutdown_module
   shutdown_fn_ =
       reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
   error = dlerror();
-  if (error)
-    LOG(WARNING) << "When loading module " << file_path << "; " << error;
-  LOG(INFO) << "Loaded module " << file_path;
+  if (error) spdlog::warn("When loading module {}; {}", file_path, error);
+  spdlog::info("Loaded module {}", file_path);
   return true;
 }
 
 bool SharedLibraryModule::Close() {
-  CHECK(handle_) << "Attempting to close a module that has not been loaded...";
-  LOG(INFO) << "Closing module " << file_path_ << " ...";
+  MG_ASSERT(handle_,
+            "Attempting to close a module that has not been loaded...");
+  spdlog::info("Closing module {}...", file_path_);
   // non-existent shutdown function is semantically the same as a shutdown
   // function that does nothing.
   int shutdown_res = 0;
   if (shutdown_fn_) shutdown_res = shutdown_fn_();
   if (shutdown_res != 0) {
-    LOG(WARNING) << "When closing module " << file_path_
-                 << "; mgp_shutdown_module returned " << shutdown_res;
+    spdlog::warn("When closing module {}; mgp_shutdown_module returned {}",
+                 file_path_, shutdown_res);
   }
   if (dlclose(handle_) != 0) {
-    LOG(ERROR) << "Failed to close module " << file_path_ << "; " << dlerror();
+    spdlog::error("Failed to close module {}; {}", file_path_, dlerror());
     return false;
   }
-  LOG(INFO) << "Closed module " << file_path_;
+  spdlog::info("Closed module {}", file_path_);
   handle_ = nullptr;
   procedures_.clear();
   return true;
@@ -293,8 +296,9 @@ bool SharedLibraryModule::Close() {
 
 const std::map<std::string, mgp_proc, std::less<>>
     *SharedLibraryModule::Procedures() const {
-  CHECK(handle_) << "Attempting to access procedures of a module that has not "
-                    "been loaded...";
+  MG_ASSERT(handle_,
+            "Attempting to access procedures of a module that has not "
+            "been loaded...");
   return &procedures_;
 }
 
@@ -327,13 +331,13 @@ PythonModule::~PythonModule() {
 }
 
 bool PythonModule::Load(const std::filesystem::path &file_path) {
-  CHECK(!py_module_) << "Attempting to load an already loaded module...";
-  LOG(INFO) << "Loading module " << file_path << " ...";
+  MG_ASSERT(!py_module_, "Attempting to load an already loaded module...");
+  spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   auto gil = py::EnsureGIL();
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
-    LOG(ERROR) << "Unable to load module " << file_path << "; " << *maybe_exc;
+    spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
     return false;
   }
   py_module_ =
@@ -341,18 +345,18 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
         return ImportPyModule(file_path.stem().c_str(), module_def);
       });
   if (py_module_) {
-    LOG(INFO) << "Loaded module " << file_path;
+    spdlog::info("Loaded module {}", file_path);
     return true;
   }
   auto exc_info = py::FetchError().value();
-  LOG(ERROR) << "Unable to load module " << file_path << "; " << exc_info;
+  spdlog::error("Unable to load module {}; {}", file_path, exc_info);
   return false;
 }
 
 bool PythonModule::Close() {
-  CHECK(py_module_)
-      << "Attempting to close a module that has not been loaded...";
-  LOG(INFO) << "Closing module " << file_path_ << " ...";
+  MG_ASSERT(py_module_,
+            "Attempting to close a module that has not been loaded...");
+  spdlog::info("Closing module {}...", file_path_);
   // The procedures are closures which hold references to the Python callbacks.
   // Releasing these references might result in deallocations so we need to take
   // the GIL.
@@ -363,19 +367,20 @@ bool PythonModule::Close() {
   py::Object sys(PyImport_ImportModule("sys"));
   if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(),
                            file_path_.stem().c_str()) != 0) {
-    LOG(WARNING) << "Failed to remove the module from sys.modules";
+    spdlog::warn("Failed to remove the module from sys.modules");
     py_module_ = py::Object(nullptr);
     return false;
   }
   py_module_ = py::Object(nullptr);
-  LOG(INFO) << "Closed module " << file_path_;
+  spdlog::info("Closed module {}", file_path_);
   return true;
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures()
     const {
-  CHECK(py_module_) << "Attempting to access procedures of a module that has "
-                       "not been loaded...";
+  MG_ASSERT(py_module_,
+            "Attempting to access procedures of a module that has "
+            "not been loaded...");
   return &procedures_;
 }
 
@@ -384,7 +389,7 @@ namespace {
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
-    LOG(WARNING) << "Unknown query module file " << path;
+    spdlog::warn("Unknown query module file {}", path);
     return nullptr;
   }
   std::unique_ptr<Module> module;
@@ -404,10 +409,10 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 
 bool ModuleRegistry::RegisterModule(const std::string_view &name,
                                     std::unique_ptr<Module> module) {
-  CHECK(!name.empty()) << "Module name cannot be empty";
-  CHECK(module) << "Tried to register an invalid module";
+  MG_ASSERT(!name.empty(), "Module name cannot be empty");
+  MG_ASSERT(module, "Tried to register an invalid module");
   if (modules_.find(name) != modules_.end()) {
-    LOG(ERROR) << "Unable to overwrite an already loaded module " << name;
+    spdlog::error("Unable to overwrite an already loaded module {}", name);
     return false;
   }
   modules_.emplace(name, std::move(module));
@@ -415,8 +420,8 @@ bool ModuleRegistry::RegisterModule(const std::string_view &name,
 }
 
 void ModuleRegistry::DoUnloadAllModules() {
-  CHECK(modules_.find("mg") != modules_.end())
-      << "Expected the builtin \"mg\" module to be present.";
+  MG_ASSERT(modules_.find("mg") != modules_.end(),
+            "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
   auto module = std::move(modules_["mg"]);
@@ -443,12 +448,12 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
   auto found_it = modules_.find(name);
   if (found_it != modules_.end()) {
     if (!found_it->second->Close()) {
-      LOG(WARNING) << "Failed to close module " << found_it->first;
+      spdlog::warn("Failed to close module {}", found_it->first);
     }
     modules_.erase(found_it);
   }
   if (!utils::DirExists(modules_dir_)) {
-    LOG(ERROR) << "Module directory " << modules_dir_ << " doesn't exist";
+    spdlog::error("Module directory {} doesn't exist", modules_dir_);
     return false;
   }
   for (const auto &entry : std::filesystem::directory_iterator(modules_dir_)) {
@@ -465,7 +470,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
 void ModuleRegistry::UnloadAndLoadModulesFromDirectory() {
   if (modules_dir_.empty()) return;
   if (!utils::DirExists(modules_dir_)) {
-    LOG(ERROR) << "Module directory " << modules_dir_ << " doesn't exist";
+    spdlog::error("Module directory {} doesn't exist", modules_dir_);
     return;
   }
   std::unique_lock<utils::RWLock> guard(lock_);
@@ -502,7 +507,7 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
   utils::Split(&name_parts, fully_qualified_procedure_name, ".");
   if (name_parts.size() == 1U) return std::nullopt;
   auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
-  CHECK(last_dot_pos != std::string_view::npos);
+  MG_ASSERT(last_dot_pos != std::string_view::npos);
   const auto &module_name =
       fully_qualified_procedure_name.substr(0, last_dot_pos);
   const auto &proc_name = name_parts.back();

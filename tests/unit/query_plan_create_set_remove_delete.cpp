@@ -153,7 +153,7 @@ TEST(QueryPlan, CreateExpand) {
 
   for (auto vertex : dba.Vertices(storage::View::OLD)) {
     auto maybe_labels = vertex.Labels(storage::View::OLD);
-    CHECK(maybe_labels.HasValue());
+    MG_ASSERT(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     storage::LabelId label = labels[0];
@@ -174,7 +174,7 @@ TEST(QueryPlan, CreateExpand) {
 
     for (auto vertex : dba.Vertices(storage::View::OLD)) {
       auto maybe_edges = vertex.OutEdges(storage::View::OLD);
-      CHECK(maybe_edges.HasValue());
+      MG_ASSERT(maybe_edges.HasValue());
       for (auto edge : *maybe_edges) {
         EXPECT_EQ(edge.EdgeType(), edge_type);
         EXPECT_EQ(

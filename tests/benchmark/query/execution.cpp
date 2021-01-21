@@ -52,7 +52,7 @@ class PoolResource final {
 static void AddVertices(storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba.CreateVertex();
-  CHECK(!dba.Commit().HasError());
+  MG_ASSERT(!dba.Commit().HasError());
 }
 
 static const char *kStartLabel = "start";
@@ -61,19 +61,20 @@ static void AddStarGraph(storage::Storage *db, int spoke_count, int depth) {
   {
     auto dba = db->Access();
     auto center_vertex = dba.CreateVertex();
-    CHECK(center_vertex.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(center_vertex.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
     for (int i = 0; i < spoke_count; ++i) {
       auto prev_vertex = center_vertex;
       for (int j = 0; j < depth; ++j) {
         auto dest = dba.CreateVertex();
-        CHECK(dba.CreateEdge(&prev_vertex, &dest, dba.NameToEdgeType("Type"))
-                  .HasValue());
+        MG_ASSERT(
+            dba.CreateEdge(&prev_vertex, &dest, dba.NameToEdgeType("Type"))
+                .HasValue());
         prev_vertex = dest;
       }
     }
-    CHECK(!dba.Commit().HasError());
+    MG_ASSERT(!dba.Commit().HasError());
   }
-  CHECK(db->CreateIndex(db->NameToLabel(kStartLabel)));
+  MG_ASSERT(db->CreateIndex(db->NameToLabel(kStartLabel)));
 }
 
 static void AddTree(storage::Storage *db, int vertex_count) {
@@ -82,7 +83,7 @@ static void AddTree(storage::Storage *db, int vertex_count) {
     std::vector<storage::VertexAccessor> vertices;
     vertices.reserve(vertex_count);
     auto root = dba.CreateVertex();
-    CHECK(root.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(root.AddLabel(dba.NameToLabel(kStartLabel)).HasValue());
     vertices.push_back(root);
     // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
     std::mt19937_64 rg(42);
@@ -90,12 +91,13 @@ static void AddTree(storage::Storage *db, int vertex_count) {
       auto v = dba.CreateVertex();
       std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
       auto &parent = vertices.at(dis(rg));
-      CHECK(dba.CreateEdge(&parent, &v, dba.NameToEdgeType("Type")).HasValue());
+      MG_ASSERT(
+          dba.CreateEdge(&parent, &v, dba.NameToEdgeType("Type")).HasValue());
       vertices.push_back(v);
     }
-    CHECK(!dba.Commit().HasError());
+    MG_ASSERT(!dba.Commit().HasError());
   }
-  CHECK(db->CreateIndex(db->NameToLabel(kStartLabel)));
+  MG_ASSERT(db->CreateIndex(db->NameToLabel(kStartLabel)));
 }
 
 static query::CypherQuery *ParseCypherQuery(const std::string &query_string,

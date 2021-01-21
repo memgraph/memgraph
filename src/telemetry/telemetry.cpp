@@ -3,11 +3,11 @@
 #include <filesystem>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "telemetry/system_info.hpp"
+#include "utils/logging.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
@@ -62,7 +62,7 @@ void Telemetry::SendData() {
     try {
       payload.push_back(nlohmann::json::parse(it->second));
     } catch (const nlohmann::json::parse_error &e) {
-      DLOG(WARNING) << "Couldn't convert " << it->second << " to json!";
+      SPDLOG_WARN("Couldn't convert {} to json", it->second);
     }
   }
 
@@ -70,8 +70,10 @@ void Telemetry::SendData() {
                                 /* timeout_in_seconds = */ 2 * 60)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
-        DLOG(WARNING) << "Couldn't delete key " << key
-                      << " from telemetry storage!";
+        SPDLOG_WARN(
+            "Couldn't delete key {}"
+            " from telemetry storage!",
+            key);
       }
     }
   }

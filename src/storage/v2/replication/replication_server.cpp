@@ -27,27 +27,27 @@ Storage::ReplicationServer::ReplicationServer(
 
   rpc_server_->Register<HeartbeatRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received HeartbeatRpc";
+        spdlog::debug("Received HeartbeatRpc");
         this->HeartbeatHandler(req_reader, res_builder);
       });
   rpc_server_->Register<AppendDeltasRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received AppendDeltasRpc:";
+        spdlog::debug("Received AppendDeltasRpc");
         this->AppendDeltasHandler(req_reader, res_builder);
       });
   rpc_server_->Register<SnapshotRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received SnapshotRpc";
+        spdlog::debug("Received SnapshotRpc");
         this->SnapshotHandler(req_reader, res_builder);
       });
   rpc_server_->Register<WalFilesRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received WalFilesRpc";
+        spdlog::debug("Received WalFilesRpc");
         this->WalFilesHandler(req_reader, res_builder);
       });
   rpc_server_->Register<CurrentWalRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        DLOG(INFO) << "Received CurrentWalRpc";
+        spdlog::debug("Received CurrentWalRpc");
         this->CurrentWalHandler(req_reader, res_builder);
       });
   rpc_server_->Start();
@@ -70,7 +70,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(
   replication::Decoder decoder(req_reader);
 
   auto maybe_epoch_id = decoder.ReadString();
-  CHECK(maybe_epoch_id) << "Invalid replication message";
+  MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
   if (*maybe_epoch_id != storage_->epoch_id_) {
     storage_->epoch_history_.emplace_back(std::move(storage_->epoch_id_),
@@ -82,7 +82,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       [&]() -> std::pair<uint64_t, durability::WalDeltaData> {
     try {
       auto timestamp = ReadWalDeltaHeader(&decoder);
-      DLOG(INFO) << "       Timestamp " << timestamp;
+      SPDLOG_INFO("       Timestamp {}", timestamp);
       auto delta = ReadWalDeltaData(&decoder);
       return {timestamp, delta};
     } catch (const slk::SlkReaderException &) {
@@ -97,7 +97,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
-      DLOG(INFO) << "Skipping delta";
+      SPDLOG_INFO("Skipping delta");
       const auto [timestamp, delta] = read_delta();
       transaction_complete =
           durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
@@ -115,8 +115,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       storage_->wal_file_.reset();
       storage_->wal_seq_num_ = req.seq_num;
     } else {
-      CHECK(storage_->wal_file_->SequenceNumber() == req.seq_num)
-          << "Invalid sequence number of current wal file";
+      MG_ASSERT(storage_->wal_file_->SequenceNumber() == req.seq_num,
+                "Invalid sequence number of current wal file");
       storage_->wal_seq_num_ = req.seq_num + 1;
     }
   } else {
@@ -141,20 +141,20 @@ void Storage::ReplicationServer::AppendDeltasHandler(
 
   bool transaction_complete = false;
   for (uint64_t i = 0; !transaction_complete; ++i) {
-    DLOG(INFO) << "  Delta " << i;
+    SPDLOG_INFO("  Delta {}", i);
     const auto [timestamp, delta] = read_delta();
 
     switch (delta.type) {
       case durability::WalDeltaData::Type::VERTEX_CREATE: {
-        DLOG(INFO) << "       Create vertex "
-                   << delta.vertex_create_delete.gid.AsUint();
+        spdlog::trace("       Create vertex {}",
+                      delta.vertex_create_delete.gid.AsUint());
         auto transaction = get_transaction(timestamp);
         transaction->CreateVertex(delta.vertex_create_delete.gid);
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_DELETE: {
-        DLOG(INFO) << "       Delete vertex "
-                   << delta.vertex_create_delete.gid.AsUint();
+        spdlog::trace("       Delete vertex {}",
+                      delta.vertex_create_delete.gid.AsUint());
         auto transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid,
                                               storage::View::NEW);
@@ -165,9 +165,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
-        DLOG(INFO) << "       Vertex "
-                   << delta.vertex_add_remove_label.gid.AsUint()
-                   << " add label " << delta.vertex_add_remove_label.label;
+        spdlog::trace("       Vertex {} add label {}",
+                      delta.vertex_add_remove_label.gid.AsUint(),
+                      delta.vertex_add_remove_label.label);
         auto transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid,
                                               storage::View::NEW);
@@ -179,9 +179,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
-        DLOG(INFO) << "       Vertex "
-                   << delta.vertex_add_remove_label.gid.AsUint()
-                   << " remove label " << delta.vertex_add_remove_label.label;
+        spdlog::trace("       Vertex {} remove label {}",
+                      delta.vertex_add_remove_label.gid.AsUint(),
+                      delta.vertex_add_remove_label.label);
         auto transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid,
                                               storage::View::NEW);
@@ -193,11 +193,10 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-        DLOG(INFO) << "       Vertex "
-                   << delta.vertex_edge_set_property.gid.AsUint()
-                   << " set property "
-                   << delta.vertex_edge_set_property.property << " to "
-                   << delta.vertex_edge_set_property.value;
+        spdlog::trace("       Vertex {} set property {} to {}",
+                      delta.vertex_edge_set_property.gid.AsUint(),
+                      delta.vertex_edge_set_property.property,
+                      delta.vertex_edge_set_property.value);
         auto transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(
             delta.vertex_edge_set_property.gid, storage::View::NEW);
@@ -210,12 +209,12 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::EDGE_CREATE: {
-        DLOG(INFO) << "       Create edge "
-                   << delta.edge_create_delete.gid.AsUint() << " of type "
-                   << delta.edge_create_delete.edge_type << " from vertex "
-                   << delta.edge_create_delete.from_vertex.AsUint()
-                   << " to vertex "
-                   << delta.edge_create_delete.to_vertex.AsUint();
+        spdlog::trace(
+            "       Create edge {} of type {} from vertex {} to vertex {}",
+            delta.edge_create_delete.gid.AsUint(),
+            delta.edge_create_delete.edge_type,
+            delta.edge_create_delete.from_vertex.AsUint(),
+            delta.edge_create_delete.to_vertex.AsUint());
         auto transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(
             delta.edge_create_delete.from_vertex, storage::View::NEW);
@@ -232,12 +231,12 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::EDGE_DELETE: {
-        DLOG(INFO) << "       Delete edge "
-                   << delta.edge_create_delete.gid.AsUint() << " of type "
-                   << delta.edge_create_delete.edge_type << " from vertex "
-                   << delta.edge_create_delete.from_vertex.AsUint()
-                   << " to vertex "
-                   << delta.edge_create_delete.to_vertex.AsUint();
+        spdlog::trace(
+            "       Delete edge {} of type {} from vertex {} to vertex {}",
+            delta.edge_create_delete.gid.AsUint(),
+            delta.edge_create_delete.edge_type,
+            delta.edge_create_delete.from_vertex.AsUint(),
+            delta.edge_create_delete.to_vertex.AsUint());
         auto transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(
             delta.edge_create_delete.from_vertex, storage::View::NEW);
@@ -259,11 +258,10 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::EDGE_SET_PROPERTY: {
-        DLOG(INFO) << "       Edge "
-                   << delta.vertex_edge_set_property.gid.AsUint()
-                   << " set property "
-                   << delta.vertex_edge_set_property.property << " to "
-                   << delta.vertex_edge_set_property.value;
+        spdlog::trace("       Edge {} set property {} to {}",
+                      delta.vertex_edge_set_property.gid.AsUint(),
+                      delta.vertex_edge_set_property.property,
+                      delta.vertex_edge_set_property.value);
 
         if (!storage_->config_.items.properties_on_edges)
           throw utils::BasicException(
@@ -334,7 +332,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       }
 
       case durability::WalDeltaData::Type::TRANSACTION_END: {
-        DLOG(INFO) << "       Transaction end";
+        spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor ||
             commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid data!");
@@ -346,8 +344,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       }
 
       case durability::WalDeltaData::Type::LABEL_INDEX_CREATE: {
-        DLOG(INFO) << "       Create label index on :"
-                   << delta.operation_label.label;
+        spdlog::trace("       Create label index on :{}",
+                      delta.operation_label.label);
         // Need to send the timestamp
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
@@ -357,8 +355,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
-        DLOG(INFO) << "       Drop label index on :"
-                   << delta.operation_label.label;
+        spdlog::trace("       Drop label index on :{}",
+                      delta.operation_label.label);
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         if (!storage_->DropIndex(
@@ -367,9 +365,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
-        DLOG(INFO) << "       Create label+property index on :"
-                   << delta.operation_label_property.label << " ("
-                   << delta.operation_label_property.property << ")";
+        spdlog::trace("       Create label+property index on :{} ({})",
+                      delta.operation_label_property.label,
+                      delta.operation_label_property.property);
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         if (!storage_->CreateIndex(
@@ -381,9 +379,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
-        DLOG(INFO) << "       Drop label+property index on :"
-                   << delta.operation_label_property.label << " ("
-                   << delta.operation_label_property.property << ")";
+        spdlog::trace("       Drop label+property index on :{} ({})",
+                      delta.operation_label_property.label,
+                      delta.operation_label_property.property);
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         if (!storage_->DropIndex(
@@ -395,9 +393,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
-        DLOG(INFO) << "       Create existence constraint on :"
-                   << delta.operation_label_property.label << " ("
-                   << delta.operation_label_property.property << ")";
+        spdlog::trace("       Create existence constraint on :{} ({})",
+                      delta.operation_label_property.label,
+                      delta.operation_label_property.property);
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         auto ret = storage_->CreateExistenceConstraint(
@@ -409,9 +407,9 @@ void Storage::ReplicationServer::AppendDeltasHandler(
         break;
       }
       case durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
-        DLOG(INFO) << "       Drop existence constraint on :"
-                   << delta.operation_label_property.label << " ("
-                   << delta.operation_label_property.property << ")";
+        spdlog::trace("       Drop existence constraint on :{} ({})",
+                      delta.operation_label_property.label,
+                      delta.operation_label_property.property);
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         if (!storage_->DropExistenceConstraint(
@@ -425,9 +423,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
         std::stringstream ss;
         utils::PrintIterable(ss, delta.operation_label_properties.properties);
-        DLOG(INFO) << "       Create unique constraint on :"
-                   << delta.operation_label_properties.label << " (" << ss.str()
-                   << ")";
+        spdlog::trace("       Create unique constraint on :{} ({})",
+                      delta.operation_label_properties.label, ss.str());
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         std::set<PropertyId> properties;
@@ -445,9 +442,8 @@ void Storage::ReplicationServer::AppendDeltasHandler(
       case durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
         std::stringstream ss;
         utils::PrintIterable(ss, delta.operation_label_properties.properties);
-        DLOG(INFO) << "       Drop unique constraint on :"
-                   << delta.operation_label_properties.label << " (" << ss.str()
-                   << ")";
+        spdlog::trace("       Drop unique constraint on :{} ({})",
+                      delta.operation_label_properties.label, ss.str());
         if (commit_timestamp_and_accessor)
           throw utils::BasicException("Invalid transaction!");
         std::set<PropertyId> properties;
@@ -484,8 +480,8 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
 
   const auto maybe_snapshot_path =
       decoder.ReadFile(storage_->snapshot_directory_);
-  CHECK(maybe_snapshot_path) << "Failed to load snapshot!";
-  DLOG(INFO) << "Received snapshot saved to " << *maybe_snapshot_path;
+  MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
+  spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
@@ -498,12 +494,12 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
   storage_->indices_.label_property_index = LabelPropertyIndex(
       &storage_->indices_, &storage_->constraints_, storage_->config_.items);
   try {
-    DLOG(INFO) << "Loading snapshot";
+    spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::LoadSnapshot(
         *maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
         &storage_->epoch_history_, &storage_->name_id_mapper_,
         &storage_->edge_count_, storage_->config_.items);
-    DLOG(INFO) << "Snapshot loaded successfully";
+    spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
@@ -518,7 +514,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader,
         recovered_snapshot.indices_constraints, &storage_->indices_,
         &storage_->constraints_, &storage_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
-    LOG(FATAL) << "Couldn't load the snapshot because of: " << e.what();
+    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }
   storage_guard.unlock();
 
@@ -551,7 +547,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader,
   slk::Load(&req, req_reader);
 
   const auto wal_file_number = req.file_number;
-  DLOG(INFO) << "Received WAL files: " << wal_file_number;
+  spdlog::debug("Received WAL files: {}", wal_file_number);
 
   replication::Decoder decoder(req_reader);
 
@@ -609,8 +605,8 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader,
     // Delete the old wal file
     storage_->file_retainer_.DeleteFile(storage_->wal_file_->Path());
   }
-  CHECK(storage_->config_.durability.snapshot_wal_mode ==
-        Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
+  MG_ASSERT(storage_->config_.durability.snapshot_wal_mode ==
+            Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
   storage_->wal_file_.emplace(std::move(path), storage_->config_.items,
                               &storage_->name_id_mapper_, wal_info.seq_num,
                               wal_info.from_timestamp, wal_info.to_timestamp,
@@ -629,8 +625,8 @@ Storage::ReplicationServer::LoadWal(
     replication::Decoder *decoder,
     durability::RecoveredIndicesAndConstraints *indices_constraints) {
   auto maybe_wal_path = decoder->ReadFile(storage_->wal_directory_, "_MAIN");
-  CHECK(maybe_wal_path) << "Failed to load WAL!";
-  DLOG(INFO) << "Received WAL saved to " << *maybe_wal_path;
+  MG_ASSERT(maybe_wal_path, "Failed to load WAL!");
+  spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
     if (wal_info.epoch_id != storage_->epoch_id_) {
@@ -653,11 +649,11 @@ Storage::ReplicationServer::LoadWal(
     if (info.last_commit_timestamp) {
       storage_->last_commit_timestamp_ = *info.last_commit_timestamp;
     }
-    DLOG(INFO) << *maybe_wal_path << " loaded successfully";
+    spdlog::debug("{} loaded successfully", *maybe_wal_path);
     return {std::move(wal_info), std::move(*maybe_wal_path)};
   } catch (const durability::RecoveryFailure &e) {
-    LOG(FATAL) << "Couldn't recover WAL deltas from " << *maybe_wal_path
-               << " because of: " << e.what();
+    LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}",
+              *maybe_wal_path, e.what());
   }
 }
 

@@ -2,7 +2,6 @@
 #include <csignal>
 #include <thread>
 
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "io/network/socket.hpp"
@@ -85,10 +84,4 @@ TEST(Socket, WaitForReadyWrite) {
   client->Close();
 
   thread.join();
-}
-
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

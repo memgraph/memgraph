@@ -145,7 +145,7 @@ class DeltaGenerator final {
         } else if (owner.type == storage::PreviousPtr::Type::EDGE) {
           gen_->wal_file_.AppendDelta(delta, *owner.edge, commit_timestamp);
         } else {
-          LOG(FATAL) << "Invalid delta owner!";
+          LOG_FATAL("Invalid delta owner!");
         }
       }
       if (append_transaction_end) {

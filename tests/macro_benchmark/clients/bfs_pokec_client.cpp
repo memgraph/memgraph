@@ -10,11 +10,11 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
 #include "io/network/utils.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
 #include "long_running_common.hpp"
@@ -28,7 +28,7 @@ class BfsPokecClient : public TestClient {
   BfsPokecClient(int id, const std::string &db)
       : TestClient(), rg_(id), db_(db) {
     auto result = Execute("MATCH (n:User) RETURN count(1)", {}, "NumNodes");
-    CHECK(result) << "Read-only query should not fail";
+    MG_ASSERT(result, "Read-only query should not fail");
     num_nodes_ = result->records[0][0].ValueInt();
   }
 
@@ -55,14 +55,14 @@ class BfsPokecClient : public TestClient {
           "p = (n)-[*bfs..15]->(m) "
           "RETURN extract(n in nodes(p) | n.id) AS path",
           {{"start", start}, {"end", end}}, "Bfs");
-      CHECK(result) << "Read-only query should not fail!";
+      MG_ASSERT(result, "Read-only query should not fail!");
     } else if (FLAGS_db == "neo4j") {
       auto result = Execute(
           "MATCH p = shortestPath("
           "(n:User {id: $start})-[*..15]->(m:User {id: $end}))"
           "RETURN [x in nodes(p) | x.id] AS path;",
           {{"start", start}, {"end", end}}, "Bfs");
-      CHECK(result) << "Read-only query should not fail!";
+      MG_ASSERT(result, "Read-only query should not fail!");
     }
   }
 
@@ -73,14 +73,14 @@ class BfsPokecClient : public TestClient {
           "MATCH p = (n:User {id: $start})-[*bfs..15]->(m:User) WHERE m != n "
           "RETURN extract(n in nodes(p) | n.id) AS path",
           {{"start", start}}, "Bfs");
-      CHECK(result) << "Read-only query should not fail!";
+      MG_ASSERT(result, "Read-only query should not fail!");
     } else {
       auto result = Execute(
           "MATCH p = shortestPath("
           "(n:User {id: $start})-[*..15]->(m:User)) WHERE m <> n "
           "RETURN [x in nodes(p) | x.id] AS path;",
           {{"start", start}}, "Bfs");
-      CHECK(result) << "Read-only query should not fail!";
+      MG_ASSERT(result, "Read-only query should not fail!");
     }
   }
 
@@ -96,13 +96,12 @@ class BfsPokecClient : public TestClient {
       return;
     }
 
-    LOG(FATAL) << "Should not get here: unknown scenario!";
+    LOG_FATAL("Should not get here: unknown scenario!");
   }
 };
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
