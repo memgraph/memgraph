@@ -6,7 +6,6 @@
 
 #include <fmt/format.h>
 
-#include <gflags/gflags.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <cppitertools/enumerate.hpp>
@@ -2317,10 +2316,4 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   count_with_index(prop_value2, vertex_count - vertex_prop_count);
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
-  return RUN_ALL_TESTS();
 }

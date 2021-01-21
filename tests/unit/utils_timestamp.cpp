@@ -2,8 +2,8 @@
 #include <iostream>
 #include <thread>
 
-#include "gtest/gtest.h"
-#include "utils/timestamp.hpp"
+#include <gtest/gtest.h>
+#include <utils/timestamp.hpp>
 
 TEST(TimestampTest, BasicUsage) {
   auto timestamp = utils::Timestamp::Now();
@@ -22,9 +22,4 @@ TEST(TimestampTest, BasicUsage) {
   std::cout << (timestamp == utils::Timestamp::Now()) << std::endl;
 
   ASSERT_NE(timestamp, utils::Timestamp::Now());
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

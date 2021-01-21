@@ -1,5 +1,3 @@
-#include <iostream>
-
 #include "gtest/gtest.h"
 
 #include "io/network/endpoint.hpp"
@@ -32,10 +30,4 @@ TEST(Endpoint, IPv6) {
 
   // test address invalid
   EXPECT_THROW(endpoint_t("::g", 12345), io::network::NetworkError);
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  logging::RedirectToStderr();
-  return RUN_ALL_TESTS();
 }

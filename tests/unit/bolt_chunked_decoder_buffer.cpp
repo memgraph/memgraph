@@ -11,7 +11,12 @@ using DecoderBufferT =
     communication::bolt::ChunkedDecoderBuffer<BufferT::ReadEnd>;
 using ChunkStateT = communication::bolt::ChunkState;
 
-TEST(BoltBuffer, CorrectChunk) {
+struct BoltBuffer : ::testing::Test {
+  // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
+  static void SetUpTestCase() { InitializeData(data, SIZE); }
+};
+
+TEST_F(BoltBuffer, CorrectChunk) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
@@ -33,7 +38,7 @@ TEST(BoltBuffer, CorrectChunk) {
   ASSERT_EQ(buffer.read_end()->size(), 0);
 }
 
-TEST(BoltBuffer, CorrectChunkTrailingData) {
+TEST_F(BoltBuffer, CorrectChunkTrailingData) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
@@ -57,7 +62,7 @@ TEST(BoltBuffer, CorrectChunkTrailingData) {
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i + 1002], leftover[i]);
 }
 
-TEST(BoltBuffer, GraduallyPopulatedChunk) {
+TEST_F(BoltBuffer, GraduallyPopulatedChunk) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
@@ -87,7 +92,7 @@ TEST(BoltBuffer, GraduallyPopulatedChunk) {
   ASSERT_EQ(buffer.read_end()->size(), 0);
 }
 
-TEST(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
+TEST_F(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
@@ -122,10 +127,4 @@ TEST(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
   uint8_t *leftover = buffer.read_end()->data();
   ASSERT_EQ(buffer.read_end()->size(), 1000);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], leftover[i]);
-}
-
-int main(int argc, char **argv) {
-  InitializeData(data, SIZE);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

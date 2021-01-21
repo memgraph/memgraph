@@ -682,8 +682,3 @@ TEST(AuthWithoutStorage, Crypto) {
   ASSERT_TRUE(VerifyPassword("hello", hash));
   ASSERT_FALSE(VerifyPassword("hello1", hash));
 }
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}
