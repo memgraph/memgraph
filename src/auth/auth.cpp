@@ -96,8 +96,7 @@ std::optional<User> Auth::Authenticate(const std::string &username,
         if (!user) {
           spdlog::warn(
               "Couldn't authenticate user '{}' using the auth module because "
-              "the user already "
-              "exists as a role!",
+              "the user already exists as a role!",
               username);
           return std::nullopt;
         }
@@ -142,8 +141,16 @@ std::optional<User> Auth::Authenticate(const std::string &username,
     return user;
   } else {
     auto user = GetUser(username);
-    if (!user) return std::nullopt;
-    if (!user->CheckPassword(password)) return std::nullopt;
+    if (!user) {
+      spdlog::warn(
+          "Couldn't authenticate user '{}' because the user doesn't exist",
+          username);
+      return std::nullopt;
+    }
+    if (!user->CheckPassword(password)) {
+      spdlog::warn("Couldn't authenticate user '{}'", username);
+      return std::nullopt;
+    }
     return user;
   }
 }
