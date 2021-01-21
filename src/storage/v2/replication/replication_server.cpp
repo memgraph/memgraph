@@ -32,7 +32,7 @@ Storage::ReplicationServer::ReplicationServer(
       });
   rpc_server_->Register<AppendDeltasRpc>(
       [this](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received AppendDeltasRpc:");
+        spdlog::debug("Received AppendDeltasRpc");
         this->AppendDeltasHandler(req_reader, res_builder);
       });
   rpc_server_->Register<SnapshotRpc>(

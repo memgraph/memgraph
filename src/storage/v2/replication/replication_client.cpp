@@ -81,11 +81,11 @@ void Storage::ReplicationClient::InitializeClient() {
   spdlog::trace("Current timestamp on main: {}",
                 storage_->last_commit_timestamp_.load());
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
-    spdlog::debug("Replica up to date");
+    spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
   } else {
-    spdlog::debug("Replica is behind");
+    spdlog::debug("Replica '{}' is behind", name_);
     {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::RECOVERY);
