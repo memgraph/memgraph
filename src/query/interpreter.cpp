@@ -1661,6 +1661,12 @@ Interpreter::PrepareResult Interpreter::Prepare(
                   query_execution->prepared_query->rw_type)
             : "rw";
 
+    const auto repl_role = interpreter_context_->db->GetReplicationRole();
+    if (repl_role == storage::ReplicationRole::REPLICA &&
+        query_execution->prepared_query->rw_type == RWType::W) {
+      throw QueryException("Write query forbidden on the replica!");
+    }
+
     return {query_execution->prepared_query->header,
             query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
