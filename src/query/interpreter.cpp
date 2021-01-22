@@ -1661,10 +1661,9 @@ Interpreter::PrepareResult Interpreter::Prepare(
                   query_execution->prepared_query->rw_type)
             : "rw";
 
-    if (const auto [repl_role, query_type] =
-            std::tuple{interpreter_context_->db->GetReplicationRole(),
-                       query_execution->prepared_query->rw_type};
-        repl_role == storage::ReplicationRole::REPLICA &&
+    if (const auto query_type = query_execution->prepared_query->rw_type;
+        interpreter_context_->db->GetReplicationRole() ==
+            storage::ReplicationRole::REPLICA &&
         (query_type == RWType::W || query_type == RWType::RW)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
