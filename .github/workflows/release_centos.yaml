@@ -62,10 +62,10 @@ jobs:
           cd tests/stress
           ./continuous_integration
 
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
+#      - name: Run stress test (large)
+#        run: |
+#          cd tests/stress
+#          ./continuous_integration --large-dataset
 
   coverage_build:
     name: "Coverage build"
@@ -299,10 +299,10 @@ jobs:
           cd tests/stress
           ./continuous_integration --use-ssl
 
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
+#      - name: Run stress test (large)
+#        run: |
+#          cd tests/stress
+#          ./continuous_integration --large-dataset
 
       - name: Run durability test (plain)
         run: |
@@ -310,8 +310,8 @@ jobs:
           source ve3/bin/activate
           python3 durability --num-steps 5
 
-      - name: Run durability test (large)
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          python3 durability --num-steps 20
+#      - name: Run durability test (large)
+#        run: |
+#          cd tests/stress
+#          source ve3/bin/activate
+#          python3 durability --num-steps 20

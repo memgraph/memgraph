@@ -9,7 +9,25 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+
+///////////////////////////////////////////////////////////
+// Our communication layer and query engine don't mix
+// very well on Centos because OpenSSL version avaialable
+// on Centos 7 include  libkrb5 which has brilliant macros
+// called TRUE and FALSE. For more detailed explanation go
+// to memgraph.cpp.
+//
+// Because of the replication storage now uses some form of
+// communication so we have some unwanted macros.
+// This cannot be avoided by simple include orderings so we
+// simply undefine those macros as we're sure that libkrb5
+// won't and can't be used anywhere in the query engine.
 #include "storage/v2/storage.hpp"
+
+#undef FALSE
+#undef TRUE
+///////////////////////////////////////////////////////////
+
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"

@@ -1,5 +1,7 @@
 include(ExternalProject)
 
+include(GNUInstallDirs)
+
 include(ProcessorCount)
 ProcessorCount(NPROC)
 if (NPROC EQUAL 0)
@@ -102,7 +104,7 @@ import_external_library(benchmark STATIC
 
 # setup fmt format
 import_external_library(fmt STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/lib/libfmt.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/${CMAKE_INSTALL_LIBDIR}/libfmt.a
   ${CMAKE_CURRENT_SOURCE_DIR}/fmt/include
   # Skip testing.
   CMAKE_ARGS -DFMT_TEST=OFF)
@@ -207,6 +209,6 @@ target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
 # Setup spdlog
 import_external_library(spdlog STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/lib/libspdlog.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/include
   BUILD_COMMAND $(MAKE) spdlog)
