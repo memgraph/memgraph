@@ -22,8 +22,13 @@ if [ ! -f $REACTIVE_STREAM_DEP ]; then
     wget -nv https://repo1.maven.org/maven2/org/reactivestreams/reactive-streams/1.0.3/reactive-streams-1.0.3.jar -O $REACTIVE_STREAM_DEP || exit 1
 fi
 
-javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery.java
-java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery
+# CentOS 7 doesn't have Java version that supports var keyword
+source ../../../../environment/util.sh
+
+if [[ "$( operating_system )" != "centos-7" ]]; then
+    javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery.java
+    java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP DocsHowToQuery
+fi
 
 javac -classpath .:$DRIVER:$REACTIVE_STREAM_DEP MaxQueryLength.java
 java -classpath .:$DRIVER:$REACTIVE_STREAM_DEP MaxQueryLength
