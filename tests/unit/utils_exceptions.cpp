@@ -1,6 +1,5 @@
-#include "gtest/gtest.h"
-
-#include "utils/exceptions.hpp"
+#include <gtest/gtest.h>
+#include <utils/exceptions.hpp>
 
 void i_will_throw() { throw utils::BasicException("this is not ok"); }
 
@@ -19,9 +18,4 @@ void foo_stacktrace() { bar_stacktrace(); }
 TEST(ExceptionsTest, ThrowBasicAndStackExceptions) {
   ASSERT_THROW(foo(), utils::BasicException);
   ASSERT_THROW(foo_stacktrace(), utils::StacktraceException);
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

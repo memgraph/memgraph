@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -12,6 +11,7 @@
 #include "helpers.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 #include "version.hpp"
@@ -110,7 +110,7 @@ std::vector<std::string> ParseRepeatedFlag(const std::string &flagname,
         value = argv[++i];
       else if (!maybe_value.empty() && maybe_value.front() == '=')
         value = maybe_value.substr(1);
-      CHECK(!value.empty()) << "The argument '" << flagname << "' is required";
+      MG_ASSERT(!value.empty(), "The argument '{}' is required", flagname);
       values.push_back(value);
     }
   }
@@ -419,7 +419,7 @@ std::string GetIdSpace(const std::string &type) {
         "Expected the ID field to look like '[START_|END_]ID[(<id_space>)]', "
         "but got '{}' instead",
         type);
-  CHECK(res.size() == 4) << "Invalid regex match result!";
+  MG_ASSERT(res.size() == 4, "Invalid regex match result!");
   return res[3];
 }
 
@@ -444,7 +444,7 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields,
       auto it = node_id_map->find(node_id);
       if (it != node_id_map->end()) {
         if (FLAGS_skip_duplicate_nodes) {
-          LOG(WARNING) << "Skipping duplicate node with ID '" << node_id << "'";
+          spdlog::warn("Skipping duplicate node with ID '{}'", node_id);
           return;
         } else {
           throw LoadException("Node with ID '{}' already exists", node_id);
@@ -500,7 +500,7 @@ void ProcessNodes(storage::Storage *store, const std::string &nodes_path,
                   std::unordered_map<NodeId, storage::Gid> *node_id_map,
                   const std::vector<std::string> &additional_labels) {
   std::ifstream nodes_file(nodes_path);
-  CHECK(nodes_file) << "Unable to open '" << nodes_path << "'";
+  MG_ASSERT(nodes_file, "Unable to open '{}'", nodes_path);
   uint64_t row_number = 1;
   try {
     if (!*header) {
@@ -524,8 +524,8 @@ void ProcessNodes(storage::Storage *store, const std::string &nodes_path,
       row_number += lines_count;
     }
   } catch (const LoadException &e) {
-    LOG(FATAL) << "Couldn't process row " << row_number << " of '" << nodes_path
-               << "' because of: " << e.what();
+    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number,
+              nodes_path, e.what());
   }
 }
 
@@ -551,8 +551,7 @@ void ProcessRelationshipsRow(
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          LOG(WARNING) << "Skipping bad relationship with START_ID '" << node_id
-                       << "'";
+          spdlog::warn("Skipping bad relationship with START_ID '{}'", node_id);
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -569,8 +568,7 @@ void ProcessRelationshipsRow(
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          LOG(WARNING) << "Skipping bad relationship with END_ID '" << node_id
-                       << "'";
+          spdlog::warn("Skipping bad relationship with END_ID '{}'", node_id);
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -629,7 +627,7 @@ void ProcessRelationships(
     std::optional<std::vector<Field>> *header,
     const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
   std::ifstream relationships_file(relationships_path);
-  CHECK(relationships_file) << "Unable to open '" << relationships_path << "'";
+  MG_ASSERT(relationships_file, "Unable to open '{}'", relationships_path);
   uint64_t row_number = 1;
   try {
     if (!*header) {
@@ -654,8 +652,8 @@ void ProcessRelationships(
       row_number += lines_count;
     }
   } catch (const LoadException &e) {
-    LOG(FATAL) << "Couldn't process row " << row_number << " of '"
-               << relationships_path << "' because of: " << e.what();
+    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number,
+              relationships_path, e.what());
   }
 }
 
@@ -724,9 +722,8 @@ int main(int argc, char *argv[]) {
   // overwrite the config.
   LoadConfig("mg_import_csv");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
-  CHECK(!nodes.empty()) << "The --nodes flag is required!";
+  MG_ASSERT(!nodes.empty(), "The --nodes flag is required!");
 
   {
     std::string upper = utils::ToUpperCase(utils::Trim(FLAGS_id_type));
@@ -750,7 +747,7 @@ int main(int argc, char *argv[]) {
     auto [files, additional_labels] = ParseNodesArgument(value);
     std::optional<std::vector<Field>> header;
     for (const auto &nodes_file : files) {
-      LOG(INFO) << "Loading " << nodes_file;
+      spdlog::info("Loading {}", nodes_file);
       ProcessNodes(&store, nodes_file, &header, &node_id_map,
                    additional_labels);
     }
@@ -761,14 +758,14 @@ int main(int argc, char *argv[]) {
     auto [files, type] = ParseRelationshipsArgument(value);
     std::optional<std::vector<Field>> header;
     for (const auto &relationships_file : files) {
-      LOG(INFO) << "Loading " << relationships_file;
+      spdlog::info("Loading {}", relationships_file);
       ProcessRelationships(&store, relationships_file, type, &header,
                            node_id_map);
     }
   }
 
   double load_sec = load_timer.Elapsed().count();
-  LOG(INFO) << "Loaded all data in " << fmt::format("{:.3f}", load_sec) << " s";
+  spdlog::info("Loaded all data in {:.3f}s", load_sec);
 
   // The snapshot will be created in the storage destructor.
 

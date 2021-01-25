@@ -1,7 +1,6 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "utils/skip_list.hpp"
@@ -258,7 +257,7 @@ TEST(SkipList, Const) {
 
   auto acc = list.access();
 
-  CHECK(func(list) == acc.end());
+  MG_ASSERT(func(list) == acc.end());
 }
 
 struct MapObject {

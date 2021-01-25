@@ -189,8 +189,8 @@ class Filters final {
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Label &&
           utils::Contains(filter.used_symbols, symbol)) {
-        CHECK(filter.used_symbols.size() == 1U)
-            << "Expected a single used symbol for label filter";
+        MG_ASSERT(filter.used_symbols.size() == 1U,
+                  "Expected a single used symbol for label filter");
         labels.insert(filter.labels.begin(), filter.labels.end());
       }
     }

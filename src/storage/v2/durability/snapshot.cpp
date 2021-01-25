@@ -9,6 +9,8 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/file_locker.hpp"
+#include "utils/logging.hpp"
 
 namespace storage::durability {
 
@@ -113,6 +115,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     info.offset_indices = read_offset();
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
+    info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
   }
 
@@ -128,6 +131,10 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     auto maybe_uuid = snapshot.ReadString();
     if (!maybe_uuid) throw RecoveryFailure("Invalid snapshot data!");
     info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = snapshot.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Invalid snapshot data!");
+    info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_timestamp = snapshot.ReadUint();
     if (!maybe_timestamp) throw RecoveryFailure("Invalid snapshot data!");
@@ -145,12 +152,12 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   return info;
 }
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
-                               utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges,
-                               NameIdMapper *name_id_mapper,
-                               std::atomic<uint64_t> *edge_count,
-                               Config::Items items) {
+RecoveredSnapshot LoadSnapshot(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges,
+    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+    NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    Config::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -159,7 +166,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
   if (!version)
     throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
   if (!IsVersionSupported(*version))
-    throw RecoveryFailure("Invalid snapshot version!");
+    throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -167,6 +174,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
     if (!success) {
       edges->clear();
       vertices->clear();
+      epoch_history->clear();
     }
   });
 
@@ -566,6 +574,34 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
     }
   }
 
+  // Recover epoch history
+  {
+    if (!snapshot.SetPosition(info.offset_epoch_history))
+      throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    const auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Invalid snapshot data!");
+
+    const auto history_size = snapshot.ReadUint();
+    if (!history_size) {
+      throw RecoveryFailure("Invalid snapshot data!");
+    }
+
+    for (int i = 0; i < *history_size; ++i) {
+      auto maybe_epoch_id = snapshot.ReadString();
+      if (!maybe_epoch_id) {
+        throw RecoveryFailure("Invalid snapshot data!");
+      }
+      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
+      if (!maybe_last_commit_timestamp) {
+        throw RecoveryFailure("Invalid snapshot data!");
+      }
+      epoch_history->emplace_back(std::move(*maybe_epoch_id),
+                                  *maybe_last_commit_timestamp);
+    }
+  }
+
   // Recover timestamp.
   ret.next_timestamp = info.start_timestamp + 1;
 
@@ -575,21 +611,22 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path,
   return {info, ret, std::move(indices_constraints)};
 }
 
-void CreateSnapshot(Transaction *transaction,
-                    const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory,
-                    uint64_t snapshot_retention_count,
-                    utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                    Indices *indices, Constraints *constraints,
-                    Config::Items items, const std::string &uuid) {
+void CreateSnapshot(
+    Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory,
+    uint64_t snapshot_retention_count, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+    Indices *indices, Constraints *constraints, Config::Items items,
+    const std::string &uuid, const std::string_view epoch_id,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+    utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
   // Create snapshot file.
   auto path =
       snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
-  LOG(INFO) << "Starting snapshot creation to " << path;
+  spdlog::info("Starting snapshot creation to {}", path);
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
 
@@ -601,6 +638,7 @@ void CreateSnapshot(Transaction *transaction,
   uint64_t offset_constraints = 0;
   uint64_t offset_mapper = 0;
   uint64_t offset_metadata = 0;
+  uint64_t offset_epoch_history = 0;
   {
     snapshot.WriteMarker(Marker::SECTION_OFFSETS);
     offset_offsets = snapshot.GetPosition();
@@ -609,6 +647,7 @@ void CreateSnapshot(Transaction *transaction,
     snapshot.WriteUint(offset_indices);
     snapshot.WriteUint(offset_constraints);
     snapshot.WriteUint(offset_mapper);
+    snapshot.WriteUint(offset_epoch_history);
     snapshot.WriteUint(offset_metadata);
   }
 
@@ -672,7 +711,7 @@ void CreateSnapshot(Transaction *transaction,
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
-      CHECK(maybe_props.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
 
       // Store the edge.
       {
@@ -704,13 +743,13 @@ void CreateSnapshot(Transaction *transaction,
       // TODO (mferencevic): All of these functions could be written into a
       // single function so that we traverse the undo deltas only once.
       auto maybe_labels = va->Labels(View::OLD);
-      CHECK(maybe_labels.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
-      CHECK(maybe_props.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
       auto maybe_in_edges = va->InEdges(View::OLD);
-      CHECK(maybe_in_edges.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
       auto maybe_out_edges = va->OutEdges(View::OLD);
-      CHECK(maybe_out_edges.HasValue()) << "Invalid database state!";
+      MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
 
       // Store the vertex.
       {
@@ -812,11 +851,23 @@ void CreateSnapshot(Transaction *transaction,
     }
   }
 
+  // Write epoch history
+  {
+    offset_epoch_history = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_EPOCH_HISTORY);
+    snapshot.WriteUint(epoch_history.size());
+    for (const auto &[epoch_id, last_commit_timestamp] : epoch_history) {
+      snapshot.WriteString(epoch_id);
+      snapshot.WriteUint(last_commit_timestamp);
+    }
+  }
+
   // Write metadata.
   {
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid);
+    snapshot.WriteString(epoch_id);
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
@@ -830,12 +881,13 @@ void CreateSnapshot(Transaction *transaction,
     snapshot.WriteUint(offset_indices);
     snapshot.WriteUint(offset_constraints);
     snapshot.WriteUint(offset_mapper);
+    snapshot.WriteUint(offset_epoch_history);
     snapshot.WriteUint(offset_metadata);
   }
 
   // Finalize snapshot file.
   snapshot.Finalize();
-  LOG(INFO) << "Snapshot creation successful!";
+  spdlog::info("Snapshot creation successful!");
 
   // Ensure exactly `snapshot_retention_count` snapshots exist.
   std::vector<std::pair<uint64_t, std::filesystem::path>> old_snapshot_files;
@@ -850,25 +902,25 @@ void CreateSnapshot(Transaction *transaction,
         if (info.uuid != uuid) continue;
         old_snapshot_files.emplace_back(info.start_timestamp, item.path());
       } catch (const RecoveryFailure &e) {
-        LOG(WARNING) << "Found a corrupt snapshot file " << item.path()
-                     << " because of: " << e.what();
+        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}",
+                     item.path(), e.what());
         continue;
       }
     }
-    LOG_IF(ERROR, error_code)
-        << "Couldn't ensure that exactly " << snapshot_retention_count
-        << " snapshots exist because an error occurred: "
-        << error_code.message() << "!";
+
+    if (error_code) {
+      spdlog::error(
+          "Couldn't ensure that exactly {} snapshots exist because an error "
+          "occurred: {}",
+          snapshot_retention_count, error_code.message());
+    }
     std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
     if (old_snapshot_files.size() > snapshot_retention_count - 1) {
       auto num_to_erase =
           old_snapshot_files.size() - (snapshot_retention_count - 1);
       for (size_t i = 0; i < num_to_erase; ++i) {
         const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
-        if (!utils::DeleteFile(snapshot_path)) {
-          LOG(WARNING) << "Couldn't delete snapshot file " << snapshot_path
-                       << "!";
-        }
+        file_retainer->DeleteFile(snapshot_path);
       }
       old_snapshot_files.erase(old_snapshot_files.begin(),
                                old_snapshot_files.begin() + num_to_erase);
@@ -893,10 +945,13 @@ void CreateSnapshot(Transaction *transaction,
         continue;
       }
     }
-    LOG_IF(ERROR, error_code)
-        << "Couldn't ensure that only the absolutely necessary WAL files exist "
-           "because an error occurred: "
-        << error_code.message() << "!";
+
+    if (error_code) {
+      spdlog::error(
+          "Couldn't ensure that only the absolutely necessary WAL files exist "
+          "because an error occurred: {}",
+          error_code.message());
+    }
     std::sort(wal_files.begin(), wal_files.end());
     uint64_t snapshot_start_timestamp = transaction->start_timestamp;
     if (!old_snapshot_files.empty()) {
@@ -921,9 +976,7 @@ void CreateSnapshot(Transaction *transaction,
       for (uint64_t i = 0; i < *pos; ++i) {
         const auto &[seq_num, from_timestamp, to_timestamp, wal_path] =
             wal_files[i];
-        if (!utils::DeleteFile(wal_path)) {
-          LOG(WARNING) << "Couldn't delete WAL file " << wal_path << "!";
-        }
+        file_retainer->DeleteFile(wal_path);
       }
     }
   }

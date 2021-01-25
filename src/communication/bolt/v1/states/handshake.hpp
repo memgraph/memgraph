@@ -1,13 +1,12 @@
 #pragma once
 
-#include <glog/logging.h>
-
 #include <fmt/format.h>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "utils/likely.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -21,12 +20,12 @@ State StateHandshakeRun(TSession &session) {
   auto precmp =
       std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
-    DLOG(WARNING) << "Received a wrong preamble!";
+    spdlog::trace("Received a wrong preamble!");
     return State::Close;
   }
 
-  DCHECK(session.input_stream_.size() >= kHandshakeSize)
-      << "Wrong size of the handshake data!";
+  DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize,
+             "Wrong size of the handshake data!");
 
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
 
@@ -53,17 +52,17 @@ State StateHandshakeRun(TSession &session) {
   session.version_.minor = protocol[2];
   session.version_.major = protocol[3];
   if (!session.version_.major) {
-    DLOG(WARNING) << "Server doesn't support any of the requested versions!";
+    spdlog::trace("Server doesn't support any of the requested versions!");
     return State::Close;
   }
 
   if (!session.output_stream_.Write(protocol, sizeof(protocol))) {
-    DLOG(WARNING) << "Couldn't write handshake response!";
+    spdlog::trace("Couldn't write handshake response!");
     return State::Close;
   }
 
-  DLOG(INFO) << fmt::format("Using version {}.{} of protocol",
-                            session.version_.major, session.version_.minor);
+  spdlog::info("Using version {}.{} of protocol", session.version_.major,
+               session.version_.minor);
 
   // Delete data from the input stream. It is guaranteed that there will more
   // than, or equal to 20 bytes (kHandshakeSize) in the buffer.

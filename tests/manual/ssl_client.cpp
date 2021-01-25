@@ -1,8 +1,8 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
@@ -13,22 +13,22 @@ DEFINE_string(key_file, "", "Key file to use.");
 bool EchoMessage(communication::Client &client, const std::string &data) {
   uint16_t size = data.size();
   if (!client.Write(reinterpret_cast<const uint8_t *>(&size), sizeof(size))) {
-    LOG(WARNING) << "Couldn't send data size!";
+    spdlog::warn("Couldn't send data size!");
     return false;
   }
   if (!client.Write(data)) {
-    LOG(WARNING) << "Couldn't send data!";
+    spdlog::warn("Couldn't send data!");
     return false;
   }
 
   client.ClearData();
   if (!client.Read(size)) {
-    LOG(WARNING) << "Couldn't receive data!";
+    spdlog::warn("Couldn't receive data!");
     return false;
   }
   if (std::string(reinterpret_cast<const char *>(client.GetData()), size) !=
       data) {
-    LOG(WARNING) << "Received data isn't equal to sent data!";
+    spdlog::warn("Received data isn't equal to sent data!");
     return false;
   }
   return true;
@@ -36,7 +36,6 @@ bool EchoMessage(communication::Client &client, const std::string &data) {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

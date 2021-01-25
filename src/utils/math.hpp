@@ -5,8 +5,6 @@
 #include <optional>
 #include <type_traits>
 
-#include <glog/logging.h>
-
 namespace utils {
 
 static_assert(

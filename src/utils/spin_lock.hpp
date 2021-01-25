@@ -2,7 +2,7 @@
 
 #include <pthread.h>
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace utils {
 
@@ -24,21 +24,21 @@ class SpinLock {
     // initialize the lock. That should never occur because the
     // `pthread_spinlock_t` is an `int` and memory isn't allocated by this init.
     // The message is probably here to suit all other platforms...
-    CHECK(pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE) == 0)
-        << "Couldn't construct utils::SpinLock!";
+    MG_ASSERT(pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE) == 0,
+              "Couldn't construct utils::SpinLock!");
   }
 
   SpinLock(SpinLock &&other) noexcept : lock_(other.lock_) {
-    CHECK(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0)
-        << "Couldn't construct utils::SpinLock!";
+    MG_ASSERT(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0,
+              "Couldn't construct utils::SpinLock!");
   }
 
   SpinLock &operator=(SpinLock &&other) noexcept {
-    CHECK(pthread_spin_destroy(&lock_) == 0)
-        << "Couldn't destruct utils::SpinLock!";
+    MG_ASSERT(pthread_spin_destroy(&lock_) == 0,
+              "Couldn't destruct utils::SpinLock!");
     lock_ = other.lock_;
-    CHECK(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0)
-        << "Couldn't construct utils::SpinLock!";
+    MG_ASSERT(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0,
+              "Couldn't construct utils::SpinLock!");
     return *this;
   }
 
@@ -46,14 +46,14 @@ class SpinLock {
   SpinLock &operator=(const SpinLock &) = delete;
 
   ~SpinLock() {
-    CHECK(pthread_spin_destroy(&lock_) == 0)
-        << "Couldn't destruct utils::SpinLock!";
+    MG_ASSERT(pthread_spin_destroy(&lock_) == 0,
+              "Couldn't destruct utils::SpinLock!");
   }
 
   void lock() {
     // `pthread_spin_lock` returns -1 only when there is a deadlock detected
     // (errno EDEADLOCK).
-    CHECK(pthread_spin_lock(&lock_) == 0) << "Couldn't lock utils::SpinLock!";
+    MG_ASSERT(pthread_spin_lock(&lock_) == 0, "Couldn't lock utils::SpinLock!");
   }
 
   bool try_lock() {
@@ -65,8 +65,8 @@ class SpinLock {
   void unlock() {
     // `pthread_spin_unlock` has no documented error codes that it could return,
     // so any error is a fatal error.
-    CHECK(pthread_spin_unlock(&lock_) == 0)
-        << "Couldn't unlock utils::SpinLock!";
+    MG_ASSERT(pthread_spin_unlock(&lock_) == 0,
+              "Couldn't unlock utils::SpinLock!");
   }
 
  private:

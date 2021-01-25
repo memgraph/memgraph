@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -16,7 +15,6 @@ DEFINE_bool(print_records, true,
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

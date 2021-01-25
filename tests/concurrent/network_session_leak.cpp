@@ -33,8 +33,8 @@ TEST(Network, SessionLeak) {
   const auto &ep = server.endpoint();
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
-    clients.push_back(std::thread(client_run, i, interface, ep.port(), data,
-                                  testlen, testlen));
+    clients.push_back(
+        std::thread(client_run, i, interface, ep.port, data, testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }
 
@@ -51,7 +51,6 @@ TEST(Network, SessionLeak) {
 // run with "valgrind --leak-check=full ./network_session_leak" to check for
 // memory leaks
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

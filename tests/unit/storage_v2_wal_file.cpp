@@ -12,6 +12,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/file.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
@@ -144,7 +145,7 @@ class DeltaGenerator final {
         } else if (owner.type == storage::PreviousPtr::Type::EDGE) {
           gen_->wal_file_.AppendDelta(delta, *owner.edge, commit_timestamp);
         } else {
-          LOG(FATAL) << "Invalid delta owner!";
+          LOG_FATAL("Invalid delta owner!");
         }
       }
       if (append_transaction_end) {
@@ -189,10 +190,11 @@ class DeltaGenerator final {
   DeltaGenerator(const std::filesystem::path &data_directory,
                  bool properties_on_edges, uint64_t seq_num)
       : uuid_(utils::GenerateUUID()),
+        epoch_id_(utils::GenerateUUID()),
         seq_num_(seq_num),
-        wal_file_(data_directory, uuid_,
+        wal_file_(data_directory, uuid_, epoch_id_,
                   {.properties_on_edges = properties_on_edges}, &mapper_,
-                  seq_num) {}
+                  seq_num, &file_retainer_) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
 
@@ -248,6 +250,7 @@ class DeltaGenerator final {
     return {.offset_metadata = 0,
             .offset_deltas = 0,
             .uuid = uuid_,
+            .epoch_id = epoch_id_,
             .seq_num = seq_num_,
             .from_timestamp = tx_from_,
             .to_timestamp = tx_to_,
@@ -266,6 +269,7 @@ class DeltaGenerator final {
   }
 
   std::string uuid_;
+  std::string epoch_id_;
   uint64_t seq_num_;
 
   uint64_t transaction_id_{storage::kTransactionInitialId};
@@ -282,6 +286,8 @@ class DeltaGenerator final {
   uint64_t tx_from_{0};
   uint64_t tx_to_{0};
   uint64_t valid_{true};
+
+  utils::FileRetainer file_retainer_;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -300,6 +306,7 @@ class DeltaGenerator final {
 void AssertWalInfoEqual(const storage::durability::WalInfo &a,
                         const storage::durability::WalInfo &b) {
   ASSERT_EQ(a.uuid, b.uuid);
+  ASSERT_EQ(a.epoch_id, b.epoch_id);
   ASSERT_EQ(a.seq_num, b.seq_num);
   ASSERT_EQ(a.from_timestamp, b.from_timestamp);
   ASSERT_EQ(a.to_timestamp, b.to_timestamp);

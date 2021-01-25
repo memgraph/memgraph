@@ -22,8 +22,8 @@ add_subdirectory(property_based)
 # integration test binaries
 add_subdirectory(integration)
 
-# feature benchmark test binaries
-add_subdirectory(feature_benchmark)
+# e2e test binaries
+add_subdirectory(e2e)
 
 # mgbench benchmark test binaries
 add_subdirectory(mgbench)

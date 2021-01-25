@@ -7,9 +7,8 @@
 #include <type_traits>
 #include <utility>
 
-#include <glog/logging.h>
-
 #include "utils/cast.hpp"
+#include "utils/logging.hpp"
 
 namespace storage {
 
@@ -1037,8 +1036,8 @@ bool PropertyStore::SetProperty(PropertyId property,
 
       // Encode the property into the data buffer.
       Writer writer(data, size);
-      CHECK(EncodeProperty(&writer, property, value))
-          << "Invalid database state!";
+      MG_ASSERT(EncodeProperty(&writer, property, value),
+                "Invalid database state!");
       auto metadata = writer.WriteMetadata();
       if (metadata) {
         // If there is any space left in the buffer we add a tombstone to
@@ -1105,8 +1104,8 @@ bool PropertyStore::SetProperty(PropertyId property,
     if (!value.IsNull()) {
       // We need to encode the new value.
       Writer writer(data + info.property_begin, property_size);
-      CHECK(EncodeProperty(&writer, property, value))
-          << "Invalid database state!";
+      MG_ASSERT(EncodeProperty(&writer, property, value),
+                "Invalid database state!");
     }
 
     // We need to recreate the tombstone (if possible).

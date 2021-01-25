@@ -24,6 +24,7 @@ enum class Marker : uint8_t {
   SECTION_INDICES = 0x24,
   SECTION_CONSTRAINTS = 0x25,
   SECTION_DELTA = 0x26,
+  SECTION_EPOCH_HISTORY = 0x27,
   SECTION_OFFSETS = 0x42,
 
   DELTA_VERTEX_CREATE = 0x50,
@@ -66,6 +67,7 @@ static const Marker kMarkersAll[] = {
     Marker::SECTION_INDICES,
     Marker::SECTION_CONSTRAINTS,
     Marker::SECTION_DELTA,
+    Marker::SECTION_EPOCH_HISTORY,
     Marker::SECTION_OFFSETS,
     Marker::DELTA_VERTEX_CREATE,
     Marker::DELTA_VERTEX_DELETE,

@@ -4,8 +4,6 @@
 #include <thread>
 #include <vector>
 
-#include "glog/logging.h"
-
 #include "utils/spin_lock.hpp"
 
 int x = 0;
@@ -20,8 +18,9 @@ void test_lock() {
 
     std::this_thread::sleep_for(25ms);
 
-    CHECK(x < 2) << "x always has to be less than 2 (other "
-                    "threads shouldn't be able to change the x simultaneously";
+    MG_ASSERT(x < 2,
+              "x always has to be less than 2 (other "
+              "threads shouldn't be able to change the x simultaneously");
     x--;
   }
 }
@@ -32,7 +31,7 @@ int main() {
 
   for (int i = 0; i < N; ++i) threads.push_back(std::thread(test_lock));
 
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 

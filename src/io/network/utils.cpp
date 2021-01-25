@@ -8,9 +8,9 @@
 #include <cstring>
 #include <string>
 
-#include "glog/logging.h"
-
 #include "io/network/socket.hpp"
+
+#include "utils/logging.hpp"
 
 namespace io::network {
 
@@ -23,10 +23,10 @@ std::string ResolveHostname(std::string hostname) {
 
   int addr_result;
   addrinfo *servinfo;
-  CHECK((addr_result =
-             getaddrinfo(hostname.c_str(), NULL, &hints, &servinfo)) == 0)
-      << "Error with getaddrinfo:" << gai_strerror(addr_result);
-  CHECK(servinfo) << "Could not resolve address: " << hostname;
+  MG_ASSERT((addr_result =
+                 getaddrinfo(hostname.c_str(), NULL, &hints, &servinfo)) == 0,
+            "Error with getaddrinfo: {}", gai_strerror(addr_result));
+  MG_ASSERT(servinfo, "Could not resolve address: {}", hostname);
 
   std::string address;
   if (servinfo->ai_family == AF_INET) {

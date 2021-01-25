@@ -5,8 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "communication/bolt/v1/constants.hpp"
 
 namespace communication::bolt {

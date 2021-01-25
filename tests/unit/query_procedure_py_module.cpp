@@ -283,7 +283,7 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  CHECK(program_name);
+  MG_ASSERT(program_name);
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
@@ -296,19 +296,19 @@ int main(int argc, char **argv) {
     std::filesystem::path invocation_path(argv[0]);
     auto mgp_py_path =
         invocation_path.parent_path() / "../../../include/mgp.py";
-    CHECK(std::filesystem::exists(mgp_py_path));
+    MG_ASSERT(std::filesystem::exists(mgp_py_path));
     auto *py_path = PySys_GetObject("path");
-    CHECK(py_path);
+    MG_ASSERT(py_path);
     py::Object import_dir(
         PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
     if (PyList_Append(py_path, import_dir.Ptr()) != 0) {
       auto exc_info = py::FetchError().value();
-      LOG(FATAL) << exc_info;
+      LOG_FATAL(exc_info);
     }
     py::Object mgp(PyImport_ImportModule("mgp"));
     if (!mgp) {
       auto exc_info = py::FetchError().value();
-      LOG(FATAL) << exc_info;
+      LOG_FATAL(exc_info);
     }
     // Now run tests.
     Py_BEGIN_ALLOW_THREADS;

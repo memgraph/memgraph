@@ -3,11 +3,10 @@
 #include <fstream>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/logging.hpp"
 
 using EndpointT = io::network::Endpoint;
 using ContextT = communication::ClientContext;
@@ -24,7 +23,7 @@ class BoltClient {
     EndpointT endpoint(address, port);
 
     if (!client_.Connect(endpoint, username, password)) {
-      LOG(FATAL) << "Could not connect to: " << endpoint;
+      LOG_FATAL("Could not connect to: {}", endpoint);
     }
   }
 

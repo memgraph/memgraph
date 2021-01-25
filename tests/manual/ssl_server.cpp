@@ -1,10 +1,10 @@
 #include <atomic>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/server.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 54321, "Server port");
@@ -33,13 +33,12 @@ class EchoSession {
     input_stream_->Resize(size + 2);
     if (input_stream_->size() < size + 2) return;
     if (size == 0) {
-      LOG(INFO) << "Server received EOF message";
+      spdlog::info("Server received EOF message");
       data_->alive.store(false);
       return;
     }
-    LOG(INFO) << "Server received '"
-              << std::string(reinterpret_cast<const char *>(data + 2), size)
-              << "'";
+    spdlog::info("Server received '{}'",
+                 std::string(reinterpret_cast<const char *>(data + 2), size));
     if (!output_stream_->Write(data + 2, size)) {
       throw utils::BasicException("Output stream write failed!");
     }
@@ -54,7 +53,6 @@ class EchoSession {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

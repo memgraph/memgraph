@@ -5,7 +5,8 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
+
+#include "utils/logging.hpp"
 
 /// Reads the memgraph configuration files.
 ///
@@ -23,9 +24,10 @@ inline void LoadConfig(const std::string &product_name) {
     auto memgraph_config = getenv("MEMGRAPH_CONFIG");
     if (memgraph_config != nullptr) {
       auto path = fs::path(memgraph_config);
-      CHECK(fs::exists(path))
-          << "MEMGRAPH_CONFIG environment variable set to nonexisting path: "
-          << path.generic_string();
+      MG_ASSERT(
+          fs::exists(path),
+          "MEMGRAPH_CONFIG environment variable set to nonexisting path: {}",
+          path.generic_string());
       configs.emplace_back(path);
     }
   }

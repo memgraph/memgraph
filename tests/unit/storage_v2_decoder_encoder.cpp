@@ -323,6 +323,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case storage::durability::Marker::SECTION_INDICES:
         case storage::durability::Marker::SECTION_CONSTRAINTS:
         case storage::durability::Marker::SECTION_DELTA:
+        case storage::durability::Marker::SECTION_EPOCH_HISTORY:
         case storage::durability::Marker::SECTION_OFFSETS:
         case storage::durability::Marker::DELTA_VERTEX_CREATE:
         case storage::durability::Marker::DELTA_VERTEX_DELETE:

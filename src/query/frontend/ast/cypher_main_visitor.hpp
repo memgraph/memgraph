@@ -5,11 +5,11 @@
 #include <utility>
 
 #include <antlr4-runtime.h>
-#include <glog/logging.h>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace query {
 namespace frontend {
@@ -104,7 +104,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       std::vector<TExpression *> _expressions,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    DCHECK(_expressions.size()) << "can't happen";
+    DMG_ASSERT(_expressions.size(), "can't happen");
     std::vector<Expression *> expressions;
     auto operators = ExtractOperators(all_children, allowed_operators);
 
@@ -125,7 +125,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       TExpression *_expression,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    DCHECK(_expression) << "can't happen";
+    DMG_ASSERT(_expression, "can't happen");
     auto operators = ExtractOperators(all_children, allowed_operators);
 
     Expression *expression = _expression->accept(this);
@@ -187,6 +187,48 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
 
   /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitReplicationQuery(
+      MemgraphCypher::ReplicationQueryContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitSetReplicationRole(
+      MemgraphCypher::SetReplicationRoleContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitShowReplicationRole(
+      MemgraphCypher::ShowReplicationRoleContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitRegisterReplica(
+      MemgraphCypher::RegisterReplicaContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitDropReplica(
+      MemgraphCypher::DropReplicaContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitShowReplicas(
+      MemgraphCypher::ShowReplicasContext *ctx) override;
+
+  /**
+   * @return LockPathQuery*
+   */
+  antlrcpp::Any visitLockPathQuery(
+      MemgraphCypher::LockPathQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(
@@ -217,7 +259,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CallProcedure*
    */
-  antlrcpp::Any visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) override;
+  antlrcpp::Any visitCallProcedure(
+      MemgraphCypher::CallProcedureContext *ctx) override;
 
   /**
    * @return std::string

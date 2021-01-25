@@ -30,7 +30,7 @@ TEST(Network, Server) {
   std::vector<std::thread> clients;
   for (int i = 0; i < N; ++i)
     clients.push_back(
-        std::thread(client_run, i, interface, ep.port(), data, 30000, SIZE));
+        std::thread(client_run, i, interface, ep.port, data, 30000, SIZE));
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();
@@ -41,7 +41,6 @@ TEST(Network, Server) {
 }
 
 int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -39,6 +39,10 @@ modifications:
     value: "/var/log/memgraph/memgraph.log"
     override: true
 
+  - name: "log_level"
+    value: "WARNING"
+    override: true
+
   - name: "bolt_num_workers"
     value: ""
     override: false
@@ -81,13 +85,7 @@ modifications:
 
 undocumented:
   - "flag_file"
-  - "log_file_mode"
-  - "log_link_basename"
-  - "log_prefix"
-  - "max_log_size"
-  - "min_log_level"
+  - "also_log_to_stderr"
   - "help"
   - "help_xml"
-  - "stderr_threshold"
-  - "stop_logging_if_full_disk"
   - "version"

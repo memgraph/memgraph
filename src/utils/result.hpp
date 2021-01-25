@@ -3,11 +3,11 @@
 
 #include <optional>
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace utils {
 
-template <class TError, class TValue>
+template <class TError, class TValue = void>
 class [[nodiscard]] BasicResult final {
  public:
   BasicResult(const TValue &value) : value_(value) {}
@@ -19,72 +19,72 @@ class [[nodiscard]] BasicResult final {
   bool HasError() const { return error_.has_value(); }
 
   TValue &GetValue() & {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return *value_;
   }
 
   TValue &&GetValue() && {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return std::move(*value_);
   }
 
   const TValue &GetValue() const & {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return *value_;
   }
 
   const TValue &&GetValue() const && {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return std::move(*value_);
   }
 
   TValue &operator*() & {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return *value_;
   }
 
   TValue &&operator*() && {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return std::move(*value_);
   }
 
   const TValue &operator*() const & {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return *value_;
   }
 
   const TValue &&operator*() const && {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return std::move(*value_);
   }
 
   TValue *operator->() {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return &*value_;
   }
 
   const TValue *operator->() const {
-    CHECK(value_) << "The storage result is an error!";
+    MG_ASSERT(value_, "The storage result is an error!");
     return &*value_;
   }
 
   TError &GetError() & {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return *error_;
   }
 
   TError &&GetError() && {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return std::move(*error_);
   }
 
   const TError &GetError() const & {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return *error_;
   }
 
   const TError &&GetError() const && {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return std::move(*error_);
   }
 
@@ -103,22 +103,22 @@ class [[nodiscard]] BasicResult<TError, void> final {
   bool HasError() const { return error_.has_value(); }
 
   TError &GetError() & {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return *error_;
   }
 
   TError &&GetError() && {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return std::move(*error_);
   }
 
   const TError &GetError() const & {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return *error_;
   }
 
   const TError &&GetError() const && {
-    CHECK(error_) << "The storage result is a value!";
+    MG_ASSERT(error_, "The storage result is a value!");
     return std::move(*error_);
   }
 

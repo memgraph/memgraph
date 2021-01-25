@@ -94,8 +94,7 @@ TEST_F(ExpressionPrettyPrinterTest, UnaryOperators) {
 
 TEST_F(ExpressionPrettyPrinterTest, BinaryOperators) {
   // and(null, 5)
-  EXPECT_EQ(ToString(AND(LITERAL(TypedValue()), LITERAL(5))),
-            "(And null 5)");
+  EXPECT_EQ(ToString(AND(LITERAL(TypedValue()), LITERAL(5))), "(And null 5)");
 
   // or(5, {hello: "there"}["hello"])
   EXPECT_EQ(ToString(OR(LITERAL(5),
@@ -117,14 +116,12 @@ TEST_F(ExpressionPrettyPrinterTest, Coalesce) {
   EXPECT_EQ(ToString(COALESCE()), "(Coalesce [])");
 
   // coalesce(null, null)
-  EXPECT_EQ(
-      ToString(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))),
-      "(Coalesce [null, null])");
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))),
+            "(Coalesce [null, null])");
 
   // coalesce(null, 2, 3)
-  EXPECT_EQ(
-      ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))),
-      "(Coalesce [null, 2, 3])");
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))),
+            "(Coalesce [null, 2, 3])");
 
   // coalesce(null, 2, assert(false), 3)
   EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2),
@@ -132,9 +129,9 @@ TEST_F(ExpressionPrettyPrinterTest, Coalesce) {
             "(Coalesce [null, 2, (Function \"ASSERT\" [false]), 3])");
 
   // coalesce(null, assert(false))
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()),
-                              FN("ASSERT", LITERAL(false)))),
-            "(Coalesce [null, (Function \"ASSERT\" [false])])");
+  EXPECT_EQ(
+      ToString(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))),
+      "(Coalesce [null, (Function \"ASSERT\" [false])])");
 
   // coalesce([null, null])
   EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue(

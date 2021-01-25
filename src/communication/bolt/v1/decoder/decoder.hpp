@@ -2,12 +2,11 @@
 
 #include <string>
 
-#include <glog/logging.h>
-
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/cast.hpp"
 #include "utils/endian.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -153,14 +152,14 @@ class Decoder {
 
  private:
   bool ReadNull(const Marker &marker, Value *data) {
-    DCHECK(marker == Marker::Null) << "Received invalid marker!";
+    DMG_ASSERT(marker == Marker::Null, "Received invalid marker!");
     *data = Value();
     return true;
   }
 
   bool ReadBool(const Marker &marker, Value *data) {
-    DCHECK(marker == Marker::False || marker == Marker::True)
-        << "Received invalid marker!";
+    DMG_ASSERT(marker == Marker::False || marker == Marker::True,
+               "Received invalid marker!");
     if (marker == Marker::False) {
       *data = Value(false);
     } else {
@@ -208,7 +207,7 @@ class Decoder {
   bool ReadDouble(const Marker marker, Value *data) {
     uint64_t value;
     double ret;
-    DCHECK(marker == Marker::Float64) << "Received invalid marker!";
+    DMG_ASSERT(marker == Marker::Float64, "Received invalid marker!");
     if (!buffer_.Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) {
       return false;
     }
@@ -264,14 +263,14 @@ class Decoder {
     // `buffer_.Read(data->ValueString().data())`.
     if (size < kMaxStackBuffer) {
       if (!buffer_.Read(buffer, size)) {
-        DLOG(WARNING) << "[ReadString] Missing data!";
+        SPDLOG_WARN("[ReadString] Missing data!");
         return false;
       }
       *data = Value(std::string(reinterpret_cast<char *>(buffer), size));
     } else {
       std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
       if (!buffer_.Read(ret.get(), size)) {
-        DLOG(WARNING) << "[ReadString] Missing data!";
+        SPDLOG_WARN("[ReadString] Missing data!");
         return false;
       }
       *data = Value(std::string(reinterpret_cast<char *>(ret.get()), size));

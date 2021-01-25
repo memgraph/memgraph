@@ -1,13 +1,13 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/cast.hpp"
 #include "utils/likely.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -22,13 +22,13 @@ State StateErrorRun(TSession &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    DLOG(WARNING) << "Missing header data!";
+    spdlog::trace("Missing header data!");
     return State::Close;
   }
 
   if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
                session.version_.minor == 1)) {
-    DLOG(INFO) << "Received NOOP message";
+    spdlog::trace("Received NOOP message");
     return state;
   }
 
@@ -38,13 +38,13 @@ State StateErrorRun(TSession &session, State state) {
   if ((session.version_.major == 1 && signature == Signature::AckFailure) ||
       signature == Signature::Reset) {
     if (signature == Signature::AckFailure) {
-      DLOG(INFO) << "AckFailure received";
+      spdlog::trace("AckFailure received");
     } else {
-      DLOG(INFO) << "Reset received";
+      spdlog::trace("Reset received");
     }
 
     if (!session.encoder_.MessageSuccess()) {
-      DLOG(WARNING) << "Couldn't send success message!";
+      spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
 
@@ -54,7 +54,7 @@ State StateErrorRun(TSession &session, State state) {
     }
 
     // We got AckFailure get back to right state.
-    CHECK(state == State::Error) << "Shouldn't happen";
+    MG_ASSERT(state == State::Error, "Shouldn't happen");
     return State::Idle;
   } else {
     uint8_t value = utils::UnderlyingCast(marker);
@@ -62,8 +62,8 @@ State StateErrorRun(TSession &session, State state) {
     // All bolt client messages have less than 15 parameters so if we receive
     // anything than a TinyStruct it's an error.
     if ((value & 0xF0) != utils::UnderlyingCast(Marker::TinyStruct)) {
-      DLOG(WARNING) << fmt::format(
-          "Expected TinyStruct marker, but received 0x{:02X}!", value);
+      spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!",
+                    value);
       return State::Close;
     }
 
@@ -72,15 +72,14 @@ State StateErrorRun(TSession &session, State state) {
     Value dv;
     for (int i = 0; i < value; ++i) {
       if (!session.decoder_.ReadValue(&dv)) {
-        DLOG(WARNING) << fmt::format("Couldn't clean up parameter {} / {}!", i,
-                                     value);
+        spdlog::trace("Couldn't clean up parameter {} / {}!", i, value);
         return State::Close;
       }
     }
 
     // Ignore this message.
     if (!session.encoder_.MessageIgnored()) {
-      DLOG(WARNING) << "Couldn't send ignored message!";
+      spdlog::trace("Couldn't send ignored message!");
       return State::Close;
     }
 

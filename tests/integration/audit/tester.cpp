@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include <json/json.hpp>
 
@@ -48,17 +47,17 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       std::map<std::string, communication::bolt::Value> map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
-        CHECK(tmp.type() == communication::bolt::Value::Type::String)
-            << "Expected a string as the map key!";
+        MG_ASSERT(tmp.type() == communication::bolt::Value::Type::String,
+                  "Expected a string as the map key!");
         map.insert({tmp.ValueString(), JsonToValue(it.value())});
       }
       ret = map;
       break;
     }
     case nlohmann::json::value_t::binary:
-      LOG(FATAL) << "Unexpected 'binary' type in json value!";
+      LOG_FATAL("Unexpected 'binary' type in json value!");
     case nlohmann::json::value_t::discarded:
-      LOG(FATAL) << "Unexpected 'discarded' type in json value!";
+      LOG_FATAL("Unexpected 'discarded' type in json value!");
       break;
   }
   return ret;
@@ -70,7 +69,6 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
  */
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 

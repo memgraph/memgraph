@@ -33,6 +33,9 @@ class Encoder final : public BaseEncoder {
   void Initialize(const std::filesystem::path &path,
                   const std::string_view &magic, uint64_t version);
 
+  void OpenExisting(const std::filesystem::path &path);
+
+  void Close();
   // Main write function, the only one that is allowed to write to the `file_`
   // directly.
   void Write(const uint8_t *data, uint64_t size);
@@ -50,6 +53,18 @@ class Encoder final : public BaseEncoder {
   void Sync();
 
   void Finalize();
+
+  // Disable flushing of the internal buffer.
+  void DisableFlushing();
+  // Enable flushing of the internal buffer.
+  void EnableFlushing();
+  // Try flushing the internal buffer.
+  void TryFlushing();
+  // Get the current internal buffer with its size.
+  std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
+
+  // Get the total size of the current file.
+  size_t GetSize();
 
  private:
   utils::OutputFile file_;

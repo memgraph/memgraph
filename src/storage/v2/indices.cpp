@@ -1,6 +1,7 @@
 #include "indices.hpp"
 
 #include "storage/v2/mvcc.hpp"
+#include "utils/logging.hpp"
 
 namespace storage {
 
@@ -49,23 +50,23 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label,
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
             if (delta.label == label) {
-              CHECK(!has_label) << "Invalid database state!";
+              MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
           case Delta::Action::REMOVE_LABEL:
             if (delta.label == label) {
-              CHECK(has_label) << "Invalid database state!";
+              MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {
-            CHECK(deleted) << "Invalid database state!";
+            MG_ASSERT(deleted, "Invalid database state!");
             deleted = false;
             break;
           }
           case Delta::Action::DELETE_OBJECT: {
-            CHECK(!deleted) << "Invalid database state!";
+            MG_ASSERT(!deleted, "Invalid database state!");
             deleted = true;
             break;
           }
@@ -110,13 +111,13 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
             if (delta.label == label) {
-              CHECK(!has_label) << "Invalid database state!";
+              MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
           case Delta::Action::REMOVE_LABEL:
             if (delta.label == label) {
-              CHECK(has_label) << "Invalid database state!";
+              MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
             }
             break;
@@ -126,12 +127,12 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label,
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {
-            CHECK(deleted) << "Invalid database state!";
+            MG_ASSERT(deleted, "Invalid database state!");
             deleted = false;
             break;
           }
           case Delta::Action::DELETE_OBJECT: {
-            CHECK(!deleted) << "Invalid database state!";
+            MG_ASSERT(!deleted, "Invalid database state!");
             deleted = true;
             break;
           }
@@ -164,25 +165,25 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label,
                        switch (delta.action) {
                          case Delta::Action::REMOVE_LABEL: {
                            if (delta.label == label) {
-                             CHECK(has_label) << "Invalid database state!";
+                             MG_ASSERT(has_label, "Invalid database state!");
                              has_label = false;
                            }
                            break;
                          }
                          case Delta::Action::ADD_LABEL: {
                            if (delta.label == label) {
-                             CHECK(!has_label) << "Invalid database state!";
+                             MG_ASSERT(!has_label, "Invalid database state!");
                              has_label = true;
                            }
                            break;
                          }
                          case Delta::Action::DELETE_OBJECT: {
-                           CHECK(!deleted) << "Invalid database state!";
+                           MG_ASSERT(!deleted, "Invalid database state!");
                            deleted = true;
                            break;
                          }
                          case Delta::Action::RECREATE_OBJECT: {
-                           CHECK(deleted) << "Invalid database state!";
+                           MG_ASSERT(deleted, "Invalid database state!");
                            deleted = false;
                            break;
                          }
@@ -227,24 +228,24 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label,
                            break;
                          }
                          case Delta::Action::DELETE_OBJECT: {
-                           CHECK(!deleted) << "Invalid database state!";
+                           MG_ASSERT(!deleted, "Invalid database state!");
                            deleted = true;
                            break;
                          }
                          case Delta::Action::RECREATE_OBJECT: {
-                           CHECK(deleted) << "Invalid database state!";
+                           MG_ASSERT(deleted, "Invalid database state!");
                            deleted = false;
                            break;
                          }
                          case Delta::Action::ADD_LABEL:
                            if (delta.label == label) {
-                             CHECK(!has_label) << "Invalid database state!";
+                             MG_ASSERT(!has_label, "Invalid database state!");
                              has_label = true;
                            }
                            break;
                          case Delta::Action::REMOVE_LABEL:
                            if (delta.label == label) {
-                             CHECK(has_label) << "Invalid database state!";
+                             MG_ASSERT(has_label, "Invalid database state!");
                              has_label = false;
                            }
                            break;
@@ -488,8 +489,8 @@ LabelPropertyIndex::Iterable::Iterator::Iterator(
   AdvanceUntilValid();
 }
 
-LabelPropertyIndex::Iterable::Iterator &LabelPropertyIndex::Iterable::Iterator::
-operator++() {
+LabelPropertyIndex::Iterable::Iterator &
+LabelPropertyIndex::Iterable::Iterator::operator++() {
   ++index_iterator_;
   AdvanceUntilValid();
   return *this;
@@ -601,7 +602,7 @@ LabelPropertyIndex::Iterable::Iterable(
     switch (lower_bound_->value().type()) {
       case PropertyValue::Type::Null:
         // This shouldn't happen because of the nullopt-ing above.
-        LOG(FATAL) << "Invalid database state!";
+        LOG_FATAL("Invalid database state!");
         break;
       case PropertyValue::Type::Bool:
         upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
@@ -629,7 +630,7 @@ LabelPropertyIndex::Iterable::Iterable(
     switch (upper_bound_->value().type()) {
       case PropertyValue::Type::Null:
         // This shouldn't happen because of the nullopt-ing above.
-        LOG(FATAL) << "Invalid database state!";
+        LOG_FATAL("Invalid database state!");
         break;
       case PropertyValue::Type::Bool:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
@@ -697,9 +698,9 @@ uint64_t SkipListLayerForEstimation(uint64_t N) {
 int64_t LabelPropertyIndex::ApproximateVertexCount(
     LabelId label, PropertyId property, const PropertyValue &value) const {
   auto it = index_.find({label, property});
-  CHECK(it != index_.end())
-      << "Index for label " << label.AsUint() << " and property "
-      << property.AsUint() << " doesn't exist";
+  MG_ASSERT(it != index_.end(),
+            "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   auto acc = it->second.access();
   return acc.estimate_count(value, SkipListLayerForEstimation(acc.size()));
 }
@@ -709,9 +710,9 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(
     const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = index_.find({label, property});
-  CHECK(it != index_.end())
-      << "Index for label " << label.AsUint() << " and property "
-      << property.AsUint() << " doesn't exist";
+  MG_ASSERT(it != index_.end(),
+            "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   auto acc = it->second.access();
   return acc.estimate_range_count(lower, upper,
                                   SkipListLayerForEstimation(acc.size()));

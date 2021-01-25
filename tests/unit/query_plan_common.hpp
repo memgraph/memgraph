@@ -11,6 +11,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/logging.hpp"
 
 #include "query_common.hpp"
 
@@ -177,9 +178,9 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   node->identifier_->MapTo(node_sym);
 
-  auto op = std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym,
-                                     direction, edge_types, existing_node,
-                                     view);
+  auto op =
+      std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym,
+                               direction, edge_types, existing_node, view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
@@ -211,7 +212,7 @@ inline uint64_t CountEdges(query::DbAccessor *dba, storage::View view) {
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
     auto maybe_edges = vertex.OutEdges(view);
-    CHECK(maybe_edges.HasValue());
+    MG_ASSERT(maybe_edges.HasValue());
     count += CountIterable(*maybe_edges);
   }
   return count;

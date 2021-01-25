@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "kvstore/kvstore.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 DEFINE_string(path, "", "Path to the storage directory.");
@@ -9,9 +9,8 @@ DEFINE_string(path, "", "Path to the storage directory.");
 int main(int argc, char **argv) {
   gflags::SetVersionString("kvstore_console");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
-  CHECK(FLAGS_path != "") << "Please specify a path to the KVStore!";
+  MG_ASSERT(FLAGS_path != "", "Please specify a path to the KVStore!");
 
   kvstore::KVStore kvstore(std::filesystem::path{FLAGS_path});
 
