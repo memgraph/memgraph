@@ -2453,6 +2453,122 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
                SyntaxException);
 }
 
+void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
+                             const std::string name,
+                             const std::optional<TypedValue> socket_address,
+                             const ReplicationQuery::SyncMode sync_mode,
+                             const std::optional<TypedValue> timeout = {},
+                             const std::optional<TypedValue> port = {}) {
+  EXPECT_EQ(query->replica_name_, name);
+  EXPECT_EQ(query->sync_mode_, sync_mode);
+  ASSERT_EQ(static_cast<bool>(query->socket_address_),
+            static_cast<bool>(socket_address));
+  if (socket_address) {
+    ast_generator->CheckLiteral(query->socket_address_, *socket_address);
+  }
+  ASSERT_EQ(static_cast<bool>(query->timeout_), static_cast<bool>(timeout));
+  if (timeout) {
+    ast_generator->CheckLiteral(query->timeout_, *timeout);
+  }
+  ASSERT_EQ(static_cast<bool>(query->port_), static_cast<bool>(port));
+  if (port) {
+    ast_generator->CheckLiteral(query->port_, *port);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
+  auto &ast_generator = *GetParam();
+  const std::string raw_query = "SHOW REPLICATION ROLE";
+  auto *parsed_query =
+      dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_,
+            ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
+}
+
+TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
+  auto &ast_generator = *GetParam();
+  const std::string raw_query = "SHOW REPLICAS";
+  auto *parsed_query =
+      dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
+}
+
+TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const std::string query = "SET REPLICATION ROLE";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO BUTTERY";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO MAIN";
+    auto *parsed_query =
+        dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_,
+              ReplicationQuery::Action::SET_REPLICATION_ROLE);
+    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query = "SET REPLICATION ROLE TO REPLICA WITH PORT 10000";
+    auto *parsed_query =
+        dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_,
+              ReplicationQuery::Action::SET_REPLICATION_ROLE);
+    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(parsed_query->port_, TypedValue(10000));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
+  auto &ast_generator = *GetParam();
+
+  const std::string faulty_query = "REGISTER REPLICA WITH TIMEOUT TO";
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+
+  const std::string no_timeout_query =
+      R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
+  auto *no_timeout_query_parsed = dynamic_cast<ReplicationQuery *>(
+      ast_generator.ParseQuery(no_timeout_query));
+  ASSERT_TRUE(no_timeout_query_parsed);
+  check_replication_query(&ast_generator, no_timeout_query_parsed, "replica1",
+                          TypedValue("127.0.0.1"),
+                          ReplicationQuery::SyncMode::SYNC);
+
+  std::string full_query =
+      R"(REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO "1.1.1.1:10000")";
+  auto *full_query_parsed =
+      dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+  ASSERT_TRUE(full_query_parsed);
+  check_replication_query(&ast_generator, full_query_parsed, "replica2",
+                          TypedValue("1.1.1.1:10000"),
+                          ReplicationQuery::SyncMode::SYNC, TypedValue(0.5));
+}
+
+TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
+  auto &ast_generator = *GetParam();
+
+  std::string missing_name_query = "DROP REPLICA";
+  ASSERT_THROW(ast_generator.ParseQuery(missing_name_query), SyntaxException);
+
+  std::string correct_query = "DROP REPLICA replica1";
+  auto *correct_query_parsed =
+      dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+  ASSERT_TRUE(correct_query_parsed);
+  EXPECT_EQ(correct_query_parsed->replica_name_, "replica1");
+}
+
 TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
   auto &ast_generator = *GetParam();
   EXPECT_TRUE(dynamic_cast<ExplainQuery *>(
@@ -3128,6 +3244,41 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(
       ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"),
       SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
+  auto &ast_generator = *GetParam();
+
+  const auto test_lock_path_query = [&](const std::string_view command,
+                                        const LockPathQuery::Action action) {
+    ASSERT_THROW(ast_generator.ParseQuery(command.data()), SyntaxException);
+
+    {
+      const std::string query = fmt::format("{} ME", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA STUFF", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY", command);
+      auto *parsed_query =
+          dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+      ASSERT_TRUE(parsed_query);
+      EXPECT_EQ(parsed_query->action_, action);
+    }
+  };
+
+  test_lock_path_query("LOCK", LockPathQuery::Action::LOCK_PATH);
+  test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
 }
 
 }  // namespace

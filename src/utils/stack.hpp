@@ -3,9 +3,8 @@
 #include <mutex>
 #include <optional>
 
-#include <glog/logging.h>
-
 #include "utils/linux.hpp"
+#include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace utils {
@@ -76,8 +75,9 @@ class Stack {
       head_ = new Block();
     }
     while (true) {
-      CHECK(head_->used <= TSize) << "utils::Stack has more elements in a "
-                                     "Block than the block has space!";
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
       if (head_->used == TSize) {
         // Allocate a new block.
         Block *block = new Block();
@@ -94,8 +94,9 @@ class Stack {
     std::lock_guard<SpinLock> guard(lock_);
     while (true) {
       if (head_ == nullptr) return std::nullopt;
-      CHECK(head_->used <= TSize) << "utils::Stack has more elements in a "
-                                     "Block than the block has space!";
+      MG_ASSERT(head_->used <= TSize,
+                "utils::Stack has more elements in a "
+                "Block than the block has space!");
       if (head_->used == 0) {
         Block *prev = head_->prev;
         delete head_;

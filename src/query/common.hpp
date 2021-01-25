@@ -4,8 +4,6 @@
 #include <cstdint>
 #include <string>
 
-#include <glog/logging.h>
-
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -13,6 +11,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/logging.hpp"
 
 namespace query {
 
@@ -36,8 +35,8 @@ class TypedValueVectorCompare final {
                   const std::vector<TypedValue, TAllocator> &c2) const {
     // ordering is invalid if there are more elements in the collections
     // then there are in the ordering_ vector
-    CHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
-        << "Collections contain more elements then there are orderings";
+    MG_ASSERT(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
+              "Collections contain more elements then there are orderings");
 
     auto c1_it = c1.begin();
     auto c2_it = c2.begin();

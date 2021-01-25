@@ -92,7 +92,7 @@ TEST(Rpc, Abort) {
 
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
-    LOG(INFO) << "Shutting down the connection!";
+    spdlog::info("Shutting down the connection!");
     client.Abort();
   });
 

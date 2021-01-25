@@ -15,7 +15,9 @@ TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
 
 SNAPSHOT_FILE_NAME = "snapshot.bin"
 WAL_FILE_NAME = "wal.bin"
-DUMP_FILE_NAME = "expected.cypher"
+
+DUMP_SNAPSHOT_FILE_NAME = "expected_snapshot.cypher"
+DUMP_WAL_FILE_NAME = "expected_wal.cypher"
 
 
 def wait_for_server(port, delay=0.1):
@@ -38,7 +40,12 @@ def list_to_string(data):
     return ret
 
 
-def execute_test(memgraph_binary, dump_binary, test_directory, test_type):
+def execute_test(
+        memgraph_binary,
+        dump_binary,
+        test_directory,
+        test_type,
+        write_expected):
     assert test_type in ["SNAPSHOT", "WAL"], \
         "Test type should be either 'SNAPSHOT' or 'WAL'."
     print("\033[1;36m~~ Executing test {} ({}) ~~\033[0m"
@@ -82,15 +89,25 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type):
     memgraph.terminate()
     assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
-    # Compare dump files
-    expected_dump_file = os.path.join(test_directory, DUMP_FILE_NAME)
-    assert os.path.exists(expected_dump_file), \
-        "Could not find expected dump path {}".format(expected_dump_file)
-    queries_got = sorted_content(dump_output_file.name)
-    queries_expected = sorted_content(expected_dump_file)
-    assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" \
-        "{}".format(list_to_string(queries_got),
-                    list_to_string(queries_expected))
+    dump_file_name = DUMP_SNAPSHOT_FILE_NAME if test_type == "SNAPSHOT" else DUMP_WAL_FILE_NAME
+
+    if write_expected:
+        with open(dump_output_file.name, 'r') as dump:
+            queries_got = dump.readlines()
+        # Write dump files
+        expected_dump_file = os.path.join(test_directory, dump_file_name)
+        with open(expected_dump_file, 'w') as expected:
+            expected.writelines(queries_got)
+    else:
+        # Compare dump files
+        expected_dump_file = os.path.join(test_directory, dump_file_name)
+        assert os.path.exists(expected_dump_file), \
+            "Could not find expected dump path {}".format(expected_dump_file)
+        queries_got = sorted_content(dump_output_file.name)
+        queries_expected = sorted_content(expected_dump_file)
+        assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" \
+            "{}".format(list_to_string(queries_got),
+                        list_to_string(queries_expected))
 
     print("\033[1;32m~~ Test successful ~~\033[0m\n")
 
@@ -112,9 +129,11 @@ def find_test_directories(directory):
                 continue
             snapshot_file = os.path.join(test_dir_path, SNAPSHOT_FILE_NAME)
             wal_file = os.path.join(test_dir_path, WAL_FILE_NAME)
-            dump_file = os.path.join(test_dir_path, DUMP_FILE_NAME)
-            if (os.path.isfile(snapshot_file) and os.path.isfile(dump_file) and
-                    os.path.isfile(wal_file)):
+            dump_snapshot_file = os.path.join(
+                test_dir_path, DUMP_SNAPSHOT_FILE_NAME)
+            dump_wal_file = os.path.join(test_dir_path, DUMP_WAL_FILE_NAME)
+            if (os.path.isfile(snapshot_file) and os.path.isfile(dump_snapshot_file)
+                    and os.path.isfile(wal_file) and os.path.isfile(dump_wal_file)):
                 test_dirs.append(test_dir_path)
             else:
                 raise Exception("Missing data in test directory '{}'"
@@ -129,13 +148,27 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)
     parser.add_argument("--dump", default=dump_binary)
+    parser.add_argument(
+        '--write-expected',
+        action='store_true',
+        help='Overwrite the expected cypher with results from current run')
     args = parser.parse_args()
 
     test_directories = find_test_directories(TESTS_DIR)
     assert len(test_directories) > 0, "No tests have been found!"
 
     for test_directory in test_directories:
-        execute_test(args.memgraph, args.dump, test_directory, "SNAPSHOT")
-        execute_test(args.memgraph, args.dump, test_directory, "WAL")
+        execute_test(
+            args.memgraph,
+            args.dump,
+            test_directory,
+            "SNAPSHOT",
+            args.write_expected)
+        execute_test(
+            args.memgraph,
+            args.dump,
+            test_directory,
+            "WAL",
+            args.write_expected)
 
     sys.exit(0)

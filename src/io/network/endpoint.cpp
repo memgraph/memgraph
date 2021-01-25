@@ -4,37 +4,99 @@
 
 #include <algorithm>
 
-#include "glog/logging.h"
-
 #include "io/network/endpoint.hpp"
+#include "io/network/network_error.hpp"
+#include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace io::network {
 
-Endpoint::Endpoint() {}
-Endpoint::Endpoint(const std::string &address, uint16_t port)
-    : address_(address), port_(port) {
+Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &ip_address) {
   in_addr addr4;
   in6_addr addr6;
-  int ipv4_result = inet_pton(AF_INET, address_.c_str(), &addr4);
-  int ipv6_result = inet_pton(AF_INET6, address_.c_str(), &addr6);
-  if (ipv4_result == 1)
-    family_ = 4;
-  else if (ipv6_result == 1)
-    family_ = 6;
-  CHECK(family_ != 0) << "Not a valid IPv4 or IPv6 address: " << address;
+  int ipv4_result = inet_pton(AF_INET, ip_address.c_str(), &addr4);
+  int ipv6_result = inet_pton(AF_INET6, ip_address.c_str(), &addr6);
+  if (ipv4_result == 1) {
+    return IpFamily::IP4;
+  } else if (ipv6_result == 1) {
+    return IpFamily::IP6;
+  } else {
+    return IpFamily::NONE;
+  }
 }
 
-bool Endpoint::operator==(const Endpoint &other) const {
-  return address_ == other.address_ && port_ == other.port_ &&
-         family_ == other.family_;
+std::optional<std::pair<std::string, uint16_t>>
+Endpoint::ParseSocketOrIpAddress(
+    const std::string &address,
+    const std::optional<uint16_t> default_port = {}) {
+  /// expected address format:
+  ///   - "ip_address:port_number"
+  ///   - "ip_address"
+  /// We parse the address first. If it's an IP address, a default port must
+  // be given, or we return nullopt. If it's a socket address, we try to parse
+  // it into an ip address and a port number; even if a default port is given,
+  // it won't be used, as we expect that it is given in the address string.
+  const std::string delimiter = ":";
+  std::string ip_address;
+
+  std::vector<std::string> parts = utils::Split(address, delimiter);
+  if (parts.size() == 1) {
+    if (default_port) {
+      if (GetIpFamily(address) == IpFamily::NONE) {
+        return std::nullopt;
+      }
+      return std::pair{address, *default_port};
+    }
+  } else if (parts.size() == 2) {
+    ip_address = std::move(parts[0]);
+    if (GetIpFamily(ip_address) == IpFamily::NONE) {
+      return std::nullopt;
+    }
+    int64_t int_port{0};
+    try {
+      int_port = utils::ParseInt(parts[1]);
+    } catch (utils::BasicException &e) {
+      spdlog::error("Invalid port number: {}", parts[1]);
+      return std::nullopt;
+    }
+    if (int_port < 0) {
+      spdlog::error("Port number must be a positive integer!");
+      return std::nullopt;
+    }
+    if (int_port > std::numeric_limits<uint16_t>::max()) {
+      spdlog::error("Port number exceeded maximum possible size!");
+      return std::nullopt;
+    }
+
+    return std::pair{ip_address, static_cast<uint16_t>(int_port)};
+  }
+
+  return std::nullopt;
+}
+
+std::string Endpoint::SocketAddress() const {
+  auto ip_address = address.empty() ? "EMPTY" : address;
+  return ip_address + ":" + std::to_string(port);
+}
+
+Endpoint::Endpoint() {}
+Endpoint::Endpoint(std::string ip_address, uint16_t port)
+    : address(std::move(ip_address)), port(port) {
+  IpFamily ip_family = GetIpFamily(address);
+  if (ip_family == IpFamily::NONE) {
+    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
+  }
+  family = ip_family;
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  if (endpoint.family() == 6) {
-    return os << "[" << endpoint.address() << "]"
-              << ":" << endpoint.port();
+  // no need to cover the IpFamily::NONE case, as you can't even construct an
+  // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
+  if (endpoint.family == Endpoint::IpFamily::IP6) {
+    return os << "[" << endpoint.address << "]"
+              << ":" << endpoint.port;
   }
-  return os << endpoint.address() << ":" << endpoint.port();
+  return os << endpoint.address << ":" << endpoint.port;
 }
 
 }  // namespace io::network

@@ -98,11 +98,12 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba.CreateVertex();
-      CHECK(vertex.AddLabel(label).HasValue());
-      CHECK(vertex.SetProperty(prop, storage::PropertyValue(index)).HasValue());
+      MG_ASSERT(vertex.AddLabel(label).HasValue());
+      MG_ASSERT(
+          vertex.SetProperty(prop, storage::PropertyValue(index)).HasValue());
     }
   }
-  CHECK(!dba.Commit().HasError());
+  MG_ASSERT(!dba.Commit().HasError());
   return std::make_pair("label", "prop");
 }
 

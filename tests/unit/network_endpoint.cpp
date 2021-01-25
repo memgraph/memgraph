@@ -1,9 +1,8 @@
-#include <iostream>
-
 #include "gtest/gtest.h"
 
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
+#include "utils/logging.hpp"
 
 using endpoint_t = io::network::Endpoint;
 
@@ -12,12 +11,12 @@ TEST(Endpoint, IPv4) {
 
   // test constructor
   endpoint = endpoint_t("127.0.0.1", 12347);
-  EXPECT_EQ(endpoint.address(), "127.0.0.1");
-  EXPECT_EQ(endpoint.port(), 12347);
-  EXPECT_EQ(endpoint.family(), 4);
+  EXPECT_EQ(endpoint.address, "127.0.0.1");
+  EXPECT_EQ(endpoint.port, 12347);
+  EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP4);
 
   // test address invalid
-  EXPECT_DEATH(endpoint_t("invalid", 12345), "address");
+  EXPECT_THROW(endpoint_t("invalid", 12345), io::network::NetworkError);
 }
 
 TEST(Endpoint, IPv6) {
@@ -25,15 +24,10 @@ TEST(Endpoint, IPv6) {
 
   // test constructor
   endpoint = endpoint_t("ab:cd:ef::3", 12347);
-  EXPECT_EQ(endpoint.address(), "ab:cd:ef::3");
-  EXPECT_EQ(endpoint.port(), 12347);
-  EXPECT_EQ(endpoint.family(), 6);
+  EXPECT_EQ(endpoint.address, "ab:cd:ef::3");
+  EXPECT_EQ(endpoint.port, 12347);
+  EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP6);
 
   // test address invalid
-  EXPECT_DEATH(endpoint_t("::g", 12345), "address");
-}
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  EXPECT_THROW(endpoint_t("::g", 12345), io::network::NetworkError);
 }

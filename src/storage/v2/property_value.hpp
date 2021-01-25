@@ -25,7 +25,15 @@ class PropertyValueException : public utils::BasicException {
 class PropertyValue {
  public:
   /// A value type, each type corresponds to exactly one C++ type.
-  enum class Type : unsigned char { Null, Bool, Int, Double, String, List, Map };
+  enum class Type : uint8_t {
+    Null = 0,
+    Bool = 1,
+    Int = 2,
+    Double = 3,
+    String = 4,
+    List = 5,
+    Map = 6,
+  };
 
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) ||

@@ -38,10 +38,9 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
       break;
     case Value::Type::List:
       os << "[";
-      utils::PrintIterable(os, value.ValueList(), ", ",
-                           [](auto &stream, const auto &item) {
-                             PrintJsonValue(stream, item);
-                           });
+      utils::PrintIterable(
+          os, value.ValueList(), ", ",
+          [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
       os << "]";
       break;
     case Value::Type::Map:
@@ -71,9 +70,9 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
       auto ret = client.Execute(query, params);
       return {ret, failed_attempts};
     } catch (const utils::BasicException &e) {
-      VLOG(0) << "Error: " << e.what();
+      spdlog::debug("Error: {}", e.what());
       if (++failed_attempts == max_attempts) {
-        LOG(WARNING) << query << " failed " << failed_attempts << "times";
+        spdlog::warn("{} failed {}", query, failed_attempts);
         throw;
       }
       utils::Timer t;

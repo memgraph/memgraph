@@ -6,7 +6,7 @@
 
 #include <cerrno>
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace utils {
 
@@ -28,8 +28,8 @@ class RWLock {
   explicit RWLock(Priority priority) {
     pthread_rwlockattr_t attr;
 
-    CHECK(pthread_rwlockattr_init(&attr) == 0)
-        << "Couldn't initialize utils::RWLock!";
+    MG_ASSERT(pthread_rwlockattr_init(&attr) == 0,
+              "Couldn't initialize utils::RWLock!");
 
     switch (priority) {
       case Priority::READ:
@@ -54,8 +54,8 @@ class RWLock {
         break;
     }
 
-    CHECK(pthread_rwlock_init(&lock_, &attr) == 0)
-        << "Couldn't initialize utils::RWLock!";
+    MG_ASSERT(pthread_rwlock_init(&lock_, &attr) == 0,
+              "Couldn't initialize utils::RWLock!");
     pthread_rwlockattr_destroy(&attr);
   }
 
@@ -67,19 +67,20 @@ class RWLock {
   ~RWLock() { pthread_rwlock_destroy(&lock_); }
 
   void lock() {
-    CHECK(pthread_rwlock_wrlock(&lock_) == 0) << "Couldn't lock utils::RWLock!";
+    MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0,
+              "Couldn't lock utils::RWLock!");
   }
 
   bool try_lock() {
     int err = pthread_rwlock_trywrlock(&lock_);
     if (err == 0) return true;
-    CHECK(err == EBUSY) << "Couldn't try lock utils::RWLock!";
+    MG_ASSERT(err == EBUSY, "Couldn't try lock utils::RWLock!");
     return false;
   }
 
   void unlock() {
-    CHECK(pthread_rwlock_unlock(&lock_) == 0)
-        << "Couldn't unlock utils::RWLock!";
+    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0,
+              "Couldn't unlock utils::RWLock!");
   }
 
   void lock_shared() {
@@ -91,7 +92,7 @@ class RWLock {
       } else if (err == EAGAIN) {
         continue;
       } else {
-        LOG(FATAL) << "Couldn't lock shared utils::RWLock!";
+        LOG_FATAL("Couldn't lock shared utils::RWLock!");
       }
     }
   }
@@ -107,14 +108,14 @@ class RWLock {
       } else if (err == EAGAIN) {
         continue;
       } else {
-        LOG(FATAL) << "Couldn't try lock shared utils::RWLock!";
+        LOG_FATAL("Couldn't try lock shared utils::RWLock!");
       }
     }
   }
 
   void unlock_shared() {
-    CHECK(pthread_rwlock_unlock(&lock_) == 0)
-        << "Couldn't unlock shared utils::RWLock!";
+    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0,
+              "Couldn't unlock shared utils::RWLock!");
   }
 
  private:

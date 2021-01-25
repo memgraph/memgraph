@@ -11,20 +11,20 @@ namespace {
 void ForEachPattern(
     Pattern &pattern, std::function<void(NodeAtom *)> base,
     std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
+  DMG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-  DCHECK(current_node) << "First pattern atom is not a node";
+  DMG_ASSERT(current_node, "First pattern atom is not a node");
   base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
-    DCHECK(edge) << "Expected an edge atom in pattern.";
-    DCHECK(atoms_it != pattern.atoms_.end())
-        << "Edge atom should not end the pattern.";
+    DMG_ASSERT(edge, "Expected an edge atom in pattern.");
+    DMG_ASSERT(atoms_it != pattern.atoms_.end(),
+               "Edge atom should not end the pattern.");
     auto prev_node = current_node;
     current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-    DCHECK(current_node) << "Expected a node atom in pattern.";
+    DMG_ASSERT(current_node, "Expected a node atom in pattern.");
     collect(prev_node, edge, current_node);
   }
 }
@@ -67,7 +67,7 @@ std::vector<Expansion> NormalizePatterns(
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
-      DCHECK(node) << "First pattern atom is not a node";
+      DMG_ASSERT(node, "First pattern atom is not a node");
       expansions.emplace_back(Expansion{node});
     } else {
       ForEachPattern(*pattern, ignore_node, collect_expansion);
@@ -155,7 +155,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
                                const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
     : symbol_(symbol), property_(property), type_(type), value_(value) {
-  CHECK(type != Type::RANGE);
+  MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
@@ -190,11 +190,10 @@ PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property,
   // we may be looking up.
 }
 
-
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol,
                    Expression *value)
     : symbol_(symbol), value_(value) {
-  CHECK(value);
+  MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
@@ -229,8 +228,8 @@ void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label,
       continue;
     }
     filter_it->labels.erase(label_it);
-    DCHECK(!utils::Contains(filter_it->labels, label))
-        << "Didn't expect duplicated labels";
+    DMG_ASSERT(!utils::Contains(filter_it->labels, label),
+               "Didn't expect duplicated labels");
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
@@ -489,8 +488,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
-  DCHECK(!utils::IsSubtype(*expr, AndOperator::kType))
-      << "Expected AndOperators have been split.";
+  DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType),
+             "Expected AndOperators have been split.");
   if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
@@ -583,8 +582,8 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
         AddMatching(*match, symbol_table, storage,
                     query_part->optional_matching.back());
       } else {
-        DCHECK(query_part->optional_matching.empty())
-            << "Match clause cannot follow optional match.";
+        DMG_ASSERT(query_part->optional_matching.empty(),
+                   "Match clause cannot follow optional match.");
         AddMatching(*match, symbol_table, storage, query_part->matching);
       }
     } else {
@@ -612,7 +611,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
-  CHECK(single_query) << "Expected at least a single query";
+  MG_ASSERT(single_query, "Expected at least a single query");
   query_parts.push_back(
       QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
 
@@ -623,7 +622,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
     }
 
     auto *single_query = cypher_union->single_query_;
-    CHECK(single_query) << "Expected UNION to have a query";
+    MG_ASSERT(single_query, "Expected UNION to have a query");
     query_parts.push_back(
         QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query),
                   cypher_union});

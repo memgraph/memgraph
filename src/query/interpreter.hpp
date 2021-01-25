@@ -10,8 +10,10 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -98,6 +100,45 @@ class AuthQueryHandler {
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+class ReplicationQueryHandler {
+ public:
+  ReplicationQueryHandler() = default;
+  virtual ~ReplicationQueryHandler() = default;
+
+  ReplicationQueryHandler(const ReplicationQueryHandler &) = delete;
+  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = delete;
+
+  ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
+  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = delete;
+
+  struct Replica {
+    std::string name;
+    std::string socket_address;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+  };
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetReplicationRole(
+      ReplicationQuery::ReplicationRole replication_role,
+      std::optional<int64_t> port) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RegisterReplica(const std::string &name,
+                               const std::string &socket_address,
+                               const ReplicationQuery::SyncMode sync_mode,
+                               const std::optional<double> timeout) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DropReplica(const std::string &replica_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<Replica> ShowReplicas() const = 0;
+};
+
 /**
  * A container for data related to the preparation of a query.
  */
@@ -107,6 +148,7 @@ struct PreparedQuery {
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream,
                                                   std::optional<int> n)>
       query_handler;
+  plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -187,7 +229,7 @@ struct PlanCacheEntry {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    CHECK(db) << "Storage must not be NULL";
+    MG_ASSERT(db, "Storage must not be NULL");
   }
 
   storage::Storage *db;
@@ -360,8 +402,8 @@ template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
                                                     std::optional<int> n,
                                                     std::optional<int> qid) {
-  CHECK(in_explicit_transaction_ || !qid)
-      << "qid can be only used in explicit transaction!";
+  MG_ASSERT(in_explicit_transaction_ || !qid,
+            "qid can be only used in explicit transaction!");
   const int qid_value =
       qid ? *qid : static_cast<int>(query_executions_.size() - 1);
 
@@ -377,8 +419,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
 
   auto &query_execution = query_executions_[qid_value];
 
-  CHECK(query_execution && query_execution->prepared_query)
-      << "Query already finished executing!";
+  MG_ASSERT(query_execution && query_execution->prepared_query,
+            "Query already finished executing!");
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
@@ -412,7 +454,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            CHECK(in_explicit_transaction_ || !db_accessor_);
+            MG_ASSERT(in_explicit_transaction_ || !db_accessor_);
             break;
         }
         // As the transaction is done we can clear all the executions

@@ -121,7 +121,7 @@ bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
         *out_ << "WeightedShortestPath";
         break;
       case Type::SINGLE:
-        LOG(FATAL) << "Unexpected ExpandVariable::type_";
+        LOG_FATAL("Unexpected ExpandVariable::type_");
     }
     *out_ << " (" << op.input_symbol_.name() << ")"
           << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"

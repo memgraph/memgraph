@@ -1,9 +1,9 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
+#include "utils/logging.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
@@ -18,7 +18,7 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
+  logging::RedirectToStderr();
 
   communication::SSLInit sslInit;
 
@@ -31,8 +31,9 @@ int main(int argc, char **argv) {
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
   auto ret = client.Execute("DUMP DATABASE", {});
   for (const auto &row : ret.records) {
-    CHECK(row.size() == 1) << "Too much entries in query dump row (got "
-                           << row.size() << ", expected 1)!";
+    MG_ASSERT(row.size() == 1,
+              "Too much entries in query dump row (got {}, expected 1)!",
+              row.size());
     std::cout << row[0].ValueString() << std::endl;
   }
 

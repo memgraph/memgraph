@@ -11,8 +11,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "glog/logging.h"
-
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
@@ -28,6 +26,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -43,13 +42,13 @@
     return visitor.PostVisit(*this);                                     \
   }
 
-#define WITHOUT_SINGLE_INPUT(class_name)                                 \
-  bool class_name::HasSingleInput() const { return false; }              \
-  std::shared_ptr<LogicalOperator> class_name::input() const {           \
-    LOG(FATAL) << "Operator " << #class_name << " has no single input!"; \
-  }                                                                      \
-  void class_name::set_input(std::shared_ptr<LogicalOperator>) {         \
-    LOG(FATAL) << "Operator " << #class_name << " has no single input!"; \
+#define WITHOUT_SINGLE_INPUT(class_name)                         \
+  bool class_name::HasSingleInput() const { return false; }      \
+  std::shared_ptr<LogicalOperator> class_name::input() const {   \
+    LOG_FATAL("Operator " #class_name " has no single input!");  \
+  }                                                              \
+  void class_name::set_input(std::shared_ptr<LogicalOperator>) { \
+    LOG_FATAL("Operator " #class_name " has no single input!");  \
   }
 
 namespace query::plan {
@@ -62,9 +61,9 @@ struct TypedValueVectorEqual {
   template <class TAllocator>
   bool operator()(const std::vector<TypedValue, TAllocator> &left,
                   const std::vector<TypedValue, TAllocator> &right) const {
-    CHECK(left.size() == right.size())
-        << "TypedValueVector comparison should only be done over vectors "
-           "of the same size";
+    MG_ASSERT(left.size() == right.size(),
+              "TypedValueVector comparison should only be done over vectors "
+              "of the same size");
     return std::equal(left.begin(), left.end(), right.begin(),
                       TypedValue::BoolEqual{});
   }
@@ -405,7 +404,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
       property_name_(property_name),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
-  CHECK(lower_bound_ || upper_bound_) << "Only one bound can be left out";
+  MG_ASSERT(lower_bound_ || upper_bound_, "Only one bound can be left out");
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
@@ -472,7 +471,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
       property_(property),
       property_name_(property_name),
       expression_(expression) {
-  DCHECK(expression) << "Expression is not optional.";
+  DMG_ASSERT(expression, "Expression is not optional.");
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
@@ -520,12 +519,11 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices));
 }
 
-
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input,
                          Symbol output_symbol, Expression *expression,
                          storage::View view)
     : ScanAll(input, output_symbol, view), expression_(expression) {
-  CHECK(expression);
+  MG_ASSERT(expression);
 }
 
 ACCEPT_WITH_INPUT(ScanAllById)
@@ -622,7 +620,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
         frame[self_.common_.node_symbol] = new_edge.To();
         break;
       case EdgeAtom::Direction::BOTH:
-        LOG(FATAL) << "Must indicate exact expansion direction here";
+        LOG_FATAL("Must indicate exact expansion direction here");
     }
   };
 
@@ -746,13 +744,14 @@ ExpandVariable::ExpandVariable(
       filter_lambda_(filter_lambda),
       weight_lambda_(weight_lambda),
       total_weight_(total_weight) {
-  DCHECK(type_ == EdgeAtom::Type::DEPTH_FIRST ||
-         type_ == EdgeAtom::Type::BREADTH_FIRST ||
-         type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-      << "ExpandVariable can only be used with breadth first, depth first or "
-         "weighted shortest path type";
-  DCHECK(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse))
-      << "Breadth first expansion can't be reversed";
+  DMG_ASSERT(
+      type_ == EdgeAtom::Type::DEPTH_FIRST ||
+          type_ == EdgeAtom::Type::BREADTH_FIRST ||
+          type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
+      "ExpandVariable can only be used with breadth first, depth first or "
+      "weighted shortest path type");
+  DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse),
+             "Breadth first expansion can't be reversed");
 }
 
 ACCEPT_WITH_INPUT(ExpandVariable)
@@ -940,7 +939,7 @@ class ExpandVariableCursor : public Cursor {
                   utils::pmr::vector<TypedValue> *edges_on_frame) {
     // We are placing an edge on the frame. It is possible that there already
     // exists an edge on the frame for this level. If so first remove it.
-    DCHECK(edges_.size() > 0) << "Edges are empty";
+    DMG_ASSERT(edges_.size() > 0, "Edges are empty");
     if (self_.is_reverse_) {
       // TODO: This is innefficient, we should look into replacing
       // vector with something else for TypedValue::List.
@@ -1059,10 +1058,10 @@ class STShortestPathCursor : public query::plan::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
-    CHECK(self_.common_.existing_node)
-        << "s-t shortest path algorithm should only "
-           "be used when `existing_node` flag is "
-           "set!";
+    MG_ASSERT(self_.common_.existing_node,
+              "s-t shortest path algorithm should only "
+              "be used when `existing_node` flag is "
+              "set!");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -1310,11 +1309,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_current_(mem),
         to_visit_next_(mem) {
-    CHECK(!self_.common_.existing_node)
-        << "Single source shortest path algorithm "
-           "should not be used when `existing_node` "
-           "flag is set, s-t shortest path algorithm "
-           "should be used instead!";
+    MG_ASSERT(!self_.common_.existing_node,
+              "Single source shortest path algorithm "
+              "should not be used when `existing_node` "
+              "flag is set, s-t shortest path algorithm "
+              "should be used instead!");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -1731,8 +1730,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this,
                                                                    mem);
     case EdgeAtom::Type::SINGLE:
-      LOG(FATAL)
-          << "ExpandVariable should not be planned for a single expansion!";
+      LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
   }
 }
 
@@ -1748,8 +1746,8 @@ class ConstructNamedPathCursor : public Cursor {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     auto symbol_it = self_.path_elements_.begin();
-    DCHECK(symbol_it != self_.path_elements_.end())
-        << "Named path must contain at least one node";
+    DMG_ASSERT(symbol_it != self_.path_elements_.end(),
+               "Named path must contain at least one node");
 
     const auto &start_vertex = frame[*symbol_it++];
     auto *pull_memory = context.evaluation_context.memory;
@@ -1759,8 +1757,8 @@ class ConstructNamedPathCursor : public Cursor {
       return true;
     }
 
-    DCHECK(start_vertex.IsVertex())
-        << "First named path element must be a vertex";
+    DMG_ASSERT(start_vertex.IsVertex(),
+               "First named path element must be a vertex");
     query::Path path(start_vertex.ValueVertex(), pull_memory);
 
     // If the last path element symbol was for an edge list, then
@@ -1800,7 +1798,7 @@ class ConstructNamedPathCursor : public Cursor {
           break;
         }
         default:
-          LOG(FATAL) << "Unsupported type in named path construction";
+          LOG_FATAL("Unsupported type in named path construction");
 
           break;
       }
@@ -2227,12 +2225,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(),
-                            rhs, self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs,
+                            self_.op_);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(),
-                            rhs, self_.op_);
+      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs,
+                            self_.op_);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2779,12 +2777,12 @@ class AggregateCursor : public Cursor {
    * the AggregationValue has been initialized */
   void Update(ExpressionEvaluator *evaluator,
               AggregateCursor::AggregationValue *agg_value) {
-    DCHECK(self_.aggregations_.size() == agg_value->values_.size())
-        << "Expected as much AggregationValue.values_ as there are "
-           "aggregations.";
-    DCHECK(self_.aggregations_.size() == agg_value->counts_.size())
-        << "Expected as much AggregationValue.counts_ as there are "
-           "aggregations.";
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+               "Expected as much AggregationValue.values_ as there are "
+               "aggregations.");
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
+               "Expected as much AggregationValue.counts_ as there are "
+               "aggregations.");
 
     // we iterate over counts, values and aggregation info at the same time
     auto count_it = agg_value->counts_.begin();
@@ -3113,9 +3111,9 @@ class OrderByCursor : public Cursor {
     if (MustAbort(context)) throw HintedAbortError();
 
     // place the output values on the frame
-    DCHECK(self_.output_symbols_.size() == cache_it_->remember.size())
-        << "Number of values does not match the number of output symbols "
-           "in OrderBy";
+    DMG_ASSERT(self_.output_symbols_.size() == cache_it_->remember.size(),
+               "Number of values does not match the number of output symbols "
+               "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
     for (const TypedValue &output : cache_it_->remember)
       frame[*output_sym_it++] = output;
@@ -3213,7 +3211,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
         // and failed to pull from merge_match, we should create
         __attribute__((unused)) bool merge_create_pull_result =
             merge_create_cursor_->Pull(frame, context);
-        DCHECK(merge_create_pull_result) << "MergeCreate must never fail";
+        DMG_ASSERT(merge_create_pull_result, "MergeCreate must never fail");
         return true;
       }
       // We have exhausted merge_match_cursor_ after 1 or more successful
@@ -3555,10 +3553,10 @@ class CartesianCursor : public Cursor {
         right_op_frame_(mem),
         left_op_cursor_(self.left_op_->MakeCursor(mem)),
         right_op_cursor_(self_.right_op_->MakeCursor(mem)) {
-    CHECK(left_op_cursor_ != nullptr)
-        << "CartesianCursor: Missing left operator cursor.";
-    CHECK(right_op_cursor_ != nullptr)
-        << "CartesianCursor: Missing right operator cursor.";
+    MG_ASSERT(left_op_cursor_ != nullptr,
+              "CartesianCursor: Missing left operator cursor.");
+    MG_ASSERT(right_op_cursor_ != nullptr,
+              "CartesianCursor: Missing right operator cursor.");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -3660,8 +3658,8 @@ class OutputTableCursor : public Cursor {
     if (!pulled_) {
       rows_ = self_.callback_(&frame, &context);
       for (const auto &row : rows_) {
-        CHECK(row.size() == self_.output_symbols_.size())
-            << "Wrong number of columns in row!";
+        MG_ASSERT(row.size() == self_.output_symbols_.size(),
+                  "Wrong number of columns in row!");
       }
       pulled_ = true;
     }
@@ -3712,8 +3710,8 @@ class OutputTableStreamCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const auto row = self_->callback_(&frame, &context);
     if (row) {
-      CHECK(row->size() == self_->output_symbols_.size())
-          << "Wrong number of columns in row!";
+      MG_ASSERT(row->size() == self_->output_symbols_.size(),
+                "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame[self_->output_symbols_[i]] = row->at(i);
       }
@@ -3820,7 +3818,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
       name = proc.args[i].first;
       type = proc.args[i].second;
     } else {
-      CHECK(proc.opt_args.size() > i - proc.args.size());
+      MG_ASSERT(proc.opt_args.size() > i - proc.args.size());
       name = std::get<0>(proc.opt_args[i - proc.args.size()]);
       type = std::get<1>(proc.opt_args[i - proc.args.size()]);
     }
@@ -3832,29 +3830,30 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::move(arg), &graph);
   }
   // Fill missing optional arguments with their default values.
-  CHECK(args.size() >= proc.args.size());
+  MG_ASSERT(args.size() >= proc.args.size());
   size_t passed_in_opt_args = args.size() - proc.args.size();
-  CHECK(passed_in_opt_args <= proc.opt_args.size());
+  MG_ASSERT(passed_in_opt_args <= proc.opt_args.size());
   for (size_t i = passed_in_opt_args; i < proc.opt_args.size(); ++i) {
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    DLOG(INFO) << "Running '" << fully_qualified_procedure_name
-               << "' with memory limit of " << *memory_limit << " bytes";
+    SPDLOG_INFO("Running '{}' with memory limit of {} bytes",
+                fully_qualified_procedure_name, *memory_limit);
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
-    CHECK(result->signature == &proc.results);
+    MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
     size_t leaked_bytes = limited_mem.GetAllocatedBytes();
-    LOG_IF(WARNING, leaked_bytes > 0U)
-        << "Query procedure '" << fully_qualified_procedure_name << "' leaked "
-        << leaked_bytes << " *tracked* bytes";
+    if (leaked_bytes > 0U) {
+      spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes",
+                   fully_qualified_procedure_name, leaked_bytes);
+    }
   } else {
     // TODO: Add a tracking MemoryResource without limits, so that we report
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
-    CHECK(result->signature == &proc.results);
+    MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
@@ -3877,8 +3876,8 @@ class CallProcedureCursor : public Cursor {
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
         result_(nullptr, mem) {
-    CHECK(self_->result_fields_.size() == self_->result_symbols_.size())
-        << "Incorrectly constructed CallProcedure";
+    MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(),
+              "Incorrectly constructed CallProcedure");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -3948,7 +3947,8 @@ class CallProcedureCursor : public Cursor {
     if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
-          "signature.", self_->procedure_name_);
+          "signature.",
+          self_->procedure_name_);
     }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
       std::string_view field_name(self_->result_fields_[i]);

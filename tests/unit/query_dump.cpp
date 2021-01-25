@@ -4,8 +4,6 @@
 #include <set>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "communication/result_stream_faker.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
@@ -134,17 +132,17 @@ DatabaseState GetState(storage::Storage *db) {
   for (const auto &vertex : dba.Vertices(storage::View::NEW)) {
     std::set<std::string> labels;
     auto maybe_labels = vertex.Labels(storage::View::NEW);
-    CHECK(maybe_labels.HasValue());
+    MG_ASSERT(maybe_labels.HasValue());
     for (const auto &label : *maybe_labels) {
       labels.insert(dba.LabelToName(label));
     }
     std::map<std::string, storage::PropertyValue> props;
     auto maybe_properties = vertex.Properties(storage::View::NEW);
-    CHECK(maybe_properties.HasValue());
+    MG_ASSERT(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
       props.emplace(dba.PropertyToName(kv.first), kv.second);
     }
-    CHECK(props.count(kPropertyId) == 1);
+    MG_ASSERT(props.count(kPropertyId) == 1);
     const auto id = props[kPropertyId].ValueInt();
     gid_mapping[vertex.Gid()] = id;
     vertices.insert({id, labels, props});
@@ -154,12 +152,12 @@ DatabaseState GetState(storage::Storage *db) {
   std::set<DatabaseState::Edge> edges;
   for (const auto &vertex : dba.Vertices(storage::View::NEW)) {
     auto maybe_edges = vertex.OutEdges(storage::View::NEW);
-    CHECK(maybe_edges.HasValue());
+    MG_ASSERT(maybe_edges.HasValue());
     for (const auto &edge : *maybe_edges) {
       const auto &edge_type_name = dba.EdgeTypeToName(edge.EdgeType());
       std::map<std::string, storage::PropertyValue> props;
       auto maybe_properties = edge.Properties(storage::View::NEW);
-      CHECK(maybe_properties.HasValue());
+      MG_ASSERT(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
         props.emplace(dba.PropertyToName(kv.first), kv.second);
       }
@@ -227,20 +225,20 @@ storage::VertexAccessor CreateVertex(
     storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
     const std::map<std::string, storage::PropertyValue> &props,
     bool add_property_id = true) {
-  CHECK(dba);
+  MG_ASSERT(dba);
   auto vertex = dba->CreateVertex();
   for (const auto &label_name : labels) {
-    CHECK(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
+    MG_ASSERT(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
   }
   for (const auto &kv : props) {
-    CHECK(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second)
-              .HasValue());
+    MG_ASSERT(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second)
+                  .HasValue());
   }
   if (add_property_id) {
-    CHECK(vertex
-              .SetProperty(dba->NameToProperty(kPropertyId),
-                           storage::PropertyValue(vertex.Gid().AsInt()))
-              .HasValue());
+    MG_ASSERT(vertex
+                  .SetProperty(dba->NameToProperty(kPropertyId),
+                               storage::PropertyValue(vertex.Gid().AsInt()))
+                  .HasValue());
   }
   return vertex;
 }
@@ -250,17 +248,17 @@ storage::EdgeAccessor CreateEdge(
     storage::VertexAccessor *to, const std::string &edge_type_name,
     const std::map<std::string, storage::PropertyValue> &props,
     bool add_property_id = true) {
-  CHECK(dba);
+  MG_ASSERT(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
-  CHECK(edge.HasValue());
+  MG_ASSERT(edge.HasValue());
   for (const auto &kv : props) {
-    CHECK(
+    MG_ASSERT(
         edge->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
-    CHECK(edge->SetProperty(dba->NameToProperty(kPropertyId),
-                            storage::PropertyValue(edge->Gid().AsInt()))
-              .HasValue());
+    MG_ASSERT(edge->SetProperty(dba->NameToProperty(kPropertyId),
+                                storage::PropertyValue(edge->Gid().AsInt()))
+                  .HasValue());
   }
   return *edge;
 }
@@ -268,7 +266,7 @@ storage::EdgeAccessor CreateEdge(
 template <class... TArgs>
 void VerifyQueries(
     const std::vector<std::vector<communication::bolt::Value>> &results,
-    TArgs &&... args) {
+    TArgs &&...args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());

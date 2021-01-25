@@ -16,7 +16,7 @@
 #error "Minimum supported Python API is 3.5"
 #endif
 
-#include <glog/logging.h>
+#include "utils/logging.hpp"
 
 namespace py {
 
@@ -160,7 +160,7 @@ class [[nodiscard]] Object final {
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
   template <class... TArgs>
-  Object Call(const TArgs &... args) const {
+  Object Call(const TArgs &...args) const {
     return Object(PyObject_CallFunctionObjArgs(
         ptr_, static_cast<PyObject *>(args)..., nullptr));
   }
@@ -180,7 +180,7 @@ class [[nodiscard]] Object final {
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
   template <class... TArgs>
-  Object CallMethod(std::string_view meth_name, const TArgs &... args) const {
+  Object CallMethod(std::string_view meth_name, const TArgs &...args) const {
     Object name(
         PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
     return Object(PyObject_CallMethodObjArgs(
@@ -214,9 +214,9 @@ struct [[nodiscard]] ExceptionInfo final {
                                                  bool skip_first_line = false) {
   if (!exc_info.type) return "";
   Object traceback_mod(PyImport_ImportModule("traceback"));
-  CHECK(traceback_mod);
+  MG_ASSERT(traceback_mod);
   Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
-  CHECK(format_exception_fn);
+  MG_ASSERT(format_exception_fn);
   Object traceback_root(exc_info.traceback);
   if (skip_first_line && traceback_root) {
     traceback_root = traceback_root.GetAttr("tb_next");
@@ -224,7 +224,7 @@ struct [[nodiscard]] ExceptionInfo final {
   auto list = format_exception_fn.Call(
       exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
       traceback_root ? traceback_root.Ptr() : Py_None);
-  CHECK(list);
+  MG_ASSERT(list);
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
@@ -269,9 +269,9 @@ inline void RestoreError(ExceptionInfo exc_info) {
 /// ExceptionInfo is returned if an error occurred.
 [[nodiscard]] inline std::optional<ExceptionInfo> AppendToSysPath(
     const char *dir) {
-  CHECK(dir);
+  MG_ASSERT(dir);
   auto *py_path = PySys_GetObject("path");
-  CHECK(py_path);
+  MG_ASSERT(py_path);
   py::Object import_dir(PyUnicode_FromString(dir));
   if (!import_dir) return py::FetchError();
   int import_dir_in_path = PySequence_Contains(py_path, import_dir.Ptr());

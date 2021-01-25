@@ -2,11 +2,10 @@
 
 #include <atomic>
 
-#include <glog/logging.h>
-
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
 
 namespace storage {
 
@@ -64,25 +63,25 @@ class PreviousPtr {
     } else if (type == kEdge) {
       return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
     } else {
-      LOG(FATAL) << "Invalid pointer type!";
+      LOG_FATAL("Invalid pointer type!");
     }
   }
 
   void Set(Delta *delta) {
     uintptr_t value = reinterpret_cast<uintptr_t>(delta);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kDelta, std::memory_order_release);
   }
 
   void Set(Vertex *vertex) {
     uintptr_t value = reinterpret_cast<uintptr_t>(vertex);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kVertex, std::memory_order_release);
   }
 
   void Set(Edge *edge) {
     uintptr_t value = reinterpret_cast<uintptr_t>(edge);
-    CHECK((value & kMask) == 0) << "Invalid pointer!";
+    MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kEdge, std::memory_order_release);
   }
 

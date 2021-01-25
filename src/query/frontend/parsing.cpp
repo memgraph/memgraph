@@ -5,9 +5,8 @@
 #include <locale>
 #include <stdexcept>
 
-#include <glog/logging.h>
-
 #include "query/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace query::frontend {
@@ -143,7 +142,7 @@ std::string ParseStringLiteral(const std::string &s) {
         default:
           // This should never happen, except grammar changes and we don't
           // notice change in this production.
-          DLOG(FATAL) << "can't happen";
+          DLOG_FATAL("can't happen");
           throw std::exception();
       }
       escape = false;
@@ -165,12 +164,12 @@ double ParseDoubleLiteral(const std::string &s) {
 }
 
 std::string ParseParameter(const std::string &s) {
-  DCHECK(s[0] == '$') << "Invalid string passed as parameter name";
+  DMG_ASSERT(s[0] == '$', "Invalid string passed as parameter name");
   if (s[1] != '`') return s.substr(1);
   // If parameter name is escaped symbolic name then symbolic name should be
   // unescaped and leading and trailing backquote should be removed.
-  DCHECK(s.size() > 3U && s.back() == '`')
-      << "Invalid string passed as parameter name";
+  DMG_ASSERT(s.size() > 3U && s.back() == '`',
+             "Invalid string passed as parameter name");
   std::string out;
   for (int i = 2; i < static_cast<int>(s.size()) - 1; ++i) {
     if (s[i] == '`') {

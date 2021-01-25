@@ -4,8 +4,6 @@
 #include <new>
 #include <string>
 
-#include <glog/logging.h>
-
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
@@ -13,6 +11,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "utils/likely.hpp"
+#include "utils/logging.hpp"
 
 namespace communication::bolt {
 
@@ -50,13 +49,13 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
     // std::bad_alloc was thrown, God knows in which state is database ->
     // terminate.
-    LOG(FATAL) << "Memgraph is out of memory";
+    LOG_FATAL("Memgraph is out of memory");
   }
   // All exceptions used in memgraph are derived from BasicException. Since
   // we caught some other exception we don't know what is going on. Return
   // DatabaseError, log real message and return generic string.
-  LOG(ERROR) << "Unknown exception occurred during query execution "
-             << e.what();
+  spdlog::error("Unknown exception occurred during query execution {}",
+                e.what());
   return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
           "An unknown exception occurred, this is unexpected. Real message "
           "should be in database logs."};
@@ -64,16 +63,16 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(
 
 template <typename TSession>
 inline State HandleFailure(TSession &session, const std::exception &e) {
-  DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+  spdlog::trace("Error message: {}", e.what());
   if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
-    DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+    spdlog::trace("Error trace: {}", p->trace());
   }
   session.encoder_buffer_.Clear();
   auto code_message = ExceptionToErrorMessage(e);
   bool fail_sent = session.encoder_.MessageFailure(
       {{"code", code_message.first}, {"message", code_message.second}});
   if (!fail_sent) {
-    DLOG(WARNING) << "Couldn't send failure message!";
+    spdlog::trace("Couldn't send failure message!");
     return State::Close;
   }
   return State::Error;
@@ -87,27 +86,26 @@ State HandleRun(TSession &session, State state, Marker marker) {
   const auto expected_marker =
       session.version_.major == 1 ? Marker::TinyStruct2 : Marker::TinyStruct3;
   if (marker != expected_marker) {
-    DLOG(WARNING) << fmt::format(
-        "Expected {} marker, but received 0x{:02X}!",
-        session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected {} marker, but received 0x{:02X}!",
+                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   Value query, params, extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
-    DLOG(WARNING) << "Couldn't read query string!";
+    spdlog::trace("Couldn't read query string!");
     return State::Close;
   }
 
   if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
-    DLOG(WARNING) << "Couldn't read parameters!";
+    spdlog::trace("Couldn't read parameters!");
     return State::Close;
   }
 
   if (session.version_.major == 4) {
     if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-      DLOG(WARNING) << "Couldn't read extra field!";
+      spdlog::trace("Couldn't read extra field!");
     }
   }
 
@@ -115,14 +113,14 @@ State HandleRun(TSession &session, State state, Marker marker) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
     // situation.
-    DLOG(WARNING) << "Unexpected RUN command!";
+    spdlog::trace("Unexpected RUN command!");
     return State::Close;
   }
 
-  DCHECK(!session.encoder_buffer_.HasData())
-      << "There should be no data to write in this state";
+  DMG_ASSERT(!session.encoder_buffer_.HasData(),
+             "There should be no data to write in this state");
 
-  DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
+  spdlog::debug("[Run] '{}'", query.ValueString());
 
   try {
     // Interpret can throw.
@@ -136,7 +134,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
     data.emplace("fields", std::move(vec));
     // Send the header.
     if (!session.encoder_.MessageSuccess(data)) {
-      DLOG(WARNING) << "Couldn't send query header!";
+      spdlog::trace("Couldn't send query header!");
       return State::Close;
     }
     return State::Result;
@@ -151,18 +149,17 @@ State HandlePullDiscard(TSession &session, State state, Marker marker) {
   const auto expected_marker =
       session.version_.major == 1 ? Marker::TinyStruct : Marker::TinyStruct1;
   if (marker != expected_marker) {
-    DLOG(WARNING) << fmt::format(
-        "Expected {} marker, but received 0x{:02X}!",
-        session.version_.major == 1 ? "TinyStruct" : "TinyStruct1",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected {} marker, but received 0x{:02X}!",
+                  session.version_.major == 1 ? "TinyStruct" : "TinyStruct1",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   if (state != State::Result) {
     if constexpr (is_pull) {
-      DLOG(WARNING) << "Unexpected PULL!";
+      spdlog::trace("Unexpected PULL!");
     } else {
-      DLOG(WARNING) << "Unexpected DISCARD!";
+      spdlog::trace("Unexpected DISCARD!");
     }
     // Same as `unexpected RUN` case.
     return State::Close;
@@ -175,7 +172,7 @@ State HandlePullDiscard(TSession &session, State state, Marker marker) {
     if (session.version_.major == 4) {
       Value extra;
       if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-        DLOG(WARNING) << "Couldn't read extra field!";
+        spdlog::trace("Couldn't read extra field!");
       }
       const auto &extra_map = extra.ValueMap();
       if (extra_map.count("n")) {
@@ -202,7 +199,7 @@ State HandlePullDiscard(TSession &session, State state, Marker marker) {
     }
 
     if (!session.encoder_.MessageSuccess(summary)) {
-      DLOG(WARNING) << "Couldn't send query summary!";
+      spdlog::trace("Couldn't send query summary!");
       return State::Close;
     }
 
@@ -239,9 +236,8 @@ State HandleReset(Session &session, State, Marker marker) {
   // now this command only resets the session to a clean state. It
   // does not IGNORE running and pending commands as it should.
   if (marker != Marker::TinyStruct) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02X}!",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -249,7 +245,7 @@ State HandleReset(Session &session, State, Marker marker) {
   session.encoder_buffer_.Clear();
 
   if (!session.encoder_.MessageSuccess()) {
-    DLOG(WARNING) << "Couldn't send success message!";
+    spdlog::trace("Couldn't send success message!");
     return State::Close;
   }
 
@@ -261,33 +257,32 @@ State HandleReset(Session &session, State, Marker marker) {
 template <typename Session>
 State HandleBegin(Session &session, State state, Marker marker) {
   if (session.version_.major == 1) {
-    DLOG(WARNING) << "BEGIN messsage not supported in Bolt v1!";
+    spdlog::trace("BEGIN messsage not supported in Bolt v1!");
     return State::Close;
   }
 
   if (marker != Marker::TinyStruct1) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct1 marker, but received 0x{:02x}!",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   Value extra;
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-    DLOG(WARNING) << "Couldn't read extra fields!";
+    spdlog::trace("Couldn't read extra fields!");
     return State::Close;
   }
 
   if (state != State::Idle) {
-    DLOG(WARNING) << "Unexpected BEGIN command!";
+    spdlog::trace("Unexpected BEGIN command!");
     return State::Close;
   }
 
-  DCHECK(!session.encoder_buffer_.HasData())
-      << "There should be no data to write in this state";
+  DMG_ASSERT(!session.encoder_buffer_.HasData(),
+             "There should be no data to write in this state");
 
   if (!session.encoder_.MessageSuccess({})) {
-    DLOG(WARNING) << "Couldn't send success message!";
+    spdlog::trace("Couldn't send success message!");
     return State::Close;
   }
 
@@ -303,28 +298,27 @@ State HandleBegin(Session &session, State state, Marker marker) {
 template <typename Session>
 State HandleCommit(Session &session, State state, Marker marker) {
   if (session.version_.major == 1) {
-    DLOG(WARNING) << "COMMIT messsage not supported in Bolt v1!";
+    spdlog::trace("COMMIT messsage not supported in Bolt v1!");
     return State::Close;
   }
 
   if (marker != Marker::TinyStruct) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02x}!",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   if (state != State::Idle) {
-    DLOG(WARNING) << "Unexpected COMMIT command!";
+    spdlog::trace("Unexpected COMMIT command!");
     return State::Close;
   }
 
-  DCHECK(!session.encoder_buffer_.HasData())
-      << "There should be no data to write in this state";
+  DMG_ASSERT(!session.encoder_buffer_.HasData(),
+             "There should be no data to write in this state");
 
   try {
     if (!session.encoder_.MessageSuccess({})) {
-      DLOG(WARNING) << "Couldn't send success message!";
+      spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
     session.CommitTransaction();
@@ -337,28 +331,27 @@ State HandleCommit(Session &session, State state, Marker marker) {
 template <typename Session>
 State HandleRollback(Session &session, State state, Marker marker) {
   if (session.version_.major == 1) {
-    DLOG(WARNING) << "ROLLBACK messsage not supported in Bolt v1!";
+    spdlog::trace("ROLLBACK messsage not supported in Bolt v1!");
     return State::Close;
   }
 
   if (marker != Marker::TinyStruct) {
-    DLOG(WARNING) << fmt::format(
-        "Expected TinyStruct marker, but received 0x{:02x}!",
-        utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!",
+                  utils::UnderlyingCast(marker));
     return State::Close;
   }
 
   if (state != State::Idle) {
-    DLOG(WARNING) << "Unexpected ROLLBACK command!";
+    spdlog::trace("Unexpected ROLLBACK command!");
     return State::Close;
   }
 
-  DCHECK(!session.encoder_buffer_.HasData())
-      << "There should be no data to write in this state";
+  DMG_ASSERT(!session.encoder_buffer_.HasData(),
+             "There should be no data to write in this state");
 
   try {
     if (!session.encoder_.MessageSuccess({})) {
-      DLOG(WARNING) << "Couldn't send success message!";
+      spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
     session.RollbackTransaction();
@@ -379,13 +372,13 @@ State StateExecutingRun(Session &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    DLOG(WARNING) << "Missing header data!";
+    spdlog::trace("Missing header data!");
     return State::Close;
   }
 
   if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
                session.version_.minor == 1)) {
-    DLOG(INFO) << "Received NOOP message";
+    spdlog::trace("Received NOOP message");
     return state;
   }
 
@@ -406,8 +399,8 @@ State StateExecutingRun(Session &session, State state) {
   } else if (signature == Signature::Goodbye && session.version_.major != 1) {
     throw SessionClosedException("Closing connection.");
   } else {
-    DLOG(WARNING) << fmt::format("Unrecognized signature received (0x{:02X})!",
-                                 utils::UnderlyingCast(signature));
+    spdlog::trace("Unrecognized signature received (0x{:02X})!",
+                  utils::UnderlyingCast(signature));
     return State::Close;
   }
 }

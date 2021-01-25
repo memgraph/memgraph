@@ -11,7 +11,7 @@ class Graph500BfsClient : public TestClient {
  public:
   Graph500BfsClient(int id) : TestClient(), rg_(id) {
     auto result = Execute("MATCH (n:Node) RETURN count(1)", {}, "NumNodes");
-    CHECK(result) << "Read-only query should not fail";
+    MG_ASSERT(result, "Read-only query should not fail");
     num_nodes_ = result->records[0][0].ValueInt();
   }
 
@@ -29,7 +29,7 @@ class Graph500BfsClient : public TestClient {
           "MATCH (n:Node {id: $id})-->(m) WHERE m != n "
           "RETURN count(m) AS degree",
           {{"id", start}}, "GetDegree");
-      CHECK(result) << "Read-only query should not fail";
+      MG_ASSERT(result, "Read-only query should not fail");
       if (result->records[0][0].ValueInt() > 0) {
         break;
       }
@@ -38,13 +38,12 @@ class Graph500BfsClient : public TestClient {
     auto result =
         Execute("MATCH path = (n:Node {id: $id})-[*bfs]->() RETURN count(1)",
                 {{"id", start}}, "Bfs");
-    CHECK(result) << "Read-only query should not fail!";
+    MG_ASSERT(result, "Read-only query should not fail!");
   }
 };
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   std::vector<std::unique_ptr<TestClient>> clients;
   for (int i = 0; i < FLAGS_num_workers; ++i) {

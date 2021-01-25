@@ -1,7 +1,7 @@
-#include <glog/logging.h>
-
 #include "communication/client.hpp"
+
 #include "communication/helpers.hpp"
+#include "utils/logging.hpp"
 
 namespace communication {
 
@@ -32,7 +32,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // Create a new SSL object that will be used for SSL communication.
     ssl_ = SSL_new(context_->context());
     if (ssl_ == nullptr) {
-      DLOG(ERROR) << "Couldn't create client SSL object!";
+      SPDLOG_ERROR("Couldn't create client SSL object!");
       socket_.Close();
       return false;
     }
@@ -43,7 +43,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // handle that in our socket destructor).
     bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
     if (bio_ == nullptr) {
-      DLOG(ERROR) << "Couldn't create client BIO object!";
+      SPDLOG_ERROR("Couldn't create client BIO object!");
       socket_.Close();
       return false;
     }
@@ -59,7 +59,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // Perform the TLS handshake.
     auto ret = SSL_connect(ssl_);
     if (ret != 1) {
-      DLOG(WARNING) << "Couldn't connect to SSL server: " << SslGetLastError();
+      SPDLOG_WARN("Couldn't connect to SSL server: {}", SslGetLastError());
       socket_.Close();
       return false;
     }
@@ -114,7 +114,7 @@ bool Client::Read(size_t len, bool exactly_len) {
           continue;
         } else {
           // This is a fatal error.
-          DLOG(ERROR) << "Received an unexpected SSL error: " << err;
+          SPDLOG_ERROR("Received an unexpected SSL error: {}", err);
           return false;
         }
       } else if (got == 0) {

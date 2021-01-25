@@ -70,7 +70,6 @@ class Memgraph:
         else:
             assert self._properties_on_edges, \
                 "Older versions of Memgraph can't disable properties on edges!"
-        kwargs["min_log_level"] = 1
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):

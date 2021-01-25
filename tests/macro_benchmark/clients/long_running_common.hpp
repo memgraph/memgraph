@@ -14,6 +14,7 @@
 
 #include "json/json.hpp"
 
+#include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"
@@ -112,7 +113,7 @@ class TestClient {
 };
 
 void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
-  CHECK((int)clients.size() == FLAGS_num_workers);
+  MG_ASSERT((int)clients.size() == FLAGS_num_workers);
 
   // Open stream for writing stats.
   std::streambuf *buf;
@@ -129,7 +130,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
   for (auto &client : clients) {
     client->Run();
   }
-  LOG(INFO) << "Starting test with " << clients.size() << " workers";
+  spdlog::info("Starting test with {} workers", clients.size());
   while (timer.Elapsed().count() < FLAGS_duration) {
     std::unordered_map<std::string, std::map<std::string, Value>>
         aggregated_stats;
@@ -182,20 +183,20 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
         << "\"num_executed_steps\": " << executed_steps << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    utils::PrintIterable(
-        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
-          stream << "{\"query\": " << nlohmann::json(x.first)
-                 << ", \"stats\": ";
-          PrintJsonValue(stream, Value(x.second));
-          stream << "}";
-        });
+    utils::PrintIterable(out, aggregated_stats, ", ",
+                         [](auto &stream, const auto &x) {
+                           stream << "{\"query\": " << nlohmann::json(x.first)
+                                  << ", \"stats\": ";
+                           PrintJsonValue(stream, Value(x.second));
+                           stream << "}";
+                         });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);
   }
-  LOG(INFO) << "Stopping workers...";
+  spdlog::info("Stopping workers...");
   for (auto &client : clients) {
     client->Stop();
   }
-  LOG(INFO) << "Stopped workers...";
+  spdlog::info("Stopped workers...");
 }

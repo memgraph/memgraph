@@ -4,11 +4,10 @@
 #include <random>
 #include <thread>
 
-#include <glog/logging.h>
-
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
+#include "utils/logging.hpp"
 
 // NOTE: this file is highly coupled to data_structures
 // TODO: REFACTOR
@@ -40,7 +39,7 @@ template <typename TAccessor>
 void check_present_same(TAccessor &acc, size_t data,
                         std::vector<size_t> &owned) {
   for (auto num : owned) {
-    CHECK(acc.find(num)->second == data) << "My data is present and my";
+    MG_ASSERT(acc.find(num)->second == data, "My data is present and my");
   }
 }
 
@@ -56,8 +55,8 @@ template <typename TAccessor>
 void check_size_list(TAccessor &acc, long long size) {
   // check size
 
-  CHECK(acc.size() == size) << "Size should be " << size << ", but size is "
-                            << acc.size();
+  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size,
+            acc.size());
 
   // check count
 
@@ -66,16 +65,16 @@ void check_size_list(TAccessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  CHECK(static_cast<int64_t>(iterator_counter) == size)
-      << "Iterator count should be " << size << ", but size is "
-      << iterator_counter;
+  MG_ASSERT(static_cast<int64_t>(iterator_counter) == size,
+            "Iterator count should be {}, but size is {}", size,
+            iterator_counter);
 }
 template <typename TAccessor>
 void check_size(TAccessor &acc, long long size) {
   // check size
 
-  CHECK(acc.size() == size) << "Size should be " << size << ", but size is "
-                            << acc.size();
+  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size,
+            acc.size());
 
   // check count
 
@@ -84,7 +83,7 @@ void check_size(TAccessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  CHECK(static_cast<int64_t>(iterator_counter) == size)
+  MG_ASSERT(static_cast<int64_t>(iterator_counter) == size)
       << "Iterator count should be " << size << ", but size is "
       << iterator_counter;
 }
@@ -105,14 +104,15 @@ void check_order(TAccessor &acc) {
 
 void check_zero(size_t key_range, long array[], const char *str) {
   for (int i = 0; i < static_cast<int>(key_range); i++) {
-    CHECK(array[i] == 0) << str << " doesn't hold it's guarantees. It has "
-                         << array[i] << " extra elements.";
+    MG_ASSERT(array[i] == 0,
+              "{} doesn't hold it's guarantees. It has {} extra elements.", str,
+              array[i]);
   }
 }
 
 void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
   for (int i = 0; i < static_cast<int>(set.size()); i++) {
-    CHECK(!(set[i] ^ db.at(i))) << "Set constraints aren't fullfilled.";
+    MG_ASSERT(!(set[i] ^ db.at(i)), "Set constraints aren't fullfilled.");
   }
 }
 

@@ -4,14 +4,13 @@
 #include <mutex>
 #include <optional>
 
-#include <glog/logging.h>
-
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 
 namespace rpc {
@@ -88,12 +87,12 @@ class Client {
 
       // Check the response ID.
       if (res_id != res_type.id) {
-        LOG(ERROR) << "Message response was of unexpected type";
+        spdlog::error("Message response was of unexpected type");
         self_->client_ = std::nullopt;
         throw RpcFailedException(self_->endpoint_);
       }
 
-      VLOG(12) << "[RpcClient] received " << res_type.name;
+      SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
 
       return res_load_(&res_reader);
     }
@@ -119,7 +118,7 @@ class Client {
   ///                            RPC call (eg. connection failed, remote end
   ///                            died, etc.)
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> Stream(Args &&... args) {
+  StreamHandler<TRequestResponse> Stream(Args &&...args) {
     return StreamWithLoad<TRequestResponse>(
         [](auto *reader) {
           typename TRequestResponse::Response response;
@@ -133,10 +132,10 @@ class Client {
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&... args) {
+      Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
-    VLOG(12) << "[RpcClient] sent " << req_type.name;
+    SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
 
     std::unique_lock<std::mutex> guard(mutex_);
 
@@ -150,7 +149,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        DLOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
+        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
         throw RpcFailedException(endpoint_);
       }
@@ -177,7 +176,7 @@ class Client {
   ///                            RPC call (eg. connection failed, remote end
   ///                            died, etc.)
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&... args) {
+  typename TRequestResponse::Response Call(Args &&...args) {
     auto stream = Stream<TRequestResponse>(std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }
@@ -186,13 +185,15 @@ class Client {
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response CallWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&... args) {
+      Args &&...args) {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }
 
   /// Call this function from another thread to abort a pending RPC call.
   void Abort();
+
+  const auto &Endpoint() const { return endpoint_; }
 
  private:
   io::network::Endpoint endpoint_;

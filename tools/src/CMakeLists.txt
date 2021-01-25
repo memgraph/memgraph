@@ -14,7 +14,7 @@ target_link_libraries(mg_client ${CLIENT_LIBS})
 # Memgraph Dump Target
 add_executable(mg_dump mg_dump/main.cpp)
 target_include_directories(mg_dump PRIVATE ${MGCLIENT_INCLUDE_DIR})
-target_link_libraries(mg_dump fmt gflags glog mgclient pthread)
+target_link_libraries(mg_dump gflags spdlog fmt mgclient pthread)
 
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
