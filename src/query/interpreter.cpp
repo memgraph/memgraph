@@ -1661,6 +1661,16 @@ Interpreter::PrepareResult Interpreter::Prepare(
                   query_execution->prepared_query->rw_type)
             : "rw";
 
+#ifdef MG_ENTERPRISE
+    if (const auto query_type = query_execution->prepared_query->rw_type;
+        interpreter_context_->db->GetReplicationRole() ==
+            storage::ReplicationRole::REPLICA &&
+        (query_type == RWType::W || query_type == RWType::RW)) {
+      query_execution = nullptr;
+      throw QueryException("Write query forbidden on the replica!");
+    }
+#endif
+
     return {query_execution->prepared_query->header,
             query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
