@@ -57,7 +57,7 @@ LARGE_DATASET = [
     {
         "test": "long_running.cpp",
         "options": ["--vertex-count", "10000", "--edge-count", "40000", "--max-time", "5", "--verify", "60"],
-        "timeout": 8,
+        "timeout": 16,
     },
 ] * 6 + [
     {
