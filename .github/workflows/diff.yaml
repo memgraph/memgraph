@@ -4,7 +4,7 @@ on:
   push:
     paths-ignore:
       - 'docs/**'
-      - '*.md'
+      - '**/*.md'
 
 jobs:
   community_build:
@@ -329,7 +329,7 @@ jobs:
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
-        
+
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
