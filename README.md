@@ -6,8 +6,8 @@ data structures, multi-version concurrency control and asynchronous IO.
 
 ## Development Documentation
 
-Please continue
-[here](https://www.notion.so/memgraph/memgraph-0428591638604c8385550e214ea9f3e6).
+Please continue in
+[Notion](https://www.notion.so/memgraph/memgraph-0428591638604c8385550e214ea9f3e6).
 
 ## User Documentation
 
