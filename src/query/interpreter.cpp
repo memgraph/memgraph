@@ -550,7 +550,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
-        CHECK(socket_address.IsString());
         handler->RegisterReplica(name,
                                  std::string(socket_address.ValueString()),
                                  sync_mode, maybe_timeout);
@@ -1243,8 +1242,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
       [](AnyStream *stream,
          std::optional<int> n) -> std::optional<QueryHandlerResult> {
         return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+      }};
 }
 
 PreparedQuery PrepareInfoQuery(
