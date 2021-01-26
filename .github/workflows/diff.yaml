@@ -4,7 +4,7 @@ on:
   push:
     paths-ignore:
       - 'docs/**'
-      - '*.md'
+      - '**/*.md'
 
 jobs:
   community_build:
