@@ -19,14 +19,19 @@ TODO: Don't forget to add items on the fly.
   Supported instance types are MAIN and REPLICA. Supported replication modes
   are SYNC (all SYNC REPLICAS have to receive data before the MAIN can commit
   the transaction), ASYNC (MAIN doesn't care if data is replicated), SYNC WITH
-  TIMEOUT (MAIN will wait for REPLICAS within the given timeout period).
+  TIMEOUT (MAIN will wait for REPLICAS within the given timeout period, after
+  timout, replication isn't aborted but the replication demotes the REPLICA to
+  the ASYNC mode).
 * Added support for query type deduction. Possible query types are `r` (read),
   `w` (write), `rw` (read-write). The query type is returned as a part of the
   summary.
-* Improved logging capabilities by introducing granular logging levels. E.g.,
-  it's possible to print incoming queries or Bolt server states.
+* Improved logging capabilities by introducing granular logging levels. Added
+  new flag, `--log-level`, which specifies the minimum log level that will be
+  printed. E.g., it's possible to print incoming queries or Bolt server states.
 * Added ability to lock the storage data directory by executing the `LOCK DATA
-  DIRECTORY;` query.
+  DIRECTORY;` query which delays the deletion of the files contained in the
+  data directory. The data directory can be unlocked again by executing the
+  `UNLOCK DATA DIRECTORY;` query.
 
 ### Bug Fixes and Other Changes
 
