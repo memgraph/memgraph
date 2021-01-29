@@ -30,6 +30,7 @@ BuildRequires: systemd
 # This is needed to prevent Python compilation errors when building the RPM
 # package
 # https://github.com/scylladb/scylla/issues/2235
+%if 0%{?rhel} < 8
 %global __os_install_post    \
     /usr/lib/rpm/redhat/brp-compress \
     %{!?__debug_package:\
@@ -39,6 +40,16 @@ BuildRequires: systemd
     /usr/lib/rpm/redhat/brp-strip-static-archive %{__strip} \
     %{!?__jar_repack:/usr/lib/rpm/redhat/brp-java-repack-jars} \
 %{nil}
+%else
+%global __os_install_post    \
+    /usr/lib/rpm/brp-compress \
+    %{!?__debug_package:\
+    /usr/lib/rpm/brp-strip %{__strip} \
+    /usr/lib/rpm/brp-strip-comment-note %{__strip} %{__objdump} \
+    } \
+    /usr/lib/rpm/brp-strip-static-archive %{__strip} \
+%{nil}
+%endif
 
 %define _rpmdir %_topdir/RPMS
 %define _srcrpmdir %_topdir/SRPMS
