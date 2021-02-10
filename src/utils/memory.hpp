@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -12,6 +13,9 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -603,5 +607,137 @@ class LimitedMemoryResource final : public utils::MemoryResource {
     return this == &other;
   }
 };
+
+namespace impl {
+// https://github.com/bloomberg/bde/blob/master/groups/bdl/bdlma/bdlma_pool.h
+class CountingPool final {
+ public:
+  CountingPool(size_t block_size, utils::MemoryResource *upstream);
+
+  void *Allocate();
+  void Deallocate(void *p);
+
+  auto BlockSize() const { return block_size_; }
+
+ private:
+  struct Link {
+    Link *next;
+  };
+
+  std::byte *begin_{nullptr};
+  std::byte *end_{nullptr};
+
+  Link *free_list_{nullptr};
+
+  size_t internal_block_size_;
+  size_t block_size_;
+  // TODO (antonio2368): Make a correct constant or allow to be user defined
+  size_t max_blocks_per_chunk_{32};
+  size_t chunk_size_{1};
+
+  utils::MemoryResource *upstream_;
+
+  void Replenish();
+};
+}  // namespace impl
+
+// https://github.com/bloomberg/bde/blob/master/groups/bdl/bdlma/bdlma_multipool.h
+class MultiPoolResource : public MemoryResource {
+ public:
+  explicit MultiPoolResource(
+      utils::MemoryResource *pool_resource = utils::NewDeleteResource(),
+      utils::MemoryResource *large_block_resource = utils::NewDeleteResource());
+
+  size_t Allocated() const { return allocated_blocks; }
+
+ private:
+  impl::CountingPool *FindPool(size_t size) const;
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+
+  bool DoIsEqual(const MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+
+  impl::CountingPool *pools_{nullptr};
+  size_t max_block_size_;
+  size_t min_block_size_{8};
+  size_t num_pools_{10};
+  uint64_t allocated_blocks{0};
+
+  utils::MemoryResource *large_block_resource_;
+};
+
+class BufferManagerResource : public MemoryResource {
+ public:
+  explicit BufferManagerResource(
+      std::byte *buffer, size_t buffer_size,
+      MemoryResource *upstream = NewDeleteResource());
+
+  std::byte *buffer_{nullptr};
+  size_t buffer_size_{0U};
+  size_t allocated_{0U};
+
+  MemoryResource *upstream_{NewDeleteResource()};
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override;
+};
+
+class PagedResource : public MemoryResource {
+ public:
+  explicit PagedResource(
+      utils::MemoryResource *upstream = utils::NewDeleteResource());
+
+  void ReleaseEmpty();
+
+ private:
+  // this can be moved to cpp
+  struct alignas(std::max_align_t) Page {
+    std::byte *data_start;
+    size_t data_size;
+    BufferManagerResource buffer;
+    MultiPoolResource multi_pool;
+    Page *next_page;
+  };
+
+  Page *head_{nullptr};
+  MemoryResource *upstream_{nullptr};
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override {
+    return this == &other;
+  }
+};
+
+#ifndef NDEBUG
+class PrintMemoryResource : public MemoryResource {
+ public:
+  explicit PrintMemoryResource(utils::MemoryResource *memory)
+      : memory_(memory) {}
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override {
+    std::cout << "Allocating " << bytes << std::endl;
+    return memory_->Allocate(bytes, alignment);
+  }
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+    std::cout << "Deallocating " << bytes << std::endl;
+    return memory_->Deallocate(p, bytes, alignment);
+  }
+
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override {
+    return memory_->IsEqual(other);
+  }
+
+  utils::MemoryResource *memory_;
+};
+#endif
 
 }  // namespace utils

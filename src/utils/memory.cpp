@@ -167,8 +167,9 @@ void *Pool::Allocate() {
     --chunk->blocks_available;
     return available_block;
   };
-  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U)
+  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U) {
     return allocate_block_from_chunk(last_alloc_chunk_);
+  }
   // Find a Chunk with available memory.
   for (auto &chunk : chunks_) {
     if (chunk.blocks_available > 0U) {
@@ -367,5 +368,216 @@ void PoolResource::Release() {
 }
 
 // PoolResource END
+
+namespace {
+
+// https://stackoverflow.com/a/9194117
+constexpr size_t RoundUp(const size_t x, const size_t y) {
+  MG_ASSERT(y >= 1);
+  return (x + y - 1) / y * y;
+}
+
+}  // namespace
+
+namespace impl {
+CountingPool::CountingPool(size_t block_size, utils::MemoryResource *upstream)
+    : block_size_{block_size}, upstream_{upstream} {
+  internal_block_size_ = RoundUp(block_size, alignof(std::max_align_t));
+}
+
+void *CountingPool::Allocate() {
+  if (begin_ == end_) {
+    if (free_list_) {
+      Link *p = free_list_;
+      free_list_ = p->next;
+      return p;
+    }
+
+    Replenish();
+  }
+
+  auto *p = begin_;
+  begin_ += internal_block_size_;
+  return p;
+}
+
+void CountingPool::Deallocate(void *p) {
+  static_cast<Link *>(p)->next = free_list_;
+  free_list_ = static_cast<Link *>(p);
+}
+
+void CountingPool::Replenish() {
+  begin_ = static_cast<std::byte *>(upstream_->Allocate(
+      chunk_size_ * internal_block_size_, alignof(std::max_align_t)));
+  end_ = begin_ + chunk_size_ * internal_block_size_;
+
+  // TODO (antonio2368): Add more growth strategies
+  if (chunk_size_ < max_blocks_per_chunk_) {
+    chunk_size_ *= 2;
+  }
+}
+}  // namespace impl
+
+MultiPoolResource::MultiPoolResource(
+    utils::MemoryResource *pool_resource,
+    utils::MemoryResource *large_block_resource)
+    : large_block_resource_{large_block_resource} {
+  max_block_size_ = min_block_size_;
+
+  auto allocator = Allocator<impl::CountingPool>(pool_resource);
+  pools_ = allocator.allocate(num_pools_);
+
+  for (int i = 0; i < num_pools_; ++i) {
+    allocator.construct(pools_ + i, max_block_size_, pool_resource);
+    MG_ASSERT(max_block_size_ <= std::numeric_limits<size_t>::max() / 2);
+    max_block_size_ *= 2;
+  }
+
+  max_block_size_ /= 2;
+}
+
+void *MultiPoolResource::DoAllocate(const size_t bytes,
+                                    const size_t alignment) {
+  MG_ASSERT(bytes > 0);
+  void *ret{nullptr};
+  if (bytes <= max_block_size_) {
+    auto *pool = FindPool(bytes);
+
+    ret = pool->Allocate();
+  } else {
+    ret = large_block_resource_->Allocate(bytes, alignment);
+  }
+
+  allocated_blocks++;
+  return ret;
+}
+
+void MultiPoolResource::DoDeallocate(void *p, const size_t bytes,
+                                     const size_t alignment) {
+  auto *pool = FindPool(bytes);
+
+  if (pool == nullptr) {
+    large_block_resource_->Deallocate(p, bytes, alignment);
+  } else {
+    pool->Deallocate(p);
+  }
+
+  allocated_blocks--;
+}
+
+impl::CountingPool *MultiPoolResource::FindPool(const size_t size) const {
+  if (size > max_block_size_) {
+    return nullptr;
+  }
+
+  auto *pool = pools_;
+  while (size > pool->BlockSize()) {
+    ++pool;
+  }
+
+  return pool;
+}
+
+BufferManagerResource::BufferManagerResource(std::byte *buffer,
+                                             size_t buffer_size,
+                                             MemoryResource *upstream)
+    : buffer_{buffer}, buffer_size_{buffer_size}, upstream_{upstream} {}
+
+void *BufferManagerResource::DoAllocate(size_t bytes, size_t alignment) {
+  static_assert(std::is_same_v<size_t, uintptr_t>);
+  static_assert(std::is_same_v<size_t, uint64_t>);
+
+  auto *buffer_head = buffer_ + allocated_;
+  void *aligned_ptr = buffer_head;
+  size_t available = buffer_size_ - allocated_;
+  if (!std::align(alignment, bytes, aligned_ptr, available)) {
+    throw BadAlloc("Allocation size overflow");
+  }
+  if (aligned_ptr < buffer_head)
+    throw BadAlloc("Allocation alignment overflow");
+  if (static_cast<std::byte *>(aligned_ptr) + bytes <= aligned_ptr)
+    throw BadAlloc("Allocation size overflow");
+  allocated_ = static_cast<std::byte *>(aligned_ptr) - buffer_ + bytes;
+  return aligned_ptr;
+}
+
+void BufferManagerResource::DoDeallocate(void *p, size_t bytes,
+                                         size_t alignment) {}
+
+bool BufferManagerResource::DoIsEqual(
+    const utils::MemoryResource &other) const noexcept {
+  return this == &other;
+}
+
+PagedResource::PagedResource(utils::MemoryResource *upstream)
+    : upstream_{upstream} {}
+
+void *PagedResource::DoAllocate(size_t bytes, size_t alignment) {
+  auto try_allocate = [&](Page *page) {
+    return page->multi_pool.Allocate(bytes, alignment);
+  };
+
+  auto *current_page = head_;
+  while (current_page) {
+    try {
+      auto *p = try_allocate(current_page);
+      return p;
+    } catch (const utils::BadAlloc &e) {
+      current_page = current_page->next_page;
+    }
+  }
+
+  // TODO (antonio2368): Make this configurable
+  constexpr size_t page_size = 1024 * 1024 * 1024;
+  auto *data = upstream_->Allocate(page_size, alignof(std::max_align_t));
+
+  auto *new_page = static_cast<Page *>(data);
+  new_page->data_start = static_cast<std::byte *>(data);
+  new_page->data_size = page_size;
+  new (&new_page->buffer) BufferManagerResource(
+      new_page->data_start + sizeof(Page), page_size - sizeof(Page));
+  new (&new_page->multi_pool) MultiPoolResource(&new_page->buffer, upstream_);
+  new_page->next_page = head_;
+  head_ = new_page;
+
+  return try_allocate(head_);
+}
+
+void PagedResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
+  auto is_in_page = [&](auto *page) {
+    return p >= page->data_start && p < (page->data_start + page->data_size);
+  };
+
+  auto *current_page = head_;
+  while (current_page) {
+    if (is_in_page(current_page)) {
+      current_page->multi_pool.Deallocate(p, bytes);
+    }
+    current_page = current_page->next_page;
+  }
+}
+
+void PagedResource::ReleaseEmpty() {
+  while (head_ && head_->multi_pool.Allocated() == 0) {
+    auto *old_page = head_;
+    head_ = head_->next_page;
+    upstream_->Deallocate(old_page, old_page->data_size);
+  }
+
+  if (!head_) {
+    return;
+  }
+
+  auto *prev_page = head_;
+  auto *cur_page = head_->next_page;
+  while (cur_page) {
+    if (cur_page->multi_pool.Allocated() == 0) {
+      prev_page->next_page = cur_page->next_page;
+      upstream_->Deallocate(cur_page, cur_page->data_size);
+    }
+    prev_page = prev_page->next_page;
+    cur_page = prev_page->next_page;
+  }
+}
 
 }  // namespace utils
