@@ -220,6 +220,11 @@ struct InterpreterContext {
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
+
+  // Telemetry data
+  std::atomic<size_t> r_count{0};
+  std::atomic<size_t> w_count{0};
+  std::atomic<size_t> rw_count{0};
 };
 
 /// Function that is used to tell all active interpreters that they should stop

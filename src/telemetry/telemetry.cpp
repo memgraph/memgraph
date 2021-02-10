@@ -45,7 +45,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
   std::lock_guard<std::mutex> guard(lock_);
-  collectors_.push_back({name, func});
+  collectors_.emplace_back(name, func);
 }
 
 Telemetry::~Telemetry() {

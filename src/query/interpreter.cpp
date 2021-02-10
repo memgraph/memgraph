@@ -1,5 +1,6 @@
 #include "query/interpreter.hpp"
 
+#include <atomic>
 #include <limits>
 
 #include "glue/communication.hpp"
@@ -1462,6 +1463,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         query_execution->prepared_query
             ? plan::ReadWriteTypeChecker::TypeToString(query_execution->prepared_query->rw_type)
             : "rw";
+
+    switch (query_execution->prepared_query->rw_type) {
+      case plan::ReadWriteTypeChecker::RWType::R:
+        interpreter_context_->r_count.fetch_add(1, std::memory_order_relaxed);
+        break;
+      case plan::ReadWriteTypeChecker::RWType::W:
+        interpreter_context_->w_count.fetch_add(1, std::memory_order_relaxed);
+        break;
+      case plan::ReadWriteTypeChecker::RWType::RW:
+        interpreter_context_->rw_count.fetch_add(1, std::memory_order_relaxed);
+        break;
+      default:
+        break;
+    }
 
 #ifdef MG_ENTERPRISE
     if (const auto query_type = query_execution->prepared_query->rw_type;

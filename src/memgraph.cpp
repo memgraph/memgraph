@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -970,10 +971,19 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
                       data_directory / "telemetry", std::chrono::minutes(10));
-    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
+    telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
+    telemetry->AddCollector(
+        "query", [&interpreter_context]() -> nlohmann::json {
+          return {{"r_count",
+                   interpreter_context.r_count.load(std::memory_order_relaxed)},
+                  {"w_count",
+                   interpreter_context.w_count.load(std::memory_order_relaxed)},
+                  {"rw_count", interpreter_context.rw_count.load(
+                                   std::memory_order_relaxed)}};
+        });
   }
 
   // Handler for regular termination signals
