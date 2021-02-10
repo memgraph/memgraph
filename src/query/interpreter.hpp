@@ -192,6 +192,15 @@ struct PlanCacheEntry {
   std::shared_ptr<CachedPlan> second;
 };
 
+struct TelemetryData {
+  // type counts
+  std::atomic<size_t> r_count{0};
+  std::atomic<size_t> w_count{0};
+  std::atomic<size_t> rw_count{0};
+
+  void UpdateTypeCount(plan::ReadWriteTypeChecker::RWType type);
+};
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
@@ -200,7 +209,12 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db) : db(db) { MG_ASSERT(db, "Storage must not be NULL"); }
+  explicit InterpreterContext(storage::Storage *db, const bool collect_telemetry_data = false) : db(db) {
+    MG_ASSERT(db, "Storage must not be NULL");
+    if (collect_telemetry_data) {
+      telemetry_data.emplace();
+    }
+  }
 
   storage::Storage *db;
 
@@ -221,10 +235,7 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  // Telemetry data
-  std::atomic<size_t> r_count{0};
-  std::atomic<size_t> w_count{0};
-  std::atomic<size_t> rw_count{0};
+  std::optional<TelemetryData> telemetry_data;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

@@ -144,6 +144,22 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
+void TelemetryData::UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    case plan::ReadWriteTypeChecker::RWType::R:
+      r_count.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::W:
+      w_count.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::RW:
+      rw_count.fetch_add(1, std::memory_order_relaxed);
+      break;
+    default:
+      break;
+  }
+}
+
 #ifdef MG_ENTERPRISE
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
@@ -1459,23 +1475,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["planning_time"] = planning_timer.Elapsed().count();
     query_execution->prepared_query.emplace(std::move(prepared_query));
 
+    const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] =
-        query_execution->prepared_query
-            ? plan::ReadWriteTypeChecker::TypeToString(query_execution->prepared_query->rw_type)
-            : "rw";
+        query_execution->prepared_query ? plan::ReadWriteTypeChecker::TypeToString(rw_type) : "rw";
 
-    switch (query_execution->prepared_query->rw_type) {
-      case plan::ReadWriteTypeChecker::RWType::R:
-        interpreter_context_->r_count.fetch_add(1, std::memory_order_relaxed);
-        break;
-      case plan::ReadWriteTypeChecker::RWType::W:
-        interpreter_context_->w_count.fetch_add(1, std::memory_order_relaxed);
-        break;
-      case plan::ReadWriteTypeChecker::RWType::RW:
-        interpreter_context_->rw_count.fetch_add(1, std::memory_order_relaxed);
-        break;
-      default:
-        break;
+    if (auto &telemetry_data = interpreter_context_->telemetry_data; telemetry_data) {
+      telemetry_data->UpdateTypeCount(rw_type);
     }
 
 #ifdef MG_ENTERPRISE

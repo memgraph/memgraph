@@ -934,7 +934,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db};
+  query::InterpreterContext interpreter_context{&db, FLAGS_telemetry_enabled};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
@@ -977,12 +977,14 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector(
         "query", [&interpreter_context]() -> nlohmann::json {
+          const auto &telemetry_data = interpreter_context.telemetry_data;
+          MG_ASSERT(telemetry_data);
           return {{"r_count",
-                   interpreter_context.r_count.load(std::memory_order_relaxed)},
+                   telemetry_data->r_count.load(std::memory_order_relaxed)},
                   {"w_count",
-                   interpreter_context.w_count.load(std::memory_order_relaxed)},
-                  {"rw_count", interpreter_context.rw_count.load(
-                                   std::memory_order_relaxed)}};
+                   telemetry_data->w_count.load(std::memory_order_relaxed)},
+                  {"rw_count",
+                   telemetry_data->rw_count.load(std::memory_order_relaxed)}};
         });
   }
 
