@@ -3,9 +3,8 @@
 #include <limits>
 #include <queue>
 
-#include "glog/logging.h"
-
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 
 DEFINE_VALIDATED_HIDDEN_uint64(
     query_max_plans, 1000U, "Maximum number of generated plans for a query.",
@@ -63,9 +62,10 @@ void AddNextExpansions(
     }
     if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
       // We are not expanding from node1, so flip the expansion.
-      DCHECK(expansion.node2 &&
-             symbol_table.at(*expansion.node2->identifier_) == node_symbol)
-          << "Expected node_symbol to be bound in node2";
+      DMG_ASSERT(
+          expansion.node2 &&
+              symbol_table.at(*expansion.node2->identifier_) == node_symbol,
+          "Expected node_symbol to be bound in node2");
       if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         std::swap(expansion.node1, expansion.node2);
@@ -178,8 +178,9 @@ VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
     current_matching_.expansions = ExpansionsFrom(
         **start_nodes_it_, self_->matching_, self_->symbol_table_);
   }
-  DCHECK(start_nodes_it_ || self_->nodes_.empty())
-      << "start_nodes_it_ should only be nullopt when self_->nodes_ is empty";
+  DMG_ASSERT(
+      start_nodes_it_ || self_->nodes_.empty(),
+      "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
   if (is_done) {
     start_nodes_it_ = self_->nodes_.end();
   }
@@ -187,8 +188,9 @@ VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
 
 VaryMatchingStart::iterator &VaryMatchingStart::iterator::operator++() {
   if (!start_nodes_it_) {
-    DCHECK(self_->nodes_.empty())
-        << "start_nodes_it_ should only be nullopt when self_->nodes_ is empty";
+    DMG_ASSERT(
+        self_->nodes_.empty(),
+        "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
     start_nodes_it_ = self_->nodes_.end();
   }
   if (*start_nodes_it_ == self_->nodes_.end()) {
@@ -282,15 +284,15 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
 
 void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
   current_query_part_.matching = *matchings_it_;
-  DCHECK(optional_it_ != optional_end_ || optional_begin_ == optional_end_)
-      << "Either there are no optional matchings or we can always "
-         "generate a variation";
+  DMG_ASSERT(optional_it_ != optional_end_ || optional_begin_ == optional_end_,
+             "Either there are no optional matchings or we can always "
+             "generate a variation");
   if (optional_it_ != optional_end_) {
     current_query_part_.optional_matching = *optional_it_;
   }
-  DCHECK(merge_it_ != merge_end_ || merge_begin_ == merge_end_)
-      << "Either there are no merge matchings or we can always generate "
-         "a variation";
+  DMG_ASSERT(merge_it_ != merge_end_ || merge_begin_ == merge_end_,
+             "Either there are no merge matchings or we can always generate "
+             "a variation");
   if (merge_it_ != merge_end_) {
     current_query_part_.merge_matching = *merge_it_;
   }

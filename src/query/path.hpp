@@ -3,9 +3,8 @@
 #include <functional>
 #include <utility>
 
-#include "glog/logging.h"
-
 #include "query/db_accessor.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -37,7 +36,7 @@ class Path {
    * Allocations are done using the default utils::NewDeleteResource().
    */
   template <typename... TOthers>
-  explicit Path(const VertexAccessor &vertex, const TOthers &... others)
+  explicit Path(const VertexAccessor &vertex, const TOthers &...others)
       : vertices_(utils::NewDeleteResource()),
         edges_(utils::NewDeleteResource()) {
     Expand(vertex);
@@ -51,7 +50,7 @@ class Path {
    */
   template <typename... TOthers>
   Path(std::allocator_arg_t, utils::MemoryResource *memory,
-       const VertexAccessor &vertex, const TOthers &... others)
+       const VertexAccessor &vertex, const TOthers &...others)
       : vertices_(memory), edges_(memory) {
     Expand(vertex);
     Expand(others...);
@@ -103,21 +102,21 @@ class Path {
 
   /** Expands the path with the given vertex. */
   void Expand(const VertexAccessor &vertex) {
-    DCHECK(vertices_.size() == edges_.size())
-        << "Illegal path construction order";
+    DMG_ASSERT(vertices_.size() == edges_.size(),
+               "Illegal path construction order");
     vertices_.emplace_back(vertex);
   }
 
   /** Expands the path with the given edge. */
   void Expand(const EdgeAccessor &edge) {
-    DCHECK(vertices_.size() - 1 == edges_.size())
-        << "Illegal path construction order";
+    DMG_ASSERT(vertices_.size() - 1 == edges_.size(),
+               "Illegal path construction order");
     edges_.emplace_back(edge);
   }
 
   /** Expands the path with the given elements. */
   template <typename TFirst, typename... TOthers>
-  void Expand(const TFirst &first, const TOthers &... others) {
+  void Expand(const TFirst &first, const TOthers &...others) {
     Expand(first);
     Expand(others...);
   }

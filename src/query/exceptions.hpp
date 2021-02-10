@@ -167,4 +167,18 @@ class InvalidArgumentsException : public QueryException {
                                    argument_name, message)) {}
 };
 
+class ReplicationModificationInMulticommandTxException : public QueryException {
+ public:
+  ReplicationModificationInMulticommandTxException()
+      : QueryException(
+            "Replication clause not allowed in multicommand transactions.") {}
+};
+
+class LockPathModificationInMulticommandTxException : public QueryException {
+ public:
+  LockPathModificationInMulticommandTxException()
+      : QueryException(
+            "Lock path clause not allowed in multicommand transactions.") {}
+};
+
 }  // namespace query

@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/v1/constants.hpp"
 

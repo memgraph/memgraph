@@ -56,7 +56,7 @@ cmd = [args.memgraph, "--bolt-num-workers=" + str(DB_WORKERS),
        "--storage-recover-on-startup=true",
        "--query-execution-timeout-sec=600"]
 if not args.verbose:
-    cmd += ["--min-log-level", "1"]
+    cmd += ["--log-level", "WARNING"]
 if args.log_file:
     cmd += ["--log-file", args.log_file]
 if args.data_directory:

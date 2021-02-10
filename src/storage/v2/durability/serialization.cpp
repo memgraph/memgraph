@@ -24,6 +24,16 @@ void Encoder::Initialize(const std::filesystem::path &path,
         sizeof(version_encoded));
 }
 
+void Encoder::OpenExisting(const std::filesystem::path &path) {
+  file_.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+}
+
+void Encoder::Close() {
+  if (file_.IsOpen()) {
+    file_.Close();
+  }
+}
+
 void Encoder::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
 }
@@ -118,6 +128,18 @@ void Encoder::Finalize() {
   file_.Sync();
   file_.Close();
 }
+
+void Encoder::DisableFlushing() { file_.DisableFlushing(); }
+
+void Encoder::EnableFlushing() { file_.EnableFlushing(); }
+
+void Encoder::TryFlushing() { file_.TryFlushing(); }
+
+std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const {
+  return file_.CurrentBuffer();
+}
+
+size_t Encoder::GetSize() { return file_.GetSize(); }
 
 //////////////////////////
 // Decoder implementation.
@@ -295,6 +317,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
+    case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_OFFSETS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
@@ -390,6 +413,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
+    case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_OFFSETS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:

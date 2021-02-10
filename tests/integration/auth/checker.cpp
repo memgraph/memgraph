@@ -1,5 +1,4 @@
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -17,7 +16,6 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
  */
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -37,23 +35,25 @@ int main(int argc, char **argv) {
       count_got += record.size();
     }
     if (count_got != argc - 1) {
-      LOG(FATAL) << "Expected the grants to have " << argc - 1
-                 << " entries but they had " << count_got << " entries!";
+      LOG_FATAL(
+          "Expected the grants to have {} entries but they had {} entries!",
+          argc - 1, count_got);
     }
     uint64_t pos = 1;
     for (const auto &record : records) {
       for (const auto &value : record) {
         std::string expected(argv[pos++]);
         if (value.ValueString() != expected) {
-          LOG(FATAL) << "Expected to get the value '" << expected
-                     << " but got the value '" << value.ValueString() << "'";
+          LOG_FATAL("Expected to get the value '{} but got the value '{}'",
+                    expected, value.ValueString());
         }
       }
     }
   } catch (const communication::bolt::ClientQueryException &e) {
-    LOG(FATAL) << "The query shoudn't have failed but it failed with an "
-                  "error message '"
-               << e.what() << "'";
+    LOG_FATAL(
+        "The query shoudn't have failed but it failed with an "
+        "error message '{}'",
+        e.what());
   }
 
   return 0;

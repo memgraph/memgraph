@@ -389,7 +389,7 @@ void Profile(const std::unique_ptr<NAryTree> &tree) {
   ProfileHelper(tree.get(), &context);
 }
 
-}  // namespace tree
+}  // namespace tree_no_reserve
 
 //////////////////////////////////////////////////////////////////////////////
 ///
@@ -446,24 +446,24 @@ int64_t ProfilingStatsStorage::Create() {
 bool ProfilingStatsStorage::Empty() { return storage.empty(); }
 
 ProfilingStats &ProfilingStatsStorage::Root() {
-  CHECK(!storage.empty());
+  MG_ASSERT(!storage.empty());
   return storage[0];
 }
 
 const ProfilingStats &ProfilingStatsStorage::Root() const {
-  CHECK(!storage.empty());
+  MG_ASSERT(!storage.empty());
   return storage[0];
 }
 
 ProfilingStats *ProfilingStatsStorage::at(int64_t index) {
-  CHECK(0 <= index);
-  CHECK(index < storage.size());
+  MG_ASSERT(0 <= index);
+  MG_ASSERT(index < storage.size());
   return &storage[index];
 }
 
 const ProfilingStats *ProfilingStatsStorage::at(int64_t index) const {
-  CHECK(0 <= index);
-  CHECK(index < storage.size());
+  MG_ASSERT(0 <= index);
+  MG_ASSERT(index < storage.size());
   return &storage[index];
 }
 
@@ -508,7 +508,7 @@ size_t ProfilingStats::EnsureChild(const ProfilingStatsStorage &storage,
   // and corresponds to the logical operator `op` or we're seeing this
   // operator for the first time and have found a free slot for its
   // `ProfilingStats` instance.
-  CHECK(slot < size);
+  MG_ASSERT(slot < size);
   return slot;
 }
 
@@ -545,7 +545,7 @@ struct ScopedProfile {
 
       auto &storage = context->evaluation_context_.stats_storage;
       ProfilingStats *stats = storage[stats_id];
-      CHECK(stats);
+      MG_ASSERT(stats);
 
       stats->actual_hits++;
       start_time = utils::ReadTSC();
@@ -579,14 +579,14 @@ struct ScopedProfile {
       storage[root_id]->children[slot] = stats_id;
     }
 
-    CHECK(stats_id >= 0);
+    MG_ASSERT(stats_id >= 0);
     return stats_id;
   }
 
   ~ScopedProfile() {
     auto &storage = context->evaluation_context_.stats_storage;
     ProfilingStats *stats = storage[stats_id];
-    CHECK(stats);
+    MG_ASSERT(stats);
 
     if (context->evaluation_context_.is_profile_query) {
       stats->elapsed_time += utils::ReadTSC() - start_time;
@@ -619,7 +619,7 @@ void Profile(const std::unique_ptr<NAryTree> &tree) {
   ProfileHelper(tree.get(), &context);
 }
 
-}  // tree_storage
+}  // namespace tree_storage
 
 }  // namespace
 

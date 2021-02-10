@@ -5,7 +5,7 @@ on: [workflow_dispatch]
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
     timeout-minutes: 960
@@ -69,7 +69,7 @@ jobs:
 
   coverage_build:
     name: "Coverage build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
 
@@ -124,7 +124,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
 
@@ -198,7 +198,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, CentOS7]
+    runs-on: [self-hosted, General, Linux, X64, CentOS7]
     env:
       THREADS: 24
     timeout-minutes: 960
@@ -279,6 +279,15 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+
+      - name: Run e2e replication tests
+        run: |
+          # TODO(gitbuda): Setup mgclient and pymgclient properly.
+          cd tests
+          ./setup.sh
+          source ve3/bin/activate
+          cd e2e
+          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path replication/workloads.yaml
 
       - name: Run stress test (plain)
         run: |

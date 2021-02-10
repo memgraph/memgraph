@@ -3,9 +3,9 @@
 #include <chrono>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace audit {
@@ -55,7 +55,7 @@ Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size,
       started_(false) {}
 
 void Log::Start() {
-  CHECK(!started_) << "Trying to start an already started audit log!";
+  MG_ASSERT(!started_, "Trying to start an already started audit log!");
 
   utils::EnsureDirOrDie(storage_directory_);
 

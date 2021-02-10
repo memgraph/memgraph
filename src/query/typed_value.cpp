@@ -7,8 +7,6 @@
 #include <string_view>
 #include <utility>
 
-#include "glog/logging.h"
-
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
@@ -57,7 +55,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value,
       return;
     }
   }
-  LOG(FATAL) << "Unsupported type";
+  LOG_FATAL("Unsupported type");
 }
 
 TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
@@ -145,7 +143,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory)
       new (&path_v) Path(other.path_v, memory_);
       return;
   }
-  LOG(FATAL) << "Unsupported TypedValue::Type";
+  LOG_FATAL("Unsupported TypedValue::Type");
 }
 
 TypedValue::TypedValue(TypedValue &&other) noexcept
@@ -285,7 +283,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
     case TypedValue::Type::Path:
       return os << "path";
   }
-  LOG(FATAL) << "Unsupported TypedValue::Type";
+  LOG_FATAL("Unsupported TypedValue::Type");
 }
 
 #define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, \
@@ -421,7 +419,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&path_v) Path(other.path_v, memory_);
         return *this;
     }
-    LOG(FATAL) << "Unsupported TypedValue::Type";
+    LOG_FATAL("Unsupported TypedValue::Type");
   }
   return *this;
 }
@@ -508,9 +506,7 @@ void TypedValue::DestroyValue() {
   type_ = TypedValue::Type::Null;
 }
 
-TypedValue::~TypedValue() {
-  DestroyValue();
-}
+TypedValue::~TypedValue() { DestroyValue(); }
 
 /**
  * Returns the double value of a value.
@@ -633,7 +629,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Path:
       return TypedValue(a.ValuePath() == b.ValuePath(), a.GetMemoryResource());
     default:
-      LOG(FATAL) << "Unhandled comparison for types";
+      LOG_FATAL("Unhandled comparison for types");
   }
 }
 
@@ -837,9 +833,9 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
     case TypedValue::Type::Null:
       return false;
     default:
-      LOG(FATAL)
-          << "Equality between two TypedValues resulted in something other "
-             "than Null or bool";
+      LOG_FATAL(
+          "Equality between two TypedValues resulted in something other "
+          "than Null or bool");
   }
 }
 
@@ -882,7 +878,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
              utils::FnvCollection<decltype(edges), EdgeAccessor>{}(edges);
     }
   }
-  LOG(FATAL) << "Unhandled TypedValue.type() in hash function";
+  LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
 
 }  // namespace query

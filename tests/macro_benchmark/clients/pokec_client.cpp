@@ -11,7 +11,6 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <json/json.hpp>
 
 #include "io/network/utils.hpp"
@@ -123,19 +122,17 @@ class PokecClient : public TestClient {
     auto ret = Execute(os.str(), {},
                        "MATCH (n :label {id: ...}) MATCH (m :label {id: ...}) "
                        "CREATE (n)-[:type ...]-(m)");
-    CHECK(ret->records.size() == 1U)
-        << "from_id: " << from_id << " "
-        << "to_id: " << to_id << " "
-        << "ret.records.size(): " << ret->records.size();
+    MG_ASSERT(ret->records.size() == 1U,
+              "from_id: {} to_id: {} ret.records.size(): {}", from_id, to_id,
+              ret->records.size());
     return ret;
   }
 
   VertexAndEdges RetrieveAndDeleteVertex(const std::string &label, int64_t id) {
     auto vertex_record = MatchVertex(label, id)->records;
 
-    CHECK(vertex_record.size() == 1U)
-        << "id: " << id << " "
-        << "vertex_record.size(): " << vertex_record.size();
+    MG_ASSERT(vertex_record.size() == 1U, "id: {} vertex_record.size(): {}", id,
+              vertex_record.size());
 
     auto records = MatchNeighbours(label, id)->records;
 
@@ -171,9 +168,8 @@ class PokecClient : public TestClient {
               vertex_and_edges.vertices[i].properties.at("id").ValueInt(),
               vertex_and_edges.edges[i])
               ->records;
-      CHECK(records.size() == 1U)
-          << "Graph in invalid state "
-          << vertex_and_edges.vertex.properties.at("id");
+      MG_ASSERT(records.size() == 1U, "Graph in invalid state {}",
+                vertex_and_edges.vertex.properties.at("id"));
       ++num_queries;
     }
   }
@@ -192,11 +188,11 @@ class PokecClient : public TestClient {
           GetAverageAge3(id);
           break;
         default:
-          LOG(FATAL) << "Should not get here";
+          LOG_FATAL("Should not get here");
       }
     } else {
       auto remove_random = [&](auto &v) {
-        CHECK(v.size());
+        MG_ASSERT(v.size());
         std::uniform_int_distribution<> int_dist(0, v.size() - 1);
         std::swap(v.back(), v[int_dist(rg_)]);
         auto ret = v.back();
@@ -262,15 +258,14 @@ std::vector<int64_t> IndependentSet(Client &client, const std::string &label) {
       independent.erase(j);
     }
   }
-  LOG(INFO) << "Number of nodes: " << num_nodes << "\n"
-            << "Number of independent nodes: " << independent_nodes_ids.size();
+  spdlog::info("Number of nodes: {}\nNumber of independent nodes: {}",
+               num_nodes, independent_nodes_ids.size());
 
   return independent_nodes_ids;
 }
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
 
   communication::SSLInit sslInit;
 
@@ -297,7 +292,7 @@ int main(int argc, char **argv) {
     std::vector<int64_t> to_remove(
         independent_nodes_ids.begin() + next_to_assign,
         independent_nodes_ids.begin() + next_next_to_assign);
-    LOG(INFO) << next_to_assign << " " << next_next_to_assign;
+    spdlog::info("{} {}", next_to_assign, next_next_to_assign);
     next_to_assign = next_next_to_assign;
 
     clients.emplace_back(std::make_unique<PokecClient>(i, to_remove, config));

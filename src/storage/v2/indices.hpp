@@ -9,6 +9,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/bound.hpp"
+#include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
 namespace storage {
@@ -107,16 +108,16 @@ class LabelIndex {
   /// Returns an self with vertices visible from the given transaction.
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
-    CHECK(it != index_.end())
-        << "Index for label " << label.AsUint() << " doesn't exist";
+    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist",
+              label.AsUint());
     return Iterable(it->second.access(), label, view, transaction, indices_,
                     constraints_, config_);
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
     auto it = index_.find(label);
-    CHECK(it != index_.end())
-        << "Index for label " << label.AsUint() << " doesn't exist";
+    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist",
+              label.AsUint());
     return it->second.size();
   }
 
@@ -144,7 +145,8 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  LabelPropertyIndex(Indices *indices, Constraints *constraints,
+                     Config::Items config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
@@ -226,9 +228,9 @@ class LabelPropertyIndex {
       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
       Transaction *transaction) {
     auto it = index_.find({label, property});
-    CHECK(it != index_.end())
-        << "Index for label " << label.AsUint() << " and property "
-        << property.AsUint() << " doesn't exist";
+    MG_ASSERT(it != index_.end(),
+              "Index for label {} and property {} doesn't exist",
+              label.AsUint(), property.AsUint());
     return Iterable(it->second.access(), label, property, lower_bound,
                     upper_bound, view, transaction, indices_, constraints_,
                     config_);
@@ -236,9 +238,9 @@ class LabelPropertyIndex {
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
     auto it = index_.find({label, property});
-    CHECK(it != index_.end())
-        << "Index for label " << label.AsUint() << " and property "
-        << property.AsUint() << " doesn't exist";
+    MG_ASSERT(it != index_.end(),
+              "Index for label {} and property {} doesn't exist",
+              label.AsUint(), property.AsUint());
     return it->second.size();
   }
 

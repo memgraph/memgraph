@@ -7,9 +7,8 @@
 #include <optional>
 #include <unordered_set>
 
-#include "glog/logging.h"
-
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 
 namespace query {
 
@@ -385,8 +384,8 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
   scope_.in_pattern = true;
   if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
-    CHECK(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType))
-        << "Expected a single NodeAtom in Pattern";
+    MG_ASSERT(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType),
+              "Expected a single NodeAtom in Pattern");
     scope_.in_create_node = true;
   }
   return true;

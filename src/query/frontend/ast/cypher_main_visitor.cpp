@@ -22,12 +22,11 @@
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace query::frontend {
@@ -36,8 +35,8 @@ const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(
     MemgraphCypher::ExplainQueryContext *ctx) {
-  CHECK(ctx->children.size() == 2)
-      << "ExplainQuery should have exactly two children!";
+  MG_ASSERT(ctx->children.size() == 2,
+            "ExplainQuery should have exactly two children!");
   auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
   auto *explain_query = storage_->Create<ExplainQuery>();
   explain_query->cypher_query_ = cypher_query;
@@ -47,8 +46,8 @@ antlrcpp::Any CypherMainVisitor::visitExplainQuery(
 
 antlrcpp::Any CypherMainVisitor::visitProfileQuery(
     MemgraphCypher::ProfileQueryContext *ctx) {
-  CHECK(ctx->children.size() == 2)
-      << "ProfileQuery should have exactly two children!";
+  MG_ASSERT(ctx->children.size() == 2,
+            "ProfileQuery should have exactly two children!");
   auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
   auto *profile_query = storage_->Create<ProfileQuery>();
   profile_query->cypher_query_ = cypher_query;
@@ -58,8 +57,8 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(
 
 antlrcpp::Any CypherMainVisitor::visitInfoQuery(
     MemgraphCypher::InfoQueryContext *ctx) {
-  CHECK(ctx->children.size() == 2)
-      << "InfoQuery should have exactly two children!";
+  MG_ASSERT(ctx->children.size() == 2,
+            "InfoQuery should have exactly two children!");
   auto *info_query = storage_->Create<InfoQuery>();
   query_ = info_query;
   if (ctx->storageInfo()) {
@@ -79,7 +78,7 @@ antlrcpp::Any CypherMainVisitor::visitInfoQuery(
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(
     MemgraphCypher::ConstraintQueryContext *ctx) {
   auto *constraint_query = storage_->Create<ConstraintQuery>();
-  CHECK(ctx->CREATE() || ctx->DROP());
+  MG_ASSERT(ctx->CREATE() || ctx->DROP());
   if (ctx->CREATE()) {
     constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
   } else if (ctx->DROP()) {
@@ -94,7 +93,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraintQuery(
 antlrcpp::Any CypherMainVisitor::visitConstraint(
     MemgraphCypher::ConstraintContext *ctx) {
   Constraint constraint;
-  CHECK(ctx->EXISTS() || ctx->UNIQUE() || (ctx->NODE() && ctx->KEY()));
+  MG_ASSERT(ctx->EXISTS() || ctx->UNIQUE() || (ctx->NODE() && ctx->KEY()));
   if (ctx->EXISTS()) {
     constraint.type = Constraint::Type::EXISTS;
   } else if (ctx->UNIQUE()) {
@@ -123,7 +122,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraint(
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(
     MemgraphCypher::CypherQueryContext *ctx) {
   auto *cypher_query = storage_->Create<CypherQuery>();
-  CHECK(ctx->singleQuery()) << "Expected single query.";
+  MG_ASSERT(ctx->singleQuery(), "Expected single query.");
   cypher_query->single_query_ =
       ctx->singleQuery()->accept(this).as<SingleQuery *>();
 
@@ -149,8 +148,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(
     MemgraphCypher::IndexQueryContext *ctx) {
-  CHECK(ctx->children.size() == 1)
-      << "IndexQuery should have exactly one child!";
+  MG_ASSERT(ctx->children.size() == 1,
+            "IndexQuery should have exactly one child!");
   auto *index_query = ctx->children[0]->accept(this).as<IndexQuery *>();
   query_ = index_query;
   return index_query;
@@ -182,8 +181,8 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(
 
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
-  CHECK(ctx->children.size() == 1)
-      << "AuthQuery should have exactly one child!";
+  MG_ASSERT(ctx->children.size() == 1,
+            "AuthQuery should have exactly one child!");
   auto *auth_query = ctx->children[0]->accept(this).as<AuthQuery *>();
   query_ = auth_query;
   return auth_query;
@@ -196,11 +195,115 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(
   return dump_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitReplicationQuery(
+    MemgraphCypher::ReplicationQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1,
+            "ReplicationQuery should have exactly one child!");
+  auto *replication_query =
+      ctx->children[0]->accept(this).as<ReplicationQuery *>();
+  query_ = replication_query;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(
+    MemgraphCypher::SetReplicationRoleContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
+  if (ctx->MAIN()) {
+    if (ctx->WITH() || ctx->PORT()) {
+      throw SemanticException("Main can't set a port!");
+    }
+    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+  } else if (ctx->REPLICA()) {
+    replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
+    if (ctx->WITH() && ctx->PORT()) {
+      if (ctx->port->numberLiteral() &&
+          ctx->port->numberLiteral()->integerLiteral()) {
+        replication_query->port_ = ctx->port->accept(this);
+      } else {
+        throw SyntaxException("Port must be an integer literal!");
+      }
+    }
+  }
+  return replication_query;
+}
+antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(
+    MemgraphCypher::ShowReplicationRoleContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_ROLE;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRegisterReplica(
+    MemgraphCypher::RegisterReplicaContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
+  replication_query->replica_name_ =
+      ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  if (ctx->SYNC()) {
+    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::SYNC;
+    if (ctx->WITH() && ctx->TIMEOUT()) {
+      if (ctx->timeout->numberLiteral()) {
+        // we accept both double and integer literals
+        replication_query->timeout_ = ctx->timeout->accept(this);
+      } else {
+        throw SemanticException(
+            "Timeout should be a integer or double literal!");
+      }
+    }
+  } else if (ctx->ASYNC()) {
+    if (ctx->WITH() && ctx->TIMEOUT()) {
+      throw SyntaxException(
+          "Timeout can be set only for the SYNC replication mode!");
+    }
+    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
+  }
+
+  if (!ctx->socketAddress()->literal()->StringLiteral()) {
+    throw SemanticException("Socket address should be a string literal!");
+  } else {
+    replication_query->socket_address_ = ctx->socketAddress()->accept(this);
+  }
+
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropReplica(
+    MemgraphCypher::DropReplicaContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;
+  replication_query->replica_name_ =
+      ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowReplicas(
+    MemgraphCypher::ShowReplicasContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
+    MemgraphCypher::LockPathQueryContext *ctx) {
+  auto *lock_query = storage_->Create<LockPathQuery>();
+  if (ctx->LOCK()) {
+    lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
+  } else if (ctx->UNLOCK()) {
+    lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
+  } else {
+    throw SyntaxException("Expected LOCK or UNLOCK");
+  }
+
+  query_ = lock_query;
+  return lock_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
-  DCHECK(ctx->singleQuery()) << "Expected single query.";
+  DMG_ASSERT(ctx->singleQuery(), "Expected single query.");
   cypher_union->single_query_ =
       ctx->singleQuery()->accept(this).as<SingleQuery *>();
   return cypher_union;
@@ -275,7 +378,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       }
       has_update = has_return = has_optional_match = false;
     } else {
-      DLOG(FATAL) << "Can't happen";
+      DLOG_FATAL("Can't happen");
     }
   }
   bool is_standalone_call_procedure =
@@ -363,7 +466,7 @@ antlrcpp::Any CypherMainVisitor::visitCreate(
 antlrcpp::Any CypherMainVisitor::visitCallProcedure(
     MemgraphCypher::CallProcedureContext *ctx) {
   auto *call_proc = storage_->Create<CallProcedure>();
-  CHECK(!ctx->procedureName()->symbolicName().empty());
+  MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   std::vector<std::string> procedure_subnames;
   procedure_subnames.reserve(ctx->procedureName()->symbolicName().size());
   for (auto *subname : ctx->procedureName()->symbolicName()) {
@@ -380,7 +483,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(
       if (memory_limit_ctx->MB()) {
         call_proc->memory_scale_ = 1024U * 1024U;
       } else {
-        CHECK(memory_limit_ctx->KB());
+        MG_ASSERT(memory_limit_ctx->KB());
         call_proc->memory_scale_ = 1024U;
       }
     }
@@ -414,7 +517,8 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(
     call_proc->result_fields_.reserve(yield_ctx->procedureResult().size());
     call_proc->result_identifiers_.reserve(yield_ctx->procedureResult().size());
     for (auto *result : yield_ctx->procedureResult()) {
-      CHECK(result->variable().size() == 1 || result->variable().size() == 2);
+      MG_ASSERT(result->variable().size() == 1 ||
+                result->variable().size() == 2);
       call_proc->result_fields_.push_back(
           result->variable()[0]->accept(this).as<std::string>());
       std::string result_alias;
@@ -645,7 +749,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
   if (ctx->DUMP()) return AuthQuery::Privilege::DUMP;
-  LOG(FATAL) << "Should not get here - unknown privilege!";
+  LOG_FATAL("Should not get here - unknown privilege!");
 }
 
 /**
@@ -724,7 +828,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
     MemgraphCypher::ReturnItemContext *ctx) {
   auto *named_expr = storage_->Create<NamedExpression>();
   named_expr->expression_ = ctx->expression()->accept(this);
-  CHECK(named_expr->expression_);
+  MG_ASSERT(named_expr->expression_);
   if (ctx->variable()) {
     named_expr->name_ =
         std::string(ctx->variable()->accept(this).as<std::string>());
@@ -829,9 +933,9 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     MemgraphCypher::SymbolicNameContext *ctx) {
   if (ctx->EscapedSymbolicName()) {
     auto quoted_name = ctx->getText();
-    DCHECK(quoted_name.size() >= 2U && quoted_name[0] == '`' &&
-           quoted_name.back() == '`')
-        << "Can't happen. Grammar ensures this";
+    DMG_ASSERT(quoted_name.size() >= 2U && quoted_name[0] == '`' &&
+                   quoted_name.back() == '`',
+               "Can't happen. Grammar ensures this");
     // Remove enclosing backticks.
     std::string escaped_name =
         quoted_name.substr(1, static_cast<int>(quoted_name.size()) - 2);
@@ -844,7 +948,7 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
           name.push_back('`');
           escaped = false;
         } else {
-          DLOG(FATAL) << "Can't happen. Grammar ensures that.";
+          DLOG_FATAL("Can't happen. Grammar ensures that.");
         }
       } else if (c == '`') {
         escaped = true;
@@ -1037,13 +1141,13 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
     MemgraphCypher::RelationshipDetailContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(
     MemgraphCypher::RelationshipLambdaContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
@@ -1058,8 +1162,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
 
 antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     MemgraphCypher::VariableExpansionContext *ctx) {
-  DCHECK(ctx->expression().size() <= 2U)
-      << "Expected 0, 1 or 2 bounds in range literal.";
+  DMG_ASSERT(ctx->expression().size() <= 2U,
+             "Expected 0, 1 or 2 bounds in range literal.");
 
   EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
   if (!ctx->getTokens(MemgraphCypher::BFS).empty())
@@ -1193,7 +1297,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(
 
 antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
     MemgraphCypher::PartialComparisonExpressionContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
@@ -1273,7 +1377,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
 }
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(
     MemgraphCypher::StringAndNullOperatorsContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
@@ -1306,7 +1410,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3b(
 
 antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(
     MemgraphCypher::ListIndexingOrSlicingContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
@@ -1481,7 +1585,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
       return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
           ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
     }
-    LOG(FATAL) << "Expected to handle all cases above";
+    LOG_FATAL("Expected to handle all cases above");
   } else if (ctx->listLiteral()) {
     return static_cast<Expression *>(storage_->Create<ListLiteral>(
         ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
@@ -1508,7 +1612,7 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
   } else {
     // This should never happen, except grammar changes and we don't notice
     // change in this production.
-    DLOG(FATAL) << "can't happen";
+    DLOG_FATAL("can't happen");
     throw std::exception();
   }
 }
@@ -1590,7 +1694,7 @@ antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
   if (ctx->getTokens(MemgraphCypher::FALSE).size()) {
     return false;
   }
-  DLOG(FATAL) << "Shouldn't happend";
+  DLOG_FATAL("Shouldn't happend");
   throw std::exception();
 }
 
@@ -1717,7 +1821,7 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(
 
 antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(
     MemgraphCypher::CaseAlternativesContext *) {
-  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
+  DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 
@@ -1743,7 +1847,7 @@ antlrcpp::Any CypherMainVisitor::visitMerge(MemgraphCypher::MergeContext *ctx) {
     if (merge_action->MATCH()) {
       merge->on_match_.insert(merge->on_match_.end(), set.begin(), set.end());
     } else {
-      DCHECK(merge_action->CREATE()) << "Expected ON MATCH or ON CREATE";
+      DMG_ASSERT(merge_action->CREATE(), "Expected ON MATCH or ON CREATE");
       merge->on_create_.insert(merge->on_create_.end(), set.begin(), set.end());
     }
   }
@@ -1761,7 +1865,7 @@ antlrcpp::Any CypherMainVisitor::visitUnwind(
 
 antlrcpp::Any CypherMainVisitor::visitFilterExpression(
     MemgraphCypher::FilterExpressionContext *) {
-  LOG(FATAL) << "Should never be called. See documentation in hpp.";
+  LOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
 }
 

@@ -6,6 +6,8 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/file_locker.hpp"
+#include "utils/logging.hpp"
 
 namespace storage::durability {
 
@@ -164,43 +166,11 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_INDICES:
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
+    case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_OFFSETS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure("Invalid WAL data!");
-  }
-}
-
-bool IsWalDeltaDataTypeTransactionEnd(WalDeltaData::Type type) {
-  switch (type) {
-    // These delta actions are all found inside transactions so they don't
-    // indicate a transaction end.
-    case WalDeltaData::Type::VERTEX_CREATE:
-    case WalDeltaData::Type::VERTEX_DELETE:
-    case WalDeltaData::Type::VERTEX_ADD_LABEL:
-    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
-    case WalDeltaData::Type::EDGE_CREATE:
-    case WalDeltaData::Type::EDGE_DELETE:
-    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
-    case WalDeltaData::Type::EDGE_SET_PROPERTY:
-      return false;
-
-    // This delta explicitly indicates that a transaction is done.
-    case WalDeltaData::Type::TRANSACTION_END:
-      return true;
-
-    // These operations aren't transactional and they are encoded only using
-    // a single delta, so they each individually mark the end of their
-    // 'transaction'.
-    case WalDeltaData::Type::LABEL_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-      return true;
   }
 }
 
@@ -384,6 +354,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     auto maybe_uuid = wal.ReadString();
     if (!maybe_uuid) throw RecoveryFailure("Invalid WAL data!");
     info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = wal.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Invalid WAL data!");
+    info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
     if (!maybe_seq_num) throw RecoveryFailure("Invalid WAL data!");
@@ -572,7 +546,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case Delta::Action::REMOVE_IN_EDGE:
       // These actions are already encoded in the *_OUT_EDGE actions. This
       // function should never be called for this type of deltas.
-      LOG(FATAL) << "Invalid delta action!";
+      LOG_FATAL("Invalid delta action!");
   }
 }
 
@@ -605,7 +579,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
       // these deltas don't contain any information about the from vertex, to
       // vertex or edge type so they are useless. This function should never
       // be called for this type of deltas.
-      LOG(FATAL) << "Invalid delta action!";
+      LOG_FATAL("Invalid delta action!");
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL:
     case Delta::Action::ADD_OUT_EDGE:
@@ -613,7 +587,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case Delta::Action::ADD_IN_EDGE:
     case Delta::Action::REMOVE_IN_EDGE:
       // These deltas shouldn't appear for edges.
-      LOG(FATAL) << "Invalid database state!";
+      LOG_FATAL("Invalid database state!");
   }
 }
 
@@ -632,7 +606,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
   switch (operation) {
     case StorageGlobalOperation::LABEL_INDEX_CREATE:
     case StorageGlobalOperation::LABEL_INDEX_DROP: {
-      CHECK(properties.empty()) << "Invalid function call!";
+      MG_ASSERT(properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
@@ -641,7 +615,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
     case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP: {
-      CHECK(properties.size() == 1) << "Invalid function call!";
+      MG_ASSERT(properties.size() == 1, "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       encoder->WriteString(
@@ -650,7 +624,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
     }
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP: {
-      CHECK(!properties.empty()) << "Invalid function call!";
+      MG_ASSERT(!properties.empty(), "Invalid function call!");
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       encoder->WriteUint(properties.size());
@@ -664,7 +638,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
 
 RecoveryInfo LoadWal(const std::filesystem::path &path,
                      RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> snapshot_timestamp,
+                     const std::optional<uint64_t> last_loaded_timestamp,
                      utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                      std::atomic<uint64_t> *edge_count, Config::Items items) {
@@ -679,9 +653,10 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
 
   // Read wal info.
   auto info = ReadWalInfo(path);
+  ret.last_commit_timestamp = info.to_timestamp;
 
   // Check timestamp.
-  if (snapshot_timestamp && info.to_timestamp <= *snapshot_timestamp)
+  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp)
     return ret;
 
   // Recover deltas.
@@ -693,7 +668,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
     // Read WAL delta header to find out the delta timestamp.
     auto timestamp = ReadWalDeltaHeader(&wal);
 
-    if (!snapshot_timestamp || timestamp > *snapshot_timestamp) {
+    if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal);
       switch (delta.type) {
@@ -963,20 +938,23 @@ RecoveryInfo LoadWal(const std::filesystem::path &path,
     }
   }
 
-  LOG(INFO) << "Applied " << deltas_applied << " deltas from WAL " << path;
+  spdlog::info("Applied {} deltas from WAL", deltas_applied, path);
 
   return ret;
 }
 
 WalFile::WalFile(const std::filesystem::path &wal_directory,
-                 const std::string &uuid, Config::Items items,
-                 NameIdMapper *name_id_mapper, uint64_t seq_num)
+                 const std::string_view uuid, const std::string_view epoch_id,
+                 Config::Items items, NameIdMapper *name_id_mapper,
+                 uint64_t seq_num, utils::FileRetainer *file_retainer)
     : items_(items),
       name_id_mapper_(name_id_mapper),
       path_(wal_directory / MakeWalName()),
       from_timestamp_(0),
       to_timestamp_(0),
-      count_(0) {
+      count_(0),
+      seq_num_(seq_num),
+      file_retainer_(file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
 
@@ -996,6 +974,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory,
   offset_metadata = wal_.GetPosition();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(uuid);
+  wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 
   // Write final offsets.
@@ -1009,20 +988,43 @@ WalFile::WalFile(const std::filesystem::path &wal_directory,
   wal_.Sync();
 }
 
-WalFile::~WalFile() {
-  if (count_ != 0) {
-    // Finalize file.
-    wal_.Finalize();
+WalFile::WalFile(std::filesystem::path current_wal_path, Config::Items items,
+                 NameIdMapper *name_id_mapper, uint64_t seq_num,
+                 uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
+                 utils::FileRetainer *file_retainer)
+    : items_(items),
+      name_id_mapper_(name_id_mapper),
+      path_(std::move(current_wal_path)),
+      from_timestamp_(from_timestamp),
+      to_timestamp_(to_timestamp),
+      count_(count),
+      seq_num_(seq_num),
+      file_retainer_(file_retainer) {
+  wal_.OpenExisting(path_);
+}
 
+void WalFile::FinalizeWal() {
+  if (count_ != 0) {
+    wal_.Finalize();
     // Rename file.
     std::filesystem::path new_path(path_);
     new_path.replace_filename(
         RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
-    // If the rename fails it isn't a crucial situation. The renaming is done
-    // only to make the directory structure of the WAL files easier to read
-    // manually.
-    utils::RenamePath(path_, new_path);
-  } else {
+
+    utils::CopyFile(path_, new_path);
+    wal_.Close();
+    file_retainer_->DeleteFile(path_);
+    path_ = std::move(new_path);
+  }
+}
+
+void WalFile::DeleteWal() {
+  wal_.Close();
+  file_retainer_->DeleteFile(path_);
+}
+
+WalFile::~WalFile() {
+  if (count_ == 0) {
     // Remove empty WAL file.
     utils::DeleteFile(path_);
   }
@@ -1055,12 +1057,24 @@ void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label,
 
 void WalFile::Sync() { wal_.Sync(); }
 
-uint64_t WalFile::GetSize() { return wal_.GetPosition(); }
+uint64_t WalFile::GetSize() { return wal_.GetSize(); }
+
+uint64_t WalFile::SequenceNumber() const { return seq_num_; }
 
 void WalFile::UpdateStats(uint64_t timestamp) {
   if (count_ == 0) from_timestamp_ = timestamp;
   to_timestamp_ = timestamp;
   count_ += 1;
+}
+
+void WalFile::DisableFlushing() { wal_.DisableFlushing(); }
+
+void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
+
+void WalFile::TryFlushing() { wal_.TryFlushing(); }
+
+std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const {
+  return wal_.CurrentFileBuffer();
 }
 
 }  // namespace storage::durability

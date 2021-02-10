@@ -1,7 +1,6 @@
 #include <shared_mutex>
 #include <thread>
 
-#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 #include "utils/rw_lock.hpp"

@@ -2,8 +2,6 @@
 #include <thread>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "utils/skip_list.hpp"
 
 const int kNumThreads = 8;
@@ -28,14 +26,14 @@ int main() {
   for (int i = 0; i < kNumThreads; ++i) {
     threads[i].join();
   }
-  CHECK(success == kMaxNum);
+  MG_ASSERT(success == kMaxNum);
 
-  CHECK(list.size() == kMaxNum);
+  MG_ASSERT(list.size() == kMaxNum);
   for (uint64_t i = 0; i < kMaxNum; ++i) {
     auto acc = list.access();
     auto it = acc.find(i);
-    CHECK(it != acc.end());
-    CHECK(*it == i);
+    MG_ASSERT(it != acc.end());
+    MG_ASSERT(*it == i);
   }
 
   return 0;

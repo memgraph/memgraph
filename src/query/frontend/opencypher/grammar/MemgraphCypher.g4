@@ -8,6 +8,7 @@ import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
                       | ALTER
+                      | ASYNC
                       | AUTH
                       | CLEAR
                       | DATABASE
@@ -18,13 +19,24 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GRANT
                       | IDENTIFIED
+                      | LOCK
+                      | MAIN
+                      | MODE
                       | PASSWORD
+                      | PORT
                       | PRIVILEGES
+                      | REGISTER
+                      | REPLICA
+                      | REPLICAS
+                      | REPLICATION
                       | REVOKE
                       | ROLE
                       | ROLES
                       | STATS
+                      | SYNC
+                      | TIMEOUT
                       | TO
+                      | UNLOCK
                       | USER
                       | USERS
                       ;
@@ -42,6 +54,8 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | dumpQuery
+      | replicationQuery
+      | lockPathQuery
       ;
 
 authQuery : createRole
@@ -60,6 +74,13 @@ authQuery : createRole
           | showRoleForUser
           | showUsersForRole
           ;
+
+replicationQuery : setReplicationRole
+                 | showReplicationRole
+                 | registerReplica
+                 | dropReplica
+                 | showReplicas
+                 ;
 
 userOrRoleName : symbolicName ;
 
@@ -100,3 +121,23 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
+
+setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+                      ( WITH PORT port=literal ) ? ;
+
+showReplicationRole : SHOW REPLICATION ROLE ;
+
+replicaName : symbolicName ;
+
+socketAddress : literal ;
+
+registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+                ( WITH TIMEOUT timeout=literal ) ?
+                TO socketAddress ;
+
+dropReplica : DROP REPLICA replicaName ;
+
+showReplicas  : SHOW REPLICAS ;
+
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+

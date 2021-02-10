@@ -43,3 +43,8 @@ check_all_dnf() {
         exit 1
     fi
 }
+install_all_apt() {
+    for pkg in $1; do
+        apt install -y "$pkg"
+    done
+}

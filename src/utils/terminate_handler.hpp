@@ -1,6 +1,7 @@
 #pragma once
 
 #include <execinfo.h>
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 #include "utils/stacktrace.hpp"
@@ -22,6 +23,9 @@ void TerminateHandler(std::ostream &stream) noexcept {
       stacktrace.dump(stream);
     }
   }
+
+  // Flush all the logs
+  spdlog::shutdown();
   std::abort();
 }
 

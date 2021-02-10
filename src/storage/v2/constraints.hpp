@@ -7,6 +7,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/skip_list.hpp"
 
@@ -24,7 +25,7 @@ struct FixedCapacityArray {
   T values[kUniqueConstraintsMaxProperties];
 
   explicit FixedCapacityArray(size_t array_size) : size(array_size) {
-    CHECK(size <= kUniqueConstraintsMaxProperties) << "Invalid array size!";
+    MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
   }
 };
 

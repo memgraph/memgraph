@@ -11,6 +11,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
 
 namespace {
 
@@ -224,21 +225,21 @@ TEST_F(InterpreterTest, Bfs) {
     query::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      CHECK(node.SetProperty(dba.NameToProperty(kId),
-                             storage::PropertyValue(id++))
-                .HasValue());
-      CHECK(node.SetProperty(dba.NameToProperty(kReachable),
-                             storage::PropertyValue(reachable))
-                .HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId),
+                                 storage::PropertyValue(id++))
+                    .HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kReachable),
+                                 storage::PropertyValue(reachable))
+                    .HasValue());
       levels[level].push_back(node);
       return node;
     };
 
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
-      CHECK(edge->SetProperty(dba.NameToProperty(kReachable),
-                              storage::PropertyValue(reachable))
-                .HasValue());
+      MG_ASSERT(edge->SetProperty(dba.NameToProperty(kReachable),
+                                  storage::PropertyValue(reachable))
+                    .HasValue());
     };
 
     // Add source node.

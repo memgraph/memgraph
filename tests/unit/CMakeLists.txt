@@ -2,16 +2,37 @@ set(test_prefix memgraph__unit__)
 
 add_custom_target(memgraph__unit)
 
+set(memgraph_unit_main main.cpp)
+
 function(add_unit_test test_cpp)
+  _add_unit_test(${test_cpp} FALSE ${ARGN})
+endfunction(add_unit_test)
+
+function(add_unit_test_with_custom_main test_cpp)
+  _add_unit_test(${test_cpp} TRUE ${ARGN})
+endfunction(add_unit_test_with_custom_main)
+
+function(_add_unit_test test_cpp custom_main)
   # get exec name (remove extension from the abs path)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
-  add_executable(${target_name} ${test_cpp} ${ARGN})
+
+  set(source_files
+      ${test_cpp}
+      ${ARGN})
+
+  if(NOT ${custom_main})
+    set(source_files
+        ${source_files}
+        ${memgraph_unit_main})
+  endif()
+
+  add_executable(${target_name} ${source_files})
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} gtest gmock gtest_main Threads::Threads)
+  target_link_libraries(${target_name} mg-utils gtest gmock Threads::Threads)
   # register test
   if(TEST_COVERAGE)
     add_test(${target_name} env LLVM_PROFILE_FILE=${exec_name}.profraw ./${exec_name})
@@ -20,7 +41,7 @@ function(add_unit_test test_cpp)
   endif()
   # add to memgraph__unit target
   add_dependencies(memgraph__unit ${target_name})
-endfunction(add_unit_test)
+endfunction(_add_unit_test)
 
 
 # Test mg-query
@@ -64,6 +85,10 @@ target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-qu
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
+add_unit_test(query_plan_read_write_typecheck.cpp
+  ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
+target_link_libraries(${test_prefix}query_plan_read_write_typecheck mg-query)
+
 add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
 
@@ -79,7 +104,7 @@ add_unit_test(query_procedure_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_module mg-query)
 target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
-add_unit_test(query_procedure_py_module.cpp)
+add_unit_test_with_custom_main(query_procedure_py_module.cpp)
 target_link_libraries(${test_prefix}query_procedure_py_module mg-query)
 target_include_directories(${test_prefix}query_procedure_py_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
@@ -118,10 +143,10 @@ add_unit_test(bolt_encoder.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}bolt_encoder mg-communication mg-query)
 
 add_unit_test(bolt_session.cpp)
-target_link_libraries(${test_prefix}bolt_session mg-communication)
+target_link_libraries(${test_prefix}bolt_session mg-communication mg-utils)
 
 add_unit_test(communication_buffer.cpp)
-target_link_libraries(${test_prefix}communication_buffer mg-communication)
+target_link_libraries(${test_prefix}communication_buffer mg-communication mg-utils)
 
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
@@ -130,7 +155,7 @@ target_link_libraries(${test_prefix}network_timeouts mg-communication)
 # Test mg-kvstore
 
 add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore mg-kvstore glog)
+target_link_libraries(${test_prefix}kvstore mg-kvstore mg-utils)
 
 
 # Test data structures
@@ -195,11 +220,16 @@ target_link_libraries(${test_prefix}skip_list mg-utils)
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
+add_unit_test(utils_file_locker.cpp)
+target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
+
+add_unit_test(utils_thread_pool.cpp)
+target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 glog gflags)
+target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils)
 
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
@@ -223,7 +253,7 @@ add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
 
 add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
@@ -234,6 +264,10 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
+if (MG_ENTERPRISE)
+add_unit_test(storage_v2_replication.cpp)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+endif()
 
 # Test mg-auth
 
@@ -246,15 +280,16 @@ endif()
 # Test mg-slk
 
 if (MG_ENTERPRISE)
-## TODO: REPLACE single-node-ha
-#add_unit_test(slk_advanced.cpp)
-#target_link_libraries(${test_prefix}slk_advanced mg-single-node-ha mg-kvstore-dummy)
+add_unit_test(slk_advanced.cpp)
+target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+endif()
 
+if (MG_ENTERPRISE)
 add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk glog gflags fmt)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
 add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk glog gflags fmt)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 endif()
 
 

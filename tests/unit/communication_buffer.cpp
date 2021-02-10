@@ -6,7 +6,12 @@ uint8_t data[SIZE];
 
 using communication::Buffer;
 
-TEST(CommunicationBuffer, AllocateAndWritten) {
+struct CommunicationBuffer : ::testing::Test {
+  // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
+  static void SetUpTestCase() { InitializeData(data, SIZE); }
+};
+
+TEST_F(CommunicationBuffer, AllocateAndWritten) {
   Buffer buffer;
   auto sb = buffer.write_end()->Allocate();
 
@@ -19,7 +24,7 @@ TEST(CommunicationBuffer, AllocateAndWritten) {
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
 }
 
-TEST(CommunicationBuffer, Shift) {
+TEST_F(CommunicationBuffer, Shift) {
   Buffer buffer;
   auto sb = buffer.write_end()->Allocate();
 
@@ -42,7 +47,7 @@ TEST(CommunicationBuffer, Shift) {
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i + 1000], tmp[i]);
 }
 
-TEST(CommunicationBuffer, Resize) {
+TEST_F(CommunicationBuffer, Resize) {
   Buffer buffer;
   auto sb = buffer.write_end()->Allocate();
 
@@ -50,11 +55,4 @@ TEST(CommunicationBuffer, Resize) {
 
   auto sbn = buffer.write_end()->Allocate();
   ASSERT_EQ(sb.len + 1000, sbn.len);
-}
-
-int main(int argc, char **argv) {
-  InitializeData(data, SIZE);
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

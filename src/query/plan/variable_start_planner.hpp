@@ -92,8 +92,9 @@ class CartesianProduct {
         ++sets_it->second;
       }
       // We can now collect another product from the modified set iterators.
-      DCHECK(current_product_.size() == sets_.size())
-          << "Expected size of current_product_ to match the size of sets_";
+      DMG_ASSERT(
+          current_product_.size() == sets_.size(),
+          "Expected size of current_product_ to match the size of sets_");
       size_t i = 0;
       // Change only the prefix of the product, remaining elements (after
       // sets_it) should be the same.

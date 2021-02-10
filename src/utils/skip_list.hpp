@@ -10,10 +10,9 @@
 #include <random>
 #include <utility>
 
-#include <glog/logging.h>
-
 #include "utils/bound.hpp"
 #include "utils/linux.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
@@ -242,7 +241,7 @@ class SkipListGc final {
       head = AllocateBlock(head);
     }
     while (true) {
-      CHECK(head != nullptr) << "Missing SkipListGc block!";
+      MG_ASSERT(head != nullptr, "Missing SkipListGc block!");
       if (id < head->first_id) {
         head = head->prev.load(std::memory_order_acquire);
       } else if (id >= head->first_id + kIdsInBlock) {
@@ -255,7 +254,7 @@ class SkipListGc final {
         value <<= bit;
         auto ret =
             head->field[field].fetch_or(value, std::memory_order_acq_rel);
-        CHECK(!(ret & value)) << "A SkipList Accessor was released twice!";
+        MG_ASSERT(!(ret & value), "A SkipList Accessor was released twice!");
         break;
       }
     }
@@ -307,8 +306,8 @@ class SkipListGc final {
       // `head_`. We bail out here, this block will be freed next time.
       if (remove_block && next != nullptr) {
         Allocator<Block> block_allocator(memory_);
-        CHECK(tail == tail_.load(std::memory_order_acquire))
-            << "Can't remove SkipListGc block that is in the middle!";
+        MG_ASSERT(tail == tail_.load(std::memory_order_acquire),
+                  "Can't remove SkipListGc block that is in the middle!");
         next->prev.store(nullptr, std::memory_order_release);
         tail_.store(next, std::memory_order_release);
         // Destroy the block.
@@ -337,8 +336,9 @@ class SkipListGc final {
 
   void Clear() {
 #ifndef NDEBUG
-    CHECK(alive_accessors_ == 0)
-        << "The SkipList can't be cleared while there are existing accessors!";
+    MG_ASSERT(
+        alive_accessors_ == 0,
+        "The SkipList can't be cleared while there are existing accessors!");
 #endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
@@ -890,8 +890,8 @@ class SkipList final {
   }
 
   SkipList &operator=(SkipList &&other) noexcept {
-    CHECK(other.GetMemoryResource() == GetMemoryResource())
-        << "Move assignment with different MemoryResource is not supported";
+    MG_ASSERT(other.GetMemoryResource() == GetMemoryResource(),
+              "Move assignment with different MemoryResource is not supported");
     TNode *head = head_;
     while (head != nullptr) {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
@@ -1070,9 +1070,9 @@ class SkipList final {
 
   template <typename TKey>
   uint64_t estimate_count(const TKey &key, int max_layer_for_estimation) const {
-    CHECK(max_layer_for_estimation >= 1 &&
-          max_layer_for_estimation <= kSkipListMaxHeight)
-        << "Invalid layer for SkipList count estimation!";
+    MG_ASSERT(max_layer_for_estimation >= 1 &&
+                  max_layer_for_estimation <= kSkipListMaxHeight,
+              "Invalid layer for SkipList count estimation!");
 
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
@@ -1107,9 +1107,9 @@ class SkipList final {
   uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
                                 const std::optional<utils::Bound<TKey>> &upper,
                                 int max_layer_for_estimation) const {
-    CHECK(max_layer_for_estimation >= 1 &&
-          max_layer_for_estimation <= kSkipListMaxHeight)
-        << "Invalid layer for SkipList count estimation!";
+    MG_ASSERT(max_layer_for_estimation >= 1 &&
+                  max_layer_for_estimation <= kSkipListMaxHeight,
+              "Invalid layer for SkipList count estimation!");
 
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = -1;
@@ -1174,9 +1174,9 @@ class SkipList final {
   template <typename TCallable>
   uint64_t estimate_average_number_of_equals(
       const TCallable &equal_cmp, int max_layer_for_estimation) const {
-    CHECK(max_layer_for_estimation >= 1 &&
-          max_layer_for_estimation <= kSkipListMaxHeight)
-        << "Invalid layer for SkipList count estimation!";
+    MG_ASSERT(max_layer_for_estimation >= 1 &&
+          max_layer_for_estimation <= kSkipListMaxHeight,
+        "Invalid layer for SkipList count estimation!");
 
     // We need to traverse some nodes to make the calculation correct, so find
     // the first layer that has some nodes, starting from the hinted layer.
@@ -1243,7 +1243,7 @@ class SkipList final {
       }
     }
 
-    CHECK(unique_count > 0);
+    MG_ASSERT(unique_count > 0);
 
     return nodes_traversed / unique_count;
   }

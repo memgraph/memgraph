@@ -2,9 +2,8 @@
 
 #include <limits>
 
-#include <glog/logging.h>
-
 #include "glue/communication.hpp"
+#include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
@@ -21,6 +20,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
@@ -91,8 +91,7 @@ ParsedQuery ParseQuery(
 
         // If an exception was not thrown here, the stripper messed something
         // up.
-        LOG(FATAL)
-            << "The stripped query can't be parsed, but the original can.";
+        LOG_FATAL("The stripped query can't be parsed, but the original can.");
       }
     }
 
@@ -162,6 +161,176 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
+#ifdef MG_ENTERPRISE
+class ReplQueryHandler final : public query::ReplicationQueryHandler {
+ public:
+  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
+    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      if (!db_->SetMainReplicationRole()) {
+        throw QueryRuntimeException("Couldn't set role to main!");
+      }
+    }
+    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
+      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
+        throw QueryRuntimeException("Port number invalid!");
+      }
+      if (!db_->SetReplicaRole(
+              io::network::Endpoint(query::kDefaultReplicationServerIp,
+                                    static_cast<uint16_t>(*port)))) {
+        throw QueryRuntimeException("Couldn't set role to replica!");
+      }
+    }
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
+    switch (db_->GetReplicationRole()) {
+      case storage::ReplicationRole::MAIN:
+        return ReplicationQuery::ReplicationRole::MAIN;
+      case storage::ReplicationRole::REPLICA:
+        return ReplicationQuery::ReplicationRole::REPLICA;
+    }
+    throw QueryRuntimeException(
+        "Couldn't show replication role - invalid role set!");
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void RegisterReplica(const std::string &name,
+                       const std::string &socket_address,
+                       const ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't register another replica
+      throw QueryRuntimeException("Replica can't register another replica!");
+    }
+
+    storage::replication::ReplicationMode repl_mode;
+    switch (sync_mode) {
+      case ReplicationQuery::SyncMode::ASYNC: {
+        repl_mode = storage::replication::ReplicationMode::ASYNC;
+        break;
+      }
+      case ReplicationQuery::SyncMode::SYNC: {
+        repl_mode = storage::replication::ReplicationMode::SYNC;
+        break;
+      }
+    }
+
+    auto maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(
+        socket_address, query::kDefaultReplicationPort);
+    if (maybe_ip_and_port) {
+      auto [ip, port] = *maybe_ip_and_port;
+      auto ret =
+          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                               {.timeout = timeout, .ssl = std::nullopt});
+      if (ret.HasError()) {
+        throw QueryRuntimeException(
+            fmt::format("Couldn't register replica '{}'!", name));
+      }
+    } else {
+      throw QueryRuntimeException("Invalid socket address!");
+    }
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void DropReplica(const std::string &replica_name) override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't unregister a replica
+      throw QueryRuntimeException("Replica can't unregister a replica!");
+    }
+    if (!db_->UnregisterReplica(replica_name)) {
+      throw QueryRuntimeException(
+          fmt::format("Couldn't unregister the replica '{}'", replica_name));
+    }
+  }
+
+  using Replica = ReplicationQueryHandler::Replica;
+  std::vector<Replica> ShowReplicas() const override {
+    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+      // replica can't show registered replicas (it shouldn't have any)
+      throw QueryRuntimeException(
+          "Replica can't show registered replicas (it shouldn't have any)!");
+    }
+
+    auto repl_infos = db_->ReplicasInfo();
+    std::vector<Replica> replicas;
+    replicas.reserve(repl_infos.size());
+
+    const auto from_info = [](const auto &repl_info) -> Replica {
+      Replica replica;
+      replica.name = repl_info.name;
+      replica.socket_address = repl_info.endpoint.SocketAddress();
+      switch (repl_info.mode) {
+        case storage::replication::ReplicationMode::SYNC:
+          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
+          break;
+        case storage::replication::ReplicationMode::ASYNC:
+          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
+          break;
+      }
+      if (repl_info.timeout) {
+        replica.timeout = *repl_info.timeout;
+      }
+
+      return replica;
+    };
+
+    std::transform(repl_infos.begin(), repl_infos.end(),
+                   std::back_inserter(replicas), from_info);
+    return replicas;
+  }
+
+ private:
+  storage::Storage *db_;
+};
+/// returns false if the replication role can't be set
+/// @throw QueryRuntimeException if an error ocurred.
+#else
+
+class NoReplicationInCommunity : public query::QueryRuntimeException {
+ public:
+  NoReplicationInCommunity()
+      : query::QueryRuntimeException::QueryRuntimeException(
+            "Replication is not supported in Memgraph Community!") {}
+};
+
+class ReplQueryHandler : public query::ReplicationQueryHandler {
+ public:
+  // Dummy ctor - just there to make the replication query handler work
+  // in both community and enterprise versions.
+  explicit ReplQueryHandler(storage::Storage *db) {}
+  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role,
+                          std::optional<int64_t> port) override {
+    throw NoReplicationInCommunity();
+  }
+
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
+    throw NoReplicationInCommunity();
+  }
+
+  void RegisterReplica(const std::string &name,
+                       const std::string &socket_address,
+                       const ReplicationQuery::SyncMode sync_mode,
+                       const std::optional<double> timeout) {
+    throw NoReplicationInCommunity();
+  }
+
+  void DropReplica(const std::string &replica_name) override {
+    throw NoReplicationInCommunity();
+  }
+
+  using Replica = ReplicationQueryHandler::Replica;
+
+  std::vector<Replica> ShowReplicas() const override {
+    throw NoReplicationInCommunity();
+  }
+};
+#endif
+
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
                          const Parameters &parameters,
                          DbAccessor *db_accessor) {
@@ -192,7 +361,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
+        MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString()
                                             ? std::make_optional(std::string(
                                                   password.ValueString()))
@@ -212,7 +381,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
       return callback;
     case AuthQuery::Action::SET_PASSWORD:
       callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
+        MG_ASSERT(password.IsString() || password.IsNull());
         auth->SetPassword(
             username,
             password.IsString()
@@ -323,9 +492,120 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
   }
 }
 
+Callback HandleReplicationQuery(ReplicationQuery *repl_query,
+                                ReplQueryHandler *handler,
+                                const Parameters &parameters,
+                                DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
+                                db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (repl_query->action_) {
+    case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
+      auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
+      std::optional<int64_t> maybe_port;
+      if (port.IsInt()) {
+        maybe_port = port.ValueInt();
+      }
+      callback.fn = [handler, role = repl_query->role_, maybe_port] {
+        handler->SetReplicationRole(role, maybe_port);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
+      callback.header = {"replication mode"};
+      callback.fn = [handler] {
+        auto mode = handler->ShowReplicationRole();
+        switch (mode) {
+          case ReplicationQuery::ReplicationRole::MAIN: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+          }
+          case ReplicationQuery::ReplicationRole::REPLICA: {
+            return std::vector<std::vector<TypedValue>>{
+                {TypedValue("replica")}};
+          }
+        }
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::REGISTER_REPLICA: {
+      const auto &name = repl_query->replica_name_;
+      const auto &sync_mode = repl_query->sync_mode_;
+      auto socket_address = repl_query->socket_address_->Accept(evaluator);
+      auto timeout =
+          EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      std::optional<double> maybe_timeout;
+      if (timeout.IsDouble()) {
+        maybe_timeout = timeout.ValueDouble();
+      } else if (timeout.IsInt()) {
+        maybe_timeout = static_cast<double>(timeout.ValueInt());
+      }
+      callback.fn = [handler, name, socket_address, sync_mode, maybe_timeout] {
+        handler->RegisterReplica(name,
+                                 std::string(socket_address.ValueString()),
+                                 sync_mode, maybe_timeout);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::DROP_REPLICA: {
+      const auto &name = repl_query->replica_name_;
+      callback.fn = [handler, name] {
+        handler->DropReplica(name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case ReplicationQuery::Action::SHOW_REPLICAS: {
+      callback.header = {"name", "socket_address", "sync_mode", "timeout"};
+      callback.fn = [handler, replica_nfields = callback.header.size()] {
+        const auto &replicas = handler->ShowReplicas();
+        auto typed_replicas = std::vector<std::vector<TypedValue>>{};
+        typed_replicas.reserve(replicas.size());
+        for (const auto &replica : replicas) {
+          std::vector<TypedValue> typed_replica;
+          typed_replica.reserve(replica_nfields);
+
+          typed_replica.emplace_back(TypedValue(replica.name));
+          typed_replica.emplace_back(TypedValue(replica.socket_address));
+          switch (replica.sync_mode) {
+            case ReplicationQuery::SyncMode::SYNC:
+              typed_replica.emplace_back(TypedValue("sync"));
+              break;
+            case ReplicationQuery::SyncMode::ASYNC:
+              typed_replica.emplace_back(TypedValue("async"));
+              break;
+          }
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.sync_mode)));
+          if (replica.timeout) {
+            typed_replica.emplace_back(TypedValue(*replica.timeout));
+          } else {
+            typed_replica.emplace_back(TypedValue());
+          }
+
+          typed_replicas.emplace_back(std::move(typed_replica));
+        }
+        return typed_replicas;
+      };
+      return callback;
+    }
+      return callback;
+  }
+}
+
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
     : interpreter_context_(interpreter_context) {
-  CHECK(interpreter_context_) << "Interpreter context must not be NULL";
+  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 namespace {
@@ -524,6 +804,8 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(
       .first->second;
 }
 
+using RWType = plan::ReadWriteTypeChecker::RWType;
+
 PreparedQuery Interpreter::PrepareTransactionQuery(
     std::string_view query_upper) {
   std::function<void()> handler;
@@ -573,14 +855,16 @@ PreparedQuery Interpreter::PrepareTransactionQuery(
       in_explicit_transaction_ = false;
     };
   } else {
-    LOG(FATAL) << "Should not get here -- unknown transaction query!";
+    LOG_FATAL("Should not get here -- unknown transaction query!");
   }
 
-  return {
-      {}, {}, [handler = std::move(handler)](AnyStream *, std::optional<int>) {
-        handler();
-        return QueryHandlerResult::NOTHING;
-      }};
+  return {{},
+          {},
+          [handler = std::move(handler)](AnyStream *, std::optional<int>) {
+            handler();
+            return QueryHandlerResult::NOTHING;
+          },
+          RWType::NONE};
 }
 
 PreparedQuery PrepareCypherQuery(
@@ -593,6 +877,9 @@ PreparedQuery PrepareCypherQuery(
       &interpreter_context->plan_cache, dba);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(plan->plan()));
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
@@ -622,7 +909,8 @@ PreparedQuery PrepareCypherQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareExplainQuery(
@@ -630,10 +918,10 @@ PreparedQuery PrepareExplainQuery(
     InterpreterContext *interpreter_context, DbAccessor *dba,
     utils::MonotonicBufferResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
-  CHECK(
+  MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()),
-                        kExplainQueryStart))
-      << "Expected stripped query to start with '" << kExplainQueryStart << "'";
+                        kExplainQueryStart),
+      "Expected stripped query to start with '{}'", kExplainQueryStart);
 
   // Parse and cache the inner query separately (as if it was a standalone
   // query), producing a fresh AST. Note that currently we cannot just reuse
@@ -647,8 +935,8 @@ PreparedQuery PrepareExplainQuery(
                  &interpreter_context->antlr_lock);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
-  CHECK(cypher_query)
-      << "Cypher grammar should not allow other queries in EXPLAIN";
+  MG_ASSERT(cypher_query,
+            "Cypher grammar should not allow other queries in EXPLAIN");
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(),
@@ -677,7 +965,8 @@ PreparedQuery PrepareExplainQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareProfileQuery(
@@ -687,10 +976,10 @@ PreparedQuery PrepareProfileQuery(
     utils::MonotonicBufferResource *execution_memory) {
   const std::string kProfileQueryStart = "profile ";
 
-  CHECK(
+  MG_ASSERT(
       utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()),
-                        kProfileQueryStart))
-      << "Expected stripped query to start with '" << kProfileQueryStart << "'";
+                        kProfileQueryStart),
+      "Expected stripped query to start with '{}'", kProfileQueryStart);
 
   // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
   // because PROFILE executes each PROFILE'd query and collects additional
@@ -724,13 +1013,17 @@ PreparedQuery PrepareProfileQuery(
                  &interpreter_context->antlr_lock);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
-  CHECK(cypher_query)
-      << "Cypher grammar should not allow other queries in PROFILE";
+  MG_ASSERT(cypher_query,
+            "Cypher grammar should not allow other queries in PROFILE");
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(),
       std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
+
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(
+      const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
@@ -753,7 +1046,7 @@ PreparedQuery PrepareProfileQuery(
               ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
 
-        CHECK(ctx) << "Failed to execute the query!";
+        MG_ASSERT(ctx, "Failed to execute the query!");
 
         if (pull_plan->Pull(stream, n)) {
           summary->insert_or_assign(
@@ -764,7 +1057,8 @@ PreparedQuery PrepareProfileQuery(
         }
 
         return std::nullopt;
-      }};
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(
@@ -780,7 +1074,8 @@ PreparedQuery PrepareDumpQuery(
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::R};
 }
 
 PreparedQuery PrepareIndexQuery(
@@ -821,7 +1116,7 @@ PreparedQuery PrepareIndexQuery(
         if (properties.empty()) {
           interpreter_context->db->CreateIndex(label);
         } else {
-          CHECK(properties.size() == 1U);
+          MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->CreateIndex(label, properties[0]);
         }
         invalidate_plan_cache();
@@ -834,7 +1129,7 @@ PreparedQuery PrepareIndexQuery(
         if (properties.empty()) {
           interpreter_context->db->DropIndex(label);
         } else {
-          CHECK(properties.size() == 1U);
+          MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->DropIndex(label, properties[0]);
         }
         invalidate_plan_cache();
@@ -849,7 +1144,8 @@ PreparedQuery PrepareIndexQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
         handler();
         return QueryHandlerResult::NOTHING;
-      }};
+      },
+      RWType::W};
 }
 
 PreparedQuery PrepareAuthQuery(
@@ -893,7 +1189,79 @@ PreparedQuery PrepareAuthQuery(
                                              : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
+}
+
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
+                                      bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context,
+                                      DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw ReplicationModificationInMulticommandTxException();
+  }
+
+  auto *replication_query =
+      utils::Downcast<ReplicationQuery>(parsed_query.query);
+  ReplQueryHandler handler{interpreter_context->db};
+  auto callback = HandleReplicationQuery(replication_query, &handler,
+                                         parsed_query.parameters, dba);
+
+  return PreparedQuery{
+      callback.header, std::move(parsed_query.required_privileges),
+      [pull_plan = std::make_shared<PullPlanVector>(callback.fn())](
+          AnyStream *stream,
+          std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
+}
+
+PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
+                                   const bool in_explicit_transaction,
+                                   InterpreterContext *interpreter_context,
+                                   DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw LockPathModificationInMulticommandTxException();
+  }
+
+  auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
+
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parsed_query.parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba,
+                                storage::View::OLD);
+
+  Callback callback;
+  switch (lock_path_query->action_) {
+    case LockPathQuery::Action::LOCK_PATH:
+      if (!interpreter_context->db->LockPath()) {
+        throw QueryRuntimeException("Failed to lock the data directory");
+      }
+      break;
+    case LockPathQuery::Action::UNLOCK_PATH:
+      if (!interpreter_context->db->UnlockPath()) {
+        throw QueryRuntimeException("Failed to unlock the data directory");
+      }
+      break;
+  }
+
+  return PreparedQuery{
+      callback.header, std::move(parsed_query.required_privileges),
+      [](AnyStream *stream,
+         std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -991,7 +1359,8 @@ PreparedQuery PrepareInfoQuery(
           return action;
         }
         return std::nullopt;
-      }};
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareConstraintQuery(
@@ -1032,7 +1401,7 @@ PreparedQuery PrepareConstraintQuery(
               auto violation = res.GetError();
               auto label_name =
                   interpreter_context->db->LabelToName(violation.label);
-              CHECK(violation.properties.size() == 1U);
+              MG_ASSERT(violation.properties.size() == 1U);
               auto property_name = interpreter_context->db->PropertyToName(
                   *violation.properties.begin());
               throw QueryRuntimeException(
@@ -1151,7 +1520,8 @@ PreparedQuery PrepareConstraintQuery(
       [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
         handler();
         return QueryHandlerResult::COMMIT;
-      }};
+      },
+      RWType::NONE};
 }
 
 void Interpreter::BeginTransaction() {
@@ -1175,9 +1545,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
     const std::string &query_string,
     const std::map<std::string, storage::PropertyValue> &params) {
   if (!in_explicit_transaction_) {
-    // TODO(antonio2368): Should this throw?
-    CHECK(!ActiveQueryExecutions()) << "Only one active execution allowed "
-                                       "while not in explicit transaction!";
     query_executions_.clear();
   }
 
@@ -1210,13 +1577,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
   }
 
   try {
-    // TODO: Set summary['type'] based on transaction metadata. The type can't
-    // be determined based only on the toplevel logical operator -- for example
-    // `MATCH DELETE RETURN`, which is a write query, will have `Produce` as its
-    // toplevel operator). For now we always set "rw" because something must be
-    // set, but it doesn't have to be correct (for Bolt clients).
-    query_execution->summary["type"] = "rw";
-
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
@@ -1279,13 +1639,37 @@ Interpreter::PrepareResult Interpreter::Prepare(
           std::move(parsed_query), in_explicit_transaction_,
           &query_execution->summary, interpreter_context_,
           &query_execution->execution_memory);
+    } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
+      prepared_query = PrepareReplicationQuery(
+          std::move(parsed_query), in_explicit_transaction_,
+          interpreter_context_, &*execution_db_accessor_);
+    } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
+      prepared_query = PrepareLockPathQuery(
+          std::move(parsed_query), in_explicit_transaction_,
+          interpreter_context_, &*execution_db_accessor_);
     } else {
-      LOG(FATAL) << "Should not get here -- unknown query type!";
+      LOG_FATAL("Should not get here -- unknown query type!");
     }
 
     query_execution->summary["planning_time"] =
         planning_timer.Elapsed().count();
     query_execution->prepared_query.emplace(std::move(prepared_query));
+
+    query_execution->summary["type"] =
+        query_execution->prepared_query
+            ? plan::ReadWriteTypeChecker::TypeToString(
+                  query_execution->prepared_query->rw_type)
+            : "rw";
+
+#ifdef MG_ENTERPRISE
+    if (const auto query_type = query_execution->prepared_query->rw_type;
+        interpreter_context_->db->GetReplicationRole() ==
+            storage::ReplicationRole::REPLICA &&
+        (query_type == RWType::W || query_type == RWType::RW)) {
+      query_execution = nullptr;
+      throw QueryException("Write query forbidden on the replica!");
+    }
+#endif
 
     return {query_execution->prepared_query->header,
             query_execution->prepared_query->privileges, qid};
@@ -1318,7 +1702,7 @@ void Interpreter::Commit() {
       case storage::ConstraintViolation::Type::EXISTENCE: {
         auto label_name =
             execution_db_accessor_->LabelToName(constraint_violation.label);
-        CHECK(constraint_violation.properties.size() == 1U);
+        MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(
             *constraint_violation.properties.begin());
         execution_db_accessor_ = std::nullopt;

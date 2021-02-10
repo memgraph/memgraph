@@ -8,11 +8,11 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
 #include "io/network/socket.hpp"
+#include "utils/logging.hpp"
 #include "utils/thread.hpp"
 
 namespace communication {
@@ -57,9 +57,10 @@ class Server final {
         service_name_(service_name) {}
 
   ~Server() {
-    CHECK(!alive_ && !thread_.joinable()) << "You should call Shutdown and "
-                                             "AwaitShutdown on "
-                                             "communication::Server!";
+    MG_ASSERT(!alive_ && !thread_.joinable(),
+              "You should call Shutdown and "
+              "AwaitShutdown on "
+              "communication::Server!");
   }
 
   Server(const Server &) = delete;
@@ -68,23 +69,24 @@ class Server final {
   Server &operator=(Server &&) = delete;
 
   const auto &endpoint() const {
-    CHECK(alive_) << "You can't get the server endpoint when it's not running!";
+    MG_ASSERT(alive_,
+              "You can't get the server endpoint when it's not running!");
     return socket_.endpoint();
   }
 
   /// Starts the server
   bool Start() {
-    CHECK(!alive_) << "The server was already started!";
+    MG_ASSERT(!alive_, "The server was already started!");
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      LOG(ERROR) << "Cannot bind to socket on " << endpoint_;
+      spdlog::error("Cannot bind to socket on {}", endpoint_);
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      LOG(ERROR) << "Cannot listen on socket!";
+      spdlog::error("Cannot listen on socket {}", endpoint_);
       alive_.store(false);
       return false;
     }
@@ -95,16 +97,14 @@ class Server final {
     thread_ = std::thread([this, service_name]() {
       utils::ThreadSetName(fmt::format("{} server", service_name));
 
-      std::cout << service_name_ << " server is fully armed and operational"
-                << std::endl;
-      std::cout << service_name_ << " listening on " << socket_.endpoint()
-                << std::endl;
+      spdlog::info("{} server is fully armed and operational", service_name_);
+      spdlog::info("{} listening on {}", service_name_, socket_.endpoint());
 
       while (alive_) {
         AcceptConnection();
       }
 
-      std::cout << service_name << " shutting down..." << std::endl;
+      spdlog::info("{} shutting down...", service_name_);
     });
 
     return true;
@@ -138,8 +138,8 @@ class Server final {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    LOG(INFO) << "Accepted a " << service_name_ << " connection from "
-              << s->endpoint();
+    spdlog::info("Accepted a {} connection from {}", service_name_,
+                 s->endpoint());
     listener_.AddConnection(std::move(*s));
   }
 

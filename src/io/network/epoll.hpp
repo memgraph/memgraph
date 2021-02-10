@@ -2,13 +2,13 @@
 
 #include <errno.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <malloc.h>
 #include <sys/epoll.h>
 
 #include "io/network/socket.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
+#include "utils/logging.hpp"
 
 namespace io::network {
 
@@ -26,8 +26,8 @@ class Epoll {
     // epoll_create1 returns an error if there is a logical error in our code
     // (for example invalid flags) or if there is irrecoverable error. In both
     // cases it is best to terminate.
-    CHECK(epoll_fd_ != -1) << "Error on epoll create: (" << errno << ") "
-                           << strerror(errno);
+    MG_ASSERT(epoll_fd_ != -1, "Error on epoll create: ({}) {}", errno,
+              strerror(errno));
   }
 
   /**
@@ -49,8 +49,8 @@ class Epoll {
     // that case we could return an erorr and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
-    CHECK(!status) << "Error on epoll " << (modify ? "modify" : "add") << ": ("
-                   << errno << ") " << strerror(errno);
+    MG_ASSERT(!status, "Error on epoll {}: ({}) {}",
+              (modify ? "modify" : "add"), errno, strerror(errno));
   }
 
   /**
@@ -76,8 +76,8 @@ class Epoll {
     // that case we could return an erorr and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
-    CHECK(!status) << "Error on epoll delete: (" << errno << ") "
-                   << strerror(errno);
+    MG_ASSERT(!status, "Error on epoll delete: ({}) {}", errno,
+              strerror(errno));
   }
 
   /**
@@ -91,8 +91,8 @@ class Epoll {
   int Wait(Event *events, int max_events, int timeout) {
     auto num_events = epoll_wait(epoll_fd_, events, max_events, timeout);
     // If this check fails there was logical error in our code.
-    CHECK(num_events != -1 || errno == EINTR)
-        << "Error on epoll wait: (" << errno << ") " << strerror(errno);
+    MG_ASSERT(num_events != -1 || errno == EINTR,
+              "Error on epoll wait: ({}) {}", errno, strerror(errno));
     // num_events can be -1 if errno was EINTR (epoll_wait interrupted by signal
     // handler). We treat that as no events, so we return 0.
     return num_events == -1 ? 0 : num_events;

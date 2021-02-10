@@ -24,8 +24,12 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::CONSTRAINT;
     case query::AuthQuery::Privilege::DUMP:
       return auth::Permission::DUMP;
+    case query::AuthQuery::Privilege::REPLICATION:
+      return auth::Permission::REPLICATION;
+    case query::AuthQuery::Privilege::LOCK_PATH:
+      return auth::Permission::LOCK_PATH;
     case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
   }
 }
-}
+}  // namespace glue

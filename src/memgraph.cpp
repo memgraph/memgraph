@@ -12,8 +12,11 @@
 #include <string>
 #include <thread>
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
+#include <spdlog/common.h>
+#include <spdlog/sinks/daily_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
@@ -28,6 +31,7 @@
 #include "telemetry/telemetry.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -87,7 +91,6 @@ DEFINE_string(bolt_server_name_for_init, "",
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 DEFINE_string(data_directory, "mg_data",
               "Path to directory in which to save all permanent data.");
-DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_HIDDEN_string(
     log_link_basename, "",
     "Basename used for symlink creation to the last log file.");
@@ -162,6 +165,93 @@ DEFINE_VALIDATED_string(
       return false;
     });
 
+// Logging flags
+DEFINE_bool(also_log_to_stderr, false,
+            "Log messages go to stderr in addition to logfiles");
+DEFINE_string(log_file, "", "Path to where the log should be stored.");
+
+namespace {
+constexpr std::array log_level_mappings{
+    std::pair{"TRACE", spdlog::level::trace},
+    std::pair{"DEBUG", spdlog::level::debug},
+    std::pair{"INFO", spdlog::level::info},
+    std::pair{"WARNING", spdlog::level::warn},
+    std::pair{"ERROR", spdlog::level::err},
+    std::pair{"CRITICAL", spdlog::level::critical}};
+
+std::string GetAllowedLogLevelsString() {
+  std::vector<std::string> allowed_log_levels;
+  allowed_log_levels.reserve(log_level_mappings.size());
+  std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(),
+                 std::back_inserter(allowed_log_levels),
+                 [](const auto &mapping) { return mapping.first; });
+  return utils::Join(allowed_log_levels, ", ");
+}
+
+const std::string log_level_help_string = fmt::format(
+    "Minimum log level. Allowed values: {}", GetAllowedLogLevelsString());
+}  // namespace
+
+DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
+  if (value.empty()) {
+    std::cout << "Log level cannot be empty." << std::endl;
+    return false;
+  }
+
+  if (std::find_if(log_level_mappings.cbegin(), log_level_mappings.cend(),
+                   [&](const auto &mapping) {
+                     return mapping.first == value;
+                   }) == log_level_mappings.cend()) {
+    std::cout << "Invalid value for log level. Allowed values: "
+              << GetAllowedLogLevelsString() << std::endl;
+    return false;
+  }
+
+  return true;
+});
+
+namespace {
+void ParseLogLevel() {
+  const auto mapping_iter = std::find_if(
+      log_level_mappings.cbegin(), log_level_mappings.cend(),
+      [](const auto &mapping) { return mapping.first == FLAGS_log_level; });
+  MG_ASSERT(mapping_iter != log_level_mappings.cend(), "Invalid log level");
+
+  spdlog::set_level(mapping_iter->second);
+}
+
+// 5 weeks * 7 days
+constexpr auto log_retention_count = 35;
+
+void ConfigureLogging() {
+  std::vector<spdlog::sink_ptr> loggers;
+
+  if (FLAGS_also_log_to_stderr) {
+    loggers.emplace_back(
+        std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+  }
+
+  if (!FLAGS_log_file.empty()) {
+    // get local time
+    time_t current_time;
+    struct tm *local_time{nullptr};
+
+    time(&current_time);
+    local_time = localtime(&current_time);
+
+    loggers.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false,
+        log_retention_count));
+  }
+
+  spdlog::set_default_logger(std::make_shared<spdlog::logger>(
+      "memgraph_log", loggers.begin(), loggers.end()));
+
+  spdlog::flush_on(spdlog::level::trace);
+  ParseLogLevel();
+}
+}  // namespace
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 #ifdef MG_ENTERPRISE
@@ -228,8 +318,8 @@ class BoltSession final
     for (const auto &kv : params)
       params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifdef MG_ENTERPRISE
-    audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "",
-                       query, storage::PropertyValue(params_pv));
+    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query,
+                       storage::PropertyValue(params_pv));
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv);
@@ -821,18 +911,12 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
     shutdown_fun();
   };
 
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate,
-                                              shutdown, block_shutdown_signals))
-      << "Unable to register SIGTERM handler!";
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown,
-                                              block_shutdown_signals))
-      << "Unable to register SIGINT handler!";
-
-  // Setup SIGUSR1 to be used for reopening log files, when e.g. logrotate
-  // rotates our logs.
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::User1, []() {
-    google::CloseLogDestination(google::INFO);
-  })) << "Unable to register SIGUSR1 handler!";
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(
+                utils::Signal::Terminate, shutdown, block_shutdown_signals),
+            "Unable to register SIGTERM handler!");
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(
+                utils::Signal::Interupt, shutdown, block_shutdown_signals),
+            "Unable to register SIGINT handler!");
 }
 
 int main(int argc, char **argv) {
@@ -844,16 +928,14 @@ int main(int argc, char **argv) {
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  google::InitGoogleLogging(argv[0]);
-  google::SetLogDestination(google::INFO, FLAGS_log_file.c_str());
-  google::SetLogSymlink(google::INFO, FLAGS_log_link_basename.c_str());
+  ConfigureLogging();
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
 
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  CHECK(program_name);
+  MG_ASSERT(program_name);
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
@@ -870,16 +952,16 @@ int main(int argc, char **argv) {
       auto gil = py::EnsureGIL();
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
-        LOG(ERROR) << "Unable to load support for embedded Python: "
-                   << *maybe_exc;
+        spdlog::error("Unable to load support for embedded Python: {}",
+                      *maybe_exc);
       }
     } else {
-      LOG(ERROR)
-          << "Unable to load support for embedded Python: missing directory "
-          << py_support_dir;
+      spdlog::error(
+          "Unable to load support for embedded Python: missing directory {}",
+          py_support_dir);
     }
   } catch (const std::filesystem::filesystem_error &e) {
-    LOG(ERROR) << "Unable to load support for embedded Python: " << e.what();
+    spdlog::error("Unable to load support for embedded Python: {}", e.what());
   }
 
   // Initialize the communication library.
@@ -896,14 +978,15 @@ int main(int argc, char **argv) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
         auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          LOG(WARNING) << "Running out of available RAM, only "
-                       << *free_ram / 1024 << " MB left.";
+          spdlog::warn("Running out of available RAM, only {} MB left",
+                       *free_ram / 1024);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
-      LOG(WARNING) << "You have an older kernel version (<3.14) or the /proc "
-                      "filesystem isn't available so remaining memory warnings "
-                      "won't be available.";
+      spdlog::warn(
+          "You have an older kernel version (<3.14) or the /proc "
+          "filesystem isn't available so remaining memory warnings "
+          "won't be available.");
     }
   }
 
@@ -936,9 +1019,10 @@ int main(int argc, char **argv) {
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
-  CHECK(utils::SignalHandler::RegisterHandler(
-      utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }))
-      << "Unable to register SIGUSR2 handler!";
+  MG_ASSERT(
+      utils::SignalHandler::RegisterHandler(
+          utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }),
+      "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
 #endif
@@ -957,12 +1041,14 @@ int main(int argc, char **argv) {
           .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
           .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
-    LOG_IF(FATAL, FLAGS_storage_wal_enabled)
-        << "In order to use write-ahead-logging you must enable "
-           "periodic snapshots by setting the snapshot interval to a "
-           "value larger than 0!";
-    db_config.durability.snapshot_wal_mode =
-        storage::Config::Durability::SnapshotWalMode::DISABLED;
+    if (FLAGS_storage_wal_enabled) {
+      LOG_FATAL(
+          "In order to use write-ahead-logging you must enable "
+          "periodic snapshots by setting the snapshot interval to a "
+          "value larger than 0!");
+      db_config.durability.snapshot_wal_mode =
+          storage::Config::Durability::SnapshotWalMode::DISABLED;
+    }
   } else {
     if (FLAGS_storage_wal_enabled) {
       db_config.durability.snapshot_wal_mode = storage::Config::Durability::
@@ -1002,9 +1088,9 @@ int main(int argc, char **argv) {
   if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
     context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
     service_name = "BoltS";
-    std::cout << "Using secure Bolt connection (with SSL)" << std::endl;
+    spdlog::info("Using secure Bolt connection (with SSL)");
   } else {
-    std::cout << "Using non-secure Bolt connection (without SSL)" << std::endl;
+    spdlog::warn("Using non-secure Bolt connection (without SSL)");
   }
 
   ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)},
@@ -1025,16 +1111,17 @@ int main(int argc, char **argv) {
 
   // Handler for regular termination signals
   auto shutdown = [&server, &interpreter_context] {
-    // Server needs to be shutdown first and then the database. This prevents a
-    // race condition when a transaction is accepted during server shutdown.
+    // Server needs to be shutdown first and then the database. This prevents
+    // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
-    // After the server is notified to stop accepting and processing connections
-    // we tell the execution engine to stop processing all pending queries.
+    // After the server is notified to stop accepting and processing
+    // connections we tell the execution engine to stop processing all pending
+    // queries.
     query::Shutdown(&interpreter_context);
   };
   InitSignalHandlers(shutdown);
 
-  CHECK(server.Start()) << "Couldn't start the Bolt server!";
+  MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   server.AwaitShutdown();
   query::procedure::gModuleRegistry.UnloadAllModules();
 

@@ -6,11 +6,14 @@
  */
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "utils/rw_lock.hpp"
 
 namespace utils {
 
@@ -152,7 +155,11 @@ class InputFile {
 /// written to permanent storage.
 ///
 /// This class *isn't* thread safe. It is implemented as a wrapper around low
-/// level system calls used for file manipulation.
+/// level system calls used for file manipulation. It allows concurrent
+/// READING of the file that is being written. To read the file, disable the
+/// flushing of the internal buffer using `DisableFlushing`. Don't forget to
+/// enable flushing again after you're done with reading using the
+/// 'EnableFlushing' method!
 class OutputFile {
  public:
   enum class Mode {
@@ -220,14 +227,37 @@ class OutputFile {
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
 
+  /// Disable flushing of the internal buffer.
+  void DisableFlushing();
+
+  /// Enable flushing of the internal buffer.
+  /// Before the flushing is enabled, the internal buffer
+  /// is flushed.
+  void EnableFlushing();
+
+  /// Try flushing the internal buffer.
+  void TryFlushing();
+
+  /// Get the internal buffer with its current size.
+  std::pair<const uint8_t *, size_t> CurrentBuffer() const;
+
+  /// Get the size of the file.
+  size_t GetSize();
+
  private:
   void FlushBuffer(bool force_flush);
+  void FlushBufferInternal();
+
+  size_t SeekFile(Position position, ssize_t offset);
 
   int fd_{-1};
   size_t written_since_last_sync_{0};
   std::filesystem::path path_;
   uint8_t buffer_[kFileBufferSize];
-  size_t buffer_position_{0};
+  std::atomic<size_t> buffer_position_{0};
+
+  // Flushing buffer should be a higher priority
+  utils::RWLock flush_lock_{RWLock::Priority::WRITE};
 };
 
 }  // namespace utils

@@ -404,7 +404,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       auto res = function.function_(arguments, function.arguments_.size(),
                                     function_ctx);
-      CHECK(res.GetMemoryResource() == ctx_->memory);
+      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
       return res;
     } else {
       TypedValue::TVector arguments(ctx_->memory);
@@ -414,7 +414,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       auto res =
           function.function_(arguments.data(), arguments.size(), function_ctx);
-      CHECK(res.GetMemoryResource() == ctx_->memory);
+      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
       return res;
     }
   }

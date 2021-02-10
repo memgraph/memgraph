@@ -8,14 +8,13 @@
 #include <utility>
 #include <vector>
 
-#include <glog/logging.h>
-
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace query {
@@ -468,7 +467,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
                 vertex.OutEdges(storage::View::OLD));
           }
           auto &maybe_edges = *maybe_edge_iterable;
-          CHECK(maybe_edges.HasValue()) << "Invalid database state!";
+          MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
           auto current_edge_iter = maybe_current_edge_iter
                                        ? *maybe_current_edge_iter
                                        : maybe_edges->begin();
