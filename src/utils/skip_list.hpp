@@ -122,7 +122,7 @@ size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
 /// For N small enough (arbitrarily chosen to be 500), we will just use the
 /// lowest layer to get the exact numbers. Mostly because this makes writing
 /// tests easier.
-constexpr uint64_t SkipListLayerForCountEstimation(uint64_t N) {
+constexpr uint64_t SkipListLayerForCountEstimation(const uint64_t N) {
   if (N <= 500) return 1;
   return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
 }
@@ -131,7 +131,7 @@ constexpr uint64_t SkipListLayerForCountEstimation(uint64_t N) {
 /// that it uses slightly higher layers for estimation because the
 /// `average_number_of_equals` estimate has a larger time complexity than the
 /// `*count` estimates.
-constexpr uint64_t SkipListLayerForAverageEqualsEstimation(uint64_t N) {
+constexpr uint64_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
   if (N <= 500) return 1;
   return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1),
                   utils::kSkipListMaxHeight);
@@ -743,7 +743,7 @@ class SkipList final {
 
     /// Estimates the average number of objects in the list that have the same
     /// value using the provided equality operator. E.g., if the objects are:
-    /// 1, 2, 2, 3, 3, 3; the average number of queals is 2.
+    /// 1, 2, 2, 3, 3, 3; the average number of equals is 2.
     ///
     /// The items in the list must already be ordered by the field that is used
     /// in the equality operator. The default layer is chosen to optimize
@@ -1175,8 +1175,8 @@ class SkipList final {
   uint64_t estimate_average_number_of_equals(
       const TCallable &equal_cmp, int max_layer_for_estimation) const {
     MG_ASSERT(max_layer_for_estimation >= 1 &&
-          max_layer_for_estimation <= kSkipListMaxHeight,
-        "Invalid layer for SkipList count estimation!");
+                  max_layer_for_estimation <= kSkipListMaxHeight,
+              "Invalid layer for SkipList count estimation!");
 
     // We need to traverse some nodes to make the calculation correct, so find
     // the first layer that has some nodes, starting from the hinted layer.
