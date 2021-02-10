@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
+#include "utils/math.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/timer.hpp"
 
@@ -660,5 +661,214 @@ TEST(SkipList, EstimateRangeCount) {
     uint64_t count =
         acc.estimate_range_count<int64_t>(std::nullopt, std::nullopt, 1);
     ASSERT_EQ(count, kMaxElements * kElementMembers);
+  }
+}
+
+template <typename TElem, typename TCmp>
+void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list,
+                                            const TCmp &cmp) {
+  std::cout << "List size: " << list->size() << std::endl;
+  std::cout << "The index will use layer "
+            << utils::SkipListLayerForAverageEqualsEstimation(list->size())
+            << std::endl;
+  auto acc = list->access();
+  for (int layer = 1; layer <= utils::kSkipListMaxHeight; ++layer) {
+    utils::Timer timer;
+    auto estimate = acc.estimate_average_number_of_equals(cmp, layer);
+    auto duration = timer.Elapsed().count();
+    std::cout << "Estimate on layer " << layer << " is " << estimate << " in "
+              << duration << std::endl;
+  }
+}
+
+TEST(SkipList, EstimateAverageNumberOfEquals1) {
+  utils::SkipList<Counter> list;
+
+  // ~500k elements will yield an expected maximum height of 19.
+  const int kMaxElements = 1000;
+
+  // Create a list that has 1, then 2, then 3, then 4, ..., up to
+  // `kMaxElements` same keys next to each other.
+  {
+    auto acc = list.access();
+    for (int64_t i = 1; i <= kMaxElements; ++i) {
+      for (int64_t j = 1; j <= i; ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  // There are `kMaxElements * (kMaxElements + 1) / 2` members in the list.
+  ASSERT_EQ(list.size(), kMaxElements * (kMaxElements + 1) / 2);
+
+  // Benchmark the estimation function.
+  BenchmarkEstimateAverageNumberOfEquals(
+      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+
+  // Verify that the estimate on the lowest layer is correct.
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_average_number_of_equals(
+        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    // There are `kMaxElements` unique elements when observing the data with
+    // the specified equation operator so we divide the number of elements with
+    // `kMaxElements`.
+    ASSERT_EQ(list.size(), kMaxElements * (kMaxElements + 1) / 2);
+    ASSERT_EQ(count, (kMaxElements + 1) / 2);
+  }
+}
+
+TEST(SkipList, EstimateAverageNumberOfEquals2) {
+  utils::SkipList<Counter> list;
+
+  // 100k elements will yield an expected maximum height of 17.
+  const int kMaxElements = 100000;
+  const int kElementMembers = 1;
+
+  // Create a list that has `kMaxElements` sets of `kElementMembers` items that
+  // have same keys.
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      for (int64_t j = 0; j < kElementMembers; ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  // There are `kMaxElements * kElementMembers` members in the list.
+  ASSERT_EQ(list.size(), kMaxElements * kElementMembers);
+
+  // Benchmark the estimation function.
+  BenchmarkEstimateAverageNumberOfEquals(
+      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+
+  // Verify that the estimate on the lowest layer is correct.
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_average_number_of_equals(
+        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    ASSERT_EQ(count, kElementMembers);
+  }
+}
+
+TEST(SkipList, EstimateAverageNumberOfEquals3) {
+  utils::SkipList<Counter> list;
+
+  // 100k elements will yield an expected maximum height of 17
+  const int kMaxElements = 100;
+  const int kElementMembers = 1000;
+
+  // Create a list that has `kMaxElements` sets of `kElementMembers` items that
+  // have same keys.
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      for (int64_t j = 0; j < kElementMembers; ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  // There are `kMaxElements * kElementMembers` members in the list.
+  ASSERT_EQ(list.size(), kMaxElements * kElementMembers);
+
+  // Benchmark the estimation function.
+  BenchmarkEstimateAverageNumberOfEquals(
+      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+
+  // Verify that the estimate on the lowest layer is correct.
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_average_number_of_equals(
+        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    ASSERT_EQ(count, kElementMembers);
+  }
+}
+
+TEST(SkipList, EstimateAverageNumberOfEquals4) {
+  utils::SkipList<Counter> list;
+
+  // ~300k elements will yield an expected maximum height of 18.
+  const int kMaxElements = 100000;
+
+  // Create a list that has `kMaxElements` sets of 1 or 3 items that have same
+  // keys. The bias is 70% for a set that has 3 items, and 30% for a set that
+  // has 1 items.
+  std::mt19937 gen{std::random_device{}()};
+  std::uniform_real_distribution<> dis(0.0, 1.0);
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      for (int64_t j = 0; j < (dis(gen) < 0.7 ? 3 : 1); ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  // Benchmark the estimation function.
+  BenchmarkEstimateAverageNumberOfEquals(
+      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+
+  // Verify that the estimate on the lowest layer is correct.
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_average_number_of_equals(
+        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    // Because the test is randomized, the exact estimate on the lowest layer
+    // can't be known. But it definitely must be between 1 and 3 because the
+    // clusters of items are of sizes 1 and 3.
+    ASSERT_GE(count, 1);
+    ASSERT_LE(count, 3);
+  }
+}
+
+TEST(SkipList, EstimateAverageNumberOfEquals5) {
+  utils::SkipList<Counter> list;
+
+  // ~500k elements will yield an expected maximum height of 19.
+  const int kMaxElements = 1000000;
+
+  // Create a list that has `kMaxElements` items that have same keys.
+  {
+    auto acc = list.access();
+    for (int64_t i = 1; i <= kMaxElements; ++i) {
+      auto ret = acc.insert({1, i});
+      ASSERT_NE(ret.first, acc.end());
+      ASSERT_EQ(ret.first->key, 1);
+      ASSERT_EQ(ret.first->value, i);
+      ASSERT_TRUE(ret.second);
+    }
+  }
+
+  // There are `kMaxElements` members in the list.
+  ASSERT_EQ(list.size(), kMaxElements);
+
+  // Benchmark the estimation function.
+  BenchmarkEstimateAverageNumberOfEquals(
+      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+
+  // Verify that the estimate on the lowest layer is correct.
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_average_number_of_equals(
+        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    ASSERT_EQ(count, kMaxElements);
   }
 }
