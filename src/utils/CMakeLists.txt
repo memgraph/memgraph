@@ -9,3 +9,6 @@ set(utils_src_files
 
 add_library(mg-utils STATIC ${utils_src_files})
 target_link_libraries(mg-utils stdc++fs Threads::Threads spdlog fmt gflags uuid)
+
+add_library(new-delete STATIC new_delete.cpp)
+target_link_libraries(new-delete jemalloc)
