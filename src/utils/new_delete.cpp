@@ -8,7 +8,6 @@
 #endif
 
 #include "utils/likely.hpp"
-#include "utils/logging.hpp"
 
 namespace {
 void *newImpl(std::size_t size) {
