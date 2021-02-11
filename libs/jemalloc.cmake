@@ -37,8 +37,7 @@ set (SRCS
 )
 
 add_library(jemalloc ${SRCS})
-target_include_directories(jemalloc PRIVATE ${JEMALLOC_DIR}/include)
-target_include_directories(jemalloc SYSTEM PUBLIC include)
+target_include_directories(jemalloc PUBLIC "${JEMALLOC_DIR}/include")
 
 target_compile_definitions(jemalloc PRIVATE -DJEMALLOC_NO_PRIVATE_NAMESPACE)
 
