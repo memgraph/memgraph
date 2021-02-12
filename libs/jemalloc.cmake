@@ -1,6 +1,6 @@
-set (JEMALLOC_DIR "${LIB_DIR}/jemalloc")
+set(JEMALLOC_DIR "${LIB_DIR}/jemalloc")
 
-set (SRCS
+set(JEMALLOC_SRCS
     ${JEMALLOC_DIR}/src/arena.c
     ${JEMALLOC_DIR}/src/background_thread.c
     ${JEMALLOC_DIR}/src/base.c
@@ -36,12 +36,12 @@ set (SRCS
     ${JEMALLOC_DIR}/src/safety_check.c
 )
 
-add_library(jemalloc ${SRCS})
+add_library(jemalloc ${JEMALLOC_SRCS})
 target_include_directories(jemalloc PUBLIC "${JEMALLOC_DIR}/include")
 
 target_compile_definitions(jemalloc PRIVATE -DJEMALLOC_NO_PRIVATE_NAMESPACE)
 
-if (CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG")
+if (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
     target_compile_definitions(jemalloc PRIVATE -DJEMALLOC_DEBUG=1 -DJEMALLOC_PROF=1)
 endif()
 
