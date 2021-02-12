@@ -19,13 +19,13 @@ void *newImpl(std::size_t size) {
   throw std::bad_alloc{};
 }
 
-void *newNoExcept(std::size_t size) noexcept { return malloc(size); }
+void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
 
 void deleteImpl(void *ptr) noexcept { free(ptr); }
 
 #if USE_JEMALLOC
 
-void deleteSized(void *ptr, std::size_t size) noexcept {
+void deleteSized(void *ptr, const std::size_t size) noexcept {
   if (UNLIKELY(ptr == nullptr)) {
     return;
   }
@@ -35,7 +35,9 @@ void deleteSized(void *ptr, std::size_t size) noexcept {
 
 #else
 
-void deleteSized(void *ptr, std::size_t size) noexcept { free(ptr); }
+void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept {
+  free(ptr);
+}
 
 #endif
 
@@ -45,11 +47,13 @@ void *operator new(std::size_t size) { return newImpl(size); }
 
 void *operator new[](std::size_t size) { return newImpl(size); }
 
-void *operator new(std::size_t size, const std::nothrow_t &) noexcept {
+void *operator new(std::size_t size,
+                   const std::nothrow_t & /*unused*/) noexcept {
   return newNoExcept(size);
 }
 
-void *operator new[](std::size_t size, const std::nothrow_t &) noexcept {
+void *operator new[](std::size_t size,
+                     const std::nothrow_t & /*unused*/) noexcept {
   return newNoExcept(size);
 }
 
