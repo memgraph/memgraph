@@ -1,5 +1,6 @@
 #pragma once
 
+#undef SPDLOG_ACTIVE_LEVEL
 #ifndef NDEBUG
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #else
