@@ -1,10 +1,10 @@
 ---
 Language:     Cpp
 BasedOnStyle: Google
-Standard:     "C++11"
+Standard:     "c++20"
 UseTab:       Never
 DerivePointerAlignment: false
 PointerAlignment: Right
-ColumnLimit : 80
+ColumnLimit : 120
 IncludeBlocks: Preserve
 ...
