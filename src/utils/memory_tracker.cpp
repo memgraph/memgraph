@@ -82,7 +82,7 @@ void MemoryTracker::SetOrRaiseHardLimit(const int64_t limit) {
 }
 
 void MemoryTracker::Alloc(const int64_t size) {
-  MG_ASSERT(size > 0, "Negative size passed to the MemoryTracker");
+  MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
   if (BlockerInThread::IsBlocked()) {
     return;
