@@ -30,14 +30,6 @@ for file in $modified_files; do
   if [ $code -ne 0 ]; then
     break
   fi
-
-  echo "Running clang-tidy..."
-  $project_folder/tools/git-clang-tidy $tmpdir/$file
-  code=$?
-
-  if [ $code -ne 0 ]; then
-   break
-  fi
 done;
 
 return $code
