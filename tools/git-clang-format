@@ -2,22 +2,46 @@
 import re
 import sys
 import subprocess
+import difflib
 
-# Run this script through arc lint
 
-MESSAGE = "Wrong formatting!"
+def colorize(diff_lines):
+    def bold(s):
+        return '\x1b[1m' + s + '\x1b[0m'
 
-data = subprocess.run(
-    ["clang-format", "--output-replacements-xml", sys.argv[1]],
-    stdout=subprocess.PIPE, check=True).stdout.decode(
-        "utf-8").strip().split("\n")
-has_error = False
-for row in data:
-    match = re.match(
-        r"^<replacement offset='([0-9]+)' length='([0-9]+)'>", row)
-    if match:
-        has_error = True
-        offset = int(match.group(1)) + int(match.group(2))
-        print("warning:{}:{}".format(offset, MESSAGE))
+    def cyan(s):
+        return '\x1b[36m' + s + '\x1b[0m'
 
-sys.exit(1 if has_error else 0)
+    def green(s):
+        return '\x1b[32m' + s + '\x1b[0m'
+
+    def red(s):
+        return '\x1b[31m' + s + '\x1b[0m'
+
+    for line in diff_lines:
+        if line[:4] in ['--- ', '+++ ']:
+            yield bold(line)
+        elif line.startswith('@@ '):
+            yield cyan(line)
+        elif line.startswith('+'):
+            yield green(line)
+        elif line.startswith('-'):
+            yield red(line)
+        else:
+            yield line
+
+
+proc = subprocess.Popen(
+    ["clang-format", sys.argv[1]],
+    stdout=subprocess.PIPE, encoding='utf-8')
+with open(sys.argv[1], 'r') as original:
+    diff_lines = list(
+        difflib.unified_diff(
+            original.readlines(),
+            proc.stdout.readlines(),
+            fromfile="unformatted",
+            tofile="formatted",
+            n=3))
+
+sys.stdout.writelines(colorize(diff_lines))
+sys.exit(1 if len(diff_lines) > 0 else 0)
