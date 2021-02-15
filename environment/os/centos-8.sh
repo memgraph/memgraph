@@ -45,6 +45,7 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     which mono-complete dotnet-sdk-3.1 nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
+    autoconf # for jemalloc code generation
 )
 list() {
     echo "$1"
