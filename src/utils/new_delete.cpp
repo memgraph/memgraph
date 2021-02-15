@@ -35,9 +35,7 @@ void deleteSized(void *ptr, const std::size_t size) noexcept {
 
 #else
 
-void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept {
-  free(ptr);
-}
+void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); }
 
 #endif
 
@@ -47,24 +45,14 @@ void *operator new(std::size_t size) { return newImpl(size); }
 
 void *operator new[](std::size_t size) { return newImpl(size); }
 
-void *operator new(std::size_t size,
-                   const std::nothrow_t & /*unused*/) noexcept {
-  return newNoExcept(size);
-}
+void *operator new(std::size_t size, const std::nothrow_t & /*unused*/) noexcept { return newNoExcept(size); }
 
-void *operator new[](std::size_t size,
-                     const std::nothrow_t & /*unused*/) noexcept {
-  return newNoExcept(size);
-}
+void *operator new[](std::size_t size, const std::nothrow_t & /*unused*/) noexcept { return newNoExcept(size); }
 
 void operator delete(void *ptr) noexcept { deleteImpl(ptr); }
 
 void operator delete[](void *ptr) noexcept { deleteImpl(ptr); }
 
-void operator delete(void *ptr, std::size_t size) noexcept {
-  deleteSized(ptr, size);
-}
+void operator delete(void *ptr, std::size_t size) noexcept { deleteSized(ptr, size); }
 
-void operator delete[](void *ptr, std::size_t size) noexcept {
-  deleteSized(ptr, size);
-}
+void operator delete[](void *ptr, std::size_t size) noexcept { deleteSized(ptr, size); }
