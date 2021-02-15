@@ -38,7 +38,7 @@ if (MG_ENTERPRISE)
 endif()
 
 set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication)
+    telemetry_lib mg-query mg-communication mg-new-delete)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
   set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
