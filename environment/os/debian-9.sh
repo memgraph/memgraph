@@ -41,6 +41,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
+    autoconf # for jemalloc code generation
 )
 list() {
     echo "$1"
