@@ -287,14 +287,11 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   bool transaction_complete = false;
   uint64_t applied_deltas = 0;
 
-  // Only one thread can update and read the last_commit_timestamp on the replica
-  // so we can use the memory_order_relaxed
-  uint64_t last_commit_timestamp = storage_->last_commit_timestamp_.load(std::memory_order_relaxed);
   for (; !transaction_complete; ++applied_deltas) {
     SPDLOG_INFO("  Delta {}", applied_deltas);
     const auto [timestamp, delta] = ReadDelta(decoder);
 
-    if (timestamp <= last_commit_timestamp) {
+    if (storage_->timestamp_ != kTimestampInitialId && timestamp < storage_->timestamp_) {
       continue;
     }
 
