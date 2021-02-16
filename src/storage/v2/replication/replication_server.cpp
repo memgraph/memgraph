@@ -1,7 +1,9 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include <atomic>
+#include <filesystem>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -195,21 +197,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  auto [wal_info, path] = LoadWal(&decoder);
-  if (wal_info.seq_num == 0) {
-    storage_->uuid_ = wal_info.uuid;
-  }
-
-  // Check the seq number of the first wal file to see if it's the
-  // finalized form of the current wal on replica
-  if (storage_->wal_file_) {
-    if (storage_->wal_file_->SequenceNumber() == wal_info.seq_num && storage_->wal_file_->Path() != path) {
-      storage_->wal_file_->DeleteWal();
-    }
-    storage_->wal_file_.reset();
-  }
-
-  for (auto i = 1; i < wal_file_number; ++i) {
+  for (auto i = 0; i < wal_file_number; ++i) {
     LoadWal(&decoder);
   }
 
@@ -226,20 +214,6 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
   auto [wal_info, path] = LoadWal(&decoder);
-  if (wal_info.seq_num == 0) {
-    storage_->uuid_ = wal_info.uuid;
-  }
-
-  if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == wal_info.seq_num &&
-      storage_->wal_file_->Path() != path) {
-    // Delete the old wal file
-    storage_->file_retainer_.DeleteFile(storage_->wal_file_->Path());
-  }
-  MG_ASSERT(storage_->config_.durability.snapshot_wal_mode ==
-            Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
-  storage_->wal_file_.emplace(std::move(path), storage_->config_.items, &storage_->name_id_mapper_, wal_info.seq_num,
-                              wal_info.from_timestamp, wal_info.to_timestamp, wal_info.num_deltas,
-                              &storage_->file_retainer_);
 
   CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -247,14 +221,30 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
 std::pair<durability::WalInfo, std::filesystem::path> Storage::ReplicationServer::LoadWal(
     replication::Decoder *decoder) {
-  auto maybe_wal_path = decoder->ReadFile(storage_->wal_directory_, "_MAIN");
+  const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
+  utils::EnsureDir(temp_wal_directory);
+  auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
   MG_ASSERT(maybe_wal_path, "Failed to load WAL!");
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
+    if (wal_info.seq_num == 0) {
+      storage_->uuid_ = wal_info.uuid;
+    }
+
     if (wal_info.epoch_id != storage_->epoch_id_) {
       storage_->epoch_history_.emplace_back(wal_info.epoch_id, storage_->last_commit_timestamp_);
       storage_->epoch_id_ = std::move(wal_info.epoch_id);
+    }
+
+    if (storage_->wal_file_) {
+      if (storage_->wal_file_->SequenceNumber() != wal_info.seq_num) {
+        storage_->wal_file_->FinalizeWal();
+        storage_->wal_seq_num_ = wal_info.seq_num;
+        storage_->wal_file_.reset();
+      }
+    } else {
+      storage_->wal_seq_num_ = wal_info.seq_num;
     }
 
     durability::Decoder wal;
