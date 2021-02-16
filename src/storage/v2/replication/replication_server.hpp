@@ -23,8 +23,8 @@ class Storage::ReplicationServer {
   void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
-  std::pair<durability::WalInfo, std::filesystem::path> LoadWal(
-      replication::Decoder *decoder, durability::RecoveredIndicesAndConstraints *indices_constraints);
+  std::pair<durability::WalInfo, std::filesystem::path> LoadWal(replication::Decoder *decoder);
+  uint64_t ReadAndApplyDelta(durability::BaseDecoder *decoder);
 
   std::optional<communication::ServerContext> rpc_server_context_;
   std::optional<rpc::Server> rpc_server_;
