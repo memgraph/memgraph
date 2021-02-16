@@ -286,15 +286,21 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   bool transaction_complete = false;
   uint64_t applied_deltas = 0;
+  auto max_commit_timestamp = storage_->last_commit_timestamp_.load();
 
   for (; !transaction_complete; ++applied_deltas) {
-    SPDLOG_INFO("  Delta {}", applied_deltas);
     const auto [timestamp, delta] = ReadDelta(decoder);
+    if (timestamp > max_commit_timestamp) {
+      max_commit_timestamp = timestamp;
+    }
 
-    if (storage_->timestamp_ != kTimestampInitialId && timestamp < storage_->timestamp_) {
+    transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
+
+    if (timestamp < storage_->timestamp_) {
       continue;
     }
 
+    SPDLOG_INFO("  Delta {}", applied_deltas);
     switch (delta.type) {
       case durability::WalDeltaData::Type::VERTEX_CREATE: {
         spdlog::trace("       Create vertex {}", delta.vertex_create_delete.gid.AsUint());
@@ -537,10 +543,11 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         break;
       }
     }
-    transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
   }
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid data!");
+
+  storage_->last_commit_timestamp_ = max_commit_timestamp;
 
   return applied_deltas;
 }
