@@ -93,6 +93,8 @@ void MemoryTracker::Alloc(const int64_t size) {
     // Prevent recursion. Exception::ctor -> std::string -> new[] -> MemoryTracker::alloc
     BlockerInThread untrack_lock;
 
+    amount_.fetch_sub(size, std::memory_order_relaxed);
+
     throw OutOfMemoryException(
         fmt::format("Memory limit exceeded! Atempting to allocate a chunk of {} which would put the current "
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
