@@ -84,15 +84,12 @@ void MemoryTracker::SetOrRaiseHardLimit(const int64_t limit) {
 void MemoryTracker::Alloc(const int64_t size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
-  if (BlockerInThread::IsBlocked()) {
-    return;
-  }
-
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow() &&
+               !BlockerInThread::IsBlocked())) {
     // Prevent recursion. Exception::ctor -> std::string -> new[] -> MemoryTracker::alloc
     BlockerInThread untrack_lock;
 
@@ -105,12 +102,6 @@ void MemoryTracker::Alloc(const int64_t size) {
   UpdatePeak(will_be);
 }
 
-void MemoryTracker::Free(const int64_t size) {
-  if (BlockerInThread::IsBlocked()) {
-    return;
-  }
-
-  amount_.fetch_sub(size, std::memory_order_relaxed);
-}
+void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
 
 }  // namespace utils
