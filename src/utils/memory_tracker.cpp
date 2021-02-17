@@ -14,7 +14,7 @@ bool MemoryTrackerCanThrow() { return !std::uncaught_exceptions(); }
 
 std::string GetReadableSize(double size) {
   // TODO (antonio2368): Add support for base 1000 (KB, GB, TB...)
-  constexpr std::array units = {"B", "KiB", "GiB", "TiB"};
+  constexpr std::array units = {"B", "KiB", "MiB", "GiB", "TiB"};
   constexpr double delimiter = 1024;
 
   size_t i = 0;
@@ -55,12 +55,14 @@ MemoryTracker::~MemoryTracker() {
 
 void MemoryTracker::LogPeakMemoryUsage() const {
   // TODO (antonio2368): Make the size more readable
-  spdlog::info("Peak memory usage: {} bytes", peak_);
+  if (hard_limit_.load(std::memory_order_relaxed)) {
+    spdlog::info("Peak memory usage: {}", GetReadableSize(peak_));
+  }
 }
 
 void MemoryTracker::LogMemoryUsage(const int64_t current) {
   // TODO (antonio2368): Make the size more readable
-  spdlog::info("Current memory usage: {} bytes", current);
+  spdlog::info("Current memory usage: {}", GetReadableSize(current));
 }
 
 void MemoryTracker::UpdatePeak(const int64_t will_be) {
