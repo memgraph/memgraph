@@ -229,7 +229,7 @@ target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils)
+target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
 
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-utils)
