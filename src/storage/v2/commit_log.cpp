@@ -8,7 +8,7 @@ CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResour
   head_ = allocator_.allocate(1);
   allocator_.construct(head_);
   head_start_ = oldest_active / kIdsInBlock * kIdsInBlock;
-  next_start_ += kIdsInBlock;
+  next_start_ = head_start_ + kIdsInBlock;
 
   // set all the previous ids
   const auto field_idx = (oldest_active % kIdsInBlock) / kIdsInField;
