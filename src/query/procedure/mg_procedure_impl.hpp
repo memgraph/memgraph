@@ -56,8 +56,7 @@ struct mgp_value {
   /// Construct by copying query::TypedValue using utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
   /// @throw std::bad_alloc
-  mgp_value(const query::TypedValue &, const mgp_graph *,
-            utils::MemoryResource *);
+  mgp_value(const query::TypedValue &, const mgp_graph *, utils::MemoryResource *);
 
   /// Construct by copying storage::PropertyValue using utils::MemoryResource.
   /// @throw std::bad_alloc
@@ -112,14 +111,11 @@ struct mgp_list {
 
   explicit mgp_list(utils::MemoryResource *memory) : elems(memory) {}
 
-  mgp_list(utils::pmr::vector<mgp_value> &&elems, utils::MemoryResource *memory)
-      : elems(std::move(elems), memory) {}
+  mgp_list(utils::pmr::vector<mgp_value> &&elems, utils::MemoryResource *memory) : elems(std::move(elems), memory) {}
 
-  mgp_list(const mgp_list &other, utils::MemoryResource *memory)
-      : elems(other.elems, memory) {}
+  mgp_list(const mgp_list &other, utils::MemoryResource *memory) : elems(other.elems, memory) {}
 
-  mgp_list(mgp_list &&other, utils::MemoryResource *memory)
-      : elems(std::move(other.elems), memory) {}
+  mgp_list(mgp_list &&other, utils::MemoryResource *memory) : elems(std::move(other.elems), memory) {}
 
   mgp_list(mgp_list &&other) noexcept : elems(std::move(other.elems)) {}
 
@@ -131,9 +127,7 @@ struct mgp_list {
 
   ~mgp_list() = default;
 
-  utils::MemoryResource *GetMemoryResource() const noexcept {
-    return elems.get_allocator().GetMemoryResource();
-  }
+  utils::MemoryResource *GetMemoryResource() const noexcept { return elems.get_allocator().GetMemoryResource(); }
 
   // C++17 vector can work with incomplete type.
   utils::pmr::vector<mgp_value> elems;
@@ -145,15 +139,12 @@ struct mgp_map {
 
   explicit mgp_map(utils::MemoryResource *memory) : items(memory) {}
 
-  mgp_map(utils::pmr::map<utils::pmr::string, mgp_value> &&items,
-          utils::MemoryResource *memory)
+  mgp_map(utils::pmr::map<utils::pmr::string, mgp_value> &&items, utils::MemoryResource *memory)
       : items(std::move(items), memory) {}
 
-  mgp_map(const mgp_map &other, utils::MemoryResource *memory)
-      : items(other.items, memory) {}
+  mgp_map(const mgp_map &other, utils::MemoryResource *memory) : items(other.items, memory) {}
 
-  mgp_map(mgp_map &&other, utils::MemoryResource *memory)
-      : items(std::move(other.items), memory) {}
+  mgp_map(mgp_map &&other, utils::MemoryResource *memory) : items(std::move(other.items), memory) {}
 
   mgp_map(mgp_map &&other) noexcept : items(std::move(other.items)) {}
 
@@ -165,9 +156,7 @@ struct mgp_map {
 
   ~mgp_map() = default;
 
-  utils::MemoryResource *GetMemoryResource() const noexcept {
-    return items.get_allocator().GetMemoryResource();
-  }
+  utils::MemoryResource *GetMemoryResource() const noexcept { return items.get_allocator().GetMemoryResource(); }
 
   // Unfortunately using incomplete type with map is undefined, so mgp_map
   // needs to be defined after mgp_value.
@@ -215,8 +204,7 @@ struct mgp_vertex {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::VertexAccessor>);
 
-  mgp_vertex(query::VertexAccessor v, const mgp_graph *graph,
-             utils::MemoryResource *memory) noexcept
+  mgp_vertex(query::VertexAccessor v, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(v), graph(graph) {}
 
   mgp_vertex(const mgp_vertex &other, utils::MemoryResource *memory) noexcept
@@ -225,8 +213,7 @@ struct mgp_vertex {
   mgp_vertex(mgp_vertex &&other, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other) noexcept
-      : memory(other.memory), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
   /// Copy construction without utils::MemoryResource is not allowed.
   mgp_vertex(const mgp_vertex &) = delete;
@@ -253,30 +240,17 @@ struct mgp_edge {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::EdgeAccessor>);
 
-  mgp_edge(const query::EdgeAccessor &impl, const mgp_graph *graph,
-           utils::MemoryResource *memory) noexcept
-      : memory(memory),
-        impl(impl),
-        from(impl.From(), graph, memory),
-        to(impl.To(), graph, memory) {}
+  mgp_edge(const query::EdgeAccessor &impl, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
   mgp_edge(const mgp_edge &other, utils::MemoryResource *memory) noexcept
-      : memory(memory),
-        impl(other.impl),
-        from(other.from, memory),
-        to(other.to, memory) {}
+      : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
 
   mgp_edge(mgp_edge &&other, utils::MemoryResource *memory) noexcept
-      : memory(other.memory),
-        impl(other.impl),
-        from(std::move(other.from), memory),
-        to(std::move(other.to), memory) {}
+      : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
 
   mgp_edge(mgp_edge &&other) noexcept
-      : memory(other.memory),
-        impl(other.impl),
-        from(std::move(other.from)),
-        to(std::move(other.to)) {}
+      : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
 
   /// Copy construction without utils::MemoryResource is not allowed.
   mgp_edge(const mgp_edge &) = delete;
@@ -298,18 +272,15 @@ struct mgp_path {
   /// Allocator type so that STL containers are aware that we need one.
   using allocator_type = utils::Allocator<mgp_path>;
 
-  explicit mgp_path(utils::MemoryResource *memory)
-      : vertices(memory), edges(memory) {}
+  explicit mgp_path(utils::MemoryResource *memory) : vertices(memory), edges(memory) {}
 
   mgp_path(const mgp_path &other, utils::MemoryResource *memory)
       : vertices(other.vertices, memory), edges(other.edges, memory) {}
 
   mgp_path(mgp_path &&other, utils::MemoryResource *memory)
-      : vertices(std::move(other.vertices), memory),
-        edges(std::move(other.edges), memory) {}
+      : vertices(std::move(other.vertices), memory), edges(std::move(other.edges), memory) {}
 
-  mgp_path(mgp_path &&other) noexcept
-      : vertices(std::move(other.vertices)), edges(std::move(other.edges)) {}
+  mgp_path(mgp_path &&other) noexcept : vertices(std::move(other.vertices)), edges(std::move(other.edges)) {}
 
   /// Copy construction without utils::MemoryResource is not allowed.
   mgp_path(const mgp_path &) = delete;
@@ -319,9 +290,7 @@ struct mgp_path {
 
   ~mgp_path() = default;
 
-  utils::MemoryResource *GetMemoryResource() const noexcept {
-    return vertices.get_allocator().GetMemoryResource();
-  }
+  utils::MemoryResource *GetMemoryResource() const noexcept { return vertices.get_allocator().GetMemoryResource(); }
 
   utils::pmr::vector<mgp_vertex> vertices;
   utils::pmr::vector<mgp_edge> edges;
@@ -329,24 +298,18 @@ struct mgp_path {
 
 struct mgp_result_record {
   /// Result record signature as defined for mgp_proc.
-  const utils::pmr::map<utils::pmr::string,
-                        std::pair<const query::procedure::CypherType *, bool>>
-      *signature;
+  const utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> *signature;
   utils::pmr::map<utils::pmr::string, query::TypedValue> values;
 };
 
 struct mgp_result {
   explicit mgp_result(
-      const utils::pmr::map<
-          utils::pmr::string,
-          std::pair<const query::procedure::CypherType *, bool>> *signature,
+      const utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> *signature,
       utils::MemoryResource *mem)
       : signature(signature), rows(mem) {}
 
   /// Result record signature as defined for mgp_proc.
-  const utils::pmr::map<utils::pmr::string,
-                        std::pair<const query::procedure::CypherType *, bool>>
-      *signature;
+  const utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> *signature;
   utils::pmr::vector<mgp_result_record> rows;
   std::optional<utils::pmr::string> error_msg;
 };
@@ -367,32 +330,23 @@ struct mgp_properties_iterator {
 
   utils::MemoryResource *memory;
   const mgp_graph *graph;
-  std::remove_reference_t<decltype(
-      *std::declval<query::VertexAccessor>().Properties(graph->view))>
-      pvs;
+  std::remove_reference_t<decltype(*std::declval<query::VertexAccessor>().Properties(graph->view))> pvs;
   decltype(pvs.begin()) current_it;
   std::optional<std::pair<utils::pmr::string, mgp_value>> current;
   mgp_property property{nullptr, nullptr};
 
   // Construct with no properties.
-  explicit mgp_properties_iterator(const mgp_graph *graph,
-                                   utils::MemoryResource *memory)
+  explicit mgp_properties_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
       : memory(memory), graph(graph), current_it(pvs.begin()) {}
 
   // May throw who the #$@! knows what because PropertyValueStore doesn't
   // document what it throws, and it may surely throw some piece of !@#$
   // exception because it's built on top of STL and other libraries.
-  mgp_properties_iterator(const mgp_graph *graph, decltype(pvs) pvs,
-                          utils::MemoryResource *memory)
-      : memory(memory),
-        graph(graph),
-        pvs(std::move(pvs)),
-        current_it(this->pvs.begin()) {
+  mgp_properties_iterator(const mgp_graph *graph, decltype(pvs) pvs, utils::MemoryResource *memory)
+      : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
-      current.emplace(
-          utils::pmr::string(graph->impl->PropertyToName(current_it->first),
-                             memory),
-          mgp_value(current_it->second, memory));
+      current.emplace(utils::pmr::string(graph->impl->PropertyToName(current_it->first), memory),
+                      mgp_value(current_it->second, memory));
       property.name = current->first.c_str();
       property.value = &current->second;
     }
@@ -414,11 +368,9 @@ struct mgp_edges_iterator {
 
   // Hopefully mgp_vertex copy constructor remains noexcept, so that we can
   // have everything noexcept here.
-  static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &,
-                                                utils::MemoryResource *>);
+  static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &, utils::MemoryResource *>);
 
-  mgp_edges_iterator(const mgp_vertex &v,
-                     utils::MemoryResource *memory) noexcept
+  mgp_edges_iterator(const mgp_vertex &v, utils::MemoryResource *memory) noexcept
       : memory(memory), source_vertex(v, memory) {}
 
   mgp_edges_iterator(mgp_edges_iterator &&other) noexcept
@@ -440,13 +392,9 @@ struct mgp_edges_iterator {
 
   utils::MemoryResource *memory;
   mgp_vertex source_vertex;
-  std::optional<std::remove_reference_t<decltype(
-      *source_vertex.impl.InEdges(source_vertex.graph->view))>>
-      in;
+  std::optional<std::remove_reference_t<decltype(*source_vertex.impl.InEdges(source_vertex.graph->view))>> in;
   std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<decltype(
-      *source_vertex.impl.OutEdges(source_vertex.graph->view))>>
-      out;
+  std::optional<std::remove_reference_t<decltype(*source_vertex.impl.OutEdges(source_vertex.graph->view))>> out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
 };
@@ -456,10 +404,7 @@ struct mgp_vertices_iterator {
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
-      : memory(memory),
-        graph(graph),
-        vertices(graph->impl->Vertices(graph->view)),
-        current_it(vertices.begin()) {
+      : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);
     }
@@ -484,24 +429,13 @@ struct mgp_proc {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory)
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name,
-           std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
-                              mgp_memory *)>
-               cb,
+  mgp_proc(const char *name, std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
            utils::MemoryResource *memory)
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -530,22 +464,13 @@ struct mgp_proc {
   /// Name of the procedure.
   utils::pmr::string name;
   /// Entry-point for the procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *,
-                     mgp_memory *)>
-      cb;
+  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
-  utils::pmr::vector<
-      std::pair<utils::pmr::string, const query::procedure::CypherType *>>
-      args;
+  utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
-  utils::pmr::vector<
-      std::tuple<utils::pmr::string, const query::procedure::CypherType *,
-                 query::TypedValue>>
-      opt_args;
+  utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
-  utils::pmr::map<utils::pmr::string,
-                  std::pair<const query::procedure::CypherType *, bool>>
-      results;
+  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
 struct mgp_module {
@@ -553,11 +478,9 @@ struct mgp_module {
 
   explicit mgp_module(utils::MemoryResource *memory) : procedures(memory) {}
 
-  mgp_module(const mgp_module &other, utils::MemoryResource *memory)
-      : procedures(other.procedures, memory) {}
+  mgp_module(const mgp_module &other, utils::MemoryResource *memory) : procedures(other.procedures, memory) {}
 
-  mgp_module(mgp_module &&other, utils::MemoryResource *memory)
-      : procedures(std::move(other.procedures), memory) {}
+  mgp_module(mgp_module &&other, utils::MemoryResource *memory) : procedures(std::move(other.procedures), memory) {}
 
   mgp_module(const mgp_module &) = default;
   mgp_module(mgp_module &&) = default;

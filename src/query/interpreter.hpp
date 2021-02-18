@@ -39,16 +39,14 @@ class AuthQueryHandler {
 
   /// Return false if the user already exists.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool CreateUser(const std::string &username,
-                          const std::optional<std::string> &password) = 0;
+  virtual bool CreateUser(const std::string &username, const std::optional<std::string> &password) = 0;
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool DropUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetPassword(const std::string &username,
-                           const std::optional<std::string> &password) = 0;
+  virtual void SetPassword(const std::string &username, const std::optional<std::string> &password) = 0;
 
   /// Return false if the role already exists.
   /// @throw QueryRuntimeException if an error ocurred.
@@ -65,37 +63,28 @@ class AuthQueryHandler {
   virtual std::vector<TypedValue> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetRolenameForUser(
-      const std::string &username) = 0;
+  virtual std::optional<std::string> GetRolenameForUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<TypedValue> GetUsernamesForRole(
-      const std::string &rolename) = 0;
+  virtual std::vector<TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username,
-                       const std::string &rolename) = 0;
+  virtual void SetRole(const std::string &username, const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void ClearRole(const std::string &username) = 0;
 
-  virtual std::vector<std::vector<TypedValue>> GetPrivileges(
-      const std::string &user_or_role) = 0;
+  virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(
-      const std::string &user_or_role,
-      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+  virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(
-      const std::string &user_or_role,
-      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokePrivilege(
-      const std::string &user_or_role,
-      const std::vector<AuthQuery::Privilege> &privileges) = 0;
+  virtual void RevokePrivilege(const std::string &user_or_role,
+                               const std::vector<AuthQuery::Privilege> &privileges) = 0;
 };
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
@@ -119,18 +108,14 @@ class ReplicationQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetReplicationRole(
-      ReplicationQuery::ReplicationRole replication_role,
-      std::optional<int64_t> port) = 0;
+  virtual void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplica(const std::string &name,
-                               const std::string &socket_address,
-                               const ReplicationQuery::SyncMode sync_mode,
-                               const std::optional<double> timeout) = 0;
+  virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
+                               const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DropReplica(const std::string &replica_name) = 0;
@@ -145,9 +130,7 @@ class ReplicationQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream,
-                                                  std::optional<int> n)>
-      query_handler;
+  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
@@ -172,10 +155,7 @@ class CachedPlan {
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
-  bool IsExpired() const {
-    return cache_timer_.Elapsed() >
-           std::chrono::seconds(FLAGS_query_plan_cache_ttl);
-  };
+  bool IsExpired() const { return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl); };
 
  private:
   std::unique_ptr<LogicalPlan> plan_;
@@ -189,12 +169,8 @@ struct CachedQuery {
 };
 
 struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const {
-    return first == other.first;
-  }
-  bool operator<(const QueryCacheEntry &other) const {
-    return first < other.first;
-  }
+  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
+  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
   bool operator==(const uint64_t &other) const { return first == other; }
   bool operator<(const uint64_t &other) const { return first < other; }
 
@@ -205,12 +181,8 @@ struct QueryCacheEntry {
 };
 
 struct PlanCacheEntry {
-  bool operator==(const PlanCacheEntry &other) const {
-    return first == other.first;
-  }
-  bool operator<(const PlanCacheEntry &other) const {
-    return first < other.first;
-  }
+  bool operator==(const PlanCacheEntry &other) const { return first == other.first; }
+  bool operator<(const PlanCacheEntry &other) const { return first < other.first; }
   bool operator==(const uint64_t &other) const { return first == other; }
   bool operator<(const uint64_t &other) const { return first < other; }
 
@@ -228,9 +200,7 @@ struct PlanCacheEntry {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db) : db(db) {
-    MG_ASSERT(db, "Storage must not be NULL");
-  }
+  explicit InterpreterContext(storage::Storage *db) : db(db) { MG_ASSERT(db, "Storage must not be NULL"); }
 
   storage::Storage *db;
 
@@ -254,9 +224,7 @@ struct InterpreterContext {
 
 /// Function that is used to tell all active interpreters that they should stop
 /// their ongoing execution.
-inline void Shutdown(InterpreterContext *context) {
-  context->is_shutting_down.store(true, std::memory_order_release);
-}
+inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
 
 /// Function used to set the maximum execution timeout in seconds.
 inline void SetExecutionTimeout(InterpreterContext *context, double timeout) {
@@ -286,9 +254,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(
-      const std::string &query,
-      const std::map<std::string, storage::PropertyValue> &params);
+  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -329,8 +295,7 @@ class Interpreter final {
    * @throw query::QueryException
    */
   template <typename TStream>
-  std::map<std::string, TypedValue> Pull(TStream *result_stream,
-                                         std::optional<int> n = {},
+  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
   void BeginTransaction();
@@ -392,35 +357,27 @@ class Interpreter final {
 
   size_t ActiveQueryExecutions() {
     return std::count_if(query_executions_.begin(), query_executions_.end(),
-                         [](const auto &execution) {
-                           return execution && execution->prepared_query;
-                         });
+                         [](const auto &execution) { return execution && execution->prepared_query; });
   }
 };
 
 template <typename TStream>
-std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
-                                                    std::optional<int> n,
+std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
-  MG_ASSERT(in_explicit_transaction_ || !qid,
-            "qid can be only used in explicit transaction!");
-  const int qid_value =
-      qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+  MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
+  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
 
   if (qid_value < 0 || qid_value >= query_executions_.size()) {
-    throw InvalidArgumentsException("qid",
-                                    "Query with specified ID does not exist!");
+    throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
   }
 
   if (n && n < 0) {
-    throw InvalidArgumentsException("n",
-                                    "Cannot fetch negative number of results!");
+    throw InvalidArgumentsException("n", "Cannot fetch negative number of results!");
   }
 
   auto &query_execution = query_executions_[qid_value];
 
-  MG_ASSERT(query_execution && query_execution->prepared_query,
-            "Query already finished executing!");
+  MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
@@ -430,8 +387,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream,
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &query_execution->execution_memory};
-    const auto maybe_res =
-        query_execution->prepared_query->query_handler(&stream, n);
+    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
     // first.

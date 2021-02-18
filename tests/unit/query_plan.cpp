@@ -20,8 +20,7 @@
 
 namespace query {
 ::std::ostream &operator<<(::std::ostream &os, const Symbol &sym) {
-  return os << "Symbol{\"" << sym.name() << "\" [" << sym.position() << "] "
-            << Symbol::TypeToString(sym.type()) << "}";
+  return os << "Symbol{\"" << sym.name() << "\" [" << sym.position() << "] " << Symbol::TypeToString(sym.type()) << "}";
 }
 }  // namespace query
 
@@ -40,12 +39,10 @@ namespace {
 class Planner {
  public:
   template <class TDbAccessor>
-  Planner(std::vector<SingleQueryPart> single_query_parts,
-          PlanningContext<TDbAccessor> context) {
+  Planner(std::vector<SingleQueryPart> single_query_parts, PlanningContext<TDbAccessor> context) {
     query::Parameters parameters;
     PostProcessor post_processor(parameters);
-    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts,
-                                                            &context);
+    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts, &context);
     plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
 
@@ -56,8 +53,7 @@ class Planner {
 };
 
 template <class... TChecker>
-auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
-               TChecker... checker) {
+auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table, TChecker... checker) {
   std::list<BaseOpChecker *> checkers{&checker...};
   PlanChecker plan_checker(checkers, symbol_table);
   plan.Accept(plan_checker);
@@ -65,8 +61,7 @@ auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
 }
 
 template <class TPlanner, class... TChecker>
-auto CheckPlan(query::CypherQuery *query, AstStorage &storage,
-               TChecker... checker) {
+auto CheckPlan(query::CypherQuery *query, AstStorage &storage, TChecker... checker) {
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TPlanner>(&dba, storage, symbol_table, query);
@@ -95,14 +90,12 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstStorage storage;
   auto ident_n = IDENT("n");
-  auto query =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateExpand) {
@@ -110,17 +103,14 @@ TYPED_TEST(TestPlanner, CreateExpand) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto relationship = "relationship";
-  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(),
-                       ExpectCreateExpand());
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand());
 }
 
 TYPED_TEST(TestPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
   AstStorage storage;
-  auto *query =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateNode());
 }
 
@@ -129,11 +119,9 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto relationship = "rel";
-  auto *query = QUERY(SINGLE_QUERY(CREATE(
-      PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")),
-      PATTERN(NODE("l")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(),
-                       ExpectCreateNode());
+  auto *query = QUERY(SINGLE_QUERY(
+      CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")), PATTERN(NODE("l")))));
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateNode());
 }
 
 TYPED_TEST(TestPlanner, CreateNamedPattern) {
@@ -141,10 +129,9 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto relationship = "rel";
-  auto *query = QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN(
-      "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(),
-                       ExpectConstructNamedPath());
+  auto *query =
+      QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectConstructNamedPath());
 }
 
 TYPED_TEST(TestPlanner, MatchCreateExpand) {
@@ -152,10 +139,8 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto relationship = "relationship";
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
-                     NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectCreateExpand());
 }
 
@@ -165,22 +150,19 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   FakeDbAccessor dba;
   auto label = "label";
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
   {
     // Without created label index
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
     // With created label index
     dba.SetIndexCount(dba.Label(label), 0);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectProduce());
   }
 }
 
@@ -190,14 +172,11 @@ TYPED_TEST(TestPlanner, MatchPathReturn) {
   FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
-                    NODE("m"))),
-      RETURN(as_n)));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))), RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
@@ -207,14 +186,10 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
   auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
   auto *query = QUERY(SINGLE_QUERY(
-      MATCH(NAMED_PATTERN("p", NODE("n"),
-                          EDGE("r", Direction::BOTH, {relationship}),
-                          NODE("m"))),
-      RETURN(as_p)));
+      MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))), RETURN(as_p)));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectConstructNamedPath(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
@@ -223,15 +198,13 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(NAMED_PATTERN("p", NODE("n"),
-                          EDGE("r", Direction::BOTH, {relationship}),
-                          NODE("m"))),
-      WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN(as_p)));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))),
+                         WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN(as_p)));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
@@ -244,17 +217,12 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto as_p = AS("p");
   auto *query = QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p", as_p)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto get_symbol = [&symbol_table](const auto *ast_node) {
-    return symbol_table.at(*ast_node->identifier_);
-  };
-  std::vector<Symbol> optional_symbols{get_symbol(pattern), get_symbol(node_n),
-                                       get_symbol(edge), get_symbol(node_m)};
+  auto get_symbol = [&symbol_table](const auto *ast_node) { return symbol_table.at(*ast_node->identifier_); };
+  std::vector<Symbol> optional_symbols{get_symbol(pattern), get_symbol(node_n), get_symbol(edge), get_symbol(node_m)};
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
-                                      new ExpectConstructNamedPath()};
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectOptional(optional_symbols, optional), ExpectProduce());
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectConstructNamedPath()};
+  CheckPlan(planner.plan(), symbol_table, ExpectOptional(optional_symbols, optional), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -263,20 +231,17 @@ TYPED_TEST(TestPlanner, MatchWhereReturn) {
   FakeDbAccessor dba;
   auto property = dba.Property("property");
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN(as_n)));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchDelete) {
   // Test MATCH (n) DELETE n
   AstStorage storage;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectDelete());
 }
 
@@ -286,11 +251,9 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto label = "label";
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                   SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
                                    SET("n", IDENT("n")), SET("n", {label})));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectSetProperty(),
-                       ExpectSetProperties(), ExpectSetLabels());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(), ExpectSetLabels());
 }
 
 TYPED_TEST(TestPlanner, MatchRemove) {
@@ -299,51 +262,40 @@ TYPED_TEST(TestPlanner, MatchRemove) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto label = "label";
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                   REMOVE(PROPERTY_LOOKUP("n", prop)),
-                                   REMOVE("n", {label})));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectRemoveProperty(),
-                       ExpectRemoveLabels());
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label})));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectRemoveProperty(), ExpectRemoveLabels());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPattern) {
   // Test MATCH (n) -[r]- (m), (j) -[e]- (i) RETURN n
   AstStorage storage;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
-                               PATTERN(NODE("j"), EDGE("e"), NODE("i"))),
-                         RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")), PATTERN(NODE("j"), EDGE("e"), NODE("i"))), RETURN("n")));
   // We expect the expansions after the first to have a uniqueness filter in a
   // single MATCH clause.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
-                       ExpectScanAll(), ExpectExpand(),
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(), ExpectExpand(),
                        ExpectEdgeUniquenessFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameStart) {
   // Test MATCH (n), (n) -[e]- (m) RETURN n
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
-      RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))), RETURN("n")));
   // We expect the second pattern to generate only an Expand, since another
   // ScanAll would be redundant.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
-                       ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
   // Test MATCH (n) -[r]- (m), (m) -[e]- (l) RETURN n
   AstStorage storage;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
-                               PATTERN(NODE("m"), EDGE("e"), NODE("l"))),
-                         RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")), PATTERN(NODE("m"), EDGE("e"), NODE("l"))), RETURN("n")));
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
   // expansion. Additionally, a uniqueness filter is expected.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
-                       ExpectExpand(), ExpectEdgeUniquenessFilter(),
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(), ExpectEdgeUniquenessFilter(),
                        ExpectProduce());
 }
 
@@ -358,47 +310,41 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   auto *node_i = NODE("i");
   auto *edge_f = EDGE("f");
   auto *node_h = NODE("h");
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(node_n, edge_r, node_m)),
-      MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge_r, node_m)),
+                                   MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-            ExpectEdgeUniquenessFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectScanAll(), ExpectExpand(),
+            ExpectExpand(), ExpectEdgeUniquenessFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   // Test MATCH (n) MATCH (n) -[r]- (m) RETURN n
   AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(as_n)));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(as_n)));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWithReturn) {
   // Test MATCH (old) WITH old AS new RETURN new
   AstStorage storage;
   auto *as_new = NEXPR("new", IDENT("new"));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
-                                   WITH("old", AS("new")), RETURN(as_new)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")), RETURN(as_new)));
   // No accumulation since we only do reads.
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
@@ -407,14 +353,12 @@ TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
   auto prop = dba.Property("prop");
   AstStorage storage;
   auto *as_new = NEXPR("new", IDENT("new"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
-      WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN(as_new)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
+                                   WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN(as_new)));
   // No accumulation since we only do reads.
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateMultiExpand) {
@@ -423,11 +367,9 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
   auto r = "r";
   auto p = "p";
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
-             PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(),
-                       ExpectCreateExpand());
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
+                                          PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateExpand());
 }
 
 TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
@@ -438,12 +380,10 @@ TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
   AstStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
-      WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
+                                   WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
   auto aggr = ExpectAggregate({sum}, {literal});
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), aggr, ExpectProduce(),
-                       ExpectFilter(), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), aggr, ExpectProduce(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnSum) {
@@ -454,13 +394,11 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   AstStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
   auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr,
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSum) {
@@ -471,16 +409,14 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
   auto ident_n = IDENT("n");
   auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
   auto sum = SUM(n_prop);
-  auto query =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr,
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWithCreate) {
@@ -488,34 +424,27 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
   FakeDbAccessor dba;
   auto r_type = "r";
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
-      CREATE(
-          PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}), NODE("b")))));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectProduce(),
-                       ExpectCreateExpand());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
+                                   CREATE(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}), NODE("b")))));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
   // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
   AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                         RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
-            ExpectSkip(), ExpectLimit());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
   AstStorage storage;
   auto ident_n = IDENT("n");
-  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
-                                  WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
                                   RETURN("m", LIMIT(LITERAL(1)))));
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
@@ -526,8 +455,8 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // single RETURN clause and then moves Skip and Limit before Accumulate.
   // This causes different behaviour. A newer version of Neo4j does the same
   // thing as us here (but who knows if they change it again).
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
-            ExpectProduce(), ExpectSkip(), ExpectProduce(), ExpectLimit());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, ExpectProduce(), ExpectSkip(), ExpectProduce(),
+            ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
@@ -538,15 +467,13 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   auto ident_n = IDENT("n");
   auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
   auto sum = SUM(n_prop);
-  auto query = QUERY(
-      SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
-                   RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr,
-            ExpectProduce(), ExpectSkip(), ExpectLimit());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
@@ -560,8 +487,7 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
-            ExpectOrderBy());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
@@ -577,11 +503,9 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   auto new_prop = PROPERTY_LOOKUP("new", prop);
   auto r_prop = PROPERTY_LOOKUP(ident_r, prop);
   auto m_prop = PROPERTY_LOOKUP(ident_m, prop);
-  auto query = QUERY(SINGLE_QUERY(
-      CREATE(
-          PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
-      WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
-      WHERE(LESS(m_prop, LITERAL(42)))));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
+                         WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)), WHERE(LESS(m_prop, LITERAL(42)))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
@@ -590,9 +514,8 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
       symbol_table.at(*ident_m),  // `m` in WHERE
   });
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(),
-            ExpectCreateExpand(), acc, ExpectProduce(), ExpectOrderBy(),
-            ExpectFilter());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc, ExpectProduce(),
+            ExpectOrderBy(), ExpectFilter());
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
@@ -600,8 +523,7 @@ TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
   AstStorage storage;
   auto sum = SUM(LITERAL(1));
   auto count = COUNT(LITERAL(2));
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce(), ExpectOrderBy());
 }
@@ -615,22 +537,18 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   auto prop = dba.Property("prop");
   AstStorage storage;
   auto ident_n = IDENT("n");
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
-            ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
-            ON_CREATE(SET("m", IDENT("n")))),
-      RETURN(ident_n, AS("n"))));
-  std::list<BaseOpChecker *> on_match{new ExpectExpand(),
-                                      new ExpectSetProperty()};
-  std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(),
-                                       new ExpectSetProperties()};
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
+                               ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))), ON_CREATE(SET("m", IDENT("n")))),
+                         RETURN(ident_n, AS("n"))));
+  std::list<BaseOpChecker *> on_match{new ExpectExpand(), new ExpectSetProperty()};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(), new ExpectSetProperties()};
   auto symbol_table = query::MakeSymbolTable(query);
   // We expect Accumulate after Merge, because it is considered as a write.
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
-            ExpectMerge(on_match, on_create), acc, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectMerge(on_match, on_create), acc, ExpectProduce());
   for (auto &op : on_match) delete op;
   on_match.clear();
   for (auto &op : on_create) delete op;
@@ -642,14 +560,10 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r")));
-  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
-                                      new ExpectFilter()};
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(),
-                       ExpectOptional(optional), ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r")));
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter()};
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchUnwindReturn) {
@@ -657,25 +571,20 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *as_x = NEXPR("x", IDENT("x"));
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                   UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
-                   RETURN(as_n, as_x)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+                                   RETURN(as_n, as_x)));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectUnwind(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
   // Test RETURN DISTINCT 1 ORDER BY 1 SKIP 1 LIMIT 1
   AstStorage storage;
   auto *query = QUERY(
-      SINGLE_QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)),
-                                   SKIP(LITERAL(1)), LIMIT(LITERAL(1)))));
-  CheckPlan<TypeParam>(query, storage, ExpectProduce(), ExpectDistinct(),
-                       ExpectOrderBy(), ExpectSkip(), ExpectLimit());
+      SINGLE_QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)), SKIP(LITERAL(1)), LIMIT(LITERAL(1)))));
+  CheckPlan<TypeParam>(query, storage, ExpectProduce(), ExpectDistinct(), ExpectOrderBy(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
@@ -685,15 +594,14 @@ TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
   AstStorage storage;
   auto node_n = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
-  auto query =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
-                         WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s")));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
+                                  WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr,
-            ExpectProduce(), ExpectDistinct(), ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectDistinct(),
+            ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
@@ -707,12 +615,10 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAll(),
-                       ExpectFilter(), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
@@ -721,14 +627,12 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   auto prop = dba.Property("prop");
   AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN(as_n)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN(as_n)));
   // We expect Filter to come immediately after ScanAll, since it only uses `n`.
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-            ExpectExpand(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
@@ -741,28 +645,22 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
 
   {
     // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL RETURN n
-    auto *query = QUERY(SINGLE_QUERY(
-        MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop)))), RETURN("n")));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop)))), RETURN("n")));
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     // We expect ScanAllByLabelProperty to come instead of ScanAll > Filter.
-    CheckPlan(planner.plan(), symbol_table,
-              ExpectScanAllByLabelProperty(label, prop), ExpectExpand(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectExpand(), ExpectProduce());
   }
 
   {
     // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL OR true RETURN n
-    auto *query = QUERY(SINGLE_QUERY(
-        MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-        WHERE(OR(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), LITERAL(true))),
-        RETURN("n")));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                                     WHERE(OR(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), LITERAL(true))), RETURN("n")));
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     // We expect ScanAllBy > Filter because of the "or true" condition.
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-              ExpectExpand(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectProduce());
   }
 
   {
@@ -771,16 +669,14 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
     auto prop_x = PROPERTY_PAIR("x");
     auto *query = QUERY(
         SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-                     WHERE(AND(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))),
-                               EQ(PROPERTY_LOOKUP("n", prop_x), LITERAL(2)))),
+                     WHERE(AND(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), EQ(PROPERTY_LOOKUP("n", prop_x), LITERAL(2)))),
                      RETURN("n")));
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     // We expect ScanAllByLabelProperty > Filter
     // to come instead of ScanAll > Filter.
-    CheckPlan(planner.plan(), symbol_table,
-              ExpectScanAllByLabelProperty(label, prop), ExpectFilter(),
-              ExpectExpand(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectFilter(), ExpectExpand(),
+              ExpectProduce());
   }
 }
 
@@ -789,14 +685,12 @@ TYPED_TEST(TestPlanner, MultiMatchWhere) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      MATCH(PATTERN(NODE("l"))),
-      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), MATCH(PATTERN(NODE("l"))),
+                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
   // Even though WHERE is in the second MATCH clause, we expect Filter to come
   // before second ScanAll, since it only uses the value from first ScanAll.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectFilter(),
-                       ExpectExpand(), ExpectScanAll(), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectScanAll(),
+                       ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
@@ -804,16 +698,13 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      OPTIONAL_MATCH(PATTERN(NODE("l"))),
-      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), OPTIONAL_MATCH(PATTERN(NODE("l"))),
+                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
   // Even though WHERE is in the second MATCH clause, and it uses the value from
   // first ScanAll, it must remain part of the Optional. It should come before
   // optional ScanAll.
   std::list<BaseOpChecker *> optional{new ExpectFilter(), new ExpectScanAll()};
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
-                       ExpectOptional(optional), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(), ExpectOptional(optional), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
@@ -823,12 +714,10 @@ TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
   AstStorage storage;
   auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
   ret->body_.all_identifiers = true;
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
   std::vector<std::string> output_names;
   for (const auto &output_symbol : planner.plan().OutputSymbols(symbol_table)) {
     output_names.emplace_back(output_symbol.name());
@@ -852,12 +741,10 @@ TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
   ASSERT_TRUE(produce);
   const auto &named_expressions = produce->named_expressions_;
   ASSERT_EQ(named_expressions.size(), 2);
-  auto *expanded_ident =
-      dynamic_cast<query::Identifier *>(named_expressions[0]->expression_);
+  auto *expanded_ident = dynamic_cast<query::Identifier *>(named_expressions[0]->expression_);
   ASSERT_TRUE(expanded_ident);
   auto aggr = ExpectAggregate({sum}, {expanded_ident});
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr,
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
   std::vector<std::string> output_names;
   for (const auto &output_symbol : planner.plan().OutputSymbols(symbol_table)) {
     output_names.emplace_back(output_symbol.name());
@@ -872,12 +759,10 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   FakeDbAccessor dba;
   auto node_n = NODE("n");
   node_n->properties_[storage.GetPropertyIx("prop")] = IDENT("i");
-  auto *query = QUERY(
-      SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
-  CheckPlan<TypeParam>(query, storage, ExpectUnwind(),
-                       ExpectMerge(on_match, on_create));
+  CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
   for (auto &op : on_match) delete op;
   for (auto &op : on_create) delete op;
 }
@@ -886,11 +771,9 @@ TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
   // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
   AstStorage storage;
   auto *query =
-      QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))),
-                         OPTIONAL_MATCH(PATTERN(NODE("m"))), RETURN("n")));
+      QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("m"))), RETURN("n")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll()};
-  CheckPlan<TypeParam>(query, storage, ExpectOptional(optional),
-                       ExpectOptional(optional), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectOptional(optional), ExpectOptional(optional), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
@@ -898,8 +781,7 @@ TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
   AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -916,8 +798,7 @@ TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
   AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -929,8 +810,7 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(
-      SINGLE_QUERY(RETURN(MAP({storage.GetPropertyIx("sum"), sum}),
-                          AS("result"), group_by_literal, AS("group_by"))));
+      SINGLE_QUERY(RETURN(MAP({storage.GetPropertyIx("sum"), sum}), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -941,9 +821,8 @@ TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   auto sum = SUM(LITERAL(2));
   auto empty_list = LIST();
   auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(storage.Create<query::SubscriptOperator>(empty_list, sum),
-             AS("result"), group_by_literal, AS("group_by"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(storage.Create<query::SubscriptOperator>(empty_list, sum), AS("result"),
+                                          group_by_literal, AS("group_by"))));
   // We expect to group by '42' and the empty list, because it is a
   // sub-expression of a binary operator which contains an aggregation. This is
   // similar to grouping by '1' in `RETURN 1 + SUM(2)`.
@@ -958,8 +837,7 @@ TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
   auto list = LIST(LITERAL(1), LITERAL(2));
   auto group_by_literal = LITERAL(42);
   auto *query =
-      QUERY(SINGLE_QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"),
-                                group_by_literal, AS("group_by"))));
+      QUERY(SINGLE_QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by_literal, AS("group_by"))));
   // Similarly to EmptyListIndexAggregation test, we expect grouping by list and
   // '42', because slicing is an operator.
   auto aggr = ExpectAggregate({sum}, {list, group_by_literal});
@@ -971,8 +849,7 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  auto *query =
-      QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -983,8 +860,7 @@ TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
   auto sum2 = SUM(LITERAL(2));
   auto sum3 = SUM(LITERAL(3));
   auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list"))));
   auto aggr = ExpectAggregate({sum2, sum3}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -995,10 +871,8 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
   FakeDbAccessor dba;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(
-      SINGLE_QUERY(RETURN(MAP({storage.GetPropertyIx("sum"), sum},
-                              {storage.GetPropertyIx("lit"), group_by_literal}),
-                          AS("result"))));
+  auto *query = QUERY(SINGLE_QUERY(RETURN(
+      MAP({storage.GetPropertyIx("sum"), sum}, {storage.GetPropertyIx("lit"), group_by_literal}), AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
@@ -1019,9 +893,8 @@ TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
@@ -1035,18 +908,16 @@ TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
   auto node = NODE("n");
   auto lit_42 = LITERAL(42);
   node->properties_[storage.GetPropertyIx(property.first)] = lit_42;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(node)),
-      WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
-                storage.Create<query::LabelsTest>(
-                    IDENT("n"),
-                    std::vector<query::LabelIx>{storage.GetLabelIx("label")}))),
-      RETURN("n")));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
+                         WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
+                                   storage.Create<query::LabelsTest>(
+                                       IDENT("n"), std::vector<query::LabelIx>{storage.GetLabelIx("label")}))),
+                         RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
@@ -1057,14 +928,11 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
   auto property = PROPERTY_PAIR("property");
   dba.SetIndexCount(label, property.second, 0);
   auto lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n")));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BestPropertyIndexed) {
@@ -1081,14 +949,12 @@ TYPED_TEST(TestPlanner, BestPropertyIndexed) {
   auto lit_42 = LITERAL(42);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                   WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
-                             EQ(PROPERTY_LOOKUP("n", better), lit_42))),
+                   WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)), EQ(PROPERTY_LOOKUP("n", better), lit_42))),
                    RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, better, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, better, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
@@ -1106,15 +972,11 @@ TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
   auto lit_2 = LITERAL(2);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n", "label1")), PATTERN(NODE("m", "label2"))),
-      WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1),
-                EQ(PROPERTY_LOOKUP("m", prop2), lit_2))),
-      RETURN("n", "m")));
+      WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1), EQ(PROPERTY_LOOKUP("m", prop2), lit_2))), RETURN("n", "m")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
-            ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
+            ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
@@ -1127,21 +989,16 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   AstStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr,
-                                                       auto lower_bound,
-                                                       auto upper_bound) {
+  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstStorage storage;
     storage.GetLabelIx("label");
     storage.GetPropertyIx("property");
-    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                     WHERE(rel_expr), RETURN("n")));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(rel_expr), RETURN("n")));
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table,
-              ExpectScanAllByLabelPropertyRange(label, property, lower_bound,
-                                                upper_bound),
-              ExpectProduce());
+              ExpectScanAllByLabelPropertyRange(label, property, lower_bound, upper_bound), ExpectProduce());
   };
   {
     // Test relation operators which form an upper bound for range.
@@ -1151,8 +1008,7 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
         std::make_pair(GREATER(lit_42, n_prop), Bound::Type::EXCLUSIVE),
         std::make_pair(GREATER_EQ(lit_42, n_prop), Bound::Type::INCLUSIVE)};
     for (const auto &rel_op : upper_bound_rel_op) {
-      check_planned_range(rel_op.first, std::nullopt,
-                          Bound(lit_42, rel_op.second));
+      check_planned_range(rel_op.first, std::nullopt, Bound(lit_42, rel_op.second));
     }
   }
   {
@@ -1163,8 +1019,7 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
         std::make_pair(GREATER(n_prop, lit_42), Bound::Type::EXCLUSIVE),
         std::make_pair(GREATER_EQ(n_prop, lit_42), Bound::Type::INCLUSIVE)};
     for (const auto &rel_op : lower_bound_rel_op) {
-      check_planned_range(rel_op.first, Bound(lit_42, rel_op.second),
-                          std::nullopt);
+      check_planned_range(rel_op.first, Bound(lit_42, rel_op.second), std::nullopt);
     }
   }
 }
@@ -1179,14 +1034,12 @@ TYPED_TEST(TestPlanner, WherePreferEqualityIndexOverRange) {
   auto lit_42 = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), lit_42),
-                GREATER(PROPERTY_LOOKUP("n", property), LITERAL(0)))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), lit_42), GREATER(PROPERTY_LOOKUP("n", property), LITERAL(0)))),
       RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
@@ -1197,16 +1050,14 @@ TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, property, 0);
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(EQ(PROPERTY_LOOKUP("n", property), PROPERTY_LOOKUP("n", property))),
-      RETURN("n")));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                         WHERE(EQ(PROPERTY_LOOKUP("n", property), PROPERTY_LOOKUP("n", property))), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // We can only get ScanAllByLabelIndex, because we are comparing properties
   // with those on the same node.
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, SecondPropertyIndex) {
@@ -1219,16 +1070,13 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
   AstStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", property);
   auto m_prop = PROPERTY_LOOKUP("m", property);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label")), PATTERN(NODE("m", "label"))),
-      WHERE(EQ(m_prop, n_prop)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label")), PATTERN(NODE("m", "label"))),
+                                   WHERE(EQ(m_prop, n_prop)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(
-      planner.plan(), symbol_table, ExpectScanAllByLabel(),
-      // Note: We are scanning for m, therefore property should equal n_prop.
-      ExpectScanAllByLabelPropertyValue(label, property, n_prop),
-      ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
+            // Note: We are scanning for m, therefore property should equal n_prop.
+            ExpectScanAllByLabelPropertyValue(label, property, n_prop), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ReturnSumGroupByAll) {
@@ -1246,20 +1094,16 @@ TYPED_TEST(TestPlanner, MatchExpandVariable) {
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r");
   edge->upper_bound_ = LITERAL(3);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(),
-                       ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchExpandVariableNoBounds) {
   // Test MATCH (n) -[r *]-> (m) RETURN r
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r");
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(),
-                       ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
@@ -1270,12 +1114,10 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
   edge->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(
-      query, storage, ExpectScanAll(),
-      ExpectExpandVariable(),  // Filter is both inlined and post-expand
-      ExpectFilter(), ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(),
+                       ExpectExpandVariable(),  // Filter is both inlined and post-expand
+                       ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
@@ -1285,12 +1127,9 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  edge->properties_[storage.GetPropertyIx(prop.first)] =
-      EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(),
-                       ExpectFilter(), ExpectProduce());
+  edge->properties_[storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
@@ -1299,11 +1138,9 @@ TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
   FakeDbAccessor dba;
   AstStorage storage;
 
-  auto edge = EDGE_VARIABLE("r", Type::WEIGHTED_SHORTEST_PATH, Direction::BOTH,
-                            {}, nullptr, nullptr, nullptr, nullptr, nullptr,
-                            IDENT("total_weight"));
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("*")));
+  auto edge = EDGE_VARIABLE("r", Type::WEIGHTED_SHORTEST_PATH, Direction::BOTH, {}, nullptr, nullptr, nullptr, nullptr,
+                            nullptr, IDENT("total_weight"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("*")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto *root = dynamic_cast<Produce *>(&planner.plan());
@@ -1314,8 +1151,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
   EXPECT_TRUE(nes.size() == 4);
 
   std::vector<std::string> names(nes.size());
-  std::transform(nes.begin(), nes.end(), names.begin(),
-                 [](const auto *ne) { return ne->name_; });
+  std::transform(nes.begin(), nes.end(), names.begin(), [](const auto *ne) { return ne->name_; });
 
   EXPECT_TRUE(root->named_expressions_.size() == 4);
   EXPECT_TRUE(utils::Contains(names, "m"));
@@ -1330,11 +1166,9 @@ TYPED_TEST(TestPlanner, UnwindMatchVariable) {
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::OUT);
   edge->lower_bound_ = IDENT("d");
   edge->upper_bound_ = IDENT("d");
-  auto *query = QUERY(
-      SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
-                   MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectScanAll(),
-                       ExpectExpandVariable(), ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
+                                   MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchBfs) {
@@ -1342,20 +1176,17 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   FakeDbAccessor dba;
   AstStorage storage;
   auto edge_type = storage.GetEdgeTypeIx("type");
-  auto *bfs = storage.Create<query::EdgeAtom>(
-      IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<query::EdgeTypeIx>{edge_type});
+  auto *bfs = storage.Create<query::EdgeAtom>(IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
+                                              std::vector<query::EdgeTypeIx>{edge_type});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
   auto *as_r = NEXPR("r", IDENT("r"));
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN(as_r)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN(as_r)));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpandBfs(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpandBfs(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
@@ -1364,14 +1195,12 @@ TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
   auto label = "label";
   dba.SetIndexCount(dba.Label(label), 0);
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // We expect 2x ScanAll and then Expand, since we are guessing that is
   // faster (due to low label index vertex count).
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
-            ExpectScanAllByLabel(), ExpectExpand(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectScanAllByLabel(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchScanToExpand) {
@@ -1380,20 +1209,17 @@ TYPED_TEST(TestPlanner, MatchScanToExpand) {
   auto label = dba.Label("label");
   auto property = dba.Property("property");
   // Fill vertices to the max + 1.
-  dba.SetIndexCount(label, property,
-                    FLAGS_query_vertex_count_to_expand_existing + 1);
+  dba.SetIndexCount(label, property, FLAGS_query_vertex_count_to_expand_existing + 1);
   dba.SetIndexCount(label, FLAGS_query_vertex_count_to_expand_existing + 1);
   AstStorage storage;
   auto node_m = NODE("m", "label");
   node_m->properties_[storage.GetPropertyIx("property")] = LITERAL(1);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // We expect 1x ScanAll and then Expand, since we are guessing that
   // is faster (due to high label index vertex count).
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
@@ -1401,13 +1227,11 @@ TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))),
-      RETURN("m")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))), RETURN("m")));
   // We expect `n.prop` filter right after scanning `n`.
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectFilter(),
-                       ExpectExpand(), ExpectFilter(), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectFilter(),
+                       ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
@@ -1419,8 +1243,7 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   edge->filter_lambda_.expression = LITERAL(true);
   auto ret = storage.Create<query::Return>();
   ret->body_.all_identifiers = true;
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
@@ -1445,20 +1268,16 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   auto label = dba.Label("label");
   dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, prop, 0);
-  auto *regex_match = storage.Create<query::RegexMatch>(
-      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(regex_match), RETURN("n")));
+  auto *regex_match = storage.Create<query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(regex_match), RETURN("n")));
   // We expect that we use index by property range where lower bound is an empty
   // string. Filter must still remain in place, because we don't have regex
   // based index.
   Bound lower_bound(LITERAL(""), Bound::Type::INCLUSIVE);
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(
-      planner.plan(), symbol_table,
-      ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
-      ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+            ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
@@ -1469,20 +1288,16 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
   auto label = dba.Label("label");
   dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, prop.second, 0);
-  auto *regex_match = storage.Create<query::RegexMatch>(
-      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *regex_match = storage.Create<query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42))),
-      RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42))), RETURN("n")));
   // We expect that we use index by property value equal to 42, because that's
   // much better than property range for regex matching.
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, prop, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
@@ -1494,21 +1309,18 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
   auto label = dba.Label("label");
   dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, prop.second, 0);
-  auto *regex_match = storage.Create<query::RegexMatch>(
-      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *regex_match = storage.Create<query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(AND(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42)),
-                GREATER(PROPERTY_LOOKUP("n", prop), LITERAL(0)))),
-      RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(AND(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42)),
+                                             GREATER(PROPERTY_LOOKUP("n", prop), LITERAL(0)))),
+                                   RETURN("n")));
   // We expect that we use index by property value equal to 42, because that's
   // much better than property range.
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyValue(label, prop, lit_42),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
@@ -1519,22 +1331,17 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
   auto label = dba.Label("label");
   dba.SetIndexCount(label, 0);
   dba.SetIndexCount(label, prop, 0);
-  auto *regex_match = storage.Create<query::RegexMatch>(
-      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *regex_match = storage.Create<query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(AND(regex_match, GREATER(PROPERTY_LOOKUP("n", prop), lit_42))),
-      RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(AND(regex_match, GREATER(PROPERTY_LOOKUP("n", prop), lit_42))), RETURN("n")));
   // We expect that we use index by property range on a concrete value (42), as
   // it is much better than using a range from empty string for regex matching.
   Bound lower_bound(lit_42, Bound::Type::EXCLUSIVE);
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(
-      planner.plan(), symbol_table,
-      ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
-      ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+            ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CallProcedureStandalone) {
@@ -1554,9 +1361,9 @@ TYPED_TEST(TestPlanner, CallProcedureStandalone) {
   }
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
-                                ast_call->result_fields_, result_syms));
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms));
 }
 
 TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
@@ -1567,8 +1374,7 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
   ast_call->arguments_ = {IDENT("n")};
   ast_call->result_fields_ = {"field"};
   ast_call->result_identifiers_ = {IDENT("result")};
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ast_call, RETURN("result")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ast_call, RETURN("result")));
   auto symbol_table = query::MakeSymbolTable(query);
   std::vector<Symbol> result_syms;
   result_syms.reserve(ast_call->result_identifiers_.size());
@@ -1578,8 +1384,7 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
-            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
-                                ast_call->result_fields_, result_syms),
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms),
             ExpectProduce());
 }
 
@@ -1592,9 +1397,8 @@ TYPED_TEST(TestPlanner, CallProcedureBeforeScanAll) {
   ast_call->result_identifiers_ = {IDENT("field")};
   FakeDbAccessor dba;
   auto property = dba.Property("prop");
-  auto *query = QUERY(SINGLE_QUERY(
-      ast_call, MATCH(PATTERN(NODE("n"))),
-      WHERE(EQ(PROPERTY_LOOKUP("n", property), IDENT("field"))), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(ast_call, MATCH(PATTERN(NODE("n"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP("n", property), IDENT("field"))), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   std::vector<Symbol> result_syms;
   result_syms.reserve(ast_call->result_identifiers_.size());
@@ -1603,43 +1407,36 @@ TYPED_TEST(TestPlanner, CallProcedureBeforeScanAll) {
   }
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table,
-            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_,
-                                ast_call->result_fields_, result_syms),
+            ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms),
             ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ScanAllById) {
   // Test MATCH (n) WHERE id(n) = 42 RETURN n
   AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                   WHERE(EQ(FN("id", IDENT("n")), LITERAL(42))),
-                                   RETURN("n")));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(FN("id", IDENT("n")), LITERAL(42))), RETURN("n")));
   CheckPlan<TypeParam>(query, storage, ExpectScanAllById(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ScanAllByIdExpandToExisting) {
   // Test MATCH (n)-[r]-(m) WHERE id(m) = 42 RETURN r
   AstStorage storage;
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(),
-                       ExpectExpand(), ExpectProduce());
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BfsToExisting) {
   // Test MATCH (n)-[r *bfs]-(m) WHERE id(m) = 42 RETURN r
   AstStorage storage;
-  auto *bfs = storage.Create<query::EdgeAtom>(
-      IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::BOTH);
+  auto *bfs = storage.Create<query::EdgeAtom>(IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::BOTH);
   bfs->filter_lambda_.inner_edge = IDENT("ie");
   bfs->filter_lambda_.inner_node = IDENT("in");
   bfs->filter_lambda_.expression = LITERAL(true);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))),
-                                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))),
-                                   RETURN("r")));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(),
-                       ExpectExpandBfs(), ExpectProduce());
+                                   WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectScanAllById(), ExpectExpandBfs(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
@@ -1649,49 +1446,42 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   auto *lit_list_a = LIST(LITERAL('a'));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_list_a)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_list_a)), RETURN("n")));
   {
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
     dba.SetIndexCount(label, 1);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-              ExpectFilter(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
   {
     dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectUnwind(),
-              ExpectScanAllByLabelPropertyValue(label, property, lit_list_a),
-              ExpectProduce());
+              ExpectScanAllByLabelPropertyValue(label, property, lit_list_a), ExpectProduce());
   }
 }
 
-TYPED_TEST(TestPlanner,
-           LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
+TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
   // Test MATCH (n:label) WHERE n.property IN 'a' RETURN n
   AstStorage storage;
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   auto *lit_a = LITERAL('a');
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_a)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_a)), RETURN("n")));
   {
     dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
 }
 
@@ -1702,28 +1492,24 @@ TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnRight) {
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   auto *lit_list_a = LIST(LITERAL('a'));
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(IN_LIST(lit_list_a, PROPERTY_LOOKUP("n", property))), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(IN_LIST(lit_list_a, PROPERTY_LOOKUP("n", property))), RETURN("n")));
   {
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
     dba.SetIndexCount(label, 1);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-              ExpectFilter(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
   {
     dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-              ExpectFilter(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
 }
 

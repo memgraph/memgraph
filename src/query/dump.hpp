@@ -23,23 +23,18 @@ struct PullPlanDump {
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
   std::optional<storage::ConstraintsInfo> constraints_info_ = std::nullopt;
 
-  using VertexAccessorIterable =
-      decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
-  using VertexAccessorIterableIterator =
-      decltype(std::declval<VertexAccessorIterable>().begin());
+  using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
+  using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
-  using EdgeAccessorIterable =
-      decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
-  using EdgeAccessorIterableIterator =
-      decltype(std::declval<EdgeAccessorIterable>().GetValue().begin());
+  using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
+  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().begin());
 
   VertexAccessorIterable vertices_iterable_;
   bool internal_index_created_ = false;
 
   size_t current_chunk_index_ = 0;
 
-  using PullChunk = std::function<std::optional<size_t>(AnyStream *stream,
-                                                        std::optional<int> n)>;
+  using PullChunk = std::function<std::optional<size_t>(AnyStream *stream, std::optional<int> n)>;
   // We define every part of the dump query in a self contained function.
   // Each functions is responsible of keeping track of its execution status.
   // If a function did finish its execution, it should return number of results

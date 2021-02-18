@@ -47,8 +47,7 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       std::map<std::string, communication::bolt::Value> map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
-        MG_ASSERT(tmp.type() == communication::bolt::Value::Type::String,
-                  "Expected a string as the map key!");
+        MG_ASSERT(tmp.type() == communication::bolt::Value::Type::String, "Expected a string as the map key!");
         map.insert({tmp.ValueString(), JsonToValue(it.value())});
       }
       ret = map;
@@ -72,16 +71,13 @@ int main(int argc, char **argv) {
 
   communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
-  client.Execute(
-      FLAGS_query,
-      JsonToValue(nlohmann::json::parse(FLAGS_params_json)).ValueMap());
+  client.Execute(FLAGS_query, JsonToValue(nlohmann::json::parse(FLAGS_params_json)).ValueMap());
 
   return 0;
 }

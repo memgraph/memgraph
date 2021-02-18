@@ -12,26 +12,20 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-DEFINE_VALIDATED_string(
-    auth_module_executable, "",
-    "Absolute path to the auth module executable that should be used.", {
-      if (value.empty()) return true;
-      // Check the file status, following symlinks.
-      auto status = std::filesystem::status(value);
-      if (!std::filesystem::is_regular_file(status)) {
-        std::cerr << "The auth module path doesn't exist or isn't a file!"
-                  << std::endl;
-        return false;
-      }
-      return true;
-    });
-DEFINE_bool(auth_module_create_missing_user, true,
-            "Set to false to disable creation of missing users.");
-DEFINE_bool(auth_module_create_missing_role, true,
-            "Set to false to disable creation of missing roles.");
-DEFINE_bool(
-    auth_module_manage_roles, true,
-    "Set to false to disable management of roles through the auth module.");
+DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
+                        {
+                          if (value.empty()) return true;
+                          // Check the file status, following symlinks.
+                          auto status = std::filesystem::status(value);
+                          if (!std::filesystem::is_regular_file(status)) {
+                            std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+                            return false;
+                          }
+                          return true;
+                        });
+DEFINE_bool(auth_module_create_missing_user, true, "Set to false to disable creation of missing users.");
+DEFINE_bool(auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.");
+DEFINE_bool(auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.");
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a "
                        "response from the auth module.",
@@ -60,11 +54,9 @@ const std::string kLinkPrefix = "link:";
  * key="link:<username>", value="<rolename>"
  */
 
-Auth::Auth(const std::string &storage_directory)
-    : storage_(storage_directory), module_(FLAGS_auth_module_executable) {}
+Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), module_(FLAGS_auth_module_executable) {}
 
-std::optional<User> Auth::Authenticate(const std::string &username,
-                                       const std::string &password) {
+std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
     nlohmann::json params = nlohmann::json::object();
     params["username"] = username;
@@ -73,8 +65,7 @@ std::optional<User> Auth::Authenticate(const std::string &username,
     auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
 
     // Verify response integrity.
-    if (!ret.is_object() || ret.find("authenticated") == ret.end() ||
-        ret.find("role") == ret.end()) {
+    if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end()) {
       return std::nullopt;
     }
     const auto &ret_authenticated = ret.at("authenticated");
@@ -142,9 +133,7 @@ std::optional<User> Auth::Authenticate(const std::string &username,
   } else {
     auto user = GetUser(username);
     if (!user) {
-      spdlog::warn(
-          "Couldn't authenticate user '{}' because the user doesn't exist",
-          username);
+      spdlog::warn("Couldn't authenticate user '{}' because the user doesn't exist", username);
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
@@ -182,21 +171,18 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) {
 void Auth::SaveUser(const User &user) {
   bool success = false;
   if (user.role()) {
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()},
-         {kLinkPrefix + user.username(), user.role()->rolename()}});
+    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
+                                    {kLinkPrefix + user.username(), user.role()->rolename()}});
   } else {
-    success = storage_.PutAndDeleteMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}},
-        {kLinkPrefix + user.username()});
+    success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
+                                            {kLinkPrefix + user.username()});
   }
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
 }
 
-std::optional<User> Auth::AddUser(const std::string &username,
-                                  const std::optional<std::string> &password) {
+std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password) {
   auto existing_user = GetUser(username);
   if (existing_user) return std::nullopt;
   auto existing_role = GetRole(username);
@@ -210,8 +196,7 @@ std::optional<User> Auth::AddUser(const std::string &username,
 bool Auth::RemoveUser(const std::string &username_orig) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys(
-      {kLinkPrefix + username, kUserPrefix + username});
+  std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -220,8 +205,7 @@ bool Auth::RemoveUser(const std::string &username_orig) {
 
 std::vector<auth::User> Auth::AllUsers() {
   std::vector<auth::User> ret;
-  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix);
-       ++it) {
+  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     auto user = GetUser(username);
@@ -232,9 +216,7 @@ std::vector<auth::User> Auth::AllUsers() {
   return ret;
 }
 
-bool Auth::HasUsers() {
-  return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix);
-}
+bool Auth::HasUsers() { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) {
   auto rolename = utils::ToLowerCase(rolename_orig);
@@ -271,8 +253,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
   std::vector<std::string> keys;
-  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
-       ++it) {
+  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     if (utils::ToLowerCase(it->second) == rolename) {
       keys.push_back(it->first);
     }
@@ -286,8 +267,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
 
 std::vector<auth::Role> Auth::AllRoles() {
   std::vector<auth::Role> ret;
-  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix);
-       ++it) {
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
     auto role = GetRole(rolename);
@@ -300,12 +280,10 @@ std::vector<auth::Role> Auth::AllRoles() {
   return ret;
 }
 
-std::vector<auth::User> Auth::AllUsersForRole(
-    const std::string &rolename_orig) {
+std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
-  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
-       ++it) {
+  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     if (it->second != utils::ToLowerCase(it->second)) continue;

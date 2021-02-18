@@ -36,8 +36,7 @@ class PropertyValue {
   };
 
   static bool AreComparableTypes(Type a, Type b) {
-    return (a == b) || (a == Type::Int && b == Type::Double) ||
-           (a == Type::Double && b == Type::Int);
+    return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
   }
 
   /// Make a Null value
@@ -47,29 +46,21 @@ class PropertyValue {
   explicit PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
   explicit PropertyValue(int value) : type_(Type::Int) { int_v = value; }
   explicit PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(double value) : type_(Type::Double) {
-    double_v = value;
-  }
+  explicit PropertyValue(double value) : type_(Type::Double) { double_v = value; }
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::string &value) : type_(Type::String) {
-    new (&string_v) std::string(value);
-  }
+  explicit PropertyValue(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValue(const char *value) : type_(Type::String) {
-    new (&string_v) std::string(value);
-  }
+  explicit PropertyValue(const char *value) : type_(Type::String) { new (&string_v) std::string(value); }
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::vector<PropertyValue> &value)
-      : type_(Type::List) {
+  explicit PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(value);
   }
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::map<std::string, PropertyValue> &value)
-      : type_(Type::Map) {
+  explicit PropertyValue(const std::map<std::string, PropertyValue> &value) : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(value);
   }
 
@@ -77,12 +68,10 @@ class PropertyValue {
   explicit PropertyValue(std::string &&value) noexcept : type_(Type::String) {
     new (&string_v) std::string(std::move(value));
   }
-  explicit PropertyValue(std::vector<PropertyValue> &&value) noexcept
-      : type_(Type::List) {
+  explicit PropertyValue(std::vector<PropertyValue> &&value) noexcept : type_(Type::List) {
     new (&list_v) std::vector<PropertyValue>(std::move(value));
   }
-  explicit PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept
-      : type_(Type::Map) {
+  explicit PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept : type_(Type::Map) {
     new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
   }
 
@@ -205,8 +194,7 @@ class PropertyValue {
 
 // stream output
 /// @throw anything std::ostream::operator<< may throw.
-inline std::ostream &operator<<(std::ostream &os,
-                                const PropertyValue::Type type) {
+inline std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
   switch (type) {
     case PropertyValue::Type::Null:
       return os << "null";
@@ -244,9 +232,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
     case PropertyValue::Type::Map:
       os << "{";
       utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) {
-                             stream << pair.first << ": " << pair.second;
-                           });
+                           [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
       return os << "}";
   }
 }
@@ -254,10 +240,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
-inline bool operator==(const PropertyValue &first,
-                       const PropertyValue &second) noexcept {
-  if (!PropertyValue::AreComparableTypes(first.type(), second.type()))
-    return false;
+inline bool operator==(const PropertyValue &first, const PropertyValue &second) noexcept {
+  if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return false;
   switch (first.type()) {
     case PropertyValue::Type::Null:
       return true;
@@ -284,10 +268,8 @@ inline bool operator==(const PropertyValue &first,
   }
 }
 
-inline bool operator<(const PropertyValue &first,
-                      const PropertyValue &second) noexcept {
-  if (!PropertyValue::AreComparableTypes(first.type(), second.type()))
-    return first.type() < second.type();
+inline bool operator<(const PropertyValue &first, const PropertyValue &second) noexcept {
+  if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
   switch (first.type()) {
     case PropertyValue::Type::Null:
       return false;
@@ -314,8 +296,7 @@ inline bool operator<(const PropertyValue &first,
   }
 }
 
-inline PropertyValue::PropertyValue(const PropertyValue &other)
-    : type_(other.type_) {
+inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       return;
@@ -340,8 +321,7 @@ inline PropertyValue::PropertyValue(const PropertyValue &other)
   }
 }
 
-inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept
-    : type_(other.type_) {
+inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       break;

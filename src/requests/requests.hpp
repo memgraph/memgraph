@@ -23,8 +23,7 @@ void Init();
  * @param timeout the timeout that should be used when making the request
  * @return bool true if the request was successful, false otherwise.
  */
-bool RequestPostJson(const std::string &url, const nlohmann::json &data,
-                     int timeout_in_seconds = 10);
+bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds = 10);
 
 /**
  * This functions sends a GET request to the given `url` and writes the response
@@ -35,7 +34,6 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data,
  * @param timeout the timeout that should be used when making the request
  * @return bool true if the request was successful, false otherwise.
  */
-bool CreateAndDownloadFile(const std::string &url, const std::string &path,
-                           int timeout_in_seconds = 10);
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
 
 }  // namespace requests

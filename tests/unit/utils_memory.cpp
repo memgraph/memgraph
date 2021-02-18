@@ -14,20 +14,17 @@ class TestMemory final : public utils::MemoryResource {
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override {
     new_count_++;
-    EXPECT_TRUE(alignment != 0U && (alignment & (alignment - 1U)) == 0U)
-        << "Alignment must be power of 2";
+    EXPECT_TRUE(alignment != 0U && (alignment & (alignment - 1U)) == 0U) << "Alignment must be power of 2";
     EXPECT_NE(bytes, 0);
     const size_t pad_size = 32;
     EXPECT_TRUE(bytes + pad_size > bytes) << "TestMemory size overflow";
-    EXPECT_TRUE(bytes + pad_size + alignment > bytes + alignment)
-        << "TestMemory size overflow";
+    EXPECT_TRUE(bytes + pad_size + alignment > bytes + alignment) << "TestMemory size overflow";
     EXPECT_TRUE(2U * alignment > alignment) << "TestMemory alignment overflow";
     // Allocate a block containing extra alignment and pad_size bytes, but
     // aligned to 2 * alignment. Then we can offset the ptr so that it's never
     // aligned to 2 * alignment. This ought to make allocator alignment issues
     // more obvious.
-    void *ptr = utils::NewDeleteResource()->Allocate(
-        alignment + bytes + pad_size, 2U * alignment);
+    void *ptr = utils::NewDeleteResource()->Allocate(alignment + bytes + pad_size, 2U * alignment);
     // Clear allocated memory to 0xFF, marking the invalid region.
     memset(ptr, 0xFF, alignment + bytes + pad_size);
     // Offset the ptr so it's not aligned to 2 * alignment, but still aligned to
@@ -42,23 +39,17 @@ class TestMemory final : public utils::MemoryResource {
   void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
     delete_count_++;
     // Deallocate the original ptr, before alignment adjustment.
-    return utils::NewDeleteResource()->Deallocate(
-        static_cast<char *>(ptr) - alignment, bytes, alignment);
+    return utils::NewDeleteResource()->Deallocate(static_cast<char *>(ptr) - alignment, bytes, alignment);
   }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override {
-    return this == &other;
-  }
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return this == &other; }
 };
 
-void *CheckAllocation(utils::MemoryResource *mem, size_t bytes,
-                      size_t alignment = alignof(std::max_align_t)) {
+void *CheckAllocation(utils::MemoryResource *mem, size_t bytes, size_t alignment = alignof(std::max_align_t)) {
   void *ptr = mem->Allocate(bytes, alignment);
-  if (alignment > alignof(std::max_align_t))
-    alignment = alignof(std::max_align_t);
+  if (alignment > alignof(std::max_align_t)) alignment = alignof(std::max_align_t);
   EXPECT_TRUE(ptr);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % alignment, 0)
-      << "Allocated misaligned pointer!";
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % alignment, 0) << "Allocated misaligned pointer!";
   // There should be no 0xFF bytes because they are either padded at the end of
   // the allocated block or are found in already checked allocations.
   EXPECT_FALSE(memchr(ptr, 0xFF, bytes)) << "Invalid memory region!";
@@ -158,8 +149,7 @@ TEST(MonotonicBufferResource, AllocationWithInitialBufferOnStack) {
   constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memset(stack_data, 0x42, stack_data_size);
-  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size,
-                                     &test_mem);
+  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
   {
     char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1, 1));
     EXPECT_EQ(&stack_data[0], ptr);
@@ -272,37 +262,26 @@ TEST(PoolResource, BlockSizeIsNotMultipleOfAlignment) {
   utils::PoolResource mem(max_blocks_per_chunk, max_block_size);
   EXPECT_THROW(mem.Allocate(64U, 24U), std::bad_alloc);
   EXPECT_THROW(mem.Allocate(63U), std::bad_alloc);
-  EXPECT_THROW(mem.Allocate(max_block_size + 1, max_block_size),
-               std::bad_alloc);
+  EXPECT_THROW(mem.Allocate(max_block_size + 1, max_block_size), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PoolResource, AllocationWithOverflow) {
   {
     const size_t max_blocks_per_chunk = 2U;
-    utils::PoolResource mem(max_blocks_per_chunk,
-                            std::numeric_limits<size_t>::max());
-    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U),
-                 std::bad_alloc);
+    utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
+    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U), std::bad_alloc);
     // Throws because initial chunk block is aligned to
     // utils::Ceil2(block_size), which wraps in this case.
-    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) /
-                                  max_blocks_per_chunk,
-                              1U),
-                 std::bad_alloc);
+    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) / max_blocks_per_chunk, 1U), std::bad_alloc);
   }
   {
     const size_t max_blocks_per_chunk = utils::impl::Pool::MaxBlocksInChunk();
-    utils::PoolResource mem(max_blocks_per_chunk,
-                            std::numeric_limits<size_t>::max());
-    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U),
-                 std::bad_alloc);
+    utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
+    EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U), std::bad_alloc);
     // Throws because initial chunk block is aligned to
     // utils::Ceil2(block_size), which wraps in this case.
-    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) /
-                                  max_blocks_per_chunk,
-                              1U),
-                 std::bad_alloc);
+    EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) / max_blocks_per_chunk, 1U), std::bad_alloc);
   }
 }
 
@@ -343,9 +322,7 @@ class AllocationTrackingMemory final : public utils::MemoryResource {
     return utils::NewDeleteResource()->Deallocate(ptr, bytes, alignment);
   }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override {
-    return this == &other;
-  }
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -353,14 +330,12 @@ TEST(MonotonicBufferResource, ResetGrowthFactor) {
   AllocationTrackingMemory test_mem;
   constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
-  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size,
-                                     &test_mem);
+  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
   mem.Allocate(stack_data_size + 1);
   mem.Release();
   mem.Allocate(stack_data_size + 1);
   ASSERT_EQ(test_mem.allocated_sizes_.size(), 2);
-  ASSERT_EQ(test_mem.allocated_sizes_.front(),
-            test_mem.allocated_sizes_.back());
+  ASSERT_EQ(test_mem.allocated_sizes_.front(), test_mem.allocated_sizes_.back());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -370,13 +345,10 @@ class ContainerWithAllocatorLast final {
 
   ContainerWithAllocatorLast() = default;
   explicit ContainerWithAllocatorLast(int value) : value_(value) {}
-  ContainerWithAllocatorLast(int value, utils::MemoryResource *memory)
-      : memory_(memory), value_(value) {}
+  ContainerWithAllocatorLast(int value, utils::MemoryResource *memory) : memory_(memory), value_(value) {}
 
-  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other)
-      : value_(other.value_) {}
-  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other,
-                             utils::MemoryResource *memory)
+  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other) : value_(other.value_) {}
+  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other, utils::MemoryResource *memory)
       : memory_(memory), value_(other.value_) {}
 
   utils::MemoryResource *memory_{nullptr};
@@ -390,14 +362,11 @@ class ContainerWithAllocatorFirst final {
 
   ContainerWithAllocatorFirst() = default;
   explicit ContainerWithAllocatorFirst(int value) : value_(value) {}
-  ContainerWithAllocatorFirst(std::allocator_arg_t,
-                              utils::MemoryResource *memory, int value)
+  ContainerWithAllocatorFirst(std::allocator_arg_t, utils::MemoryResource *memory, int value)
       : memory_(memory), value_(value) {}
 
-  ContainerWithAllocatorFirst(const ContainerWithAllocatorFirst &other)
-      : value_(other.value_) {}
-  ContainerWithAllocatorFirst(std::allocator_arg_t,
-                              utils::MemoryResource *memory,
+  ContainerWithAllocatorFirst(const ContainerWithAllocatorFirst &other) : value_(other.value_) {}
+  ContainerWithAllocatorFirst(std::allocator_arg_t, utils::MemoryResource *memory,
                               const ContainerWithAllocatorFirst &other)
       : memory_(memory), value_(other.value_) {}
 
@@ -408,14 +377,12 @@ class ContainerWithAllocatorFirst final {
 template <class T>
 class AllocatorTest : public ::testing::Test {};
 
-using ContainersWithAllocators =
-    ::testing::Types<ContainerWithAllocatorLast, ContainerWithAllocatorFirst>;
+using ContainersWithAllocators = ::testing::Types<ContainerWithAllocatorLast, ContainerWithAllocatorFirst>;
 
 TYPED_TEST_CASE(AllocatorTest, ContainersWithAllocators);
 
 TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
-  std::vector<TypeParam, utils::Allocator<TypeParam>> vec(
-      utils::NewDeleteResource());
+  std::vector<TypeParam, utils::Allocator<TypeParam>> vec(utils::NewDeleteResource());
   vec.emplace_back(42);
   const auto &c = vec.front();
   EXPECT_EQ(c.value_, 42);
@@ -424,9 +391,8 @@ TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
 
 TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
   {
-    std::vector<
-        std::pair<ContainerWithAllocatorFirst, TypeParam>,
-        utils::Allocator<std::pair<ContainerWithAllocatorFirst, TypeParam>>>
+    std::vector<std::pair<ContainerWithAllocatorFirst, TypeParam>,
+                utils::Allocator<std::pair<ContainerWithAllocatorFirst, TypeParam>>>
         vec(utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
@@ -436,9 +402,8 @@ TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
     EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
   }
   {
-    std::vector<
-        std::pair<ContainerWithAllocatorLast, TypeParam>,
-        utils::Allocator<std::pair<ContainerWithAllocatorLast, TypeParam>>>
+    std::vector<std::pair<ContainerWithAllocatorLast, TypeParam>,
+                utils::Allocator<std::pair<ContainerWithAllocatorLast, TypeParam>>>
         vec(utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();

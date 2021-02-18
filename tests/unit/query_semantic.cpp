@@ -21,8 +21,7 @@ class TestSymbolGenerator : public ::testing::Test {
 
 TEST_F(TestSymbolGenerator, MatchNodeReturn) {
   // MATCH (node_atom_1) RETURN node_atom_1
-  auto query_ast = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1")));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1")));
   auto symbol_table = query::MakeSymbolTable(query_ast);
   // symbols for pattern, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
@@ -40,15 +39,13 @@ TEST_F(TestSymbolGenerator, MatchNodeReturn) {
   auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
-  auto ret_sym =
-      symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
+  auto ret_sym = symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
   EXPECT_EQ(node_sym, ret_sym);
 }
 
 TEST_F(TestSymbolGenerator, MatchNamedPattern) {
   // MATCH p = (node_atom_1) RETURN node_atom_1
-  auto query_ast = QUERY(SINGLE_QUERY(
-      MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))), RETURN("p")));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))), RETURN("p")));
   auto symbol_table = query::MakeSymbolTable(query_ast);
   // symbols for p, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
@@ -64,8 +61,7 @@ TEST_F(TestSymbolGenerator, MatchUnboundMultiReturn) {
   // AST using variable in return bound by naming the previous return
   // expression. This is treated as an unbound variable.
   // MATCH (node_atom_1) RETURN node_atom_1 AS n, n
-  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))),
-                                      RETURN("node_atom_1", AS("n"), "n")));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1", AS("n"), "n")));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
 
@@ -100,30 +96,26 @@ TEST_F(TestSymbolGenerator, CreateNodeReturn) {
   auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
-  auto ret_sym =
-      symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
+  auto ret_sym = symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
   EXPECT_EQ(node_sym, ret_sym);
 }
 
 TEST_F(TestSymbolGenerator, CreateRedeclareNode) {
   // AST with redeclaring a variable when creating nodes: CREATE (n), (n)
-  auto query_ast =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("n")))));
+  auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("n")))));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MultiCreateRedeclareNode) {
   // AST with redeclaring a variable when creating nodes with multiple creates:
   // CREATE (n) CREATE (n)
-  auto query_ast = QUERY(
-      SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
+  auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchCreateRedeclareNode) {
   // AST with redeclaring a match node variable in create: MATCH (n) CREATE (n)
-  auto query_ast = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
@@ -131,29 +123,24 @@ TEST_F(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   // AST with redeclaring a match edge variable in create:
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
   auto relationship = "relationship";
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      CREATE(PATTERN(NODE("n"),
-                     EDGE("r", EdgeAtom::Direction::OUT, {relationship}),
-                     NODE("l")))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {relationship}), NODE("l")))));
   EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchTypeMismatch) {
   // Using an edge variable as a node causes a type mismatch.
   // MATCH (n) -[r]-> (r)
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("r")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("r")))));
   EXPECT_THROW(query::MakeSymbolTable(query), TypeMismatchError);
 }
 
 TEST_F(TestSymbolGenerator, MatchCreateTypeMismatch) {
   // Using an edge variable as a node causes a type mismatch.
   // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]-> (n2)
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
-      CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT),
-                     NODE("n2")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
+                                  CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2")))));
   EXPECT_THROW(query::MakeSymbolTable(query), TypeMismatchError);
 }
 
@@ -172,16 +159,13 @@ TEST_F(TestSymbolGenerator, CreateBidirectionalEdge) {
   // Bidirectional relationships are not allowed when creating edges.
   // CREATE (n) -[r :rel1]- (m)
   auto rel1 = "rel1";
-  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchWhereUnbound) {
   // Test MATCH (n) WHERE missing < 42 RETURN n
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                  WHERE(LESS(IDENT("missing"), LITERAL(42))),
-                                  RETURN("n")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(LESS(IDENT("missing"), LITERAL(42))), RETURN("n")));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -201,8 +185,7 @@ TEST_F(TestSymbolGenerator, CreateDelete) {
 
 TEST_F(TestSymbolGenerator, CreateDeleteUnbound) {
   // Test CREATE (n) DELETE missing
-  auto query =
-      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing"))));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -213,9 +196,7 @@ TEST_F(TestSymbolGenerator, MatchWithReturn) {
   auto with_as_n = AS("n");
   auto n_ident = IDENT("n");
   auto ret_as_n = AS("n");
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
-                         RETURN(n_ident, ret_as_n)));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), RETURN(n_ident, ret_as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols for pattern, `old`, `n` and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -232,8 +213,7 @@ TEST_F(TestSymbolGenerator, MatchWithReturn) {
 
 TEST_F(TestSymbolGenerator, MatchWithReturnUnbound) {
   // Test MATCH (old) WITH old AS n RETURN old
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
-                                  WITH("old", AS("n")), RETURN("old")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("n")), RETURN("old")));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -244,9 +224,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
   auto old_ident = IDENT("old");
   auto with_as_n = AS("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
-                         WHERE(LESS(n_prop, LITERAL(42)))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), WHERE(LESS(n_prop, LITERAL(42)))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols for pattern, `old` and `n`
   EXPECT_EQ(symbol_table.max_position(), 3);
@@ -262,9 +240,8 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
 TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
-      WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
+                                  WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -278,8 +255,7 @@ TEST_F(TestSymbolGenerator, CreateMultiExpand) {
   auto node_n2 = NODE("n");
   auto edge_p = EDGE("p", EdgeAtom::Direction::OUT, {p_type});
   auto node_l = NODE("l");
-  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
-                                         PATTERN(node_n2, edge_p, node_l))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n1, edge_r, node_m), PATTERN(node_n2, edge_p, node_l))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols for pattern * 2, `n`, `r`, `m`, `p`, `l`
   EXPECT_EQ(symbol_table.max_position(), 7);
@@ -305,10 +281,9 @@ TEST_F(TestSymbolGenerator, MatchCreateExpandLabel) {
   // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
   auto r_type = "r";
   auto label = "label";
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
-                     NODE("n", label)))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -317,8 +292,7 @@ TEST_F(TestSymbolGenerator, CreateExpandProperty) {
   auto r_type = "r";
   auto n_prop = NODE("n");
   n_prop->properties_[storage.GetPropertyIx("prop")] = LITERAL(42);
-  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -328,8 +302,7 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
   auto node = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto as_result = AS("result");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
-                                  RETURN(ADD(sum, LITERAL(42)), as_result)));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result)));
   auto symbol_table = query::MakeSymbolTable(query);
   // 3 symbols for: pattern, 'n', 'sum' and 'result'.
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -344,18 +317,16 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
 TEST_F(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
-      WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
+                                  WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -366,14 +337,12 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols: pattern * 2, `node_n`, `node_m`
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   auto m = symbol_table.at(*node_m->identifier_);
   EXPECT_NE(n, m);
 }
@@ -385,8 +354,7 @@ TEST_F(TestSymbolGenerator, CreateNodeEdge) {
   auto node_2 = NODE("n");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("n");
-  auto query = QUERY(
-      SINGLE_QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols: pattern * 2, `n`, `r`
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -403,8 +371,7 @@ TEST_F(TestSymbolGenerator, MatchWithCreate) {
   auto node_2 = NODE("m");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("m");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")),
-                                  CREATE(PATTERN(node_2, edge, node_3))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")), CREATE(PATTERN(node_2, edge, node_3))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols: pattern * 2, `n`, `m`, `r`
   EXPECT_EQ(symbol_table.max_position(), 5);
@@ -419,8 +386,7 @@ TEST_F(TestSymbolGenerator, MatchWithCreate) {
 
 TEST_F(TestSymbolGenerator, SameResultsWith) {
   // Test MATCH (n) WITH n AS m, n AS m
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                  WITH("n", AS("m"), "n", AS("m"))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("m"), "n", AS("m"))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -432,38 +398,32 @@ TEST_F(TestSymbolGenerator, SameResults) {
 
 TEST_F(TestSymbolGenerator, SkipUsingIdentifier) {
   // Test MATCH (old) WITH old AS new SKIP old
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
-                                  WITH("old", AS("new"), SKIP(IDENT("old")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new"), SKIP(IDENT("old")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, SkipUsingIdentifierAlias) {
   // Test MATCH (old) WITH old AS new SKIP new
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
-                                  WITH("old", AS("new"), SKIP(IDENT("new")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new"), SKIP(IDENT("new")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, LimitUsingIdentifier) {
   // Test MATCH (n) RETURN n AS n LIMIT n
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(IDENT("n")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(IDENT("n")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
-                   RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByUnboundVariable) {
   // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("old"))),
-      RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -473,9 +433,7 @@ TEST_F(TestSymbolGenerator, AggregationOrderBy) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto ident_new = IDENT("new");
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new,
-                                                      ORDER_BY(ident_new))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `old`, `count(old)` and `new`
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -492,8 +450,7 @@ TEST_F(TestSymbolGenerator, OrderByOldVariable) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto by_old = IDENT("old");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
-                                  RETURN(ident_old, as_new, ORDER_BY(by_old))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ident_old, as_new, ORDER_BY(by_old))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `old` and `new`
   EXPECT_EQ(symbol_table.max_position(), 3);
@@ -506,25 +463,21 @@ TEST_F(TestSymbolGenerator, OrderByOldVariable) {
 
 TEST_F(TestSymbolGenerator, MergeVariableError) {
   // Test MATCH (n) MERGE (n)
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n")))));
   EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MergeVariableErrorEdge) {
   // Test MATCH (n) -[r]- (m) MERGE (a) -[r :rel]- (b)
   auto rel = "rel";
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-      MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}),
-                    NODE("b")))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                  MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}), NODE("b")))));
   EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MergeEdgeWithoutType) {
   // Test MERGE (a) -[r]- (b)
-  auto query =
-      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b")))));
+  auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b")))));
   // Edge must have a type, since it doesn't we raise.
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
@@ -542,18 +495,16 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   auto m_prop = PROPERTY_LOOKUP("m", prop);
   auto ident_r = IDENT("r");
   auto as_r = AS("r");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(match_n)),
-                                  MERGE(PATTERN(merge_n, edge_r, node_m),
-                                        ON_MATCH(SET(n_prop, LITERAL(42))),
-                                        ON_CREATE(SET(m_prop, LITERAL(42)))),
-                                  RETURN(ident_r, as_r)));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(match_n)),
+      MERGE(PATTERN(merge_n, edge_r, node_m), ON_MATCH(SET(n_prop, LITERAL(42))), ON_CREATE(SET(m_prop, LITERAL(42)))),
+      RETURN(ident_r, as_r)));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for: pattern * 2, `n`, `r`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 6);
   auto n = symbol_table.at(*match_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   auto r = symbol_table.at(*edge_r->identifier_);
   EXPECT_NE(r, n);
   EXPECT_EQ(r, symbol_table.at(*ident_r));
@@ -562,15 +513,13 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   EXPECT_NE(m, n);
   EXPECT_NE(m, r);
   EXPECT_NE(m, symbol_table.at(*as_r));
-  EXPECT_EQ(m,
-            symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
+  EXPECT_EQ(m, symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, WithUnwindRedeclareReturn) {
   // Test WITH [1, 2] AS list UNWIND list AS list RETURN list
-  auto query =
-      QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")),
-                         UNWIND(IDENT("list"), AS("list")), RETURN("list")));
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")), UNWIND(IDENT("list"), AS("list")), RETURN("list")));
   EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
@@ -582,15 +531,13 @@ TEST_F(TestSymbolGenerator, WithUnwindReturn) {
   auto ret_as_list = AS("list");
   auto ret_elem = IDENT("elem");
   auto ret_as_elem = AS("elem");
-  auto query = QUERY(
-      SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
-                   RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
+  auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
+                                  RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for: `list`, `elem`, `AS list`, `AS elem`
   EXPECT_EQ(symbol_table.max_position(), 4);
   const auto &list = symbol_table.at(*with_as_list);
-  EXPECT_EQ(list, symbol_table.at(*dynamic_cast<Identifier *>(
-                      unwind->named_expression_->expression_)));
+  EXPECT_EQ(list, symbol_table.at(*dynamic_cast<Identifier *>(unwind->named_expression_->expression_)));
   const auto &elem = symbol_table.at(*unwind->named_expression_);
   EXPECT_NE(list, elem);
   EXPECT_EQ(list, symbol_table.at(*ret_list));
@@ -610,19 +557,16 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
   node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)),
-                                  RETURN(ident_n, as_n)));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(ident_n, as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern * 2, `n`, `m` and `AS n`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   EXPECT_EQ(n, symbol_table.at(*ident_n));
   EXPECT_NE(n, symbol_table.at(*as_n));
   auto m = symbol_table.at(*node_m->identifier_);
-  EXPECT_EQ(m,
-            symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
+  EXPECT_EQ(m, symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
   EXPECT_NE(n, m);
   EXPECT_NE(m, symbol_table.at(*as_n));
 }
@@ -638,14 +582,12 @@ TEST_F(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   auto node_m = NODE("m");
   auto with = storage.Create<With>();
   with->body_.all_identifiers = true;
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `e`, `m`, `AS n.prop`.
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchReturnAsteriskSameResult) {
@@ -670,10 +612,9 @@ TEST_F(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
   auto r_type = "r";
   auto label = "label";
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
-                    NODE("n", label)))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -684,14 +625,12 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   edge->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto node_n = NODE("n");
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `r`, `m` and implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
@@ -701,16 +640,13 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)),
-                   RETURN("r")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern * 2, `n`, `r`, inner_node, inner_edge, `m`, `l` and
   // implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 9);
   auto l = symbol_table.at(*node_l->identifier_);
-  EXPECT_EQ(l,
-            symbol_table.at(*dynamic_cast<Identifier *>(l_prop->expression_)));
+  EXPECT_EQ(l, symbol_table.at(*dynamic_cast<Identifier *>(l_prop->expression_)));
   auto r = symbol_table.at(*edge->identifier_);
   EXPECT_EQ(r.type(), Symbol::Type::EDGE_LIST);
 }
@@ -722,16 +658,14 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))),
-                                  MATCH(PATTERN(node_l)), RETURN("r")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), MATCH(PATTERN(node_l)), RETURN("r")));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CreateVariablePath) {
   // Test CREATE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
-  auto edge =
-      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
@@ -739,8 +673,7 @@ TEST_F(TestSymbolGenerator, CreateVariablePath) {
 TEST_F(TestSymbolGenerator, MergeVariablePath) {
   // Test MERGE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
-  auto edge =
-      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
@@ -750,10 +683,8 @@ TEST_F(TestSymbolGenerator, RedeclareVariablePath) {
   // This is just a temporary solution, before we add the support for using
   // variable paths with already declared symbols. In the future, this test
   // should be changed to check for type errors.
-  auto edge =
-      EDGE_VARIABLE("n", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n")));
+  auto edge = EDGE_VARIABLE("n", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n")));
   EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
@@ -762,11 +693,9 @@ TEST_F(TestSymbolGenerator, VariablePathSameIdentifier) {
   // `r` cannot be used inside the range expression, since it is bound by the
   // variable expansion itself.
   auto prop = dba.NameToProperty("prop");
-  auto edge =
-      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -781,8 +710,7 @@ TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n,
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, WithReturnAll) {
@@ -793,8 +721,7 @@ TEST_F(TestSymbolGenerator, WithReturnAll) {
   auto *all = ALL("x", LIST(list_x), WHERE(EQ(where_x, LITERAL(2))));
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
-  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
-                                  RETURN(all, ret_as_x, ret_x, AS("y"))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(all, ret_as_x, ret_x, AS("y"))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `ALL(x ...)`, `ALL(...) AS x` and `AS y`.
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -816,8 +743,7 @@ TEST_F(TestSymbolGenerator, WithReturnSingle) {
   auto *single = SINGLE("x", LIST(list_x), WHERE(EQ(where_x, LITERAL(2))));
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
-  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
-                                  RETURN(single, ret_as_x, ret_x, AS("y"))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(single, ret_as_x, ret_x, AS("y"))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `SINGLE(x ...)`, `SINGLE(...) AS x` and `AS y`.
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -837,13 +763,11 @@ TEST_F(TestSymbolGenerator, WithReturnReduce) {
   auto *list_x = IDENT("x");
   auto *expr_x = IDENT("x");
   auto *expr_y = IDENT("y");
-  auto *reduce =
-      REDUCE("y", LITERAL(0), "x", LIST(list_x), ADD(expr_y, expr_x));
+  auto *reduce = REDUCE("y", LITERAL(0), "x", LIST(list_x), ADD(expr_y, expr_x));
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
   auto *ret_as_y = AS("y");
-  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
-                                  RETURN(reduce, ret_as_x, ret_x, ret_as_y)));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(reduce, ret_as_x, ret_x, ret_as_y)));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `REDUCE(y, x ...)`, `REDUCE(...) AS x` and `AS
   // y`.
@@ -869,9 +793,8 @@ TEST_F(TestSymbolGenerator, WithReturnExtract) {
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
   auto *ret_as_y = AS("y");
-  auto query = QUERY(
-      SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), with_as_x),
-                   RETURN(extract, ret_as_x, ret_x, ret_as_y)));
+  auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), with_as_x),
+                                  RETURN(extract, ret_as_x, ret_x, ret_as_y)));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `EXTRACT(x ...)`, `EXTRACT(...) AS x` and
   // `AS y`.
@@ -879,8 +802,7 @@ TEST_F(TestSymbolGenerator, WithReturnExtract) {
   // Check `WITH .. AS x` is the same as `... IN x` and `RETURN ... x AS y`
   EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*list_x));
   EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*ret_x));
-  EXPECT_NE(symbol_table.at(*with_as_x),
-            symbol_table.at(*extract->identifier_));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*extract->identifier_));
   EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*ret_as_x));
   // Check `EXTRACT(x ...)` is only equal to `x + 1`
   EXPECT_EQ(symbol_table.at(*extract->identifier_), symbol_table.at(*expr_x));
@@ -893,72 +815,60 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP("r", prop);
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
-  auto *bfs = storage.Create<EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
-      std::vector<EdgeTypeIx>{});
+  auto *bfs = storage.Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
+                                       std::vector<EdgeTypeIx>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = r_prop;
   bfs->upper_bound_ = n_prop;
   auto *ret_r = IDENT("r");
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))),
-                                   RETURN(ret_r, AS("r"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))), RETURN(ret_r, AS("r"))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
-  EXPECT_NE(symbol_table.at(*ret_r),
-            symbol_table.at(*bfs->filter_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*bfs->filter_lambda_.inner_edge));
   EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_edge).user_declared());
   EXPECT_EQ(symbol_table.at(*bfs->filter_lambda_.inner_edge),
             symbol_table.at(*dynamic_cast<Identifier *>(r_prop->expression_)));
-  EXPECT_NE(symbol_table.at(*node_n->identifier_),
-            symbol_table.at(*bfs->filter_lambda_.inner_node));
+  EXPECT_NE(symbol_table.at(*node_n->identifier_), symbol_table.at(*bfs->filter_lambda_.inner_node));
   EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_node).user_declared());
-  EXPECT_EQ(symbol_table.at(*node_n->identifier_),
-            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
+  EXPECT_EQ(symbol_table.at(*node_n->identifier_), symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
   // Test MATCH (n) -[r *bfs..10 (e, n | r)]-> (m) RETURN r
-  auto *bfs = storage.Create<EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  auto *bfs = storage.Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
   bfs->filter_lambda_.inner_edge = IDENT("e");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("r");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
   // Test MATCH (a) -[r *bfs..10 (e, n | a)]-> (m) RETURN r
   auto *node_a = NODE("a");
-  auto *bfs = storage.Create<EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  auto *bfs = storage.Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
   bfs->filter_lambda_.inner_edge = IDENT("e");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("a");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.at(*node_a->identifier_),
-            symbol_table.at(
-                *dynamic_cast<Identifier *>(bfs->filter_lambda_.expression)));
+            symbol_table.at(*dynamic_cast<Identifier *>(bfs->filter_lambda_.expression)));
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   // Test MATCH (n) -[r *bfs..10 (e, n | m)]-> (m) RETURN r
-  auto *bfs = storage.Create<EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  auto *bfs = storage.Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
   bfs->filter_lambda_.inner_edge = IDENT("e");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("m");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -966,17 +876,12 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   // MATCH ()-[*]-() RETURN 42 AS res
   auto ident_n = storage.Create<Identifier>("anon_n", false);
   auto node = storage.Create<NodeAtom>(ident_n);
-  auto edge = storage.Create<EdgeAtom>(
-      storage.Create<Identifier>("anon_r", false), EdgeAtom::Type::DEPTH_FIRST,
-      EdgeAtom::Direction::BOTH);
-  edge->filter_lambda_.inner_edge =
-      storage.Create<Identifier>("anon_inner_e", false);
-  edge->filter_lambda_.inner_node =
-      storage.Create<Identifier>("anon_inner_n", false);
-  auto end_node =
-      storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node, edge, end_node)),
-                                  RETURN(LITERAL(42), AS("res"))));
+  auto edge = storage.Create<EdgeAtom>(storage.Create<Identifier>("anon_r", false), EdgeAtom::Type::DEPTH_FIRST,
+                                       EdgeAtom::Direction::BOTH);
+  edge->filter_lambda_.inner_edge = storage.Create<Identifier>("anon_inner_e", false);
+  edge->filter_lambda_.inner_node = storage.Create<Identifier>("anon_inner_n", false);
+  auto end_node = storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node, edge, end_node)), RETURN(LITERAL(42), AS("res"))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for `anon_n`, `anon_r`, `anon_inner_e`, `anon_inner_n`, `anon_end`
   // `AS res` and the auto-generated path name symbol.
@@ -999,9 +904,8 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
   auto *node_n = NODE("n");
   auto *r_weight = PROPERTY_LOOKUP("r", weight);
   auto *r_filter = PROPERTY_LOOKUP("r", filter);
-  auto *shortest = storage.Create<EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-      EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
+  auto *shortest = storage.Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
+                                            EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
   {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");
@@ -1014,64 +918,52 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
     shortest->filter_lambda_.expression = r_filter;
   }
   auto *ret_r = IDENT("r");
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))),
-                                   RETURN(ret_r, AS("r"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))), RETURN(ret_r, AS("r"))));
   auto symbol_table = query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `[r]`, `total_weight`, (`r|`, `n|`)x2, `m` and
   // `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 10);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*shortest->identifier_));
-  EXPECT_NE(symbol_table.at(*ret_r),
-            symbol_table.at(*shortest->weight_lambda_.inner_edge));
-  EXPECT_NE(symbol_table.at(*ret_r),
-            symbol_table.at(*shortest->filter_lambda_.inner_edge));
-  EXPECT_TRUE(
-      symbol_table.at(*shortest->filter_lambda_.inner_edge).user_declared());
-  EXPECT_EQ(
-      symbol_table.at(*shortest->weight_lambda_.inner_edge),
-      symbol_table.at(*dynamic_cast<Identifier *>(r_weight->expression_)));
+  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*shortest->weight_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*shortest->filter_lambda_.inner_edge));
+  EXPECT_TRUE(symbol_table.at(*shortest->filter_lambda_.inner_edge).user_declared());
+  EXPECT_EQ(symbol_table.at(*shortest->weight_lambda_.inner_edge),
+            symbol_table.at(*dynamic_cast<Identifier *>(r_weight->expression_)));
   EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_edge),
             symbol_table.at(*shortest->filter_lambda_.inner_edge));
   EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_node),
             symbol_table.at(*shortest->filter_lambda_.inner_node));
-  EXPECT_EQ(
-      symbol_table.at(*shortest->filter_lambda_.inner_edge),
-      symbol_table.at(*dynamic_cast<Identifier *>(r_filter->expression_)));
-  EXPECT_TRUE(
-      symbol_table.at(*shortest->filter_lambda_.inner_node).user_declared());
+  EXPECT_EQ(symbol_table.at(*shortest->filter_lambda_.inner_edge),
+            symbol_table.at(*dynamic_cast<Identifier *>(r_filter->expression_)));
+  EXPECT_TRUE(symbol_table.at(*shortest->filter_lambda_.inner_node).user_declared());
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionSymbols) {
   // RETURN 5 as X UNION RETURN 6 AS x
-  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))),
-                     UNION(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))), UNION(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 3);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionMultipleSymbols) {
   // RETURN 5 as X, 6 AS Y UNION RETURN 5 AS Y, 6 AS x
-  auto query = QUERY(
-      SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
-      UNION(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionAllSymbols) {
   // RETURN 5 as X UNION ALL RETURN 6 AS x
-  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))),
-                     UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))), UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 3);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionAllMultipleSymbols) {
   // RETURN 5 as X, 6 AS Y UNION ALL RETURN 5 AS Y, 6 AS x
-  auto query = QUERY(
-      SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
-      UNION_ALL(
-          SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
+                     UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
@@ -1080,19 +972,16 @@ TEST_F(TestSymbolGenerator, MatchUnionReturnAllSymbols) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS X, 4 AS Y
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
-  auto query = QUERY(
-      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
-      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionReturnSymbols) {
   // WITH 1 as X, 2 AS Y RETURN Y, X UNION RETURN 3 AS X, 4 AS Y
-  auto query = QUERY(
-      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")),
-                   RETURN("Y", "X")),
-      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), RETURN("Y", "X")),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
@@ -1101,9 +990,8 @@ TEST_F(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS Z, 4 AS Y
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
-  auto query = QUERY(
-      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
-      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("Z"), LITERAL(4), AS("Y")))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("Z"), LITERAL(4), AS("Y")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -1111,9 +999,8 @@ TEST_F(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
   // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 4 AS Y
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
-  auto query =
-      QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
-            UNION(SINGLE_QUERY(RETURN(LITERAL(4), AS("Y")))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(4), AS("Y")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -1121,10 +1008,8 @@ TEST_F(TestSymbolGenerator, MatchUnion) {
   // WITH 5 AS X, 3 AS Y RETURN * UNION WITH 9 AS Y, 4 AS X RETURN Y, X
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
-  auto query =
-      QUERY(SINGLE_QUERY(WITH(LITERAL(5), AS("X"), LITERAL(3), AS("Y")), ret),
-            UNION(SINGLE_QUERY(WITH(LITERAL(9), AS("Y"), LITERAL(4), AS("X")),
-                               RETURN("Y", "X"))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(5), AS("X"), LITERAL(3), AS("Y")), ret),
+                     UNION(SINGLE_QUERY(WITH(LITERAL(9), AS("Y"), LITERAL(4), AS("X")), RETURN("Y", "X"))));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
@@ -1145,11 +1030,9 @@ TEST_F(TestSymbolGenerator, CallProcedureYield) {
   const auto &sym_x = symbol_table.at(*as_x);
   const auto &sym_y = symbol_table.at(*call->result_identifiers_.back());
   EXPECT_EQ(symbol_table.at(*arg_x), sym_x);
-  auto *ret_x =
-      dynamic_cast<Identifier *>(ret->body_.named_expressions[0]->expression_);
+  auto *ret_x = dynamic_cast<Identifier *>(ret->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(ret_x);
-  auto *ret_y =
-      dynamic_cast<Identifier *>(ret->body_.named_expressions[1]->expression_);
+  auto *ret_y = dynamic_cast<Identifier *>(ret->body_.named_expressions[1]->expression_);
   ASSERT_TRUE(ret_y);
   EXPECT_EQ(symbol_table.at(*ret_x), sym_x);
   EXPECT_EQ(symbol_table.at(*ret_y), sym_y);
@@ -1163,8 +1046,7 @@ TEST_F(TestSymbolGenerator, CallProcedureShadowingYield) {
   call->procedure_name_ = "proc";
   call->result_fields_.emplace_back("x");
   call->result_identifiers_.push_back(IDENT("x"));
-  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call,
-                                  RETURN(LITERAL(42), AS("res"))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call, RETURN(LITERAL(42), AS("res"))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -1174,8 +1056,7 @@ TEST_F(TestSymbolGenerator, CallProcedureShadowingYieldAlias) {
   call->procedure_name_ = "proc";
   call->result_fields_.emplace_back("y");
   call->result_identifiers_.push_back(IDENT("x"));
-  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call,
-                                  RETURN(LITERAL(42), AS("res"))));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call, RETURN(LITERAL(42), AS("res"))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
 

@@ -64,9 +64,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // A helper function that stores literal and its token position in a
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
-  auto replace_stripped = [this, &token_strings](int position,
-                                                 const auto &value,
-                                                 const std::string &new_value) {
+  auto replace_stripped = [this, &token_strings](int position, const auto &value, const std::string &new_value) {
     literals_.Add(position, storage::PropertyValue(value));
     token_strings.push_back(new_value);
   };
@@ -101,16 +99,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       case Token::SPACE:
         break;
       case Token::STRING:
-        replace_stripped(token_index, ParseStringLiteral(token.second),
-                         kStrippedStringToken);
+        replace_stripped(token_index, ParseStringLiteral(token.second), kStrippedStringToken);
         break;
       case Token::INT:
-        replace_stripped(token_index, ParseIntegerLiteral(token.second),
-                         kStrippedIntToken);
+        replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
         break;
       case Token::REAL:
-        replace_stripped(token_index, ParseDoubleLiteral(token.second),
-                         kStrippedDoubleToken);
+        replace_stripped(token_index, ParseDoubleLiteral(token.second), kStrippedDoubleToken);
         break;
       case Token::SPECIAL:
       case Token::ESCAPED_NAME:
@@ -135,9 +130,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   while (it != tokens.end()) {
     // Store nonaliased named expressions in returns in named_exprs_.
     it = std::find_if(it, tokens.end(),
-                      [](const std::pair<Token, std::string> &a) {
-                        return utils::IEquals(a.second, "return");
-                      });
+                      [](const std::pair<Token, std::string> &a) { return utils::IEquals(a.second, "return"); });
     // There is no RETURN so there is nothing to do here.
     if (it == tokens.end()) return;
     // Skip RETURN;
@@ -172,13 +165,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       int num_open_braces = 0;
       int num_open_parantheses = 0;
       int num_open_brackets = 0;
-      for (; jt != tokens.end() &&
-             (jt->second != "," || num_open_braces || num_open_parantheses ||
-              num_open_brackets) &&
-             !utils::IEquals(jt->second, "order") &&
-             !utils::IEquals(jt->second, "skip") &&
-             !utils::IEquals(jt->second, "limit") &&
-             !utils::IEquals(jt->second, "union") && jt->second != ";";
+      for (;
+           jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
+           !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
+           !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") && jt->second != ";";
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;
@@ -203,8 +193,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
         // trailing whitespaces.
         std::string s;
         auto begin_token = it - tokens.begin() + original_tokens.begin();
-        auto end_token =
-            last_non_space - tokens.begin() + original_tokens.begin() + 1;
+        auto end_token = last_non_space - tokens.begin() + original_tokens.begin() + 1;
         for (auto kt = begin_token; kt != end_token; ++kt) {
           s += kt->second;
         }
@@ -280,9 +269,7 @@ std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
     if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s3 = s + 3;
     if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character.");
-    return {((*s & 0x07) << 18) | ((*s1 & 0x3f) << 12) | ((*s2 & 0x3f) << 6) |
-                (*s3 & 0x3f),
-            4};
+    return {((*s & 0x07) << 18) | ((*s1 & 0x3f) << 12) | ((*s2 & 0x3f) << 6) | (*s3 & 0x3f), 4};
   }
   throw LexingException("Invalid character.");
 }
@@ -301,13 +288,9 @@ std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
 //          //\   ) ,  /       '%%%%(%%'
 //    ,  _.'/  `\<-- \<
 //     `^^^`     ^^   ^^
-int StrippedQuery::MatchKeyword(int start) const {
-  return kKeywords.Match<tolower>(original_.c_str() + start);
-}
+int StrippedQuery::MatchKeyword(int start) const { return kKeywords.Match<tolower>(original_.c_str() + start); }
 
-int StrippedQuery::MatchSpecial(int start) const {
-  return kSpecialTokens.Match(original_.c_str() + start);
-}
+int StrippedQuery::MatchSpecial(int start) const { return kSpecialTokens.Match(original_.c_str() + start); }
 
 int StrippedQuery::MatchString(int start) const {
   if (original_[start] != '"' && original_[start] != '\'') return 0;
@@ -316,9 +299,8 @@ int StrippedQuery::MatchString(int start) const {
     if (*p == start_char) return p - (original_.data() + start) + 1;
     if (*p == '\\') {
       ++p;
-      if (*p == '\\' || *p == '\'' || *p == '"' || *p == 'B' || *p == 'b' ||
-          *p == 'F' || *p == 'f' || *p == 'N' || *p == 'n' || *p == 'R' ||
-          *p == 'r' || *p == 'T' || *p == 't') {
+      if (*p == '\\' || *p == '\'' || *p == '"' || *p == 'B' || *p == 'b' || *p == 'F' || *p == 'f' || *p == 'N' ||
+          *p == 'n' || *p == 'R' || *p == 'r' || *p == 'T' || *p == 't') {
         // Allowed escaped characters.
         continue;
       } else if (*p == 'U' || *p == 'u') {
@@ -356,8 +338,7 @@ int StrippedQuery::MatchDecimalInt(int start) const {
 int StrippedQuery::MatchOctalInt(int start) const {
   if (original_[start] != '0') return 0;
   int i = start + 1;
-  while (i < static_cast<int>(original_.size()) && '0' <= original_[i] &&
-         original_[i] <= '7') {
+  while (i < static_cast<int>(original_.size()) && '0' <= original_[i] && original_[i] <= '7') {
     ++i;
   }
   if (i == start + 1) return 0;
@@ -440,15 +421,13 @@ int StrippedQuery::MatchEscapedName(int start) const {
 int StrippedQuery::MatchUnescapedName(int start) const {
   auto i = start;
   auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-  if (got.first >= lexer_constants::kBitsetSize ||
-      !kUnescapedNameAllowedStarts[got.first]) {
+  if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedStarts[got.first]) {
     return 0;
   }
   i += got.second;
   while (i < static_cast<int>(original_.size())) {
     got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-    if (got.first >= lexer_constants::kBitsetSize ||
-        !kUnescapedNameAllowedParts[got.first]) {
+    if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedParts[got.first]) {
       break;
     }
     i += got.second;
@@ -469,13 +448,11 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
       auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
       if (got.first < lexer_constants::kBitsetSize && kSpaceParts[got.first]) {
         i += got.second;
-      } else if (i + 1 < len && original_[i] == '/' &&
-                 original_[i + 1] == '*') {
+      } else if (i + 1 < len && original_[i] == '/' && original_[i + 1] == '*') {
         comment_position = i;
         state = State::IN_BLOCK_COMMENT;
         i += 2;
-      } else if (i + 1 < len && original_[i] == '/' &&
-                 original_[i + 1] == '/') {
+      } else if (i + 1 < len && original_[i] == '/' && original_[i + 1] == '/') {
         comment_position = i;
         if (i + 2 < len) {
           // Special case for an empty line comment starting right at the end of
@@ -490,8 +467,7 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
       if (original_[i] == '\n') {
         state = State::OUT;
         ++i;
-      } else if (i + 1 < len && original_[i] == '\r' &&
-                 original_[i + 1] == '\n') {
+      } else if (i + 1 < len && original_[i] == '\r' && original_[i + 1] == '\n') {
         state = State::OUT;
         i += 2;
       } else if (original_[i] == '\r') {

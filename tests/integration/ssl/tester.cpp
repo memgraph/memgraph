@@ -20,8 +20,7 @@ struct EchoData {};
 
 class EchoSession {
  public:
-  EchoSession(EchoData *, const io::network::Endpoint &,
-              communication::InputStream *input_stream,
+  EchoSession(EchoData *, const io::network::Endpoint &, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
@@ -48,16 +47,13 @@ int main(int argc, char **argv) {
 
   // Initialize the server.
   EchoData echo_data;
-  communication::ServerContext server_context(
-      FLAGS_server_key_file, FLAGS_server_cert_file, FLAGS_server_ca_file,
-      FLAGS_server_verify_peer);
-  communication::Server<EchoSession, EchoData> server(
-      {"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
+  communication::ServerContext server_context(FLAGS_server_key_file, FLAGS_server_cert_file, FLAGS_server_ca_file,
+                                              FLAGS_server_verify_peer);
+  communication::Server<EchoSession, EchoData> server({"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
   server.Start();
 
   // Initialize the client.
-  communication::ClientContext client_context(FLAGS_client_key_file,
-                                              FLAGS_client_cert_file);
+  communication::ClientContext client_context(FLAGS_client_key_file, FLAGS_client_cert_file);
   communication::Client client(&client_context);
 
   // Connect to the server.
@@ -68,8 +64,7 @@ int main(int argc, char **argv) {
   spdlog::info("Client sent message.");
   MG_ASSERT(client.Read(message.size()), "Client couldn't receive message!");
   spdlog::info("Client received message.");
-  MG_ASSERT(std::string(reinterpret_cast<const char *>(client.GetData()),
-                        message.size()) == message,
+  MG_ASSERT(std::string(reinterpret_cast<const char *>(client.GetData()), message.size()) == message,
             "Received message isn't equal to sent message!");
 
   // Shutdown the server.

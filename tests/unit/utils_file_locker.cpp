@@ -13,9 +13,7 @@ using namespace std::chrono_literals;
 
 class FileLockerTest : public ::testing::Test {
  protected:
-  std::filesystem::path testing_directory{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_utils_file_locker"};
+  std::filesystem::path testing_directory{std::filesystem::temp_directory_path() / "MG_test_unit_utils_file_locker"};
 
   void SetUp() override { Clear(); }
 
@@ -44,9 +42,8 @@ class FileLockerTest : public ::testing::Test {
 // deleting. We test all of the combinations for absolute/relative paths for
 // locking path and absolute/relative paths for deleting
 // Parameter is represented by tuple (lock_absolute, delete_absolute).
-class FileLockerParameterizedTest
-    : public FileLockerTest,
-      public ::testing::WithParamInterface<std::tuple<bool, bool>> {};
+class FileLockerParameterizedTest : public FileLockerTest,
+                                    public ::testing::WithParamInterface<std::tuple<bool, bool>> {};
 
 TEST_P(FileLockerParameterizedTest, DeleteWhileLocking) {
   CreateFiles(1);
@@ -111,15 +108,13 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
   const auto additional_directory = std::filesystem::path("additional");
   ASSERT_TRUE(std::filesystem::create_directory(additional_directory));
 
-  const auto nested_file =
-      std::filesystem::path(fmt::format("{}/2", additional_directory.string()));
+  const auto nested_file = std::filesystem::path(fmt::format("{}/2", additional_directory.string()));
   const auto nested_file_absolute = std::filesystem::absolute(nested_file);
 
   const auto file = std::filesystem::path("1");
   const auto file_absolute = std::filesystem::absolute(file);
   const auto directory_lock_test = [&](const bool lock_nested_directory) {
-    const auto directory_to_lock =
-        lock_nested_directory ? additional_directory : testing_directory;
+    const auto directory_to_lock = lock_nested_directory ? additional_directory : testing_directory;
     const auto [lock_absolute, delete_absolute] = GetParam();
     std::ofstream(file.string());
     std::ofstream(nested_file.string());
@@ -127,14 +122,12 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
       auto locker = file_retainer.AddLocker();
       {
         auto acc = locker.Access();
-        acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock)
-                                  : directory_to_lock);
+        acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock) : directory_to_lock);
       }
 
       file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
       ASSERT_NE(std::filesystem::exists(file), lock_nested_directory);
-      file_retainer.DeleteFile(delete_absolute ? nested_file_absolute
-                                               : nested_file);
+      file_retainer.DeleteFile(delete_absolute ? nested_file_absolute : nested_file);
       ASSERT_TRUE(std::filesystem::exists(nested_file));
     }
     ASSERT_FALSE(std::filesystem::exists(file));
@@ -187,10 +180,8 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
 }
 
 INSTANTIATE_TEST_CASE_P(FileLockerPathVariantTests, FileLockerParameterizedTest,
-                        ::testing::Values(std::make_tuple(false, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(true, true)));
+                        ::testing::Values(std::make_tuple(false, false), std::make_tuple(false, true),
+                                          std::make_tuple(true, false), std::make_tuple(true, true)));
 
 TEST_F(FileLockerTest, MultipleLockers) {
   CreateFiles(3);
@@ -253,9 +244,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
   };
 
-  const auto random_file = [&]() {
-    return testing_directory / fmt::format("{}", file_distribution(engine));
-  };
+  const auto random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
 
   utils::FileRetainer file_retainer;
 

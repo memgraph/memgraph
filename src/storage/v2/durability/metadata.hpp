@@ -37,8 +37,7 @@ struct RecoveredIndicesAndConstraints {
 // indices/constraints object.
 // @throw RecoveryFailure
 template <typename TObj>
-void AddRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj,
-                                 const char *error_message) {
+void AddRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const char *error_message) {
   auto it = std::find(list->begin(), list->end(), obj);
   if (it == list->end()) {
     list->push_back(obj);
@@ -51,8 +50,7 @@ void AddRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj,
 // indices/constraints object.
 // @throw RecoveryFailure
 template <typename TObj>
-void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj,
-                                    const char *error_message) {
+void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const char *error_message) {
   auto it = std::find(list->begin(), list->end(), obj);
   if (it != list->end()) {
     std::swap(*it, list->back());

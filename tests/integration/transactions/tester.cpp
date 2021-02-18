@@ -18,9 +18,7 @@ using namespace communication::bolt;
 
 class BoltClient : public ::testing::Test {
  protected:
-  virtual void SetUp() {
-    client_.Connect(endpoint_, FLAGS_username, FLAGS_password);
-  }
+  virtual void SetUp() { client_.Connect(endpoint_, FLAGS_username, FLAGS_password); }
 
   virtual void TearDown() {}
 
@@ -53,47 +51,37 @@ class BoltClient : public ::testing::Test {
     return false;
   }
 
-  io::network::Endpoint endpoint_{io::network::ResolveHostname(FLAGS_address),
-                                  static_cast<uint16_t>(FLAGS_port)};
+  io::network::Endpoint endpoint_{io::network::ResolveHostname(FLAGS_address), static_cast<uint16_t>(FLAGS_port)};
   communication::ClientContext context_{FLAGS_use_ssl};
   Client client_{&context_};
 };
 
-const std::string kNoCurrentTransactionToCommit =
-    "No current transaction to commit.";
-const std::string kNoCurrentTransactionToRollback =
-    "No current transaction to rollback.";
-const std::string kNestedTransactions =
-    "Nested transactions are not supported.";
+const std::string kNoCurrentTransactionToCommit = "No current transaction to commit.";
+const std::string kNoCurrentTransactionToRollback = "No current transaction to rollback.";
+const std::string kNestedTransactions = "Nested transactions are not supported.";
 const std::string kCommitInvalid =
     "Transaction can't be committed because there was a previous error. Please "
     "invoke a rollback instead.";
 
 TEST_F(BoltClient, CommitWithoutTransaction) {
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, RollbackWithoutTransaction) {
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, DoubleCommitWithoutTransaction) {
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, DoubleRollbackWithoutTransaction) {
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
@@ -120,16 +108,14 @@ TEST_F(BoltClient, DoubleBeginAndRollback) {
 TEST_F(BoltClient, BeginAndDoubleCommit) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_TRUE(Execute("commit"));
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, BeginAndDoubleRollback) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_TRUE(Execute("rollback"));
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
@@ -187,38 +173,30 @@ TEST_F(BoltClient, BeginAndWrongQueryAndBegin) {
 }
 
 TEST_F(BoltClient, CommitAndCorrectQueryAndCommit) {
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_TRUE(Execute("create (n)"));
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, CommitAndWrongQueryAndCommit) {
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
-  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit),
-               ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, RollbackAndCorrectQueryAndRollback) {
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_TRUE(Execute("create (n)"));
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, RollbackAndWrongQueryAndRollback) {
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
-  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback),
-               ClientQueryException);
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 

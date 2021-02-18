@@ -15,26 +15,21 @@
 
 namespace fs = std::filesystem;
 
-const std::vector<std::string> kDirsAll = {
-    "existing_dir_777", "existing_dir_770", "existing_dir_700",
-    "existing_dir_000", "symlink_dir_777",  "symlink_dir_770",
-    "symlink_dir_700",  "symlink_dir_000"};
+const std::vector<std::string> kDirsAll = {"existing_dir_777", "existing_dir_770", "existing_dir_700",
+                                           "existing_dir_000", "symlink_dir_777",  "symlink_dir_770",
+                                           "symlink_dir_700",  "symlink_dir_000"};
 
-const std::vector<std::string> kFilesAll = {
-    "existing_file_666", "existing_file_660", "existing_file_600",
-    "existing_file_000", "symlink_file_666",  "symlink_file_660",
-    "symlink_file_600",  "symlink_file_000"};
+const std::vector<std::string> kFilesAll = {"existing_file_666", "existing_file_660", "existing_file_600",
+                                            "existing_file_000", "symlink_file_666",  "symlink_file_660",
+                                            "symlink_file_600",  "symlink_file_000"};
 
 const std::map<std::string, fs::perms> kPermsAll = {
-    {"777",
-     fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all},
+    {"777", fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all},
     {"770", fs::perms::owner_all | fs::perms::group_all},
     {"700", fs::perms::owner_all},
-    {"666", fs::perms::owner_read | fs::perms::owner_write |
-                fs::perms::group_read | fs::perms::group_write |
+    {"666", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write |
                 fs::perms::others_read | fs::perms::others_write},
-    {"660", fs::perms::owner_read | fs::perms::owner_write |
-                fs::perms::group_read | fs::perms::group_write},
+    {"660", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write},
     {"600", fs::perms::owner_read | fs::perms::owner_write},
     {"000", fs::perms::none},
 };
@@ -52,21 +47,18 @@ void CreateFile(const fs::path &path) {
 void CreateFiles(const fs::path &path) {
   CreateFile(path / "existing_file_666");
   fs::create_symlink(path / "existing_file_666", path / "symlink_file_666");
-  fs::permissions(path / "existing_file_666",
-                  fs::perms::owner_read | fs::perms::owner_write |
-                      fs::perms::group_read | fs::perms::group_write |
-                      fs::perms::others_read | fs::perms::others_write);
+  fs::permissions(path / "existing_file_666", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read |
+                                                  fs::perms::group_write | fs::perms::others_read |
+                                                  fs::perms::others_write);
 
   CreateFile(path / "existing_file_660");
   fs::create_symlink(path / "existing_file_660", path / "symlink_file_660");
   fs::permissions(path / "existing_file_660",
-                  fs::perms::owner_read | fs::perms::owner_write |
-                      fs::perms::group_read | fs::perms::group_write);
+                  fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write);
 
   CreateFile(path / "existing_file_600");
   fs::create_symlink(path / "existing_file_600", path / "symlink_file_600");
-  fs::permissions(path / "existing_file_600",
-                  fs::perms::owner_read | fs::perms::owner_write);
+  fs::permissions(path / "existing_file_600", fs::perms::owner_read | fs::perms::owner_write);
 
   CreateFile(path / "existing_file_000");
   fs::create_symlink(path / "existing_file_000", path / "symlink_file_000");
@@ -80,30 +72,23 @@ class UtilsFileTest : public ::testing::Test {
     fs::create_directory(storage);
 
     fs::create_directory(storage / "existing_dir_777");
-    fs::create_directory_symlink(storage / "existing_dir_777",
-                                 storage / "symlink_dir_777");
+    fs::create_directory_symlink(storage / "existing_dir_777", storage / "symlink_dir_777");
     CreateFiles(storage / "existing_dir_777");
 
     fs::create_directory(storage / "existing_dir_770");
-    fs::create_directory_symlink(storage / "existing_dir_770",
-                                 storage / "symlink_dir_770");
+    fs::create_directory_symlink(storage / "existing_dir_770", storage / "symlink_dir_770");
     CreateFiles(storage / "existing_dir_770");
 
     fs::create_directory(storage / "existing_dir_700");
-    fs::create_directory_symlink(storage / "existing_dir_700",
-                                 storage / "symlink_dir_700");
+    fs::create_directory_symlink(storage / "existing_dir_700", storage / "symlink_dir_700");
     CreateFiles(storage / "existing_dir_700");
 
     fs::create_directory(storage / "existing_dir_000");
-    fs::create_directory_symlink(storage / "existing_dir_000",
-                                 storage / "symlink_dir_000");
+    fs::create_directory_symlink(storage / "existing_dir_000", storage / "symlink_dir_000");
     CreateFiles(storage / "existing_dir_000");
 
-    fs::permissions(storage / "existing_dir_777", fs::perms::owner_all |
-                                                      fs::perms::group_all |
-                                                      fs::perms::others_all);
-    fs::permissions(storage / "existing_dir_770",
-                    fs::perms::owner_all | fs::perms::group_all);
+    fs::permissions(storage / "existing_dir_777", fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+    fs::permissions(storage / "existing_dir_770", fs::perms::owner_all | fs::perms::group_all);
     fs::permissions(storage / "existing_dir_700", fs::perms::owner_all);
     fs::permissions(storage / "existing_dir_000", fs::perms::none);
   }
@@ -115,18 +100,15 @@ class UtilsFileTest : public ::testing::Test {
         ASSERT_TRUE(fs::exists(storage / dir));
         auto dir_status = fs::symlink_status(storage / dir);
         if (!utils::StartsWith(dir, "symlink")) {
-          ASSERT_EQ(dir_status.permissions() & fs::perms::all,
-                    GetPermsFromFilename(dir));
+          ASSERT_EQ(dir_status.permissions() & fs::perms::all, GetPermsFromFilename(dir));
         }
-        fs::permissions(storage / dir, fs::perms::owner_all,
-                        fs::perm_options::add);
+        fs::permissions(storage / dir, fs::perms::owner_all, fs::perm_options::add);
       }
       for (const auto &file : kFilesAll) {
         ASSERT_TRUE(fs::exists(storage / dir / file));
         auto file_status = fs::symlink_status(storage / dir / file);
         if (!utils::StartsWith(file, "symlink")) {
-          ASSERT_EQ(file_status.permissions() & fs::perms::all,
-                    GetPermsFromFilename(file));
+          ASSERT_EQ(file_status.permissions() & fs::perms::all, GetPermsFromFilename(file));
         }
       }
     }
@@ -141,8 +123,7 @@ class UtilsFileTest : public ::testing::Test {
     if (fs::exists(storage)) {
       for (auto &file : fs::recursive_directory_iterator(storage)) {
         std::error_code error_code;  // For exception suppression.
-        fs::permissions(file.path(), fs::perms::owner_all,
-                        fs::perm_options::add, error_code);
+        fs::permissions(file.path(), fs::perms::owner_all, fs::perm_options::add, error_code);
       }
       fs::remove_all(storage);
     }
@@ -207,12 +188,9 @@ TEST_F(UtilsFileTest, OutputFileExisting) {
     for (const auto &file : kFilesAll) {
       utils::OutputFile handle;
       if (utils::EndsWith(dir, "000") || utils::EndsWith(file, "000")) {
-        ASSERT_DEATH(handle.Open(storage / dir / file,
-                                 utils::OutputFile::Mode::APPEND_TO_EXISTING),
-                     "");
+        ASSERT_DEATH(handle.Open(storage / dir / file, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
       } else {
-        handle.Open(storage / dir / file,
-                    utils::OutputFile::Mode::APPEND_TO_EXISTING);
+        handle.Open(storage / dir / file, utils::OutputFile::Mode::APPEND_TO_EXISTING);
         ASSERT_TRUE(handle.IsOpen());
         ASSERT_EQ(handle.path(), storage / dir / file);
         handle.Write("hello world!\n", 13);
@@ -228,8 +206,7 @@ TEST_F(UtilsFileTest, OutputFileNew) {
     utils::OutputFile handle;
     auto path = storage / dir / "test";
     if (utils::EndsWith(dir, "000")) {
-      ASSERT_DEATH(
-          handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+      ASSERT_DEATH(handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
     } else {
       handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
       ASSERT_TRUE(handle.IsOpen());
@@ -246,11 +223,9 @@ TEST_F(UtilsFileTest, OutputFileInvalidUsage) {
   ASSERT_DEATH(handle.Write("hello!"), "");
   ASSERT_DEATH(handle.Sync(), "");
   ASSERT_DEATH(handle.Close(), "");
-  handle.Open(storage / "existing_dir_777" / "existing_file_777",
-              utils::OutputFile::Mode::APPEND_TO_EXISTING);
-  ASSERT_DEATH(handle.Open(storage / "existing_dir_770" / "existing_file_770",
-                           utils::OutputFile::Mode::APPEND_TO_EXISTING),
-               "");
+  handle.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  ASSERT_DEATH(
+      handle.Open(storage / "existing_dir_770" / "existing_file_770", utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
   handle.Write("hello!");
   handle.Sync();
   handle.Close();
@@ -258,8 +233,7 @@ TEST_F(UtilsFileTest, OutputFileInvalidUsage) {
 
 TEST_F(UtilsFileTest, OutputFileMove) {
   utils::OutputFile original;
-  original.Open(storage / "existing_dir_777" / "existing_file_777",
-                utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  original.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
 
   utils::OutputFile moved(std::move(original));
 
@@ -275,16 +249,14 @@ TEST_F(UtilsFileTest, OutputFileMove) {
   moved.Sync();
   moved.Close();
 
-  original.Open(storage / "existing_dir_770" / "existing_file_770",
-                utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  original.Open(storage / "existing_dir_770" / "existing_file_770", utils::OutputFile::Mode::APPEND_TO_EXISTING);
   original.Close();
 }
 
 TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   for (int i = 0; i < 100000; ++i) {
     utils::OutputFile handle;
-    handle.Open(storage / "existing_dir_777" / "existing_file_777",
-                utils::OutputFile::Mode::APPEND_TO_EXISTING);
+    handle.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
   }
 }
 
@@ -353,9 +325,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
         // Last read will always have the highest amount of
         // bytes read.
         if (i == number_of_reads - 1) {
-          max_read_counts.WithLock([&](auto &read_counts) {
-            read_counts.push_back(total_read_count);
-          });
+          max_read_counts.WithLock([&](auto &read_counts) { read_counts.push_back(total_read_count); });
         }
         sleep_for(random_short_wait(engine));
       }
@@ -374,8 +344,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   handle.Close();
   // Check if any of the threads read the entire data.
   ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(
-        read_counts.cbegin(), read_counts.cend(),
-        [](const auto read_count) { return read_count == number_of_writes; });
+    return std::any_of(read_counts.cbegin(), read_counts.cend(),
+                       [](const auto read_count) { return read_count == number_of_writes; });
   }));
 }

@@ -32,17 +32,9 @@ struct Edge {
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
-inline bool operator==(const Edge &first, const Edge &second) {
-  return first.gid == second.gid;
-}
-inline bool operator<(const Edge &first, const Edge &second) {
-  return first.gid < second.gid;
-}
-inline bool operator==(const Edge &first, const Gid &second) {
-  return first.gid == second;
-}
-inline bool operator<(const Edge &first, const Gid &second) {
-  return first.gid < second;
-}
+inline bool operator==(const Edge &first, const Edge &second) { return first.gid == second.gid; }
+inline bool operator<(const Edge &first, const Edge &second) { return first.gid < second.gid; }
+inline bool operator==(const Edge &first, const Gid &second) { return first.gid == second; }
+inline bool operator<(const Edge &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace storage

@@ -22,14 +22,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanChecker(const std::list<std::unique_ptr<BaseOpChecker>> &checkers,
-              const SymbolTable &symbol_table)
+  PlanChecker(const std::list<std::unique_ptr<BaseOpChecker>> &checkers, const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {
     for (const auto &checker : checkers) checkers_.emplace_back(checker.get());
   }
 
-  PlanChecker(const std::list<BaseOpChecker *> &checkers,
-              const SymbolTable &symbol_table)
+  PlanChecker(const std::list<BaseOpChecker *> &checkers, const SymbolTable &symbol_table)
       : checkers_(checkers), symbol_table_(symbol_table) {}
 
 #define PRE_VISIT(TOp)              \
@@ -112,8 +110,7 @@ class OpChecker : public BaseOpChecker {
  public:
   void CheckOp(LogicalOperator &op, const SymbolTable &symbol_table) override {
     auto *expected_op = dynamic_cast<TOp *>(&op);
-    ASSERT_TRUE(expected_op) << "op is '" << op.GetTypeInfo().name
-                             << "' expected '" << TOp::kType.name << "'!";
+    ASSERT_TRUE(expected_op) << "op is '" << op.GetTypeInfo().name << "' expected '" << TOp::kType.name << "'!";
     ExpectOp(*expected_op, symbol_table);
   }
 
@@ -158,12 +155,10 @@ class ExpectExpandBfs : public OpChecker<ExpandVariable> {
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
-  explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols)
-      : symbols_(symbols) {}
+  explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols) : symbols_(symbols) {}
 
   void ExpectOp(Accumulate &op, const SymbolTable &) override {
-    std::unordered_set<Symbol> got_symbols(op.symbols_.begin(),
-                                           op.symbols_.end());
+    std::unordered_set<Symbol> got_symbols(op.symbols_.begin(), op.symbols_.end());
     EXPECT_EQ(symbols_, got_symbols);
   }
 
@@ -183,21 +178,17 @@ class ExpectAggregate : public OpChecker<Aggregate> {
       ASSERT_NE(aggr_it, aggregations_.end());
       auto aggr = *aggr_it++;
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(aggr_elem.value).hash_code(),
-                typeid(aggr->expression1_).hash_code());
-      EXPECT_EQ(typeid(aggr_elem.key).hash_code(),
-                typeid(aggr->expression2_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
       EXPECT_EQ(aggr_elem.op, aggr->op_);
       EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
     }
     EXPECT_EQ(aggr_it, aggregations_.end());
     // TODO: Proper group by expression equality
     std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by_)
-      got_group_by.insert(typeid(*expr).hash_code());
+    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
     std::unordered_set<size_t> expected_group_by;
-    for (auto *expr : group_by_)
-      expected_group_by.insert(typeid(*expr).hash_code());
+    for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
     EXPECT_EQ(got_group_by, expected_group_by);
   }
 
@@ -208,8 +199,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
 
 class ExpectMerge : public OpChecker<Merge> {
  public:
-  ExpectMerge(const std::list<BaseOpChecker *> &on_match,
-              const std::list<BaseOpChecker *> &on_create)
+  ExpectMerge(const std::list<BaseOpChecker *> &on_match, const std::list<BaseOpChecker *> &on_create)
       : on_match_(on_match), on_create_(on_create) {}
 
   void ExpectOp(Merge &merge, const SymbolTable &symbol_table) override {
@@ -226,17 +216,14 @@ class ExpectMerge : public OpChecker<Merge> {
 
 class ExpectOptional : public OpChecker<Optional> {
  public:
-  explicit ExpectOptional(const std::list<BaseOpChecker *> &optional)
-      : optional_(optional) {}
+  explicit ExpectOptional(const std::list<BaseOpChecker *> &optional) : optional_(optional) {}
 
-  ExpectOptional(const std::vector<Symbol> &optional_symbols,
-                 const std::list<BaseOpChecker *> &optional)
+  ExpectOptional(const std::vector<Symbol> &optional_symbols, const std::list<BaseOpChecker *> &optional)
       : optional_symbols_(optional_symbols), optional_(optional) {}
 
   void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
     if (!optional_symbols_.empty()) {
-      EXPECT_THAT(optional.optional_symbols_,
-                  testing::UnorderedElementsAreArray(optional_symbols_));
+      EXPECT_THAT(optional.optional_symbols_, testing::UnorderedElementsAreArray(optional_symbols_));
     }
     PlanChecker check_optional(optional_, symbol_table);
     optional.optional_->Accept(check_optional);
@@ -247,22 +234,18 @@ class ExpectOptional : public OpChecker<Optional> {
   const std::list<BaseOpChecker *> &optional_;
 };
 
-class ExpectScanAllByLabelPropertyValue
-    : public OpChecker<ScanAllByLabelPropertyValue> {
+class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
-  ExpectScanAllByLabelPropertyValue(
-      storage::LabelId label,
-      const std::pair<std::string, storage::PropertyId> &prop_pair,
-      query::Expression *expression)
+  ExpectScanAllByLabelPropertyValue(storage::LabelId label,
+                                    const std::pair<std::string, storage::PropertyId> &prop_pair,
+                                    query::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
-  void ExpectOp(ScanAllByLabelPropertyValue &scan_all,
-                const SymbolTable &) override {
+  void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.label_, label_);
     EXPECT_EQ(scan_all.property_, property_);
     // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(),
-              typeid(expression_).hash_code());
+    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
   }
 
  private:
@@ -271,34 +254,26 @@ class ExpectScanAllByLabelPropertyValue
   query::Expression *expression_;
 };
 
-class ExpectScanAllByLabelPropertyRange
-    : public OpChecker<ScanAllByLabelPropertyRange> {
+class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
  public:
-  ExpectScanAllByLabelPropertyRange(
-      storage::LabelId label, storage::PropertyId property,
-      std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
-      std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
-      : label_(label),
-        property_(property),
-        lower_bound_(lower_bound),
-        upper_bound_(upper_bound) {}
+  ExpectScanAllByLabelPropertyRange(storage::LabelId label, storage::PropertyId property,
+                                    std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
+                                    std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
+      : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
 
-  void ExpectOp(ScanAllByLabelPropertyRange &scan_all,
-                const SymbolTable &) override {
+  void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.label_, label_);
     EXPECT_EQ(scan_all.property_, property_);
     if (lower_bound_) {
       ASSERT_TRUE(scan_all.lower_bound_);
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(),
-                typeid(lower_bound_->value()).hash_code());
+      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
       EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
     }
     if (upper_bound_) {
       ASSERT_TRUE(scan_all.upper_bound_);
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(),
-                typeid(upper_bound_->value()).hash_code());
+      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
       EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
     }
   }
@@ -312,13 +287,10 @@ class ExpectScanAllByLabelPropertyRange
 
 class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
  public:
-  ExpectScanAllByLabelProperty(
-      storage::LabelId label,
-      const std::pair<std::string, storage::PropertyId> &prop_pair)
+  ExpectScanAllByLabelProperty(storage::LabelId label, const std::pair<std::string, storage::PropertyId> &prop_pair)
       : label_(label), property_(prop_pair.second) {}
 
-  void ExpectOp(ScanAllByLabelProperty &scan_all,
-                const SymbolTable &) override {
+  void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.label_, label_);
     EXPECT_EQ(scan_all.property_, property_);
   }
@@ -350,10 +322,8 @@ class ExpectCartesian : public OpChecker<Cartesian> {
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
  public:
-  ExpectCallProcedure(const std::string &name,
-                      const std::vector<query::Expression *> &args,
-                      const std::vector<std::string> &fields,
-                      const std::vector<Symbol> &result_syms)
+  ExpectCallProcedure(const std::string &name, const std::vector<query::Expression *> &args,
+                      const std::vector<std::string> &fields, const std::vector<Symbol> &result_syms)
       : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
 
   void ExpectOp(CallProcedure &op, const SymbolTable &symbol_table) override {
@@ -391,10 +361,8 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
 }
 
 template <class TPlanner, class TDbAccessor>
-TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage,
-                     SymbolTable &symbol_table, CypherQuery *query) {
-  auto planning_context =
-      MakePlanningContext(&storage, &symbol_table, query, dba);
+TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
+  auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
   auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
   return TPlanner(single_query_parts, planning_context);
@@ -408,8 +376,7 @@ class FakeDbAccessor {
     return 0;
   }
 
-  int64_t VerticesCount(storage::LabelId label,
-                        storage::PropertyId property) const {
+  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
@@ -418,12 +385,9 @@ class FakeDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(storage::LabelId label) const {
-    return label_index_.find(label) != label_index_.end();
-  }
+  bool LabelIndexExists(storage::LabelId label) const { return label_index_.find(label) != label_index_.end(); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label,
-                                storage::PropertyId property) const {
+  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
@@ -432,12 +396,9 @@ class FakeDbAccessor {
     return false;
   }
 
-  void SetIndexCount(storage::LabelId label, int64_t count) {
-    label_index_[label] = count;
-  }
+  void SetIndexCount(storage::LabelId label, int64_t count) { label_index_[label] = count; }
 
-  void SetIndexCount(storage::LabelId label, storage::PropertyId property,
-                     int64_t count) {
+  void SetIndexCount(storage::LabelId label, storage::PropertyId property, int64_t count) {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         std::get<2>(index) = count;
@@ -450,8 +411,7 @@ class FakeDbAccessor {
   storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
-    return labels_.emplace(name, storage::LabelId::FromUint(labels_.size()))
-        .first->second;
+    return labels_.emplace(name, storage::LabelId::FromUint(labels_.size())).first->second;
   }
 
   storage::LabelId Label(const std::string &name) { return NameToLabel(name); }
@@ -459,22 +419,16 @@ class FakeDbAccessor {
   storage::EdgeTypeId NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
-    return edge_types_
-        .emplace(name, storage::EdgeTypeId::FromUint(edge_types_.size()))
-        .first->second;
+    return edge_types_.emplace(name, storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
   }
 
   storage::PropertyId NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
-    return properties_
-        .emplace(name, storage::PropertyId::FromUint(properties_.size()))
-        .first->second;
+    return properties_.emplace(name, storage::PropertyId::FromUint(properties_.size())).first->second;
   }
 
-  storage::PropertyId Property(const std::string &name) {
-    return NameToProperty(name);
-  }
+  storage::PropertyId Property(const std::string &name) { return NameToProperty(name); }
 
   std::string PropertyToName(storage::PropertyId property) const {
     for (const auto &kv : properties_) {
@@ -483,9 +437,7 @@ class FakeDbAccessor {
     LOG_FATAL("Unable to find property name");
   }
 
-  std::string PropertyName(storage::PropertyId property) const {
-    return PropertyToName(property);
-  }
+  std::string PropertyName(storage::PropertyId property) const { return PropertyToName(property); }
 
  private:
   std::unordered_map<std::string, storage::LabelId> labels_;
@@ -493,8 +445,7 @@ class FakeDbAccessor {
   std::unordered_map<std::string, storage::PropertyId> properties_;
 
   std::unordered_map<storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<storage::LabelId, storage::PropertyId, int64_t>>
-      label_property_index_;
+  std::vector<std::tuple<storage::LabelId, storage::PropertyId, int64_t>> label_property_index_;
 };
 
 }  // namespace query::plan

@@ -50,14 +50,12 @@ TEST(Socket, WaitForReadyWrite) {
 
     // Decrease the TCP read buffer.
     int len = 1024;
-    ASSERT_EQ(setsockopt(client.fd(), SOL_SOCKET, SO_RCVBUF, &len, sizeof(len)),
-              0);
+    ASSERT_EQ(setsockopt(client.fd(), SOL_SOCKET, SO_RCVBUF, &len, sizeof(len)), 0);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     while (true) {
       int ret = client.Read(buff, sizeof(buff));
-      if (ret == -1 && errno != EAGAIN && errno != EWOULDBLOCK &&
-          errno != EINTR) {
+      if (ret == -1 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
         std::raise(SIGPIPE);
       } else if (ret == 0) {
         break;
@@ -72,8 +70,7 @@ TEST(Socket, WaitForReadyWrite) {
 
   // Decrease the TCP write buffer.
   int len = 1024;
-  ASSERT_EQ(setsockopt(client->fd(), SOL_SOCKET, SO_SNDBUF, &len, sizeof(len)),
-            0);
+  ASSERT_EQ(setsockopt(client->fd(), SOL_SOCKET, SO_SNDBUF, &len, sizeof(len)), 0);
 
   utils::Timer timer;
   for (int i = 0; i < 1000000; ++i) {

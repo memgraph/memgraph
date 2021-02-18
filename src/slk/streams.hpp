@@ -15,12 +15,10 @@ using SegmentSize = uint32_t;
 // stack (it mustn't be too large) and that it isn't too small so that most SLK
 // messages fit into a single segment.
 const uint64_t kSegmentMaxDataSize = 262144;
-const uint64_t kSegmentMaxTotalSize =
-    kSegmentMaxDataSize + sizeof(SegmentSize) + sizeof(SegmentSize);
+const uint64_t kSegmentMaxTotalSize = kSegmentMaxDataSize + sizeof(SegmentSize) + sizeof(SegmentSize);
 
-static_assert(
-    kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
-    "The SLK segment can't be larger than the type used to store its size!");
+static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
+              "The SLK segment can't be larger than the type used to store its size!");
 
 /// SLK splits binary data into segments. Segments are used to avoid the need to
 /// have all of the encoded data in memory at once during the building process.

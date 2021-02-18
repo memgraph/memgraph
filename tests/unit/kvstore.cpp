@@ -13,9 +13,8 @@ class KVStore : public ::testing::Test {
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
-  fs::path test_folder_{
-      fs::temp_directory_path() /
-      ("unit_kvstore_test_" + std::to_string(static_cast<int>(getpid())))};
+  fs::path test_folder_{fs::temp_directory_path() /
+                        ("unit_kvstore_test_" + std::to_string(static_cast<int>(getpid())))};
 };
 
 TEST_F(KVStore, PutGet) {
@@ -51,13 +50,11 @@ TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
-  kvstore::KVStore kvstore(test_folder_ /
-                           "PutMultipleGetPutAndDeleteMultipleGet");
+  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetPutAndDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
-  ASSERT_TRUE(
-      kvstore.PutAndDeleteMultiple({{"key3", "value3"}}, {"key1", "key2"}));
+  ASSERT_TRUE(kvstore.PutAndDeleteMultiple({{"key3", "value3"}}, {"key1", "key2"}));
   ASSERT_FALSE(static_cast<bool>(kvstore.Get("key1")));
   ASSERT_FALSE(static_cast<bool>(kvstore.Get("key2")));
   ASSERT_EQ(kvstore.Get("key3").value(), "value3");
@@ -145,9 +142,7 @@ TEST_F(KVStore, DeletePrefix) {
 TEST_F(KVStore, Iterator) {
   kvstore::KVStore kvstore(test_folder_ / "Iterator");
 
-  for (int i = 1; i <= 4; ++i)
-    ASSERT_TRUE(
-        kvstore.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  for (int i = 1; i <= 4; ++i) ASSERT_TRUE(kvstore.Put("key" + std::to_string(i), "value" + std::to_string(i)));
 
   auto it = kvstore.begin();
   ASSERT_TRUE(it.IsValid());

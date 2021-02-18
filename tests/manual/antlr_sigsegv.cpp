@@ -97,8 +97,7 @@ int main(int argc, char **argv) {
   utils::SignalHandler::RegisterHandler(utils::Signal::Abort, []() {
     // Log the stacktrace and let the abort continue.
     utils::Stacktrace stacktrace;
-    std::cerr << "Abort signal raised" << std::endl
-              << stacktrace.dump() << std::endl;
+    std::cerr << "Abort signal raised" << std::endl << stacktrace.dump() << std::endl;
   });
 
   return RUN_ALL_TESTS();

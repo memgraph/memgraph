@@ -89,8 +89,7 @@ TEST(SkipList, String) {
   {
     auto acc = list.access();
     int64_t pos = 0;
-    std::vector<int64_t> order{-1, -10, -2, -3, -4, -5, -6, -7, -8, -9, 0,
-                               1,  10,  2,  3,  4,  5,  6,  7,  8,  9};
+    std::vector<int64_t> order{-1, -10, -2, -3, -4, -5, -6, -7, -8, -9, 0, 1, 10, 2, 3, 4, 5, 6, 7, 8, 9};
     for (auto &item : acc) {
       std::string str(fmt::format("str{}", order[pos]));
       ASSERT_EQ(item, str);
@@ -202,12 +201,8 @@ struct OnlyCopyable {
   uint64_t value;
 };
 
-bool operator==(const OnlyCopyable &a, const OnlyCopyable &b) {
-  return a.value == b.value;
-}
-bool operator<(const OnlyCopyable &a, const OnlyCopyable &b) {
-  return a.value < b.value;
-}
+bool operator==(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value == b.value; }
+bool operator<(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyCopyable) {
   utils::SkipList<OnlyCopyable> list;
@@ -229,12 +224,8 @@ struct OnlyMoveable {
   uint64_t value;
 };
 
-bool operator==(const OnlyMoveable &a, const OnlyMoveable &b) {
-  return a.value == b.value;
-}
-bool operator<(const OnlyMoveable &a, const OnlyMoveable &b) {
-  return a.value < b.value;
-}
+bool operator==(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value == b.value; }
+bool operator<(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyMoveable) {
   utils::SkipList<OnlyMoveable> list;
@@ -266,9 +257,7 @@ struct MapObject {
   std::string value;
 };
 
-bool operator==(const MapObject &a, const MapObject &b) {
-  return a.key == b.key;
-}
+bool operator==(const MapObject &a, const MapObject &b) { return a.key == b.key; }
 bool operator<(const MapObject &a, const MapObject &b) { return a.key < b.key; }
 
 bool operator==(const MapObject &a, const uint64_t &b) { return a.key == b; }
@@ -285,8 +274,7 @@ TEST(SkipList, MapExample) {
     // This operation will return an iterator that isn't equal to
     // `accessor.end()`. This is because the comparison operators only use
     // the key field for comparison, the value field is ignored.
-    ASSERT_NE(accessor.find(MapObject{5, "this probably isn't desired"}),
-              accessor.end());
+    ASSERT_NE(accessor.find(MapObject{5, "this probably isn't desired"}), accessor.end());
 
     // This will also succeed in removing the object.
     ASSERT_TRUE(accessor.remove(MapObject{5, "not good"}));
@@ -484,9 +472,7 @@ struct Counter {
   int64_t value;
 };
 
-bool operator==(const Counter &a, const Counter &b) {
-  return a.key == b.key && a.value == b.value;
-}
+bool operator==(const Counter &a, const Counter &b) { return a.key == b.key && a.value == b.value; }
 bool operator<(const Counter &a, const Counter &b) {
   if (a.key == b.key) return a.value < b.value;
   return a.key < b.key;
@@ -515,14 +501,12 @@ TEST(SkipList, EstimateCount) {
   }
 
   {
-    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0,
-             delta_avg = 0;
+    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0, delta_avg = 0;
     auto acc = list.access();
     utils::Timer timer;
     for (int64_t i = 0; i < kMaxElements; ++i) {
       uint64_t count = acc.estimate_count(i);
-      uint64_t delta = count >= kElementMembers ? count - kElementMembers
-                                                : kElementMembers - count;
+      uint64_t delta = count >= kElementMembers ? count - kElementMembers : kElementMembers - count;
       delta_min = std::min(delta_min, delta);
       delta_max = std::max(delta_max, delta);
       delta_avg += delta;
@@ -547,48 +531,47 @@ TEST(SkipList, EstimateCount) {
   }
 }
 
-#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                          \
-  {                                                                         \
-    for (int64_t i = 0; i < 10; ++i) {                                      \
-      for (int64_t j = 0; j < 10; ++j) {                                    \
-        auto acc = list.access();                                           \
-        uint64_t blocks = 0;                                                \
-        if (utils::BoundType::lower == utils::BoundType::EXCLUSIVE &&       \
-            utils::BoundType::upper == utils::BoundType::EXCLUSIVE) {       \
-          if (j > i) {                                                      \
-            blocks = j - i - 1;                                             \
-          }                                                                 \
-        } else {                                                            \
-          if (j >= i) {                                                     \
-            blocks = j - i;                                                 \
-            if (utils::BoundType::lower == utils::BoundType::INCLUSIVE &&   \
-                utils::BoundType::upper == utils::BoundType::INCLUSIVE) {   \
-              ++blocks;                                                     \
-            }                                                               \
-          }                                                                 \
-        }                                                                   \
-        uint64_t count = acc.estimate_range_count<int64_t>(                 \
-            {{i, utils::BoundType::lower}}, {{j, utils::BoundType::upper}}, \
-            1);                                                             \
-        ASSERT_EQ(count, kElementMembers *blocks);                          \
-      }                                                                     \
-    }                                                                       \
+#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                                                                \
+  {                                                                                                               \
+    for (int64_t i = 0; i < 10; ++i) {                                                                            \
+      for (int64_t j = 0; j < 10; ++j) {                                                                          \
+        auto acc = list.access();                                                                                 \
+        uint64_t blocks = 0;                                                                                      \
+        if (utils::BoundType::lower == utils::BoundType::EXCLUSIVE &&                                             \
+            utils::BoundType::upper == utils::BoundType::EXCLUSIVE) {                                             \
+          if (j > i) {                                                                                            \
+            blocks = j - i - 1;                                                                                   \
+          }                                                                                                       \
+        } else {                                                                                                  \
+          if (j >= i) {                                                                                           \
+            blocks = j - i;                                                                                       \
+            if (utils::BoundType::lower == utils::BoundType::INCLUSIVE &&                                         \
+                utils::BoundType::upper == utils::BoundType::INCLUSIVE) {                                         \
+              ++blocks;                                                                                           \
+            }                                                                                                     \
+          }                                                                                                       \
+        }                                                                                                         \
+        uint64_t count =                                                                                          \
+            acc.estimate_range_count<int64_t>({{i, utils::BoundType::lower}}, {{j, utils::BoundType::upper}}, 1); \
+        ASSERT_EQ(count, kElementMembers *blocks);                                                                \
+      }                                                                                                           \
+    }                                                                                                             \
   }
 
-#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)  \
-  {                                                                      \
-    auto acc = list.access();                                            \
-    uint64_t count = acc.estimate_range_count<int64_t>(                  \
-        std::nullopt, {{upper_value, utils::BoundType::upper_type}}, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                           \
+#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)                                    \
+  {                                                                                                        \
+    auto acc = list.access();                                                                              \
+    uint64_t count =                                                                                       \
+        acc.estimate_range_count<int64_t>(std::nullopt, {{upper_value, utils::BoundType::upper_type}}, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                                                             \
   }
 
-#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)  \
-  {                                                                      \
-    auto acc = list.access();                                            \
-    uint64_t count = acc.estimate_range_count<int64_t>(                  \
-        {{lower_value, utils::BoundType::lower_type}}, std::nullopt, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                           \
+#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)                                    \
+  {                                                                                                        \
+    auto acc = list.access();                                                                              \
+    uint64_t count =                                                                                       \
+        acc.estimate_range_count<int64_t>({{lower_value, utils::BoundType::lower_type}}, std::nullopt, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                                                             \
   }
 
 TEST(SkipList, EstimateRangeCount) {
@@ -612,16 +595,13 @@ TEST(SkipList, EstimateRangeCount) {
   }
 
   {
-    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0,
-             delta_avg = 0;
+    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0, delta_avg = 0;
     auto acc = list.access();
     utils::Timer timer;
     for (int64_t i = 0; i < kMaxElements; ++i) {
-      uint64_t count = acc.estimate_range_count<int64_t>(
-          std::nullopt, {{i, utils::BoundType::INCLUSIVE}});
+      uint64_t count = acc.estimate_range_count<int64_t>(std::nullopt, {{i, utils::BoundType::INCLUSIVE}});
       uint64_t must_have = kElementMembers * (i + 1);
-      uint64_t delta =
-          count >= must_have ? count - must_have : must_have - count;
+      uint64_t delta = count >= must_have ? count - must_have : must_have - count;
       delta_min = std::min(delta_min, delta);
       delta_max = std::max(delta_max, delta);
       delta_avg += delta;
@@ -658,26 +638,21 @@ TEST(SkipList, EstimateRangeCount) {
 
   {
     auto acc = list.access();
-    uint64_t count =
-        acc.estimate_range_count<int64_t>(std::nullopt, std::nullopt, 1);
+    uint64_t count = acc.estimate_range_count<int64_t>(std::nullopt, std::nullopt, 1);
     ASSERT_EQ(count, kMaxElements * kElementMembers);
   }
 }
 
 template <typename TElem, typename TCmp>
-void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list,
-                                            const TCmp &cmp) {
+void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list, const TCmp &cmp) {
   std::cout << "List size: " << list->size() << std::endl;
-  std::cout << "The index will use layer "
-            << utils::SkipListLayerForAverageEqualsEstimation(list->size())
-            << std::endl;
+  std::cout << "The index will use layer " << utils::SkipListLayerForAverageEqualsEstimation(list->size()) << std::endl;
   auto acc = list->access();
   for (int layer = 1; layer <= utils::kSkipListMaxHeight; ++layer) {
     utils::Timer timer;
     auto estimate = acc.estimate_average_number_of_equals(cmp, layer);
     auto duration = timer.Elapsed().count();
-    std::cout << "Estimate on layer " << layer << " is " << estimate << " in "
-              << duration << std::endl;
+    std::cout << "Estimate on layer " << layer << " is " << estimate << " in " << duration << std::endl;
   }
 }
 
@@ -706,14 +681,13 @@ TEST(SkipList, EstimateAverageNumberOfEquals1) {
   ASSERT_EQ(list.size(), kMaxElements * (kMaxElements + 1) / 2);
 
   // Benchmark the estimation function.
-  BenchmarkEstimateAverageNumberOfEquals(
-      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+  BenchmarkEstimateAverageNumberOfEquals(&list, [](const auto &a, const auto &b) { return a.key == b.key; });
 
   // Verify that the estimate on the lowest layer is correct.
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_average_number_of_equals(
-        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    uint64_t count =
+        acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     // There are `kMaxElements` unique elements when observing the data with
     // the specified equation operator so we divide the number of elements with
     // `kMaxElements`.
@@ -748,14 +722,13 @@ TEST(SkipList, EstimateAverageNumberOfEquals2) {
   ASSERT_EQ(list.size(), kMaxElements * kElementMembers);
 
   // Benchmark the estimation function.
-  BenchmarkEstimateAverageNumberOfEquals(
-      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+  BenchmarkEstimateAverageNumberOfEquals(&list, [](const auto &a, const auto &b) { return a.key == b.key; });
 
   // Verify that the estimate on the lowest layer is correct.
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_average_number_of_equals(
-        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    uint64_t count =
+        acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     ASSERT_EQ(count, kElementMembers);
   }
 }
@@ -786,14 +759,13 @@ TEST(SkipList, EstimateAverageNumberOfEquals3) {
   ASSERT_EQ(list.size(), kMaxElements * kElementMembers);
 
   // Benchmark the estimation function.
-  BenchmarkEstimateAverageNumberOfEquals(
-      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+  BenchmarkEstimateAverageNumberOfEquals(&list, [](const auto &a, const auto &b) { return a.key == b.key; });
 
   // Verify that the estimate on the lowest layer is correct.
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_average_number_of_equals(
-        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    uint64_t count =
+        acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     ASSERT_EQ(count, kElementMembers);
   }
 }
@@ -823,14 +795,13 @@ TEST(SkipList, EstimateAverageNumberOfEquals4) {
   }
 
   // Benchmark the estimation function.
-  BenchmarkEstimateAverageNumberOfEquals(
-      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+  BenchmarkEstimateAverageNumberOfEquals(&list, [](const auto &a, const auto &b) { return a.key == b.key; });
 
   // Verify that the estimate on the lowest layer is correct.
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_average_number_of_equals(
-        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    uint64_t count =
+        acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     // Because the test is randomized, the exact estimate on the lowest layer
     // can't be known. But it definitely must be between 1 and 3 because the
     // clusters of items are of sizes 1 and 3.
@@ -861,14 +832,13 @@ TEST(SkipList, EstimateAverageNumberOfEquals5) {
   ASSERT_EQ(list.size(), kMaxElements);
 
   // Benchmark the estimation function.
-  BenchmarkEstimateAverageNumberOfEquals(
-      &list, [](const auto &a, const auto &b) { return a.key == b.key; });
+  BenchmarkEstimateAverageNumberOfEquals(&list, [](const auto &a, const auto &b) { return a.key == b.key; });
 
   // Verify that the estimate on the lowest layer is correct.
   {
     auto acc = list.access();
-    uint64_t count = acc.estimate_average_number_of_equals(
-        [](const auto &a, const auto &b) { return a.key == b.key; }, 1);
+    uint64_t count =
+        acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     ASSERT_EQ(count, kMaxElements);
   }
 }

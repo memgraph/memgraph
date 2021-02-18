@@ -40,10 +40,8 @@ class StorageUniqueConstraints : public ::testing::Test {
   storage::Gid gids[kNumThreads];
 };
 
-void SetProperties(storage::Storage *storage, storage::Gid gid,
-                   const std::vector<PropertyId> &properties,
-                   const std::vector<PropertyValue> &values,
-                   bool *commit_status) {
+void SetProperties(storage::Storage *storage, storage::Gid gid, const std::vector<PropertyId> &properties,
+                   const std::vector<PropertyValue> &values, bool *commit_status) {
   ASSERT_EQ(properties.size(), values.size());
   auto acc = storage->Access();
   auto vertex = acc.FindVertex(gid, storage::View::OLD);
@@ -60,8 +58,7 @@ void SetProperties(storage::Storage *storage, storage::Gid gid,
   *commit_status = !acc.Commit().HasError();
 }
 
-void AddLabel(storage::Storage *storage, storage::Gid gid, LabelId label,
-              bool *commit_status) {
+void AddLabel(storage::Storage *storage, storage::Gid gid, LabelId label, bool *commit_status) {
   auto acc = storage->Access();
   auto vertex = acc.FindVertex(gid, storage::View::OLD);
   ASSERT_TRUE(vertex);
@@ -77,8 +74,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
     auto res = storage.CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(),
-              storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
 
   {
@@ -97,15 +93,13 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   // There is fixed set of property values that is tried to be set to all
   // vertices in all iterations.
   {
-    std::vector<PropertyValue> values{PropertyValue(1), PropertyValue(2),
-                                      PropertyValue(3)};
+    std::vector<PropertyValue> values{PropertyValue(1), PropertyValue(2), PropertyValue(3)};
     for (int iter = 0; iter < 20; ++iter) {
       bool status[kNumThreads];
       std::vector<std::thread> threads;
       threads.reserve(kNumThreads);
       for (int i = 0; i < kNumThreads; ++i) {
-        threads.emplace_back(SetProperties, &storage, gids[i], properties,
-                             values, &status[i]);
+        threads.emplace_back(SetProperties, &storage, gids[i], properties, values, &status[i]);
       }
       int count_ok = 0;
       for (int i = 0; i < kNumThreads; ++i) {
@@ -121,14 +115,11 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
     for (int iter = 0; iter < 20; ++iter) {
       bool status[kNumThreads];
-      std::vector<PropertyValue> values{PropertyValue(iter),
-                                        PropertyValue(iter + 1),
-                                        PropertyValue(iter + 2)};
+      std::vector<PropertyValue> values{PropertyValue(iter), PropertyValue(iter + 1), PropertyValue(iter + 2)};
       std::vector<std::thread> threads;
       threads.reserve(kNumThreads);
       for (int i = 0; i < kNumThreads; ++i) {
-        threads.emplace_back(SetProperties, &storage, gids[i], properties,
-                             values, &status[i]);
+        threads.emplace_back(SetProperties, &storage, gids[i], properties, values, &status[i]);
       }
       int count_ok = 0;
       for (int i = 0; i < kNumThreads; ++i) {
@@ -148,11 +139,8 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
       std::vector<std::thread> threads;
       threads.reserve(kNumThreads);
       for (int i = 0; i < kNumThreads; ++i) {
-        std::vector<PropertyValue> values{PropertyValue(value++),
-                                          PropertyValue(value++),
-                                          PropertyValue(value++)};
-        threads.emplace_back(SetProperties, &storage, gids[i], properties,
-                             values, &status[i]);
+        std::vector<PropertyValue> values{PropertyValue(value++), PropertyValue(value++), PropertyValue(value++)};
+        threads.emplace_back(SetProperties, &storage, gids[i], properties, values, &status[i]);
       }
       int count_ok = 0;
       for (int i = 0; i < kNumThreads; ++i) {
@@ -168,8 +156,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
     auto res = storage.CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(),
-              storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
 
   // In the first part of the test, each transaction tries to add the same label

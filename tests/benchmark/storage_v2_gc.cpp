@@ -18,14 +18,11 @@ DEFINE_int32(num_iterations, kNumIterations, "number of iterations");
 std::pair<std::string, storage::Config> TestConfigurations[] = {
     {"NoGc", storage::Config{.gc = {.type = storage::Config::Gc::Type::NONE}}},
     {"100msPeriodicGc",
-     storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                            .interval = std::chrono::milliseconds(100)}}},
-    {"1000msPeriodicGc",
-     storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                            .interval = std::chrono::milliseconds(1000)}}}};
+     storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}},
+    {"1000msPeriodicGc", storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
+                                                .interval = std::chrono::milliseconds(1000)}}}};
 
-void UpdateLabelFunc(int thread_id, storage::Storage *storage,
-                     const std::vector<storage::Gid> &vertices,
+void UpdateLabelFunc(int thread_id, storage::Storage *storage, const std::vector<storage::Gid> &vertices,
                      int num_iterations) {
   std::mt19937 gen(thread_id);
   std::uniform_int_distribution<uint64_t> vertex_dist(0, vertices.size() - 1);
@@ -35,12 +32,9 @@ void UpdateLabelFunc(int thread_id, storage::Storage *storage,
   for (int iter = 0; iter < num_iterations; ++iter) {
     auto acc = storage->Access();
     storage::Gid gid = vertices.at(vertex_dist(gen));
-    std::optional<storage::VertexAccessor> vertex =
-        acc.FindVertex(gid, storage::View::OLD);
-    MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist",
-              gid.AsUint());
-    if (vertex->AddLabel(storage::LabelId::FromUint(label_dist(gen)))
-            .HasValue()) {
+    std::optional<storage::VertexAccessor> vertex = acc.FindVertex(gid, storage::View::OLD);
+    MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist", gid.AsUint());
+    if (vertex->AddLabel(storage::LabelId::FromUint(label_dist(gen))).HasValue()) {
       MG_ASSERT(!acc.Commit().HasError());
     } else {
       acc.Abort();
@@ -66,16 +60,14 @@ int main(int argc, char *argv[]) {
     std::vector<std::thread> threads;
     threads.reserve(FLAGS_num_threads);
     for (int i = 0; i < FLAGS_num_threads; ++i) {
-      threads.emplace_back(UpdateLabelFunc, i, &storage, vertices,
-                           FLAGS_num_iterations);
+      threads.emplace_back(UpdateLabelFunc, i, &storage, vertices, FLAGS_num_iterations);
     }
 
     for (int i = 0; i < FLAGS_num_threads; ++i) {
       threads[i].join();
     }
 
-    std::cout << "Config: " << config.first
-              << ", Time: " << timer.Elapsed().count() << std::endl;
+    std::cout << "Config: " << config.first << ", Time: " << timer.Elapsed().count() << std::endl;
   }
 
   return 0;

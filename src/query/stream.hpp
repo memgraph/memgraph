@@ -22,17 +22,15 @@ class AnyStream final {
  public:
   template <class TStream>
   AnyStream(TStream *stream, utils::MemoryResource *memory_resource)
-      : content_{utils::Allocator<GenericWrapper<TStream>>{memory_resource}
-                     .template new_object<GenericWrapper<TStream>>(stream),
-                 [memory_resource](Wrapper *ptr) {
-                   utils::Allocator<GenericWrapper<TStream>>{memory_resource}
-                       .template delete_object<GenericWrapper<TStream>>(
-                           static_cast<GenericWrapper<TStream> *>(ptr));
-                 }} {}
+      : content_{
+            utils::Allocator<GenericWrapper<TStream>>{memory_resource}.template new_object<GenericWrapper<TStream>>(
+                stream),
+            [memory_resource](Wrapper *ptr) {
+              utils::Allocator<GenericWrapper<TStream>>{memory_resource}
+                  .template delete_object<GenericWrapper<TStream>>(static_cast<GenericWrapper<TStream> *>(ptr));
+            }} {}
 
-  void Result(const std::vector<TypedValue> &values) {
-    content_->Result(values);
-  }
+  void Result(const std::vector<TypedValue> &values) { content_->Result(values); }
 
  private:
   struct Wrapper {
@@ -43,9 +41,7 @@ class AnyStream final {
   struct GenericWrapper final : public Wrapper {
     explicit GenericWrapper(TStream *stream) : stream_{stream} {}
 
-    void Result(const std::vector<TypedValue> &values) override {
-      stream_->Result(values);
-    }
+    void Result(const std::vector<TypedValue> &values) override { stream_->Result(values); }
 
     TStream *stream_;
   };

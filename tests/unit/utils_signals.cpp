@@ -15,12 +15,11 @@
  */
 
 TEST(Signals, Handler) {
-  ASSERT_TRUE(utils::SignalHandler::RegisterHandler(
-      utils::Signal::SegmentationFault, []() {
-        std::cout << "Segmentation Fault" << std::endl;
-        utils::Stacktrace stacktrace;
-        std::cout << stacktrace.dump() << std::endl;
-      }));
+  ASSERT_TRUE(utils::SignalHandler::RegisterHandler(utils::Signal::SegmentationFault, []() {
+    std::cout << "Segmentation Fault" << std::endl;
+    utils::Stacktrace stacktrace;
+    std::cout << stacktrace.dump() << std::endl;
+  }));
 
   std::raise(SIGSEGV);
 }

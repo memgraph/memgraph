@@ -31,9 +31,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
   // We don't want to flush the WAL while we are doing operations because the
   // flushing adds a large overhead that slows down execution.
-  const uint64_t kFlushWalEvery = (kNumBaseVertices + kNumBaseEdges +
-                                   kNumExtendedVertices + kNumExtendedEdges) *
-                                  2;
+  const uint64_t kFlushWalEvery = (kNumBaseVertices + kNumBaseEdges + kNumExtendedVertices + kNumExtendedEdges) * 2;
 
   enum class DatasetType {
     ONLY_BASE,
@@ -45,18 +43,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
  public:
   DurabilityTest()
-      : base_vertex_gids_(
-            kNumBaseVertices,
-            storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
-        base_edge_gids_(
-            kNumBaseEdges,
-            storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
-        extended_vertex_gids_(
-            kNumExtendedVertices,
-            storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
-        extended_edge_gids_(
-            kNumExtendedEdges,
-            storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())) {}
+      : base_vertex_gids_(kNumBaseVertices, storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
+        base_edge_gids_(kNumBaseEdges, storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
+        extended_vertex_gids_(kNumExtendedVertices, storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())),
+        extended_edge_gids_(kNumExtendedEdges, storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())) {}
 
   void SetUp() override { Clear(); }
 
@@ -77,14 +67,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_TRUE(store->CreateIndex(label_indexed, property_id));
 
     // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id)
-                     .HasError());
+    ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id).HasError());
 
     // Create unique constraint.
-    ASSERT_FALSE(store
-                     ->CreateUniqueConstraint(label_unindexed,
-                                              {property_id, property_extra})
-                     .HasError());
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
@@ -97,10 +83,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-        ASSERT_TRUE(vertex
-                        .SetProperty(property_id, storage::PropertyValue(
-                                                      static_cast<int64_t>(i)))
-                        .HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_id, storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
       }
       ASSERT_FALSE(acc.Commit().HasError());
     }
@@ -108,11 +91,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Create edges.
     for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
       auto acc = store->Access();
-      auto vertex1 = acc.FindVertex(
-          base_vertex_gids_[(i / 2) % kNumBaseVertices], storage::View::OLD);
+      auto vertex1 = acc.FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], storage::View::OLD);
       ASSERT_TRUE(vertex1);
-      auto vertex2 = acc.FindVertex(
-          base_vertex_gids_[(i / 3) % kNumBaseVertices], storage::View::OLD);
+      auto vertex2 = acc.FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], storage::View::OLD);
       ASSERT_TRUE(vertex2);
       storage::EdgeTypeId et;
       if (i < kNumBaseEdges / 2) {
@@ -124,12 +105,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(edge.HasValue());
       base_edge_gids_[i] = edge->Gid();
       if (properties_on_edges) {
-        ASSERT_TRUE(edge->SetProperty(property_id, storage::PropertyValue(
-                                                       static_cast<int64_t>(i)))
-                        .HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id, storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
       } else {
-        auto ret = edge->SetProperty(
-            property_id, storage::PropertyValue(static_cast<int64_t>(i)));
+        auto ret = edge->SetProperty(property_id, storage::PropertyValue(static_cast<int64_t>(i)));
         ASSERT_TRUE(ret.HasError());
         ASSERT_EQ(ret.GetError(), storage::Error::PROPERTIES_DISABLED);
       }
@@ -137,8 +115,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
   }
 
-  void CreateExtendedDataset(storage::Storage *store,
-                             bool single_transaction = false) {
+  void CreateExtendedDataset(storage::Storage *store, bool single_transaction = false) {
     auto label_indexed = store->NameToLabel("extended_indexed");
     auto label_unused = store->NameToLabel("extended_unused");
     auto property_count = store->NameToProperty("count");
@@ -152,12 +129,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_TRUE(store->CreateIndex(label_indexed, property_count));
 
     // Create existence constraint.
-    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count)
-                     .HasError());
+    ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count).HasError());
 
     // Create unique constraint.
-    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count})
-                     .HasError());
+    ASSERT_FALSE(store->CreateUniqueConstraint(label_unused, {property_count}).HasError());
 
     // Storage accessor.
     std::optional<storage::Storage::Accessor> acc;
@@ -172,10 +147,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
       }
       if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
-        ASSERT_TRUE(
-            vertex
-                .SetProperty(property_count, storage::PropertyValue("nandare"))
-                .HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_count, storage::PropertyValue("nandare")).HasValue());
       }
       if (!single_transaction) ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -183,13 +155,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Create edges.
     for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
       if (!single_transaction) acc.emplace(store->Access());
-      auto vertex1 =
-          acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices],
-                          storage::View::NEW);
+      auto vertex1 = acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], storage::View::NEW);
       ASSERT_TRUE(vertex1);
-      auto vertex2 =
-          acc->FindVertex(extended_vertex_gids_[(i / 6) % kNumExtendedVertices],
-                          storage::View::NEW);
+      auto vertex2 = acc->FindVertex(extended_vertex_gids_[(i / 6) % kNumExtendedVertices], storage::View::NEW);
       ASSERT_TRUE(vertex2);
       storage::EdgeTypeId et;
       if (i < kNumExtendedEdges / 4) {
@@ -206,8 +174,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     if (single_transaction) ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  void VerifyDataset(storage::Storage *store, DatasetType type,
-                     bool properties_on_edges, bool verify_info = true) {
+  void VerifyDataset(storage::Storage *store, DatasetType type, bool properties_on_edges, bool verify_info = true) {
     auto base_label_indexed = store->NameToLabel("base_indexed");
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
@@ -227,28 +194,21 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property,
-                      UnorderedElementsAre(
-                          std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
-          ASSERT_THAT(
-              info.label_property,
-              UnorderedElementsAre(
-                  std::make_pair(base_label_indexed, property_id),
-                  std::make_pair(extended_label_indexed, property_count)));
+          ASSERT_THAT(info.label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
+                                           std::make_pair(extended_label_indexed, property_count)));
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
-          ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed,
-                                                       extended_label_unused));
-          ASSERT_THAT(
-              info.label_property,
-              UnorderedElementsAre(
-                  std::make_pair(base_label_indexed, property_id),
-                  std::make_pair(extended_label_indexed, property_count)));
+          ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed, extended_label_unused));
+          ASSERT_THAT(info.label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
+                                           std::make_pair(extended_label_indexed, property_count)));
           break;
       }
     }
@@ -258,34 +218,23 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto info = store->ListAllConstraints();
       switch (type) {
         case DatasetType::ONLY_BASE:
-          ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(
-                                          base_label_unindexed, property_id)));
-          ASSERT_THAT(info.unique, UnorderedElementsAre(std::make_pair(
-                                       base_label_unindexed,
-                                       std::set{property_id, property_extra})));
+          ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
+          ASSERT_THAT(info.unique, UnorderedElementsAre(
+                                       std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
           break;
         case DatasetType::ONLY_EXTENDED:
-          ASSERT_THAT(info.existence,
-                      UnorderedElementsAre(std::make_pair(extended_label_unused,
-                                                          property_count)));
+          ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(extended_label_unused, property_count)));
           ASSERT_THAT(info.unique,
-                      UnorderedElementsAre(std::make_pair(
-                          extended_label_unused, std::set{property_count})));
+                      UnorderedElementsAre(std::make_pair(extended_label_unused, std::set{property_count})));
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
-          ASSERT_THAT(
-              info.existence,
-              UnorderedElementsAre(
-                  std::make_pair(base_label_unindexed, property_id),
-                  std::make_pair(extended_label_unused, property_count)));
+          ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id),
+                                                           std::make_pair(extended_label_unused, property_count)));
           ASSERT_THAT(info.unique,
-                      UnorderedElementsAre(
-                          std::make_pair(base_label_unindexed,
-                                         std::set{property_id, property_extra}),
-                          std::make_pair(extended_label_unused,
-                                         std::set{property_count})));
+                      UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra}),
+                                           std::make_pair(extended_label_unused, std::set{property_count})));
           break;
       }
     }
@@ -327,8 +276,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          ASSERT_EQ((*properties)[property_id],
-                    storage::PropertyValue(static_cast<int64_t>(i)));
+          ASSERT_EQ((*properties)[property_id], storage::PropertyValue(static_cast<int64_t>(i)));
         } else {
           ASSERT_EQ(properties->size(), 0);
         }
@@ -336,8 +284,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify edges.
       for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-        auto find_edge =
-            [&](const auto &edges) -> std::optional<storage::EdgeAccessor> {
+        auto find_edge = [&](const auto &edges) -> std::optional<storage::EdgeAccessor> {
           for (const auto &edge : edges) {
             if (edge.Gid() == base_edge_gids_[i]) {
               return edge;
@@ -347,9 +294,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         };
 
         {
-          auto vertex1 =
-              acc.FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices],
-                             storage::View::OLD);
+          auto vertex1 = acc.FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], storage::View::OLD);
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
@@ -364,17 +309,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(properties.HasValue());
           if (properties_on_edges) {
             ASSERT_EQ(properties->size(), 1);
-            ASSERT_EQ((*properties)[property_id],
-                      storage::PropertyValue(static_cast<int64_t>(i)));
+            ASSERT_EQ((*properties)[property_id], storage::PropertyValue(static_cast<int64_t>(i)));
           } else {
             ASSERT_EQ(properties->size(), 0);
           }
         }
 
         {
-          auto vertex2 =
-              acc.FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices],
-                             storage::View::OLD);
+          auto vertex2 = acc.FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], storage::View::OLD);
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
@@ -389,8 +331,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(properties.HasValue());
           if (properties_on_edges) {
             ASSERT_EQ(properties->size(), 1);
-            ASSERT_EQ((*properties)[property_id],
-                      storage::PropertyValue(static_cast<int64_t>(i)));
+            ASSERT_EQ((*properties)[property_id], storage::PropertyValue(static_cast<int64_t>(i)));
           } else {
             ASSERT_EQ(properties->size(), 0);
           }
@@ -401,17 +342,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 2);
-        for (auto vertex :
-             acc.Vertices(base_label_unindexed, storage::View::OLD)) {
+        for (auto vertex : acc.Vertices(base_label_unindexed, storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 2);
-        std::sort(
-            vertices.begin(), vertices.end(),
-            [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumBaseVertices / 2; ++i) {
-          ASSERT_EQ(vertices[i].Gid(),
-                    base_vertex_gids_[kNumBaseVertices / 2 + i]);
+          ASSERT_EQ(vertices[i].Gid(), base_vertex_gids_[kNumBaseVertices / 2 + i]);
         }
       }
 
@@ -419,14 +356,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 3);
-        for (auto vertex : acc.Vertices(base_label_indexed, property_id,
-                                        storage::View::OLD)) {
+        for (auto vertex : acc.Vertices(base_label_indexed, property_id, storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 3);
-        std::sort(
-            vertices.begin(), vertices.end(),
-            [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumBaseVertices / 3; ++i) {
           ASSERT_EQ(vertices[i].Gid(), base_vertex_gids_[i]);
         }
@@ -438,13 +372,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_FALSE(vertex);
       }
 
-      if (type ==
-          DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS) {
+      if (type == DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS) {
         // Verify label indices.
         {
           uint64_t count = 0;
-          auto iterable =
-              acc.Vertices(base_label_unindexed, storage::View::OLD);
+          auto iterable = acc.Vertices(base_label_unindexed, storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -454,8 +386,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable =
-              acc.Vertices(base_label_indexed, property_id, storage::View::OLD);
+          auto iterable = acc.Vertices(base_label_indexed, property_id, storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -468,8 +399,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     if (have_extended_dataset) {
       // Verify vertices.
       for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
-        auto vertex =
-            acc.FindVertex(extended_vertex_gids_[i], storage::View::OLD);
+        auto vertex = acc.FindVertex(extended_vertex_gids_[i], storage::View::OLD);
         ASSERT_TRUE(vertex);
         auto labels = vertex->Labels(storage::View::OLD);
         ASSERT_TRUE(labels.HasValue());
@@ -480,8 +410,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          ASSERT_EQ((*properties)[property_count],
-                    storage::PropertyValue("nandare"));
+          ASSERT_EQ((*properties)[property_count], storage::PropertyValue("nandare"));
         } else {
           ASSERT_EQ(properties->size(), 0);
         }
@@ -489,8 +418,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify edges.
       for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
-        auto find_edge =
-            [&](const auto &edges) -> std::optional<storage::EdgeAccessor> {
+        auto find_edge = [&](const auto &edges) -> std::optional<storage::EdgeAccessor> {
           for (const auto &edge : edges) {
             if (edge.Gid() == extended_edge_gids_[i]) {
               return edge;
@@ -500,9 +428,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         };
 
         {
-          auto vertex1 = acc.FindVertex(
-              extended_vertex_gids_[(i / 5) % kNumExtendedVertices],
-              storage::View::OLD);
+          auto vertex1 = acc.FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], storage::View::OLD);
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(storage::View::OLD);
           ASSERT_TRUE(out_edges.HasValue());
@@ -519,9 +445,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
 
         {
-          auto vertex2 = acc.FindVertex(
-              extended_vertex_gids_[(i / 6) % kNumExtendedVertices],
-              storage::View::OLD);
+          auto vertex2 = acc.FindVertex(extended_vertex_gids_[(i / 6) % kNumExtendedVertices], storage::View::OLD);
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(storage::View::OLD);
           ASSERT_TRUE(in_edges.HasValue());
@@ -542,8 +466,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 2);
-        for (auto vertex :
-             acc.Vertices(extended_label_unused, storage::View::OLD)) {
+        for (auto vertex : acc.Vertices(extended_label_unused, storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), 0);
@@ -553,14 +476,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 3);
-        for (auto vertex : acc.Vertices(extended_label_indexed, property_count,
-                                        storage::View::OLD)) {
+        for (auto vertex : acc.Vertices(extended_label_indexed, property_count, storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumExtendedVertices / 3);
-        std::sort(
-            vertices.begin(), vertices.end(),
-            [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumExtendedVertices / 3; ++i) {
           ASSERT_EQ(vertices[i].Gid(), extended_vertex_gids_[i]);
         }
@@ -568,18 +488,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     } else {
       // Verify vertices.
       for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
-        auto vertex =
-            acc.FindVertex(extended_vertex_gids_[i], storage::View::OLD);
+        auto vertex = acc.FindVertex(extended_vertex_gids_[i], storage::View::OLD);
         ASSERT_FALSE(vertex);
       }
 
-      if (type ==
-          DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS) {
+      if (type == DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS) {
         // Verify label indices.
         {
           uint64_t count = 0;
-          auto iterable =
-              acc.Vertices(extended_label_unused, storage::View::OLD);
+          auto iterable = acc.Vertices(extended_label_unused, storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -589,8 +506,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc.Vertices(extended_label_indexed, property_count,
-                                       storage::View::OLD);
+          auto iterable = acc.Vertices(extended_label_indexed, property_count, storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -622,13 +538,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   }
 
   std::vector<std::filesystem::path> GetSnapshotsList() {
-    return GetFilesList(storage_directory /
-                        storage::durability::kSnapshotDirectory);
+    return GetFilesList(storage_directory / storage::durability::kSnapshotDirectory);
   }
 
   std::vector<std::filesystem::path> GetBackupSnapshotsList() {
-    return GetFilesList(storage_directory /
-                        storage::durability::kBackupDirectory /
+    return GetFilesList(storage_directory / storage::durability::kBackupDirectory /
                         storage::durability::kSnapshotDirectory);
   }
 
@@ -637,37 +551,29 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   }
 
   std::vector<std::filesystem::path> GetBackupWalsList() {
-    return GetFilesList(storage_directory /
-                        storage::durability::kBackupDirectory /
-                        storage::durability::kWalDirectory);
+    return GetFilesList(storage_directory / storage::durability::kBackupDirectory / storage::durability::kWalDirectory);
   }
 
   void RestoreBackups() {
     {
       auto backup_snapshots = GetBackupSnapshotsList();
       for (const auto &item : backup_snapshots) {
-        std::filesystem::rename(
-            item, storage_directory / storage::durability::kSnapshotDirectory /
-                      item.filename());
+        std::filesystem::rename(item, storage_directory / storage::durability::kSnapshotDirectory / item.filename());
       }
     }
     {
       auto backup_wals = GetBackupWalsList();
       for (const auto &item : backup_wals) {
-        std::filesystem::rename(item, storage_directory /
-                                          storage::durability::kWalDirectory /
-                                          item.filename());
+        std::filesystem::rename(item, storage_directory / storage::durability::kWalDirectory / item.filename());
       }
     }
   }
 
-  std::filesystem::path storage_directory{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_storage_v2_durability"};
+  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
+                                          "MG_test_unit_storage_v2_durability"};
 
  private:
-  std::vector<std::filesystem::path> GetFilesList(
-      const std::filesystem::path &path) {
+  std::vector<std::filesystem::path> GetFilesList(const std::filesystem::path &path) {
     std::vector<std::filesystem::path> ret;
     std::error_code ec;  // For exception suppression.
     for (auto &item : std::filesystem::directory_iterator(path, ec)) {
@@ -718,9 +624,7 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
   spdlog::info("Destroying WAL {}", path);
   utils::OutputFile file;
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  ASSERT_LT(
-      info.offset_deltas,
-      file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END, -100));
+  ASSERT_LT(info.offset_deltas, file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END, -100));
   uint8_t value = 0;
   for (size_t i = 0; i < 100; ++i) {
     file.Write(&value, sizeof(value));
@@ -729,19 +633,15 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
   file.Close();
 }
 
-INSTANTIATE_TEST_CASE_P(EdgesWithProperties, DurabilityTest,
-                        ::testing::Values(true));
-INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, DurabilityTest,
-                        ::testing::Values(false));
+INSTANTIATE_TEST_CASE_P(EdgesWithProperties, DurabilityTest, ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, DurabilityTest, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, GetParam());
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
     CreateExtendedDataset(&store);
@@ -755,8 +655,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
@@ -776,8 +675,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(2000)}});
     CreateBaseDataset(&store, GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -790,8 +688,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
@@ -811,8 +708,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(2000)}});
     CreateBaseDataset(&store, GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -834,8 +730,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
@@ -852,10 +747,8 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create unrelated snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     auto acc = store.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc.CreateVertex();
@@ -882,8 +775,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(2000)}});
     CreateBaseDataset(&store, GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -921,10 +813,8 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Recover snapshot.
   ASSERT_DEATH(
       {
-        storage::Storage store(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory,
-                            .recover_on_startup = true}});
+        storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                                .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       },
       "");
 }
@@ -933,10 +823,8 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
 TEST_P(DurabilityTest, SnapshotRetention) {
   // Create unrelated snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     auto acc = store.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc.CreateVertex();
@@ -954,8 +842,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::milliseconds(2000),
                         .snapshot_retention_count = 3}});
     // Restore unrelated snapshots after the database has been started.
@@ -990,8 +877,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
@@ -1008,10 +894,8 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, GetParam());
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
     CreateExtendedDataset(&store);
@@ -1025,19 +909,15 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Recover snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .recover_on_startup = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
     VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
   }
 
   // Create another snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, GetParam());
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
   }
@@ -1057,8 +937,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
 
   // Try to use the storage.
@@ -1075,10 +954,8 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 TEST_P(DurabilityTest, SnapshotBackup) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     auto acc = store.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       acc.CreateVertex();
@@ -1096,8 +973,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                         .snapshot_interval = std::chrono::minutes(20)}});
   }
 
@@ -1108,14 +984,11 @@ TEST_P(DurabilityTest, SnapshotBackup) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(DurabilityTest,
-       SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnEdges) {
+TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnEdges) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = false},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = false},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, false);
     VerifyDataset(&store, DatasetType::ONLY_BASE, false);
     CreateExtendedDataset(&store);
@@ -1129,8 +1002,7 @@ TEST_F(DurabilityTest,
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = true},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, false);
 
   // Try to use the storage.
@@ -1144,14 +1016,11 @@ TEST_F(DurabilityTest,
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(DurabilityTest,
-       SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnEdges) {
+TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = true},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = true},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, true);
     VerifyDataset(&store, DatasetType::ONLY_BASE, true);
     CreateExtendedDataset(&store);
@@ -1166,23 +1035,18 @@ TEST_F(DurabilityTest,
   // Recover snapshot.
   ASSERT_DEATH(
       {
-        storage::Storage store(
-            {.items = {.properties_on_edges = false},
-             .durability = {.storage_directory = storage_directory,
-                            .recover_on_startup = true}});
+        storage::Storage store({.items = {.properties_on_edges = false},
+                                .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       },
       "");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(DurabilityTest,
-       SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutPropertiesOnEdges) {
+TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = true},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = true},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, true);
     VerifyDataset(&store, DatasetType::ONLY_BASE, true);
     CreateExtendedDataset(&store);
@@ -1198,8 +1062,7 @@ TEST_F(DurabilityTest,
           auto props = edge.Properties(storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge.SetProperty(prop.first, storage::PropertyValue())
-                            .HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, storage::PropertyValue()).HasValue());
           }
         }
         auto out_edges = vertex.InEdges(storage::View::OLD);
@@ -1209,8 +1072,7 @@ TEST_F(DurabilityTest,
           auto props = edge.Properties(storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge.SetProperty(prop.first, storage::PropertyValue())
-                            .HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, storage::PropertyValue()).HasValue());
           }
         }
       }
@@ -1225,8 +1087,7 @@ TEST_F(DurabilityTest,
 
   // Recover snapshot.
   storage::Storage store({.items = {.properties_on_edges = false},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, false);
 
   // Try to use the storage.
@@ -1246,8 +1107,7 @@ TEST_P(DurabilityTest, WalBasic) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateBaseDataset(&store, GetParam());
@@ -1261,8 +1121,7 @@ TEST_P(DurabilityTest, WalBasic) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
@@ -1282,8 +1141,7 @@ TEST_P(DurabilityTest, WalBackup) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -1305,8 +1163,7 @@ TEST_P(DurabilityTest, WalBackup) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20)}});
   }
 
@@ -1323,8 +1180,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateBaseDataset(&store, GetParam());
@@ -1337,10 +1193,8 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
 
   // Recover WALs.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .recover_on_startup = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
   }
 
@@ -1350,8 +1204,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
                         .recover_on_startup = true,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateExtendedDataset(&store);
@@ -1364,8 +1217,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
@@ -1388,8 +1240,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     auto acc = store.Access();
@@ -1404,19 +1255,13 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     ASSERT_TRUE(v1.AddLabel(store.NameToLabel("l12")).HasValue());
     ASSERT_TRUE(v1.AddLabel(store.NameToLabel("l13")).HasValue());
     if (GetParam()) {
-      ASSERT_TRUE(e1->SetProperty(store.NameToProperty("test"),
-                                  storage::PropertyValue("nandare"))
-                      .HasValue());
+      ASSERT_TRUE(e1->SetProperty(store.NameToProperty("test"), storage::PropertyValue("nandare")).HasValue());
     }
     ASSERT_TRUE(v2.AddLabel(store.NameToLabel("l21")).HasValue());
-    ASSERT_TRUE(v2.SetProperty(store.NameToProperty("hello"),
-                               storage::PropertyValue("world"))
-                    .HasValue());
+    ASSERT_TRUE(v2.SetProperty(store.NameToProperty("hello"), storage::PropertyValue("world")).HasValue());
     auto v3 = acc.CreateVertex();
     gid_v3 = v3.Gid();
-    ASSERT_TRUE(
-        v3.SetProperty(store.NameToProperty("v3"), storage::PropertyValue(42))
-            .HasValue());
+    ASSERT_TRUE(v3.SetProperty(store.NameToProperty("v3"), storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1427,8 +1272,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   {
     auto indices = store.ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
@@ -1442,9 +1286,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(v1);
       auto labels = v1->Labels(storage::View::OLD);
       ASSERT_TRUE(labels.HasValue());
-      ASSERT_THAT(*labels, UnorderedElementsAre(store.NameToLabel("l11"),
-                                                store.NameToLabel("l12"),
-                                                store.NameToLabel("l13")));
+      ASSERT_THAT(*labels,
+                  UnorderedElementsAre(store.NameToLabel("l11"), store.NameToLabel("l12"), store.NameToLabel("l13")));
       auto props = v1->Properties(storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
       ASSERT_EQ(props->size(), 0);
@@ -1459,9 +1302,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(
-                                     store.NameToProperty("test"),
-                                     storage::PropertyValue("nandare"))));
+        ASSERT_THAT(*edge_props, UnorderedElementsAre(
+                                     std::make_pair(store.NameToProperty("test"), storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
       }
@@ -1474,9 +1316,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_THAT(*labels, UnorderedElementsAre(store.NameToLabel("l21")));
       auto props = v2->Properties(storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
-      ASSERT_THAT(*props, UnorderedElementsAre(
-                              std::make_pair(store.NameToProperty("hello"),
-                                             storage::PropertyValue("world"))));
+      ASSERT_THAT(*props,
+                  UnorderedElementsAre(std::make_pair(store.NameToProperty("hello"), storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 1);
@@ -1485,9 +1326,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(
-                                     store.NameToProperty("test"),
-                                     storage::PropertyValue("nandare"))));
+        ASSERT_THAT(*edge_props, UnorderedElementsAre(
+                                     std::make_pair(store.NameToProperty("test"), storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
       }
@@ -1503,9 +1343,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_EQ(labels->size(), 0);
       auto props = v3->Properties(storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
-      ASSERT_THAT(*props,
-                  UnorderedElementsAre(std::make_pair(
-                      store.NameToProperty("v3"), storage::PropertyValue(42))));
+      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(store.NameToProperty("v3"), storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(storage::View::OLD);
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 0);
@@ -1532,8 +1370,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateBaseDataset(&store, GetParam());
@@ -1547,8 +1384,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     auto constraints = store.ListAllConstraints();
     for (const auto &constraint : constraints.existence) {
-      ASSERT_TRUE(
-          store.DropExistenceConstraint(constraint.first, constraint.second));
+      ASSERT_TRUE(store.DropExistenceConstraint(constraint.first, constraint.second));
     }
     for (const auto &constraint : constraints.unique) {
       ASSERT_EQ(store.DropUniqueConstraint(constraint.first, constraint.second),
@@ -1568,8 +1404,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   {
     auto indices = store.ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
@@ -1607,8 +1442,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {
              .storage_directory = storage_directory,
-             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
-                 PERIODIC_SNAPSHOT_WITH_WAL,
+             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
              .snapshot_interval = std::chrono::minutes(20),
              .wal_file_size_kibibytes = 100000,
              .wal_file_flush_every_n_tx = kFlushWalEvery,
@@ -1620,10 +1454,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     {
       auto vertex2 = acc2.CreateVertex();
       gid2 = vertex2.Gid();
-      ASSERT_TRUE(vertex2
-                      .SetProperty(store.NameToProperty("id"),
-                                   storage::PropertyValue(2))
-                      .HasValue());
+      ASSERT_TRUE(vertex2.SetProperty(store.NameToProperty("id"), storage::PropertyValue(2)).HasValue());
     }
 
     auto acc3 = store.Access();
@@ -1632,20 +1463,14 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     {
       auto vertex3 = acc3.CreateVertex();
       gid3 = vertex3.Gid();
-      ASSERT_TRUE(vertex3
-                      .SetProperty(store.NameToProperty("id"),
-                                   storage::PropertyValue(3))
-                      .HasValue());
+      ASSERT_TRUE(vertex3.SetProperty(store.NameToProperty("id"), storage::PropertyValue(3)).HasValue());
     }
 
     // Create vertex in transaction 1.
     {
       auto vertex1 = acc1.CreateVertex();
       gid1 = vertex1.Gid();
-      ASSERT_TRUE(vertex1
-                      .SetProperty(store.NameToProperty("id"),
-                                   storage::PropertyValue(1))
-                      .HasValue());
+      ASSERT_TRUE(vertex1.SetProperty(store.NameToProperty("id"), storage::PropertyValue(1)).HasValue());
     }
 
     // Commit transaction 3, then 1, then 2.
@@ -1682,51 +1507,37 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     ASSERT_EQ(data[7].first, data[6].first);
     ASSERT_EQ(data[8].first, data[7].first);
     // Verify transaction 3.
-    ASSERT_EQ(data[0].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[0].second.type, storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[0].second.vertex_create_delete.gid, gid3);
-    ASSERT_EQ(data[1].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+    ASSERT_EQ(data[1].second.type, storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[1].second.vertex_edge_set_property.gid, gid3);
     ASSERT_EQ(data[1].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[1].second.vertex_edge_set_property.value,
-              storage::PropertyValue(3));
-    ASSERT_EQ(data[2].second.type,
-              storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    ASSERT_EQ(data[1].second.vertex_edge_set_property.value, storage::PropertyValue(3));
+    ASSERT_EQ(data[2].second.type, storage::durability::WalDeltaData::Type::TRANSACTION_END);
     // Verify transaction 1.
-    ASSERT_EQ(data[3].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[3].second.type, storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[3].second.vertex_create_delete.gid, gid1);
-    ASSERT_EQ(data[4].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+    ASSERT_EQ(data[4].second.type, storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[4].second.vertex_edge_set_property.gid, gid1);
     ASSERT_EQ(data[4].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[4].second.vertex_edge_set_property.value,
-              storage::PropertyValue(1));
-    ASSERT_EQ(data[5].second.type,
-              storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    ASSERT_EQ(data[4].second.vertex_edge_set_property.value, storage::PropertyValue(1));
+    ASSERT_EQ(data[5].second.type, storage::durability::WalDeltaData::Type::TRANSACTION_END);
     // Verify transaction 2.
-    ASSERT_EQ(data[6].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_CREATE);
+    ASSERT_EQ(data[6].second.type, storage::durability::WalDeltaData::Type::VERTEX_CREATE);
     ASSERT_EQ(data[6].second.vertex_create_delete.gid, gid2);
-    ASSERT_EQ(data[7].second.type,
-              storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
+    ASSERT_EQ(data[7].second.type, storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
     ASSERT_EQ(data[7].second.vertex_edge_set_property.gid, gid2);
     ASSERT_EQ(data[7].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[7].second.vertex_edge_set_property.value,
-              storage::PropertyValue(2));
-    ASSERT_EQ(data[8].second.type,
-              storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    ASSERT_EQ(data[7].second.vertex_edge_set_property.value, storage::PropertyValue(2));
+    ASSERT_EQ(data[8].second.type, storage::durability::WalDeltaData::Type::TRANSACTION_END);
   }
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   {
     auto acc = store.Access();
-    for (auto [gid, id] : std::vector<std::pair<storage::Gid, int64_t>>{
-             {gid1, 1}, {gid2, 2}, {gid3, 3}}) {
+    for (auto [gid, id] : std::vector<std::pair<storage::Gid, int64_t>>{{gid1, 1}, {gid2, 2}, {gid3, 3}}) {
       auto vertex = acc.FindVertex(gid, storage::View::OLD);
       ASSERT_TRUE(vertex);
       auto labels = vertex->Labels(storage::View::OLD);
@@ -1735,8 +1546,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       auto props = vertex->Properties(storage::View::OLD);
       ASSERT_TRUE(props.HasValue());
       ASSERT_EQ(props->size(), 1);
-      ASSERT_EQ(props->at(store.NameToProperty("id")),
-                storage::PropertyValue(id));
+      ASSERT_EQ(props->at(store.NameToProperty("id")), storage::PropertyValue(id));
     }
   }
 
@@ -1757,8 +1567,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateBaseDataset(&store, GetParam());
@@ -1783,11 +1592,8 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
-  VerifyDataset(&store,
-                DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS,
-                GetParam());
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
+  VerifyDataset(&store, DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam());
 
   // Try to use the storage.
   {
@@ -1808,8 +1614,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       storage::Storage store(
           {.items = {.properties_on_edges = GetParam()},
            .durability = {.storage_directory = storage_directory,
-                          .snapshot_wal_mode = storage::Config::Durability::
-                              SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                          .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                           .snapshot_interval = std::chrono::minutes(20),
                           .wal_file_flush_every_n_tx = kFlushWalEvery}});
       // Create one million vertices.
@@ -1845,8 +1650,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
          .durability = {
              .storage_directory = storage_directory,
              .recover_on_startup = true,
-             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::
-                 PERIODIC_SNAPSHOT_WITH_WAL,
+             .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
              .snapshot_interval = std::chrono::minutes(20),
              .wal_file_flush_every_n_tx = kFlushWalEvery,
          }});
@@ -1875,8 +1679,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   {
     uint64_t current = 0;
     auto acc = store.Access();
@@ -1904,8 +1707,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -1928,8 +1730,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -1946,10 +1747,8 @@ TEST_P(DurabilityTest, WalMissingSecond) {
       auto acc = store.Access();
       auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex
-                      ->SetProperty(store.NameToProperty("nandare"),
-                                    storage::PropertyValue("haihaihai!"))
-                      .HasValue());
+      ASSERT_TRUE(
+          vertex->SetProperty(store.NameToProperty("nandare"), storage::PropertyValue("haihaihai!")).HasValue());
       ASSERT_FALSE(acc.Commit().HasError());
     }
   }
@@ -1979,10 +1778,8 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   // Recover WALs.
   ASSERT_DEATH(
       {
-        storage::Storage store(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory,
-                            .recover_on_startup = true}});
+        storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                                .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       },
       "");
 }
@@ -1994,8 +1791,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -2018,8 +1814,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -2036,10 +1831,8 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
       auto acc = store.Access();
       auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex
-                      ->SetProperty(store.NameToProperty("nandare"),
-                                    storage::PropertyValue("haihaihai!"))
-                      .HasValue());
+      ASSERT_TRUE(
+          vertex->SetProperty(store.NameToProperty("nandare"), storage::PropertyValue("haihaihai!")).HasValue());
       ASSERT_FALSE(acc.Commit().HasError());
     }
   }
@@ -2068,10 +1861,8 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   // Recover WALs.
   ASSERT_DEATH(
       {
-        storage::Storage store(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory,
-                            .recover_on_startup = true}});
+        storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                                .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       },
       "");
 }
@@ -2083,8 +1874,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -2107,13 +1897,10 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   // The extended dataset shouldn't be recovered because its WAL transaction was
   // corrupt.
-  VerifyDataset(&store,
-                DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS,
-                GetParam());
+  VerifyDataset(&store, DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam());
 
   // Try to use the storage.
   {
@@ -2132,8 +1919,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -2141,48 +1927,24 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     auto vertex1 = acc.CreateVertex();
     auto vertex2 = acc.CreateVertex();
     ASSERT_TRUE(vertex1.AddLabel(acc.NameToLabel("nandare")).HasValue());
-    ASSERT_TRUE(vertex2
-                    .SetProperty(acc.NameToProperty("haihai"),
-                                 storage::PropertyValue(42))
-                    .HasValue());
+    ASSERT_TRUE(vertex2.SetProperty(acc.NameToProperty("haihai"), storage::PropertyValue(42)).HasValue());
     ASSERT_TRUE(vertex1.RemoveLabel(acc.NameToLabel("nandare")).HasValue());
     auto edge1 = acc.CreateEdge(&vertex1, &vertex2, acc.NameToEdgeType("et1"));
     ASSERT_TRUE(edge1.HasValue());
-    ASSERT_TRUE(
-        vertex2
-            .SetProperty(acc.NameToProperty("haihai"), storage::PropertyValue())
-            .HasValue());
+    ASSERT_TRUE(vertex2.SetProperty(acc.NameToProperty("haihai"), storage::PropertyValue()).HasValue());
     auto vertex3 = acc.CreateVertex();
     auto edge2 = acc.CreateEdge(&vertex3, &vertex3, acc.NameToEdgeType("et2"));
     ASSERT_TRUE(edge2.HasValue());
     if (GetParam()) {
-      ASSERT_TRUE(edge2
-                      ->SetProperty(acc.NameToProperty("meaning"),
-                                    storage::PropertyValue(true))
-                      .HasValue());
-      ASSERT_TRUE(edge1
-                      ->SetProperty(acc.NameToProperty("hello"),
-                                    storage::PropertyValue("world"))
-                      .HasValue());
-      ASSERT_TRUE(edge2
-                      ->SetProperty(acc.NameToProperty("meaning"),
-                                    storage::PropertyValue())
-                      .HasValue());
+      ASSERT_TRUE(edge2->SetProperty(acc.NameToProperty("meaning"), storage::PropertyValue(true)).HasValue());
+      ASSERT_TRUE(edge1->SetProperty(acc.NameToProperty("hello"), storage::PropertyValue("world")).HasValue());
+      ASSERT_TRUE(edge2->SetProperty(acc.NameToProperty("meaning"), storage::PropertyValue()).HasValue());
     }
     ASSERT_TRUE(vertex3.AddLabel(acc.NameToLabel("test")).HasValue());
-    ASSERT_TRUE(vertex3
-                    .SetProperty(acc.NameToProperty("nonono"),
-                                 storage::PropertyValue(-1))
-                    .HasValue());
-    ASSERT_TRUE(
-        vertex3
-            .SetProperty(acc.NameToProperty("nonono"), storage::PropertyValue())
-            .HasValue());
+    ASSERT_TRUE(vertex3.SetProperty(acc.NameToProperty("nonono"), storage::PropertyValue(-1)).HasValue());
+    ASSERT_TRUE(vertex3.SetProperty(acc.NameToProperty("nonono"), storage::PropertyValue()).HasValue());
     if (GetParam()) {
-      ASSERT_TRUE(edge1
-                      ->SetProperty(acc.NameToProperty("hello"),
-                                    storage::PropertyValue())
-                      .HasValue());
+      ASSERT_TRUE(edge1->SetProperty(acc.NameToProperty("hello"), storage::PropertyValue()).HasValue());
     }
     ASSERT_TRUE(vertex3.RemoveLabel(acc.NameToLabel("test")).HasValue());
     ASSERT_TRUE(acc.DetachDeleteVertex(&vertex1).HasValue());
@@ -2199,8 +1961,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
 
   // Recover WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   {
     auto acc = store.Access();
     uint64_t count = 0;
@@ -2228,8 +1989,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::milliseconds(2000),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateBaseDataset(&store, GetParam());
@@ -2244,8 +2004,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
@@ -2262,10 +2021,8 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, GetParam());
   }
 
@@ -2276,10 +2033,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 
   // Recover snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .recover_on_startup = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
   }
 
@@ -2289,8 +2044,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
                         .recover_on_startup = true,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateExtendedDataset(&store);
@@ -2303,8 +2057,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
@@ -2321,10 +2074,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Create snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .snapshot_on_exit = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}});
     CreateBaseDataset(&store, GetParam());
   }
 
@@ -2335,10 +2086,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Recover snapshot.
   {
-    storage::Storage store(
-        {.items = {.properties_on_edges = GetParam()},
-         .durability = {.storage_directory = storage_directory,
-                        .recover_on_startup = true}});
+    storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
     VerifyDataset(&store, DatasetType::ONLY_BASE, GetParam());
   }
 
@@ -2348,8 +2097,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
                         .recover_on_startup = true,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     CreateExtendedDataset(&store);
@@ -2367,8 +2115,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
                         .recover_on_startup = true,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
     VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2376,10 +2123,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto vertex = acc.CreateVertex();
     vertex_gid = vertex.Gid();
     if (GetParam()) {
-      ASSERT_TRUE(vertex
-                      .SetProperty(store.NameToProperty("meaning"),
-                                   storage::PropertyValue(42))
-                      .HasValue());
+      ASSERT_TRUE(vertex.SetProperty(store.NameToProperty("meaning"), storage::PropertyValue(42)).HasValue());
     }
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2391,8 +2135,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam(),
                 /* verify_info = */ false);
   {
@@ -2405,9 +2148,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto props = vertex->Properties(storage::View::OLD);
     ASSERT_TRUE(props.HasValue());
     if (GetParam()) {
-      ASSERT_THAT(*props, UnorderedElementsAre(
-                              std::make_pair(store.NameToProperty("meaning"),
-                                             storage::PropertyValue(42))));
+      ASSERT_THAT(*props,
+                  UnorderedElementsAre(std::make_pair(store.NameToProperty("meaning"), storage::PropertyValue(42))));
     } else {
       ASSERT_EQ(props->size(), 0);
     }
@@ -2430,8 +2172,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::minutes(20),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = kFlushWalEvery}});
@@ -2456,8 +2197,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::seconds(2),
                         .wal_file_size_kibibytes = 1,
                         .wal_file_flush_every_n_tx = 1}});
@@ -2486,14 +2226,11 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
     // Recover and verify data.
     {
-      storage::Storage store(
-          {.items = {.properties_on_edges = GetParam()},
-           .durability = {.storage_directory = storage_directory,
-                          .recover_on_startup = true}});
+      storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                              .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       auto acc = store.Access();
       for (uint64_t j = 0; j < items_created; ++j) {
-        auto vertex =
-            acc.FindVertex(storage::Gid::FromUint(j), storage::View::OLD);
+        auto vertex = acc.FindVertex(storage::Gid::FromUint(j), storage::View::OLD);
         ASSERT_TRUE(vertex);
       }
     }
@@ -2506,10 +2243,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   // shouldn't be possible because the initial WALs are already deleted.
   ASSERT_DEATH(
       {
-        storage::Storage store(
-            {.items = {.properties_on_edges = GetParam()},
-             .durability = {.storage_directory = storage_directory,
-                            .recover_on_startup = true}});
+        storage::Storage store({.items = {.properties_on_edges = GetParam()},
+                                .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
       },
       "");
 }
@@ -2521,8 +2256,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::seconds(2)}});
     auto acc = store.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -2542,8 +2276,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     storage::Storage store(
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
-                        .snapshot_wal_mode = storage::Config::Durability::
-                            SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                        .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                         .snapshot_interval = std::chrono::seconds(2)}});
     CreateBaseDataset(&store, GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -2566,8 +2299,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 
   // Recover snapshot and WALs.
   storage::Storage store({.items = {.properties_on_edges = GetParam()},
-                          .durability = {.storage_directory = storage_directory,
-                                         .recover_on_startup = true}});
+                          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}});
   VerifyDataset(&store, DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.

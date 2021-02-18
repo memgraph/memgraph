@@ -14,8 +14,7 @@ const char *kPropertyId = "property_id";
 
 const char *kCreateInternalIndex = "CREATE INDEX ON :__mg_vertex__(__mg_id__);";
 const char *kDropInternalIndex = "DROP INDEX ON :__mg_vertex__(__mg_id__);";
-const char *kRemoveInternalLabelProperty =
-    "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;";
+const char *kRemoveInternalLabelProperty = "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;";
 
 // A helper struct that contains info about database that is used to compare
 // two databases (to check if their states are the same). It is assumed that
@@ -56,70 +55,57 @@ struct DatabaseState {
   std::set<LabelPropertiesItem> unique_constraints;
 };
 
-bool operator<(const DatabaseState::Vertex &first,
-               const DatabaseState::Vertex &second) {
+bool operator<(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
   if (first.id != second.id) return first.id < second.id;
   if (first.labels != second.labels) return first.labels < second.labels;
   return first.props < second.props;
 }
 
-bool operator<(const DatabaseState::Edge &first,
-               const DatabaseState::Edge &second) {
+bool operator<(const DatabaseState::Edge &first, const DatabaseState::Edge &second) {
   if (first.from != second.from) return first.from < second.from;
   if (first.to != second.to) return first.to < second.to;
-  if (first.edge_type != second.edge_type)
-    return first.edge_type < second.edge_type;
+  if (first.edge_type != second.edge_type) return first.edge_type < second.edge_type;
   return first.props < second.props;
 }
 
-bool operator<(const DatabaseState::LabelItem &first,
-               const DatabaseState::LabelItem &second) {
+bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label < second.label;
 }
 
-bool operator<(const DatabaseState::LabelPropertyItem &first,
-               const DatabaseState::LabelPropertyItem &second) {
+bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
   if (first.label != second.label) return first.label < second.label;
   return first.property < second.property;
 }
 
-bool operator<(const DatabaseState::LabelPropertiesItem &first,
-               const DatabaseState::LabelPropertiesItem &second) {
+bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
   if (first.label != second.label) return first.label < second.label;
   return first.properties < second.properties;
 }
 
-bool operator==(const DatabaseState::Vertex &first,
-                const DatabaseState::Vertex &second) {
-  return first.id == second.id && first.labels == second.labels &&
+bool operator==(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
+  return first.id == second.id && first.labels == second.labels && first.props == second.props;
+}
+
+bool operator==(const DatabaseState::Edge &first, const DatabaseState::Edge &second) {
+  return first.from == second.from && first.to == second.to && first.edge_type == second.edge_type &&
          first.props == second.props;
 }
 
-bool operator==(const DatabaseState::Edge &first,
-                const DatabaseState::Edge &second) {
-  return first.from == second.from && first.to == second.to &&
-         first.edge_type == second.edge_type && first.props == second.props;
-}
-
-bool operator==(const DatabaseState::LabelItem &first,
-                const DatabaseState::LabelItem &second) {
+bool operator==(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label == second.label;
 }
 
-bool operator==(const DatabaseState::LabelPropertyItem &first,
-                const DatabaseState::LabelPropertyItem &second) {
+bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
   return first.label == second.label && first.property == second.property;
 }
 
-bool operator==(const DatabaseState::LabelPropertiesItem &first,
-                const DatabaseState::LabelPropertiesItem &second) {
+bool operator==(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
   return first.label == second.label && first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
-         first.label_indices == second.label_indices &&
-         first.label_property_indices == second.label_property_indices &&
+         first.label_indices == second.label_indices && first.label_property_indices == second.label_property_indices &&
          first.existence_constraints == second.existence_constraints &&
          first.unique_constraints == second.unique_constraints;
 }
@@ -176,8 +162,7 @@ DatabaseState GetState(storage::Storage *db) {
       label_indices.insert({dba.LabelToName(item)});
     }
     for (const auto &item : info.label_property) {
-      label_property_indices.insert(
-          {dba.LabelToName(item.first), dba.PropertyToName(item.second)});
+      label_property_indices.insert({dba.LabelToName(item.first), dba.PropertyToName(item.second)});
     }
   }
 
@@ -187,25 +172,18 @@ DatabaseState GetState(storage::Storage *db) {
   {
     auto info = dba.ListAllConstraints();
     for (const auto &item : info.existence) {
-      existence_constraints.insert(
-          {dba.LabelToName(item.first), dba.PropertyToName(item.second)});
+      existence_constraints.insert({dba.LabelToName(item.first), dba.PropertyToName(item.second)});
     }
     for (const auto &item : info.unique) {
       std::set<std::string> properties;
       for (const auto &property : item.second) {
         properties.insert(dba.PropertyToName(property));
       }
-      unique_constraints.insert(
-          {dba.LabelToName(item.first), std::move(properties)});
+      unique_constraints.insert({dba.LabelToName(item.first), std::move(properties)});
     }
   }
 
-  return {vertices,
-          edges,
-          label_indices,
-          label_property_indices,
-          existence_constraints,
-          unique_constraints};
+  return {vertices, edges, label_indices, label_property_indices, existence_constraints, unique_constraints};
 }
 
 auto Execute(storage::Storage *db, const std::string &query) {
@@ -221,52 +199,43 @@ auto Execute(storage::Storage *db, const std::string &query) {
   return stream;
 }
 
-storage::VertexAccessor CreateVertex(
-    storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
-    const std::map<std::string, storage::PropertyValue> &props,
-    bool add_property_id = true) {
+storage::VertexAccessor CreateVertex(storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
+                                     const std::map<std::string, storage::PropertyValue> &props,
+                                     bool add_property_id = true) {
   MG_ASSERT(dba);
   auto vertex = dba->CreateVertex();
   for (const auto &label_name : labels) {
     MG_ASSERT(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
   }
   for (const auto &kv : props) {
-    MG_ASSERT(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second)
-                  .HasValue());
+    MG_ASSERT(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
-    MG_ASSERT(vertex
-                  .SetProperty(dba->NameToProperty(kPropertyId),
-                               storage::PropertyValue(vertex.Gid().AsInt()))
-                  .HasValue());
+    MG_ASSERT(
+        vertex.SetProperty(dba->NameToProperty(kPropertyId), storage::PropertyValue(vertex.Gid().AsInt())).HasValue());
   }
   return vertex;
 }
 
-storage::EdgeAccessor CreateEdge(
-    storage::Storage::Accessor *dba, storage::VertexAccessor *from,
-    storage::VertexAccessor *to, const std::string &edge_type_name,
-    const std::map<std::string, storage::PropertyValue> &props,
-    bool add_property_id = true) {
+storage::EdgeAccessor CreateEdge(storage::Storage::Accessor *dba, storage::VertexAccessor *from,
+                                 storage::VertexAccessor *to, const std::string &edge_type_name,
+                                 const std::map<std::string, storage::PropertyValue> &props,
+                                 bool add_property_id = true) {
   MG_ASSERT(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
   MG_ASSERT(edge.HasValue());
   for (const auto &kv : props) {
-    MG_ASSERT(
-        edge->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
+    MG_ASSERT(edge->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
-    MG_ASSERT(edge->SetProperty(dba->NameToProperty(kPropertyId),
-                                storage::PropertyValue(edge->Gid().AsInt()))
-                  .HasValue());
+    MG_ASSERT(
+        edge->SetProperty(dba->NameToProperty(kPropertyId), storage::PropertyValue(edge->Gid().AsInt())).HasValue());
   }
   return *edge;
 }
 
 template <class... TArgs>
-void VerifyQueries(
-    const std::vector<std::vector<communication::bolt::Value>> &results,
-    TArgs &&...args) {
+void VerifyQueries(const std::vector<std::vector<communication::bolt::Value>> &results, TArgs &&...args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());
@@ -308,9 +277,8 @@ TEST(DumpTest, SingleVertex) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__ {__mg_id__: 0});", kDropInternalIndex,
-                  kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -331,8 +299,7 @@ TEST(DumpTest, VertexWithSingleLabel) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -355,8 +322,8 @@ TEST(DumpTest, VertexWithMultipleLabels) {
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});", kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -377,8 +344,7 @@ TEST(DumpTest, VertexWithSingleProperty) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -402,11 +368,9 @@ TEST(DumpTest, MultipleVertices) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
-                  "CREATE (:__mg_vertex__ {__mg_id__: 2});", kDropInternalIndex,
-                  kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -419,10 +383,8 @@ TEST(DumpTest, PropertyValue) {
     auto bool_value = storage::PropertyValue(true);
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
-    auto map_value = storage::PropertyValue(
-        {{"prop 1", int_value}, {"prop`2`", bool_value}});
-    auto list_value =
-        storage::PropertyValue({map_value, null_value, double_value});
+    auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
+    auto list_value = storage::PropertyValue({map_value, null_value, double_value});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -435,11 +397,10 @@ TEST(DumpTest, PropertyValue) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(), kCreateInternalIndex,
-        "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
-        "`prop``2```: true}, Null, -1.2], `p2`: \"hello \\'world\\'\"});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
+                  "`prop``2```: true}, Null, -1.2], `p2`: \"hello \\'world\\'\"});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -462,13 +423,11 @@ TEST(DumpTest, SingleEdge) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(), kCreateInternalIndex,
-        "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-        "CREATE (:__mg_vertex__ {__mg_id__: 1});",
-        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+                  "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -494,18 +453,15 @@ TEST(DumpTest, MultipleEdges) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(), kCreateInternalIndex,
-        "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-        "CREATE (:__mg_vertex__ {__mg_id__: 1});",
-        "CREATE (:__mg_vertex__ {__mg_id__: 2});",
-        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
-        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-        "v.__mg_id__ = 0 CREATE (u)-[:`EdgeType 2`]->(v);",
-        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
-        "v.__mg_id__ = 2 CREATE (u)-[:`EdgeType ``!\"`]->(v);",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+                  "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
+                  "v.__mg_id__ = 0 CREATE (u)-[:`EdgeType 2`]->(v);",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
+                  "v.__mg_id__ = 2 CREATE (u)-[:`EdgeType ``!\"`]->(v);",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -516,8 +472,7 @@ TEST(DumpTest, EdgeWithProperties) {
     auto dba = db.Access();
     auto u = CreateVertex(&dba, {}, {}, false);
     auto v = CreateVertex(&dba, {}, {}, false);
-    CreateEdge(&dba, &u, &v, "EdgeType", {{"prop", storage::PropertyValue(13)}},
-               false);
+    CreateEdge(&dba, &u, &v, "EdgeType", {{"prop", storage::PropertyValue(13)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -529,13 +484,11 @@ TEST(DumpTest, EdgeWithProperties) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(), kCreateInternalIndex,
-        "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-        "CREATE (:__mg_vertex__ {__mg_id__: 1});",
-        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`prop`: 13}]->(v);",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+                  "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`prop`: 13}]->(v);",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -544,14 +497,11 @@ TEST(DumpTest, IndicesKeys) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label1", "Label 2"},
-                 {{"p", storage::PropertyValue(1)}}, false);
+    CreateVertex(&dba, {"Label1", "Label 2"}, {{"p", storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  ASSERT_TRUE(
-      db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")));
-  ASSERT_TRUE(
-      db.CreateIndex(db.NameToLabel("Label 2"), db.NameToProperty("prop `")));
+  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")));
+  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Label 2"), db.NameToProperty("prop `")));
 
   {
     ResultStreamFaker stream(&db);
@@ -561,11 +511,9 @@ TEST(DumpTest, IndicesKeys) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);",
-        "CREATE INDEX ON :`Label 2`(`prop ```);", kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
+                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -574,13 +522,11 @@ TEST(DumpTest, ExistenceConstraints) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"L`abel 1"}, {{"prop", storage::PropertyValue(1)}},
-                 false);
+    CreateVertex(&dba, {"L`abel 1"}, {{"prop", storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto res = db.CreateExistenceConstraint(db.NameToLabel("L`abel 1"),
-                                            db.NameToProperty("prop"));
+    auto res = db.CreateExistenceConstraint(db.NameToLabel("L`abel 1"), db.NameToProperty("prop"));
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
   }
@@ -593,12 +539,9 @@ TEST(DumpTest, ExistenceConstraints) {
       query::DbAccessor dba(&acc);
       query::DumpDatabaseToCypherQueries(&dba, &query_stream);
     }
-    VerifyQueries(
-        stream.GetResults(),
-        "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
-        kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(), "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
+                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
@@ -606,23 +549,15 @@ TEST(DumpTest, UniqueConstraints) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    CreateVertex(&dba, {"Label"},
-                 {{"prop", storage::PropertyValue(1)},
-                  {"prop2", storage::PropertyValue(2)}},
-                 false);
-    CreateVertex(&dba, {"Label"},
-                 {{"prop", storage::PropertyValue(2)},
-                  {"prop2", storage::PropertyValue(2)}},
-                 false);
+    CreateVertex(&dba, {"Label"}, {{"prop", storage::PropertyValue(1)}, {"prop2", storage::PropertyValue(2)}}, false);
+    CreateVertex(&dba, {"Label"}, {{"prop", storage::PropertyValue(2)}, {"prop2", storage::PropertyValue(2)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto res = db.CreateUniqueConstraint(
-        db.NameToLabel("Label"),
-        {db.NameToProperty("prop"), db.NameToProperty("prop2")});
+    auto res =
+        db.CreateUniqueConstraint(db.NameToLabel("Label"), {db.NameToProperty("prop"), db.NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(),
-              storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
 
   {
@@ -650,12 +585,10 @@ TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    std::map<std::string, storage::PropertyValue> prop1 = {
-        {"nested1", storage::PropertyValue(1337)},
-        {"nested2", storage::PropertyValue(3.14)}};
+    std::map<std::string, storage::PropertyValue> prop1 = {{"nested1", storage::PropertyValue(1337)},
+                                                           {"nested2", storage::PropertyValue(3.14)}};
     CreateVertex(&dba, {"Label1", "Label2"},
-                 {{"prop1", storage::PropertyValue(prop1)},
-                  {"prop2", storage::PropertyValue("$'\t'")}});
+                 {{"prop1", storage::PropertyValue(prop1)}, {"prop2", storage::PropertyValue("$'\t'")}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -684,47 +617,34 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   storage::Storage db;
   {
     auto dba = db.Access();
-    auto u = CreateVertex(&dba, {"Person"},
-                          {{"name", storage::PropertyValue("Ivan")}});
-    auto v = CreateVertex(&dba, {"Person"},
-                          {{"name", storage::PropertyValue("Josko")}});
-    auto w = CreateVertex(&dba, {"Person"},
-                          {{"name", storage::PropertyValue("Bosko")},
-                           {"id", storage::PropertyValue(0)}});
-    auto z = CreateVertex(&dba, {"Person"},
-                          {{"name", storage::PropertyValue("Buha")},
-                           {"id", storage::PropertyValue(1)}});
+    auto u = CreateVertex(&dba, {"Person"}, {{"name", storage::PropertyValue("Ivan")}});
+    auto v = CreateVertex(&dba, {"Person"}, {{"name", storage::PropertyValue("Josko")}});
+    auto w =
+        CreateVertex(&dba, {"Person"}, {{"name", storage::PropertyValue("Bosko")}, {"id", storage::PropertyValue(0)}});
+    auto z =
+        CreateVertex(&dba, {"Person"}, {{"name", storage::PropertyValue("Buha")}, {"id", storage::PropertyValue(1)}});
     CreateEdge(&dba, &u, &v, "Knows", {});
-    CreateEdge(&dba, &v, &w, "Knows",
-               {{"how_long", storage::PropertyValue(5)}});
-    CreateEdge(&dba, &w, &u, "Knows",
-               {{"how", storage::PropertyValue("distant past")}});
+    CreateEdge(&dba, &v, &w, "Knows", {{"how_long", storage::PropertyValue(5)}});
+    CreateEdge(&dba, &w, &u, "Knows", {{"how", storage::PropertyValue("distant past")}});
     CreateEdge(&dba, &v, &u, "Knows", {});
     CreateEdge(&dba, &v, &u, "Likes", {});
     CreateEdge(&dba, &z, &u, "Knows", {});
-    CreateEdge(&dba, &w, &z, "Knows",
-               {{"how", storage::PropertyValue("school")}});
-    CreateEdge(&dba, &w, &z, "Likes",
-               {{"how", storage::PropertyValue("very much")}});
+    CreateEdge(&dba, &w, &z, "Knows", {{"how", storage::PropertyValue("school")}});
+    CreateEdge(&dba, &w, &z, "Likes", {{"how", storage::PropertyValue("very much")}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto ret = db.CreateExistenceConstraint(db.NameToLabel("Person"),
-                                            db.NameToProperty("name"));
+    auto ret = db.CreateExistenceConstraint(db.NameToLabel("Person"), db.NameToProperty("name"));
     ASSERT_TRUE(ret.HasValue());
     ASSERT_TRUE(ret.GetValue());
   }
   {
-    auto ret = db.CreateUniqueConstraint(db.NameToLabel("Person"),
-                                         {db.NameToProperty("name")});
+    auto ret = db.CreateUniqueConstraint(db.NameToLabel("Person"), {db.NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
-    ASSERT_EQ(ret.GetValue(),
-              storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(ret.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
-  ASSERT_TRUE(
-      db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")));
-  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"),
-                             db.NameToProperty("unexisting_property")));
+  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")));
+  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("unexisting_property")));
 
   const auto &db_initial_state = GetState(&db);
   storage::Storage db_dump;
@@ -771,21 +691,16 @@ TEST(DumpTest, ExecuteDumpDatabase) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(),
-              "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(),
-              "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-    EXPECT_EQ(results[2][0].ValueString(),
-              "DROP INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[3][0].ValueString(),
-              "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
 }
 
 class StatefulInterpreter {
  public:
-  explicit StatefulInterpreter(storage::Storage *db)
-      : db_(db), context_(db_), interpreter_(&context_) {}
+  explicit StatefulInterpreter(storage::Storage *db) : db_(db), context_(db_), interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
@@ -857,14 +772,10 @@ TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(),
-              "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(),
-              "CREATE (:__mg_vertex__ {__mg_id__: 0});");
-    EXPECT_EQ(results[2][0].ValueString(),
-              "DROP INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[3][0].ValueString(),
-              "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
+    EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
 
   // Rollback the transaction.
@@ -881,55 +792,44 @@ TEST(DumpTest, MultiplePartialPulls) {
 
     // Create existence constraints
     {
-      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"),
-                                              db.NameToProperty("name"));
+      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"), db.NameToProperty("name"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
     {
-      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"),
-                                              db.NameToProperty("surname"));
+      auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"), db.NameToProperty("surname"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
     // Create unique constraints
     {
-      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"),
-                                           {db.NameToProperty("name")});
+      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"), {db.NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
-      ASSERT_EQ(res.GetValue(),
-                storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
     }
     {
-      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"),
-                                           {db.NameToProperty("surname")});
+      auto res = db.CreateUniqueConstraint(db.NameToLabel("PERSON"), {db.NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
-      ASSERT_EQ(res.GetValue(),
-                storage::UniqueConstraints::CreationStatus::SUCCESS);
+      ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
     }
 
     auto dba = db.Access();
-    auto p1 = CreateVertex(&dba, {"PERSON"},
-                           {{"name", storage::PropertyValue("Person1")},
-                            {"surname", storage::PropertyValue("Unique1")}},
-                           false);
-    auto p2 = CreateVertex(&dba, {"PERSON"},
-                           {{"name", storage::PropertyValue("Person2")},
-                            {"surname", storage::PropertyValue("Unique2")}},
-                           false);
-    auto p3 = CreateVertex(&dba, {"PERSON"},
-                           {{"name", storage::PropertyValue("Person3")},
-                            {"surname", storage::PropertyValue("Unique3")}},
-                           false);
-    auto p4 = CreateVertex(&dba, {"PERSON"},
-                           {{"name", storage::PropertyValue("Person4")},
-                            {"surname", storage::PropertyValue("Unique4")}},
-                           false);
-    auto p5 = CreateVertex(&dba, {"PERSON"},
-                           {{"name", storage::PropertyValue("Person5")},
-                            {"surname", storage::PropertyValue("Unique5")}},
-                           false);
+    auto p1 = CreateVertex(
+        &dba, {"PERSON"}, {{"name", storage::PropertyValue("Person1")}, {"surname", storage::PropertyValue("Unique1")}},
+        false);
+    auto p2 = CreateVertex(
+        &dba, {"PERSON"}, {{"name", storage::PropertyValue("Person2")}, {"surname", storage::PropertyValue("Unique2")}},
+        false);
+    auto p3 = CreateVertex(
+        &dba, {"PERSON"}, {{"name", storage::PropertyValue("Person3")}, {"surname", storage::PropertyValue("Unique3")}},
+        false);
+    auto p4 = CreateVertex(
+        &dba, {"PERSON"}, {{"name", storage::PropertyValue("Person4")}, {"surname", storage::PropertyValue("Unique4")}},
+        false);
+    auto p5 = CreateVertex(
+        &dba, {"PERSON"}, {{"name", storage::PropertyValue("Person5")}, {"surname", storage::PropertyValue("Unique5")}},
+        false);
     CreateEdge(&dba, &p1, &p2, "REL", {}, false);
     CreateEdge(&dba, &p1, &p3, "REL", {}, false);
     CreateEdge(&dba, &p4, &p5, "REL", {}, false);
@@ -944,13 +844,11 @@ TEST(DumpTest, MultiplePartialPulls) {
 
   query::PullPlanDump pullPlan{&dba};
 
-  auto check_next = [&, offset_index =
-                            0U](const std::string &expected_row) mutable {
+  auto check_next = [&, offset_index = 0U](const std::string &expected_row) mutable {
     pullPlan.Pull(&query_stream, 1);
     const auto &results{stream.GetResults()};
     ASSERT_EQ(results.size(), offset_index + 1);
-    VerifyQueries({results.begin() + offset_index, results.end()},
-                  expected_row);
+    VerifyQueries({results.begin() + offset_index, results.end()}, expected_row);
     ++offset_index;
   };
 
@@ -961,16 +859,11 @@ TEST(DumpTest, MultiplePartialPulls) {
   check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
   check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
   check_next(kCreateInternalIndex);
-  check_next(
-      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
-  check_next(
-      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
-  check_next(
-      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
-  check_next(
-      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
-  check_next(
-      R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
+  check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
+  check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
+  check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
+  check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
+  check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
   check_next(
       "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
       "v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);");

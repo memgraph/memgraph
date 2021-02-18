@@ -2,9 +2,7 @@
 
 namespace storage::replication {
 ////// Encoder //////
-void Encoder::WriteMarker(durability::Marker marker) {
-  slk::Save(marker, builder_);
-}
+void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
 
 void Encoder::WriteBool(bool value) {
   WriteMarker(durability::Marker::TYPE_BOOL);
@@ -31,9 +29,7 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) {
-  builder_->Save(buffer, buffer_size);
-}
+void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
 
 void Encoder::WriteFileData(utils::InputFile *file) {
   auto file_size = file->GetSize();
@@ -66,44 +62,35 @@ std::optional<durability::Marker> Decoder::ReadMarker() {
 }
 
 std::optional<bool> Decoder::ReadBool() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_BOOL)
-    return std::nullopt;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_BOOL) return std::nullopt;
   bool value;
   slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<uint64_t> Decoder::ReadUint() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_INT)
-    return std::nullopt;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
   slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<double> Decoder::ReadDouble() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_DOUBLE)
-    return std::nullopt;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_DOUBLE) return std::nullopt;
   double value;
   slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<std::string> Decoder::ReadString() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_STRING)
-    return std::nullopt;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return std::nullopt;
   std::string value;
   slk::Load(&value, reader_);
   return std::move(value);
 }
 
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
   PropertyValue value;
   slk::Load(&value, reader_);
@@ -111,27 +98,22 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
 }
 
 bool Decoder::SkipString() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_STRING)
-    return false;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return false;
   std::string value;
   slk::Load(&value, reader_);
   return true;
 }
 
 bool Decoder::SkipPropertyValue() {
-  if (const auto marker = ReadMarker();
-      !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
-    return false;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
   PropertyValue value;
   slk::Load(&value, reader_);
   return true;
 }
 
-std::optional<std::filesystem::path> Decoder::ReadFile(
-    const std::filesystem::path &directory, const std::string &suffix) {
-  MG_ASSERT(std::filesystem::exists(directory) &&
-                std::filesystem::is_directory(directory),
+std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory,
+                                                       const std::string &suffix) {
+  MG_ASSERT(std::filesystem::exists(directory) && std::filesystem::is_directory(directory),
             "Sent path for streamed files should be a valid directory!");
   utils::OutputFile file;
   const auto maybe_filename = ReadString();

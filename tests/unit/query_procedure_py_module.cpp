@@ -11,12 +11,9 @@ TEST(PyModule, MgpValueToPyObject) {
   auto *list = mgp_list_make_empty(42, &memory);
   {
     // Create a list: [null, false, true, 42, 0.1, "some text"]
-    auto primitive_values = {mgp_value_make_null(&memory),
-                             mgp_value_make_bool(0, &memory),
-                             mgp_value_make_bool(1, &memory),
-                             mgp_value_make_int(42, &memory),
-                             mgp_value_make_double(0.1, &memory),
-                             mgp_value_make_string("some text", &memory)};
+    auto primitive_values = {mgp_value_make_null(&memory),        mgp_value_make_bool(0, &memory),
+                             mgp_value_make_bool(1, &memory),     mgp_value_make_int(42, &memory),
+                             mgp_value_make_double(0.1, &memory), mgp_value_make_string("some text", &memory)};
     for (auto *val : primitive_values) {
       mgp_list_append(list, val);
       mgp_value_destroy(val);
@@ -29,8 +26,8 @@ TEST(PyModule, MgpValueToPyObject) {
   auto *map_val = mgp_value_make_map(map);
   auto gil = py::EnsureGIL();
   py::Object py_graph(query::procedure::MakePyGraph(nullptr, &memory));
-  auto py_dict = query::procedure::MgpValueToPyObject(
-      *map_val, reinterpret_cast<query::procedure::PyGraph *>(py_graph.Ptr()));
+  auto py_dict =
+      query::procedure::MgpValueToPyObject(*map_val, reinterpret_cast<query::procedure::PyGraph *>(py_graph.Ptr()));
   mgp_value_destroy(map_val);
   // We should now have in Python:
   // {"list": (None, False, True, 42, 0.1, "some text")}
@@ -89,12 +86,8 @@ TEST(PyModule, PyVertex) {
     auto v1 = dba.CreateVertex();
     auto v2 = dba.CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"),
-                               storage::PropertyValue("value1"))
-                    .HasValue());
-    ASSERT_TRUE(
-        v1.SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337))
-            .HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"), storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337)).HasValue());
 
     auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
@@ -115,19 +108,16 @@ TEST(PyModule, PyVertex) {
   py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Vertex.
-  py::Object py_vertex_value(
-      query::procedure::MgpValueToPyObject(*vertex_value, py_graph.Ptr()));
+  py::Object py_vertex_value(query::procedure::MgpValueToPyObject(*vertex_value, py_graph.Ptr()));
   ASSERT_TRUE(py_vertex_value);
   AssertPickleAndCopyAreNotSupported(py_vertex_value.GetAttr("_vertex").Ptr());
   // Convert from mgp.Vertex to mgp_value.
-  auto *new_vertex_value =
-      query::procedure::PyObjectToMgpValue(py_vertex_value.Ptr(), &memory);
+  auto *new_vertex_value = query::procedure::PyObjectToMgpValue(py_vertex_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
   ASSERT_TRUE(mgp_value_is_vertex(new_vertex_value));
-  ASSERT_TRUE(mgp_vertex_equal(mgp_value_get_vertex(vertex_value),
-                               mgp_value_get_vertex(new_vertex_value)));
+  ASSERT_TRUE(mgp_vertex_equal(mgp_value_get_vertex(vertex_value), mgp_value_get_vertex(new_vertex_value)));
   // Clean up.
   mgp_value_destroy(new_vertex_value);
   mgp_value_destroy(vertex_value);
@@ -145,12 +135,8 @@ TEST(PyModule, PyEdge) {
     auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"),
-                               storage::PropertyValue("value1"))
-                    .HasValue());
-    ASSERT_TRUE(
-        e->SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337))
-            .HasValue());
+    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"), storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   // Get the edge as an mgp_value.
@@ -173,19 +159,16 @@ TEST(PyModule, PyEdge) {
   py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Edge.
-  py::Object py_edge_value(
-      query::procedure::MgpValueToPyObject(*edge_value, py_graph.Ptr()));
+  py::Object py_edge_value(query::procedure::MgpValueToPyObject(*edge_value, py_graph.Ptr()));
   ASSERT_TRUE(py_edge_value);
   AssertPickleAndCopyAreNotSupported(py_edge_value.GetAttr("_edge").Ptr());
   // Convert from mgp.Edge to mgp_value.
-  auto *new_edge_value =
-      query::procedure::PyObjectToMgpValue(py_edge_value.Ptr(), &memory);
+  auto *new_edge_value = query::procedure::PyObjectToMgpValue(py_edge_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
   ASSERT_TRUE(mgp_value_is_edge(new_edge_value));
-  ASSERT_TRUE(mgp_edge_equal(mgp_value_get_edge(edge_value),
-                             mgp_value_get_edge(new_edge_value)));
+  ASSERT_TRUE(mgp_edge_equal(mgp_value_get_edge(edge_value), mgp_value_get_edge(new_edge_value)));
   // Clean up.
   mgp_value_destroy(new_edge_value);
   mgp_value_destroy(edge_value);
@@ -198,8 +181,7 @@ TEST(PyModule, PyPath) {
     auto dba = db.Access();
     auto v1 = dba.CreateVertex();
     auto v2 = dba.CreateVertex();
-    ASSERT_TRUE(
-        dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type")).HasValue());
+    ASSERT_TRUE(dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   auto storage_dba = db.Access();
@@ -212,8 +194,7 @@ TEST(PyModule, PyPath) {
   ASSERT_TRUE(path);
   auto *edges_it = mgp_vertex_iter_out_edges(start_v, &memory);
   ASSERT_TRUE(edges_it);
-  for (const auto *edge = mgp_edges_iterator_get(edges_it); edge;
-       edge = mgp_edges_iterator_next(edges_it)) {
+  for (const auto *edge = mgp_edges_iterator_get(edges_it); edge; edge = mgp_edges_iterator_next(edges_it)) {
     ASSERT_TRUE(mgp_path_expand(path, edge));
   }
   ASSERT_EQ(mgp_path_size(path), 1);
@@ -225,18 +206,15 @@ TEST(PyModule, PyPath) {
   py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // We have setup the C structs, so create convert to PyObject.
-  py::Object py_path_value(
-      query::procedure::MgpValueToPyObject(*path_value, py_graph.Ptr()));
+  py::Object py_path_value(query::procedure::MgpValueToPyObject(*path_value, py_graph.Ptr()));
   ASSERT_TRUE(py_path_value);
   AssertPickleAndCopyAreNotSupported(py_path_value.GetAttr("_path").Ptr());
   // Convert back to C struct and check equality.
-  auto *new_path_value =
-      query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
+  auto *new_path_value = query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
   ASSERT_TRUE(mgp_value_is_path(new_path_value));
-  ASSERT_TRUE(mgp_path_equal(mgp_value_get_path(path_value),
-                             mgp_value_get_path(new_path_value)));
+  ASSERT_TRUE(mgp_path_equal(mgp_value_get_path(path_value), mgp_value_get_path(new_path_value)));
   mgp_value_destroy(new_path_value);
   mgp_value_destroy(path_value);
   ASSERT_FALSE(dba.Commit().HasError());
@@ -245,10 +223,9 @@ TEST(PyModule, PyPath) {
 TEST(PyModule, PyObjectToMgpValue) {
   mgp_memory memory{utils::NewDeleteResource()};
   auto gil = py::EnsureGIL();
-  py::Object py_value{Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one",
-                                    2, 2.0, "two", "three", 3, "four", 4.0)};
-  mgp_value *value =
-      query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
+  py::Object py_value{
+      Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one", 2, 2.0, "two", "three", 3, "four", 4.0)};
+  mgp_value *value = query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
 
   ASSERT_TRUE(mgp_value_is_list(value));
   const mgp_list *list1 = mgp_value_get_list(value);
@@ -294,13 +271,11 @@ int main(int argc, char **argv) {
   {
     // Setup importing 'mgp' module by adding its directory to `sys.path`.
     std::filesystem::path invocation_path(argv[0]);
-    auto mgp_py_path =
-        invocation_path.parent_path() / "../../../include/mgp.py";
+    auto mgp_py_path = invocation_path.parent_path() / "../../../include/mgp.py";
     MG_ASSERT(std::filesystem::exists(mgp_py_path));
     auto *py_path = PySys_GetObject("path");
     MG_ASSERT(py_path);
-    py::Object import_dir(
-        PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
+    py::Object import_dir(PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
     if (PyList_Append(py_path, import_dir.Ptr()) != 0) {
       auto exc_info = py::FetchError().value();
       LOG_FATAL(exc_info);

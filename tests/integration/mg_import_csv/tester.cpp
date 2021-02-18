@@ -22,8 +22,7 @@ int main(int argc, char **argv) {
 
   communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
@@ -31,9 +30,7 @@ int main(int argc, char **argv) {
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
   auto ret = client.Execute("DUMP DATABASE", {});
   for (const auto &row : ret.records) {
-    MG_ASSERT(row.size() == 1,
-              "Too much entries in query dump row (got {}, expected 1)!",
-              row.size());
+    MG_ASSERT(row.size() == 1, "Too much entries in query dump row (got {}, expected 1)!", row.size());
     std::cout << row[0].ValueString() << std::endl;
   }
 

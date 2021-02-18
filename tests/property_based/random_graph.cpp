@@ -14,9 +14,7 @@
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph
  */
-RC_GTEST_PROP(RandomGraph, RandomGraph,
-              (std::vector<std::string> vertex_labels,
-               std::vector<std::string> edge_types)) {
+RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels, std::vector<std::string> edge_types)) {
   RC_PRE(!vertex_labels.empty());
   RC_PRE(!edge_types.empty());
 
@@ -40,8 +38,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph,
   for (auto type : edge_types) {
     auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
     auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
-    auto maybe_edge_accessor =
-        dba.CreateEdge(&from, &to, dba.NameToEdgeType(type));
+    auto maybe_edge_accessor = dba.CreateEdge(&from, &to, dba.NameToEdgeType(type));
     RC_ASSERT(maybe_edge_accessor.HasValue());
     edge_type_map.insert({*maybe_edge_accessor, type});
   }

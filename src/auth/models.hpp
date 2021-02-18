@@ -29,11 +29,9 @@ enum class Permission : uint64_t {
 
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,    Permission::CREATE, Permission::MERGE,
-    Permission::DELETE,   Permission::SET,    Permission::REMOVE,
-    Permission::INDEX,    Permission::STATS,  Permission::CONSTRAINT,
-    Permission::DUMP,     Permission::AUTH,   Permission::REPLICATION,
-    Permission::LOCK_PATH};
+    Permission::MATCH,  Permission::CREATE,      Permission::MERGE,    Permission::DELETE,     Permission::SET,
+    Permission::REMOVE, Permission::INDEX,       Permission::STATS,    Permission::CONSTRAINT, Permission::DUMP,
+    Permission::AUTH,   Permission::REPLICATION, Permission::LOCK_PATH};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -110,15 +108,13 @@ class User final {
  public:
   User(const std::string &username);
 
-  User(const std::string &username, const std::string &password_hash,
-       const Permissions &permissions);
+  User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
 
   /// @throw AuthException if unable to set the password.
-  void UpdatePassword(
-      const std::optional<std::string> &password = std::nullopt);
+  void UpdatePassword(const std::optional<std::string> &password = std::nullopt);
 
   void SetRole(const Role &role);
 

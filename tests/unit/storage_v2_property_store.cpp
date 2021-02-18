@@ -28,22 +28,18 @@ const storage::PropertyValue kSampleValues[] = {
     storage::PropertyValue("sample"),
     storage::PropertyValue(std::string(404, 'n')),
     storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(33),
-        storage::PropertyValue(std::string("sample")),
-        storage::PropertyValue(-33.33)}),
-    storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(), storage::PropertyValue(false)}),
-    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-        {"sample", storage::PropertyValue()},
-        {"key", storage::PropertyValue(false)}}),
-    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-        {"test", storage::PropertyValue(33)},
-        {"map", storage::PropertyValue(std::string("sample"))},
-        {"item", storage::PropertyValue(-33.33)}}),
+        storage::PropertyValue(33), storage::PropertyValue(std::string("sample")), storage::PropertyValue(-33.33)}),
+    storage::PropertyValue(
+        std::vector<storage::PropertyValue>{storage::PropertyValue(), storage::PropertyValue(false)}),
+    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{{"sample", storage::PropertyValue()},
+                                                                         {"key", storage::PropertyValue(false)}}),
+    storage::PropertyValue(
+        std::map<std::string, storage::PropertyValue>{{"test", storage::PropertyValue(33)},
+                                                      {"map", storage::PropertyValue(std::string("sample"))},
+                                                      {"item", storage::PropertyValue(-33.33)}}),
 };
 
-void TestIsPropertyEqual(const storage::PropertyStore &store,
-                         storage::PropertyId property,
+void TestIsPropertyEqual(const storage::PropertyStore &store, storage::PropertyId property,
                          const storage::PropertyValue &value) {
   ASSERT_TRUE(store.IsPropertyEqual(property, value));
   for (const auto &sample : kSampleValues) {
@@ -129,15 +125,13 @@ TEST(PropertyStore, MoveConstruct) {
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
-  ASSERT_THAT(props1.Properties(),
-              UnorderedElementsAre(std::pair(prop, value)));
+  ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     storage::PropertyStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
@@ -154,15 +148,13 @@ TEST(PropertyStore, MoveConstructLarge) {
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
-  ASSERT_THAT(props1.Properties(),
-              UnorderedElementsAre(std::pair(prop, value)));
+  ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     storage::PropertyStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
@@ -179,8 +171,7 @@ TEST(PropertyStore, MoveAssign) {
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
-  ASSERT_THAT(props1.Properties(),
-              UnorderedElementsAre(std::pair(prop, value)));
+  ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = storage::PropertyValue(68);
     storage::PropertyStore props2;
@@ -188,14 +179,12 @@ TEST(PropertyStore, MoveAssign) {
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value2);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value2)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value2)));
     props2 = std::move(props1);
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
@@ -212,8 +201,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
-  ASSERT_THAT(props1.Properties(),
-              UnorderedElementsAre(std::pair(prop, value)));
+  ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = storage::PropertyValue(std::string(10000, 'b'));
     storage::PropertyStore props2;
@@ -221,14 +209,12 @@ TEST(PropertyStore, MoveAssignLarge) {
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value2);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value2)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value2)));
     props2 = std::move(props1);
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
     TestIsPropertyEqual(props2, prop, value);
-    ASSERT_THAT(props2.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
@@ -238,15 +224,12 @@ TEST(PropertyStore, MoveAssignLarge) {
 }
 
 TEST(PropertyStore, EmptySet) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123),
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123),
                                           storage::PropertyValue()};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(true),  storage::PropertyValue(123),
-      storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
-      storage::PropertyValue(vec),   storage::PropertyValue(map)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(true),  storage::PropertyValue(123),
+                                           storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
+                                           storage::PropertyValue(vec),   storage::PropertyValue(map)};
 
   auto prop = storage::PropertyId::FromInt(42);
   for (const auto &value : data) {
@@ -256,14 +239,12 @@ TEST(PropertyStore, EmptySet) {
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
     TestIsPropertyEqual(props, prop, value);
-    ASSERT_THAT(props.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
     ASSERT_FALSE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
     TestIsPropertyEqual(props, prop, value);
-    ASSERT_THAT(props.Properties(),
-                UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
     ASSERT_FALSE(props.SetProperty(prop, storage::PropertyValue()));
     ASSERT_TRUE(props.GetProperty(prop).IsNull());
     ASSERT_FALSE(props.HasProperty(prop));
@@ -278,11 +259,9 @@ TEST(PropertyStore, EmptySet) {
 }
 
 TEST(PropertyStore, FullSet) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123),
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123),
                                           storage::PropertyValue()};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
   std::map<storage::PropertyId, storage::PropertyValue> data{
       {storage::PropertyId::FromInt(1), storage::PropertyValue(true)},
       {storage::PropertyId::FromInt(2), storage::PropertyValue(123)},
@@ -291,14 +270,13 @@ TEST(PropertyStore, FullSet) {
       {storage::PropertyId::FromInt(5), storage::PropertyValue(vec)},
       {storage::PropertyId::FromInt(6), storage::PropertyValue(map)}};
 
-  std::vector<storage::PropertyValue> alt{
-      storage::PropertyValue(),
-      storage::PropertyValue(std::string()),
-      storage::PropertyValue(std::string(10, 'a')),
-      storage::PropertyValue(std::string(100, 'a')),
-      storage::PropertyValue(std::string(1000, 'a')),
-      storage::PropertyValue(std::string(10000, 'a')),
-      storage::PropertyValue(std::string(100000, 'a'))};
+  std::vector<storage::PropertyValue> alt{storage::PropertyValue(),
+                                          storage::PropertyValue(std::string()),
+                                          storage::PropertyValue(std::string(10, 'a')),
+                                          storage::PropertyValue(std::string(100, 'a')),
+                                          storage::PropertyValue(std::string(1000, 'a')),
+                                          storage::PropertyValue(std::string(10000, 'a')),
+                                          storage::PropertyValue(std::string(100000, 'a'))};
 
   storage::PropertyStore props;
   for (const auto &target : data) {
@@ -379,41 +357,30 @@ TEST(PropertyStore, FullSet) {
 
 TEST(PropertyStore, IntEncoding) {
   std::map<storage::PropertyId, storage::PropertyValue> data{
-      {storage::PropertyId::FromUint(0UL),
-       storage::PropertyValue(std::numeric_limits<int64_t>::min())},
-      {storage::PropertyId::FromUint(10UL),
-       storage::PropertyValue(-137438953472L)},
-      {storage::PropertyId::FromUint(std::numeric_limits<uint8_t>::max()),
-       storage::PropertyValue(-4294967297L)},
-      {storage::PropertyId::FromUint(256UL),
-       storage::PropertyValue(std::numeric_limits<int32_t>::min())},
-      {storage::PropertyId::FromUint(1024UL),
-       storage::PropertyValue(-1048576L)},
+      {storage::PropertyId::FromUint(0UL), storage::PropertyValue(std::numeric_limits<int64_t>::min())},
+      {storage::PropertyId::FromUint(10UL), storage::PropertyValue(-137438953472L)},
+      {storage::PropertyId::FromUint(std::numeric_limits<uint8_t>::max()), storage::PropertyValue(-4294967297L)},
+      {storage::PropertyId::FromUint(256UL), storage::PropertyValue(std::numeric_limits<int32_t>::min())},
+      {storage::PropertyId::FromUint(1024UL), storage::PropertyValue(-1048576L)},
       {storage::PropertyId::FromUint(1025UL), storage::PropertyValue(-65537L)},
-      {storage::PropertyId::FromUint(1026UL),
-       storage::PropertyValue(std::numeric_limits<int16_t>::min())},
+      {storage::PropertyId::FromUint(1026UL), storage::PropertyValue(std::numeric_limits<int16_t>::min())},
       {storage::PropertyId::FromUint(1027UL), storage::PropertyValue(-1024L)},
       {storage::PropertyId::FromUint(2000UL), storage::PropertyValue(-257L)},
-      {storage::PropertyId::FromUint(3000UL),
-       storage::PropertyValue(std::numeric_limits<int8_t>::min())},
+      {storage::PropertyId::FromUint(3000UL), storage::PropertyValue(std::numeric_limits<int8_t>::min())},
       {storage::PropertyId::FromUint(4000UL), storage::PropertyValue(-1L)},
       {storage::PropertyId::FromUint(10000UL), storage::PropertyValue(0L)},
       {storage::PropertyId::FromUint(20000UL), storage::PropertyValue(1L)},
-      {storage::PropertyId::FromUint(30000UL),
-       storage::PropertyValue(std::numeric_limits<int8_t>::max())},
+      {storage::PropertyId::FromUint(30000UL), storage::PropertyValue(std::numeric_limits<int8_t>::max())},
       {storage::PropertyId::FromUint(40000UL), storage::PropertyValue(256L)},
       {storage::PropertyId::FromUint(50000UL), storage::PropertyValue(1024L)},
       {storage::PropertyId::FromUint(std::numeric_limits<uint16_t>::max()),
        storage::PropertyValue(std::numeric_limits<int16_t>::max())},
       {storage::PropertyId::FromUint(65536UL), storage::PropertyValue(65536L)},
-      {storage::PropertyId::FromUint(1048576UL),
-       storage::PropertyValue(1048576L)},
+      {storage::PropertyId::FromUint(1048576UL), storage::PropertyValue(1048576L)},
       {storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        storage::PropertyValue(std::numeric_limits<int32_t>::max())},
-      {storage::PropertyId::FromUint(4294967296UL),
-       storage::PropertyValue(4294967296L)},
-      {storage::PropertyId::FromUint(137438953472UL),
-       storage::PropertyValue(137438953472L)},
+      {storage::PropertyId::FromUint(4294967296UL), storage::PropertyValue(4294967296L)},
+      {storage::PropertyId::FromUint(137438953472UL), storage::PropertyValue(137438953472L)},
       {storage::PropertyId::FromUint(std::numeric_limits<uint64_t>::max()),
        storage::PropertyValue(std::numeric_limits<int64_t>::max())}};
 
@@ -454,8 +421,7 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
       {storage::PropertyValue(123), storage::PropertyValue(123.0)},
       {storage::PropertyValue(12345), storage::PropertyValue(12345.0)},
       {storage::PropertyValue(12345678), storage::PropertyValue(12345678.0)},
-      {storage::PropertyValue(1234567890123L),
-       storage::PropertyValue(1234567890123.0)},
+      {storage::PropertyValue(1234567890123L), storage::PropertyValue(1234567890123.0)},
   };
 
   // Test equality with raw values.
@@ -498,10 +464,10 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
 
   // Test equality with values wrapped in lists.
   for (auto test : tests) {
-    test.first = storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(test.first.ValueInt())});
-    test.second = storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(test.second.ValueDouble())});
+    test.first =
+        storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(test.first.ValueInt())});
+    test.second =
+        storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(test.second.ValueDouble())});
     ASSERT_EQ(test.first, test.second);
 
     // Test first, second
@@ -519,11 +485,10 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
     ASSERT_TRUE(props.IsPropertyEqual(prop, test.first));
 
     // Make both negative
-    test.first = storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(test.first.ValueList()[0].ValueInt() * -1)});
+    test.first = storage::PropertyValue(
+        std::vector<storage::PropertyValue>{storage::PropertyValue(test.first.ValueList()[0].ValueInt() * -1)});
     test.second = storage::PropertyValue(
-        std::vector<storage::PropertyValue>{storage::PropertyValue(
-            test.second.ValueList()[0].ValueDouble() * -1.0)});
+        std::vector<storage::PropertyValue>{storage::PropertyValue(test.second.ValueList()[0].ValueDouble() * -1.0)});
     ASSERT_EQ(test.first, test.second);
 
     // Test -first, -second
@@ -549,8 +514,7 @@ TEST(PropertyStore, IsPropertyEqualString) {
   ASSERT_TRUE(props.IsPropertyEqual(prop, storage::PropertyValue("test")));
 
   // Different length.
-  ASSERT_FALSE(
-      props.IsPropertyEqual(prop, storage::PropertyValue("helloworld")));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue("helloworld")));
 
   // Same length, different value.
   ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue("asdf")));
@@ -563,83 +527,61 @@ TEST(PropertyStore, IsPropertyEqualString) {
 TEST(PropertyStore, IsPropertyEqualList) {
   storage::PropertyStore props;
   auto prop = storage::PropertyId::FromInt(42);
-  ASSERT_TRUE(props.SetProperty(
-      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(42), storage::PropertyValue("test")})));
-  ASSERT_TRUE(props.IsPropertyEqual(
-      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(42), storage::PropertyValue("test")})));
+  ASSERT_TRUE(props.SetProperty(prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
+                                          storage::PropertyValue(42), storage::PropertyValue("test")})));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
+                                              storage::PropertyValue(42), storage::PropertyValue("test")})));
 
   // Different length.
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(24)})));
+      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(24)})));
 
   // Same length, different value.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(42), storage::PropertyValue("asdf")})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
+                                               storage::PropertyValue(42), storage::PropertyValue("asdf")})));
 
   // Shortened and extended.
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(42)})));
+      prop, storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)})));
   ASSERT_FALSE(props.IsPropertyEqual(
       prop, storage::PropertyValue(std::vector<storage::PropertyValue>{
-                storage::PropertyValue(42), storage::PropertyValue("test"),
-                storage::PropertyValue(true)})));
+                storage::PropertyValue(42), storage::PropertyValue("test"), storage::PropertyValue(true)})));
 }
 
 TEST(PropertyStore, IsPropertyEqualMap) {
   storage::PropertyStore props;
   auto prop = storage::PropertyId::FromInt(42);
-  ASSERT_TRUE(props.SetProperty(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"zyx", storage::PropertyValue("test")}})));
-  ASSERT_TRUE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"zyx", storage::PropertyValue("test")}})));
+  ASSERT_TRUE(
+      props.SetProperty(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                  {"abc", storage::PropertyValue(42)}, {"zyx", storage::PropertyValue("test")}})));
+  ASSERT_TRUE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                      {"abc", storage::PropertyValue(42)}, {"zyx", storage::PropertyValue("test")}})));
 
   // Different length.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"fgh", storage::PropertyValue(24)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                               {"fgh", storage::PropertyValue(24)}})));
 
   // Same length, different value.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"zyx", storage::PropertyValue("testt")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                      {"abc", storage::PropertyValue(42)}, {"zyx", storage::PropertyValue("testt")}})));
 
   // Same length, different key (different length).
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"zyxw", storage::PropertyValue("test")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                      {"abc", storage::PropertyValue(42)}, {"zyxw", storage::PropertyValue("test")}})));
 
   // Same length, different key (same length).
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"zyw", storage::PropertyValue("test")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                      {"abc", storage::PropertyValue(42)}, {"zyw", storage::PropertyValue("test")}})));
 
   // Shortened and extended.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)}})));
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop,
-      storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-          {"abc", storage::PropertyValue(42)},
-          {"sdf", storage::PropertyValue(true)},
-          {"zyx", storage::PropertyValue("test")}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                               {"abc", storage::PropertyValue(42)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                                               {"abc", storage::PropertyValue(42)},
+                                               {"sdf", storage::PropertyValue(true)},
+                                               {"zyx", storage::PropertyValue("test")}})));
 }

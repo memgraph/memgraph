@@ -63,25 +63,19 @@
 #endif
 
 // Bolt server flags.
-DEFINE_string(bolt_address, "0.0.0.0",
-              "IP address on which the Bolt server should listen.");
-DEFINE_VALIDATED_int32(bolt_port, 7687,
-                       "Port on which the Bolt server should listen.",
+DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
+DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-DEFINE_VALIDATED_int32(
-    bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
-    "Number of workers used by the Bolt server. By default, this will be the "
-    "number of processing units available on the machine.",
-    FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_VALIDATED_int32(
-    bolt_session_inactivity_timeout, 1800,
-    "Time in seconds after which inactive Bolt sessions will be "
-    "closed.",
-    FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_string(bolt_cert_file, "",
-              "Certificate file which should be used for the Bolt server.");
-DEFINE_string(bolt_key_file, "",
-              "Key file which should be used for the Bolt server.");
+DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
+                       "Number of workers used by the Bolt server. By default, this will be the "
+                       "number of processing units available on the machine.",
+                       FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
+                       "Time in seconds after which inactive Bolt sessions will be "
+                       "closed.",
+                       FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
+DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
 DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
@@ -89,26 +83,20 @@ DEFINE_string(bolt_server_name_for_init, "",
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
-DEFINE_string(data_directory, "mg_data",
-              "Path to directory in which to save all permanent data.");
-DEFINE_HIDDEN_string(
-    log_link_basename, "",
-    "Basename used for symlink creation to the last log file.");
+DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+DEFINE_HIDDEN_string(log_link_basename, "", "Basename used for symlink creation to the last log file.");
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
 // Storage flags.
-DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30,
-                        "Storage garbage collector interval (in seconds).",
+DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
-DEFINE_bool(storage_properties_on_edges, false,
-            "Controls whether edges have properties.");
-DEFINE_bool(storage_recover_on_startup, false,
-            "Controls whether the storage recovers persisted data on startup.");
+DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
+DEFINE_bool(storage_recover_on_startup, false, "Controls whether the storage recovers persisted data on startup.");
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
@@ -116,21 +104,15 @@ DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
 DEFINE_bool(storage_wal_enabled, false,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");
-DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3,
-                        "The number of snapshots that should always be kept.",
+DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
                         FLAG_IN_RANGE(1, 1000000));
-DEFINE_VALIDATED_uint64(storage_wal_file_size_kib,
-                        storage::Config::Durability().wal_file_size_kibibytes,
-                        "Minimum file size of each WAL file.",
-                        FLAG_IN_RANGE(1, 1000 * 1024));
-DEFINE_VALIDATED_uint64(
-    storage_wal_file_flush_every_n_tx,
-    storage::Config::Durability().wal_file_flush_every_n_tx,
-    "Issue a 'fsync' call after this amount of transactions are written to the "
-    "WAL file. Set to 1 for fully synchronous operation.",
-    FLAG_IN_RANGE(1, 1000000));
-DEFINE_bool(storage_snapshot_on_exit, false,
-            "Controls whether the storage creates another snapshot on exit.");
+DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, storage::Config::Durability().wal_file_size_kibibytes,
+                        "Minimum file size of each WAL file.", FLAG_IN_RANGE(1, 1000 * 1024));
+DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx, storage::Config::Durability().wal_file_flush_every_n_tx,
+                        "Issue a 'fsync' call after this amount of transactions are written to the "
+                        "WAL file. Set to 1 for fully synchronous operation.",
+                        FLAG_IN_RANGE(1, 1000000));
+DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
@@ -141,13 +123,11 @@ DEFINE_bool(telemetry_enabled, false,
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
-DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.",
+DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault, "Maximum number of items in the audit log buffer.",
                        FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_VALIDATED_int32(
-    audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
-    "Interval (in milliseconds) used for flushing the audit log buffer.",
-    FLAG_IN_RANGE(10, INT32_MAX));
+DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
+                       "Interval (in milliseconds) used for flushing the audit log buffer.",
+                       FLAG_IN_RANGE(10, INT32_MAX));
 #endif
 
 // Query flags.
@@ -155,41 +135,34 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
-DEFINE_VALIDATED_string(
-    query_modules_directory, "",
-    "Directory where modules with custom query procedures are stored.", {
-      if (value.empty()) return true;
-      if (utils::DirExists(value)) return true;
-      std::cout << "Expected --" << flagname << " to point to a directory."
-                << std::endl;
-      return false;
-    });
+DEFINE_VALIDATED_string(query_modules_directory, "", "Directory where modules with custom query procedures are stored.",
+                        {
+                          if (value.empty()) return true;
+                          if (utils::DirExists(value)) return true;
+                          std::cout << "Expected --" << flagname << " to point to a directory." << std::endl;
+                          return false;
+                        });
 
 // Logging flags
-DEFINE_bool(also_log_to_stderr, false,
-            "Log messages go to stderr in addition to logfiles");
+DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
 constexpr std::array log_level_mappings{
-    std::pair{"TRACE", spdlog::level::trace},
-    std::pair{"DEBUG", spdlog::level::debug},
-    std::pair{"INFO", spdlog::level::info},
-    std::pair{"WARNING", spdlog::level::warn},
-    std::pair{"ERROR", spdlog::level::err},
-    std::pair{"CRITICAL", spdlog::level::critical}};
+    std::pair{"TRACE", spdlog::level::trace}, std::pair{"DEBUG", spdlog::level::debug},
+    std::pair{"INFO", spdlog::level::info},   std::pair{"WARNING", spdlog::level::warn},
+    std::pair{"ERROR", spdlog::level::err},   std::pair{"CRITICAL", spdlog::level::critical}};
 
 std::string GetAllowedLogLevelsString() {
   std::vector<std::string> allowed_log_levels;
   allowed_log_levels.reserve(log_level_mappings.size());
-  std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(),
-                 std::back_inserter(allowed_log_levels),
+  std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(), std::back_inserter(allowed_log_levels),
                  [](const auto &mapping) { return mapping.first; });
   return utils::Join(allowed_log_levels, ", ");
 }
 
-const std::string log_level_help_string = fmt::format(
-    "Minimum log level. Allowed values: {}", GetAllowedLogLevelsString());
+const std::string log_level_help_string =
+    fmt::format("Minimum log level. Allowed values: {}", GetAllowedLogLevelsString());
 }  // namespace
 
 DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
@@ -199,11 +172,8 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
   }
 
   if (std::find_if(log_level_mappings.cbegin(), log_level_mappings.cend(),
-                   [&](const auto &mapping) {
-                     return mapping.first == value;
-                   }) == log_level_mappings.cend()) {
-    std::cout << "Invalid value for log level. Allowed values: "
-              << GetAllowedLogLevelsString() << std::endl;
+                   [&](const auto &mapping) { return mapping.first == value; }) == log_level_mappings.cend()) {
+    std::cout << "Invalid value for log level. Allowed values: " << GetAllowedLogLevelsString() << std::endl;
     return false;
   }
 
@@ -212,9 +182,8 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
 
 namespace {
 void ParseLogLevel() {
-  const auto mapping_iter = std::find_if(
-      log_level_mappings.cbegin(), log_level_mappings.cend(),
-      [](const auto &mapping) { return mapping.first == FLAGS_log_level; });
+  const auto mapping_iter = std::find_if(log_level_mappings.cbegin(), log_level_mappings.cend(),
+                                         [](const auto &mapping) { return mapping.first == FLAGS_log_level; });
   MG_ASSERT(mapping_iter != log_level_mappings.cend(), "Invalid log level");
 
   spdlog::set_level(mapping_iter->second);
@@ -227,8 +196,7 @@ void ConfigureLogging() {
   std::vector<spdlog::sink_ptr> loggers;
 
   if (FLAGS_also_log_to_stderr) {
-    loggers.emplace_back(
-        std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+    loggers.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
   }
 
   if (!FLAGS_log_file.empty()) {
@@ -240,12 +208,10 @@ void ConfigureLogging() {
     local_time = localtime(&current_time);
 
     loggers.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false,
-        log_retention_count));
+        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
   }
 
-  spdlog::set_default_logger(std::make_shared<spdlog::logger>(
-      "memgraph_log", loggers.begin(), loggers.end()));
+  spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", loggers.begin(), loggers.end()));
 
   spdlog::flush_on(spdlog::level::trace);
   ParseLogLevel();
@@ -258,13 +224,9 @@ void ConfigureLogging() {
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *db,
-              query::InterpreterContext *interpreter_context, auth::Auth *auth,
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context, auth::Auth *auth,
               audit::Log *audit_log)
-      : db(db),
-        interpreter_context(interpreter_context),
-        auth(auth),
-        audit_log(audit_log) {}
+      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
   auth::Auth *auth;
@@ -274,24 +236,19 @@ struct SessionData {
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *db,
-              query::InterpreterContext *interpreter_context)
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
       : db(db), interpreter_context(interpreter_context) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
 };
 #endif
 
-class BoltSession final
-    : public communication::bolt::Session<communication::InputStream,
-                                          communication::OutputStream> {
+class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
  public:
-  BoltSession(SessionData *data, const io::network::Endpoint &endpoint,
-              communication::InputStream *input_stream,
+  BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
-      : communication::bolt::Session<communication::InputStream,
-                                     communication::OutputStream>(
-            input_stream, output_stream),
+      : communication::bolt::Session<communication::InputStream, communication::OutputStream>(input_stream,
+                                                                                              output_stream),
         db_(data->db),
         interpreter_(data->interpreter_context),
 #ifdef MG_ENTERPRISE
@@ -301,8 +258,7 @@ class BoltSession final
         endpoint_(endpoint) {
   }
 
-  using communication::bolt::Session<communication::InputStream,
-                                     communication::OutputStream>::TEncoder;
+  using communication::bolt::Session<communication::InputStream, communication::OutputStream>::TEncoder;
 
   void BeginTransaction() override { interpreter_.BeginTransaction(); }
 
@@ -311,15 +267,11 @@ class BoltSession final
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query,
-      const std::map<std::string, communication::bolt::Value> &params)
-      override {
+      const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
     std::map<std::string, storage::PropertyValue> params_pv;
-    for (const auto &kv : params)
-      params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+    for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
 #ifdef MG_ENTERPRISE
-    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query,
-                       storage::PropertyValue(params_pv));
+    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv);
@@ -327,8 +279,7 @@ class BoltSession final
       if (user_) {
         const auto &permissions = user_->GetPermissions();
         for (const auto &privilege : result.privileges) {
-          if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
-              auth::PermissionLevel::GRANT) {
+          if (permissions.Has(glue::PrivilegeToPermission(privilege)) != auth::PermissionLevel::GRANT) {
             interpreter_.Abort();
             throw communication::bolt::ClientError(
                 "You are not authorized to execute this query! Please contact "
@@ -346,23 +297,20 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::Value> Pull(
-      TEncoder *encoder, std::optional<int> n,
-      std::optional<int> qid) override {
+  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
+                                                         std::optional<int> qid) override {
     TypedValueResultStream stream(encoder, db_);
     return PullResults(stream, n, qid);
   }
 
-  std::map<std::string, communication::bolt::Value> Discard(
-      std::optional<int> n, std::optional<int> qid) override {
+  std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
     DiscardValueResultStream stream;
     return PullResults(stream, n, qid);
   }
 
   void Abort() override { interpreter_.Abort(); }
 
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override {
+  bool Authenticate(const std::string &username, const std::string &password) override {
 #ifdef MG_ENTERPRISE
     if (!auth_->HasUsers()) return true;
     user_ = auth_->Authenticate(username, password);
@@ -379,14 +327,13 @@ class BoltSession final
 
  private:
   template <typename TStream>
-  std::map<std::string, communication::bolt::Value> PullResults(
-      TStream &stream, std::optional<int> n, std::optional<int> qid) {
+  std::map<std::string, communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
+                                                                std::optional<int> qid) {
     try {
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value =
-            glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
+        auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case storage::Error::DELETED_OBJECT:
@@ -394,8 +341,7 @@ class BoltSession final
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError(
-                  "Unexpected storage error when streaming summary.");
+              throw communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
@@ -412,8 +358,7 @@ class BoltSession final
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db)
-        : encoder_(encoder), db_(db) {}
+    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db) : encoder_(encoder), db_(db) {}
 
     void Result(const std::vector<query::TypedValue> &values) {
       std::vector<communication::bolt::Value> decoded_values;
@@ -423,16 +368,13 @@ class BoltSession final
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case storage::Error::DELETED_OBJECT:
-              throw communication::bolt::ClientError(
-                  "Returning a deleted object as a result.");
+              throw communication::bolt::ClientError("Returning a deleted object as a result.");
             case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError(
-                  "Returning a nonexistent object as a result.");
+              throw communication::bolt::ClientError("Returning a nonexistent object as a result.");
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
             case storage::Error::PROPERTIES_DISABLED:
-              throw communication::bolt::ClientError(
-                  "Unexpected storage error when streaming results.");
+              throw communication::bolt::ClientError("Unexpected storage error when streaming results.");
           }
         }
         decoded_values.emplace_back(std::move(*maybe_value));
@@ -467,20 +409,17 @@ using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 #ifdef MG_ENTERPRISE
-DEFINE_string(
-    auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
-    "Set to the regular expression that each user or role name must fulfill.");
+DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+              "Set to the regular expression that each user or role name must fulfill.");
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
   auth::Auth *auth_;
   std::regex name_regex_;
 
  public:
-  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex)
-      : auth_(auth), name_regex_(name_regex) {}
+  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex) : auth_(auth), name_regex_(name_regex) {}
 
-  bool CreateUser(const std::string &username,
-                  const std::optional<std::string> &password) override {
+  bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
@@ -506,8 +445,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  void SetPassword(const std::string &username,
-                   const std::optional<std::string> &password) override {
+  void SetPassword(const std::string &username, const std::optional<std::string> &password) override {
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
@@ -515,8 +453,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
       if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist.",
-                                           username);
+        throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
       user->UpdatePassword(password);
       auth_->SaveUser(*user);
@@ -581,8 +518,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  std::optional<std::string> GetRolenameForUser(
-      const std::string &username) override {
+  std::optional<std::string> GetRolenameForUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
@@ -590,8 +526,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
       if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .",
-                                           username);
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       if (user->role()) return user->role()->rolename();
       return std::nullopt;
@@ -600,8 +535,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  std::vector<query::TypedValue> GetUsernamesForRole(
-      const std::string &rolename) override {
+  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &rolename) override {
     if (!std::regex_match(rolename, name_regex_)) {
       throw query::QueryRuntimeException("Invalid role name.");
     }
@@ -609,8 +543,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto role = auth_->GetRole(rolename);
       if (!role) {
-        throw query::QueryRuntimeException("Role '{}' doesn't exist.",
-                                           rolename);
+        throw query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
       }
       std::vector<query::TypedValue> usernames;
       const auto &users = auth_->AllUsersForRole(rolename);
@@ -624,8 +557,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  void SetRole(const std::string &username,
-               const std::string &rolename) override {
+  void SetRole(const std::string &username, const std::string &rolename) override {
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
@@ -636,18 +568,15 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
       if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .",
-                                           username);
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       auto role = auth_->GetRole(rolename);
       if (!role) {
-        throw query::QueryRuntimeException("Role '{}' doesn't exist .",
-                                           rolename);
+        throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
       }
       if (user->role()) {
-        throw query::QueryRuntimeException(
-            "User '{}' is already a member of role '{}'.", username,
-            user->role()->rolename());
+        throw query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
+                                           user->role()->rolename());
       }
       user->SetRole(*role);
       auth_->SaveUser(*user);
@@ -664,8 +593,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       std::lock_guard<std::mutex> lock(auth_->WithLock());
       auto user = auth_->GetUser(username);
       if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .",
-                                           username);
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       user->ClearRole();
       auth_->SaveUser(*user);
@@ -674,8 +602,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(
-      const std::string &user_or_role) override {
+  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -685,8 +612,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       auto user = auth_->GetUser(user_or_role);
       auto role = auth_->GetRole(user_or_role);
       if (!user && !role) {
-        throw query::QueryRuntimeException("User or role '{}' doesn't exist.",
-                                           user_or_role);
+        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
       if (user) {
         const auto &permissions = user->GetPermissions();
@@ -709,10 +635,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
                 description.emplace_back("DENIED TO ROLE");
               }
             }
-            grants.push_back(
-                {query::TypedValue(auth::PermissionToString(permission)),
-                 query::TypedValue(auth::PermissionLevelToString(effective)),
-                 query::TypedValue(utils::Join(description, ", "))});
+            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
+                              query::TypedValue(auth::PermissionLevelToString(effective)),
+                              query::TypedValue(utils::Join(description, ", "))});
           }
         }
       } else {
@@ -727,10 +652,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
             } else if (effective == auth::PermissionLevel::DENY) {
               description = "DENIED TO ROLE";
             }
-            grants.push_back(
-                {query::TypedValue(auth::PermissionToString(permission)),
-                 query::TypedValue(auth::PermissionLevelToString(effective)),
-                 query::TypedValue(description)});
+            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
+                              query::TypedValue(auth::PermissionLevelToString(effective)),
+                              query::TypedValue(description)});
           }
         }
       }
@@ -740,48 +664,40 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 
-  void GrantPrivilege(
-      const std::string &user_or_role,
-      const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges,
-                    [](auto *permissions, const auto &permission) {
-                      // TODO (mferencevic): should we first check that the
-                      // privilege is granted/denied/revoked before
-                      // unconditionally granting/denying/revoking it?
-                      permissions->Grant(permission);
-                    });
+  void GrantPrivilege(const std::string &user_or_role,
+                      const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Grant(permission);
+    });
   }
 
-  void DenyPrivilege(
-      const std::string &user_or_role,
-      const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges,
-                    [](auto *permissions, const auto &permission) {
-                      // TODO (mferencevic): should we first check that the
-                      // privilege is granted/denied/revoked before
-                      // unconditionally granting/denying/revoking it?
-                      permissions->Deny(permission);
-                    });
+  void DenyPrivilege(const std::string &user_or_role,
+                     const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Deny(permission);
+    });
   }
 
-  void RevokePrivilege(
-      const std::string &user_or_role,
-      const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges,
-                    [](auto *permissions, const auto &permission) {
-                      // TODO (mferencevic): should we first check that the
-                      // privilege is granted/denied/revoked before
-                      // unconditionally granting/denying/revoking it?
-                      permissions->Revoke(permission);
-                    });
+  void RevokePrivilege(const std::string &user_or_role,
+                       const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Revoke(permission);
+    });
   }
 
  private:
   template <class TEditFun>
-  void EditPermissions(
-      const std::string &user_or_role,
-      const std::vector<query::AuthQuery::Privilege> &privileges,
-      const TEditFun &edit_fun) {
+  void EditPermissions(const std::string &user_or_role, const std::vector<query::AuthQuery::Privilege> &privileges,
+                       const TEditFun &edit_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -795,8 +711,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       auto user = auth_->GetUser(user_or_role);
       auto role = auth_->GetRole(user_or_role);
       if (!user && !role) {
-        throw query::QueryRuntimeException("User or role '{}' doesn't exist.",
-                                           user_or_role);
+        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
       if (user) {
         for (const auto &permission : permissions) {
@@ -818,71 +733,44 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 class NoAuthInCommunity : public query::QueryRuntimeException {
  public:
   NoAuthInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException(
-            "Auth is not supported in Memgraph Community!") {}
+      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
 };
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
  public:
-  bool CreateUser(const std::string &,
-                  const std::optional<std::string> &) override {
-    throw NoAuthInCommunity();
-  }
+  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
 
   bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
 
-  void SetPassword(const std::string &,
-                   const std::optional<std::string> &) override {
-    throw NoAuthInCommunity();
-  }
+  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
 
   bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
 
   bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
 
-  std::vector<query::TypedValue> GetUsernames() override {
-    throw NoAuthInCommunity();
-  }
+  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
 
-  std::vector<query::TypedValue> GetRolenames() override {
-    throw NoAuthInCommunity();
-  }
+  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
 
-  std::optional<std::string> GetRolenameForUser(const std::string &) override {
-    throw NoAuthInCommunity();
-  }
+  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
 
-  std::vector<query::TypedValue> GetUsernamesForRole(
-      const std::string &) override {
-    throw NoAuthInCommunity();
-  }
+  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
 
-  void SetRole(const std::string &, const std::string &) override {
-    throw NoAuthInCommunity();
-  }
+  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
 
   void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
 
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(
-      const std::string &) override {
+  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
+
+  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
     throw NoAuthInCommunity();
   }
 
-  void GrantPrivilege(
-      const std::string &,
-      const std::vector<query::AuthQuery::Privilege> &) override {
+  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
     throw NoAuthInCommunity();
   }
 
-  void DenyPrivilege(
-      const std::string &,
-      const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void RevokePrivilege(
-      const std::string &,
-      const std::vector<query::AuthQuery::Privilege> &) override {
+  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
     throw NoAuthInCommunity();
   }
 };
@@ -911,11 +799,9 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
     shutdown_fun();
   };
 
-  MG_ASSERT(utils::SignalHandler::RegisterHandler(
-                utils::Signal::Terminate, shutdown, block_shutdown_signals),
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate, shutdown, block_shutdown_signals),
             "Unable to register SIGTERM handler!");
-  MG_ASSERT(utils::SignalHandler::RegisterHandler(
-                utils::Signal::Interupt, shutdown, block_shutdown_signals),
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown, block_shutdown_signals),
             "Unable to register SIGINT handler!");
 }
 
@@ -952,13 +838,10 @@ int main(int argc, char **argv) {
       auto gil = py::EnsureGIL();
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
-        spdlog::error("Unable to load support for embedded Python: {}",
-                      *maybe_exc);
+        spdlog::error("Unable to load support for embedded Python: {}", *maybe_exc);
       }
     } else {
-      spdlog::error(
-          "Unable to load support for embedded Python: missing directory {}",
-          py_support_dir);
+      spdlog::error("Unable to load support for embedded Python: missing directory {}", py_support_dir);
     }
   } catch (const std::filesystem::filesystem_error &e) {
     spdlog::error("Unable to load support for embedded Python: {}", e.what());
@@ -978,8 +861,7 @@ int main(int argc, char **argv) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
         auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          spdlog::warn("Running out of available RAM, only {} MB left",
-                       *free_ram / 1024);
+          spdlog::warn("Running out of available RAM, only {} MB left", *free_ram / 1024);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -990,8 +872,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::cout << "You are running Memgraph v" << gflags::VersionString()
-            << std::endl;
+  std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
@@ -1011,18 +892,15 @@ int main(int argc, char **argv) {
   auth::Auth auth{data_directory / "auth"};
 
   // Audit log
-  audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
-                       FLAGS_audit_buffer_flush_interval_ms};
+  audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
     audit_log.Start();
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
-  MG_ASSERT(
-      utils::SignalHandler::RegisterHandler(
-          utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }),
-      "Unable to register SIGUSR2 handler!");
+  MG_ASSERT(utils::SignalHandler::RegisterHandler(utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }),
+            "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
 #endif
@@ -1030,54 +908,45 @@ int main(int argc, char **argv) {
   // Main storage and execution engines initialization
 
   storage::Config db_config{
-      .gc = {.type = storage::Config::Gc::Type::PERIODIC,
-             .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
+      .gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
-      .durability = {
-          .storage_directory = FLAGS_data_directory,
-          .recover_on_startup = FLAGS_storage_recover_on_startup,
-          .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
-          .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
-          .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-          .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
+      .durability = {.storage_directory = FLAGS_data_directory,
+                     .recover_on_startup = FLAGS_storage_recover_on_startup,
+                     .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
+                     .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
+                     .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
           "In order to use write-ahead-logging you must enable "
           "periodic snapshots by setting the snapshot interval to a "
           "value larger than 0!");
-      db_config.durability.snapshot_wal_mode =
-          storage::Config::Durability::SnapshotWalMode::DISABLED;
+      db_config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
     }
   } else {
     if (FLAGS_storage_wal_enabled) {
-      db_config.durability.snapshot_wal_mode = storage::Config::Durability::
-          SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+      db_config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     } else {
-      db_config.durability.snapshot_wal_mode =
-          storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
+      db_config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
     }
-    db_config.durability.snapshot_interval =
-        std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
   query::InterpreterContext interpreter_context{&db};
 
-  query::SetExecutionTimeout(&interpreter_context,
-                             FLAGS_query_execution_timeout_sec);
+  query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
   SessionData session_data{&db, &interpreter_context};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(
-      FLAGS_query_modules_directory);
+  query::procedure::gModuleRegistry.SetModulesDirectory(FLAGS_query_modules_directory);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectory();
 
 #ifdef MG_ENTERPRISE
-  AuthQueryHandler auth_handler(&auth,
-                                std::regex(FLAGS_auth_user_or_role_name_regex));
+  AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
 #else
   AuthQueryHandler auth_handler;
 #endif
@@ -1093,16 +962,14 @@ int main(int argc, char **argv) {
     spdlog::warn("Using non-secure Bolt connection (without SSL)");
   }
 
-  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)},
-                 &session_data, &context, FLAGS_bolt_session_inactivity_timeout,
-                 service_name, FLAGS_bolt_num_workers);
+  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,
+                 FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
 
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(
-        "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-        data_directory / "telemetry", std::chrono::minutes(10));
+    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
+                      data_directory / "telemetry", std::chrono::minutes(10));
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};

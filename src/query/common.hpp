@@ -27,12 +27,10 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() {}
-  explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering)
-      : ordering_(ordering) {}
+  explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
 
   template <class TAllocator>
-  bool operator()(const std::vector<TypedValue, TAllocator> &c1,
-                  const std::vector<TypedValue, TAllocator> &c2) const {
+  bool operator()(const std::vector<TypedValue, TAllocator> &c1, const std::vector<TypedValue, TAllocator> &c2) const {
     // ordering is invalid if there are more elements in the collections
     // then there are in the ordering_ vector
     MG_ASSERT(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
@@ -41,12 +39,9 @@ class TypedValueVectorCompare final {
     auto c1_it = c1.begin();
     auto c2_it = c2.begin();
     auto ordering_it = ordering_.begin();
-    for (; c1_it != c1.end() && c2_it != c2.end();
-         c1_it++, c2_it++, ordering_it++) {
-      if (impl::TypedValueCompare(*c1_it, *c2_it))
-        return *ordering_it == Ordering::ASC;
-      if (impl::TypedValueCompare(*c2_it, *c1_it))
-        return *ordering_it == Ordering::DESC;
+    for (; c1_it != c1.end() && c2_it != c2.end(); c1_it++, c2_it++, ordering_it++) {
+      if (impl::TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
+      if (impl::TypedValueCompare(*c2_it, *c1_it)) return *ordering_it == Ordering::DESC;
     }
 
     // at least one collection is exhausted
@@ -61,41 +56,33 @@ class TypedValueVectorCompare final {
 };
 
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
-inline void ExpectType(const Symbol &symbol, const TypedValue &value,
-                       TypedValue::Type expected) {
+inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue::Type expected) {
   if (value.type() != expected)
-    throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected,
-                                symbol.name(), value.type());
+    throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
 }
 
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key,
-                     const TypedValue &value) {
+void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key, const TypedValue &value) {
   try {
     auto maybe_error = record->SetProperty(key, storage::PropertyValue(value));
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(
-              "Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException(
-              "Trying to set properties on a deleted object.");
+          throw QueryRuntimeException("Trying to set properties on a deleted object.");
         case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException(
-              "Can't set property because properties on edges are disabled.");
+          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException(
-              "Unexpected error when setting a property.");
+          throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }
   } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                value.type());
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
 }
 

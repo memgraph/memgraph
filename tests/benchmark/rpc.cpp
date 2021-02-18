@@ -23,18 +23,12 @@ struct EchoMessage {
 };
 
 namespace slk {
-void Save(const EchoMessage &echo, Builder *builder) {
-  Save(echo.data, builder);
-}
+void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 }  // namespace slk
 
-void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) {
-  slk::Load(obj, reader);
-}
-void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
-  slk::Save(obj, builder);
-}
+void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) { slk::Load(obj, reader); }
+void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) { slk::Save(obj, builder); }
 
 const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
@@ -98,9 +92,8 @@ int main(int argc, char **argv) {
     } else {
       server_context.emplace();
     }
-    server.emplace(
-        io::network::Endpoint(FLAGS_server_address, FLAGS_server_port),
-        &server_context.value(), kThreadsNum);
+    server.emplace(io::network::Endpoint(FLAGS_server_address, FLAGS_server_port), &server_context.value(),
+                   kThreadsNum);
 
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
       EchoMessage res;
@@ -135,8 +128,7 @@ int main(int argc, char **argv) {
     client_pool.emplace(endpoint, &client_context.value());
     std::thread threads[kThreadsNum];
     for (int i = 0; i < kThreadsNum; ++i) {
-      threads[i] =
-          std::thread([] { client_pool->Call<Echo>(std::string(10000, 'a')); });
+      threads[i] = std::thread([] { client_pool->Call<Echo>(std::string(10000, 'a')); });
     }
     for (int i = 0; i < kThreadsNum; ++i) {
       threads[i].join();

@@ -14,8 +14,7 @@ using testing::UnorderedElementsAre;
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Sanity) {
   storage::Storage storage(
-      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                             .interval = std::chrono::milliseconds(100)}});
+      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
   std::vector<storage::Gid> vertices;
 
@@ -58,12 +57,9 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
-        EXPECT_FALSE(
-            vertex->AddLabel(storage::LabelId::FromUint(3 * i)).HasError());
-        EXPECT_FALSE(
-            vertex->AddLabel(storage::LabelId::FromUint(3 * i + 1)).HasError());
-        EXPECT_FALSE(
-            vertex->AddLabel(storage::LabelId::FromUint(3 * i + 2)).HasError());
+        EXPECT_FALSE(vertex->AddLabel(storage::LabelId::FromUint(3 * i)).HasError());
+        EXPECT_FALSE(vertex->AddLabel(storage::LabelId::FromUint(3 * i + 1)).HasError());
+        EXPECT_FALSE(vertex->AddLabel(storage::LabelId::FromUint(3 * i + 2)).HasError());
       }
     }
 
@@ -82,11 +78,9 @@ TEST(StorageV2Gc, Sanity) {
 
         auto labels_new = vertex->Labels(storage::View::NEW);
         EXPECT_TRUE(labels_new.HasValue());
-        EXPECT_THAT(
-            labels_new.GetValue(),
-            UnorderedElementsAre(storage::LabelId::FromUint(3 * i),
-                                 storage::LabelId::FromUint(3 * i + 1),
-                                 storage::LabelId::FromUint(3 * i + 2)));
+        EXPECT_THAT(labels_new.GetValue(),
+                    UnorderedElementsAre(storage::LabelId::FromUint(3 * i), storage::LabelId::FromUint(3 * i + 1),
+                                         storage::LabelId::FromUint(3 * i + 2)));
       }
     }
 
@@ -98,15 +92,13 @@ TEST(StorageV2Gc, Sanity) {
     auto acc = storage.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
       auto from_vertex = acc.FindVertex(vertices[i], storage::View::OLD);
-      auto to_vertex =
-          acc.FindVertex(vertices[(i + 1) % 1000], storage::View::OLD);
+      auto to_vertex = acc.FindVertex(vertices[(i + 1) % 1000], storage::View::OLD);
       EXPECT_EQ(from_vertex.has_value(), i % 5 != 0);
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
       if (from_vertex.has_value() && to_vertex.has_value()) {
-        EXPECT_FALSE(acc.CreateEdge(&from_vertex.value(), &to_vertex.value(),
-                                    storage::EdgeTypeId::FromUint(i))
-                         .HasError());
+        EXPECT_FALSE(
+            acc.CreateEdge(&from_vertex.value(), &to_vertex.value(), storage::EdgeTypeId::FromUint(i)).HasError());
       }
     }
 
@@ -142,8 +134,7 @@ TEST(StorageV2Gc, Sanity) {
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetValue().size(), 1);
           EXPECT_EQ(*vertex->InDegree(storage::View::NEW), 1);
-          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(),
-                    (i + 999) % 1000);
+          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(), (i + 999) % 1000);
         } else {
           EXPECT_TRUE(in_edges->empty());
         }
@@ -164,8 +155,7 @@ TEST(StorageV2Gc, Sanity) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Indices) {
   storage::Storage storage(
-      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC,
-                             .interval = std::chrono::milliseconds(100)}});
+      storage::Config{.gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
   ASSERT_TRUE(storage.CreateIndex(storage.NameToLabel("label")));
 
@@ -190,8 +180,7 @@ TEST(StorageV2Gc, Indices) {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     std::set<storage::Gid> gids;
-    for (auto vertex :
-         acc1.Vertices(acc1.NameToLabel("label"), storage::View::OLD)) {
+    for (auto vertex : acc1.Vertices(acc1.NameToLabel("label"), storage::View::OLD)) {
       gids.insert(vertex.Gid());
     }
     EXPECT_EQ(gids.size(), 1000);

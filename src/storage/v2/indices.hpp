@@ -24,12 +24,9 @@ class LabelIndex {
     uint64_t timestamp;
 
     bool operator<(const Entry &rhs) {
-      return std::make_tuple(vertex, timestamp) <
-             std::make_tuple(rhs.vertex, rhs.timestamp);
+      return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) {
-      return vertex == rhs.vertex && timestamp == rhs.timestamp;
-    }
+    bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
   struct LabelStorage {
@@ -54,9 +51,7 @@ class LabelIndex {
 
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
 
-  bool IndexExists(LabelId label) const {
-    return index_.find(label) != index_.end();
-  }
+  bool IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
   std::vector<LabelId> ListIndices() const;
 
@@ -64,9 +59,8 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
-             View view, Transaction *transaction, Indices *indices,
-             Constraints *constraints, Config::Items config);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
+             Indices *indices, Constraints *constraints, Config::Items config);
 
     class Iterator {
      public:
@@ -74,12 +68,8 @@ class LabelIndex {
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
-      bool operator==(const Iterator &other) const {
-        return index_iterator_ == other.index_iterator_;
-      }
-      bool operator!=(const Iterator &other) const {
-        return index_iterator_ != other.index_iterator_;
-      }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
 
@@ -108,16 +98,13 @@ class LabelIndex {
   /// Returns an self with vertices visible from the given transaction.
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist",
-              label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_,
-                    constraints_, config_);
+    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
     auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist",
-              label.AsUint());
+    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
     return it->second.size();
   }
 
@@ -145,28 +132,21 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints,
-                     Config::Items config)
+  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
-                           Vertex *vertex, const Transaction &tx);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property,
-                   utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices);
 
-  bool DropIndex(LabelId label, PropertyId property) {
-    return index_.erase({label, property}) > 0;
-  }
+  bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 
-  bool IndexExists(LabelId label, PropertyId property) const {
-    return index_.find({label, property}) != index_.end();
-  }
+  bool IndexExists(LabelId label, PropertyId property) const { return index_.find({label, property}) != index_.end(); }
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
 
@@ -174,12 +154,10 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
-             PropertyId property,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-             View view, Transaction *transaction, Indices *indices,
-             Constraints *constraints, Config::Items config);
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
+             Indices *indices, Constraints *constraints, Config::Items config);
 
     class Iterator {
      public:
@@ -187,12 +165,8 @@ class LabelPropertyIndex {
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
-      bool operator==(const Iterator &other) const {
-        return index_iterator_ == other.index_iterator_;
-      }
-      bool operator!=(const Iterator &other) const {
-        return index_iterator_ != other.index_iterator_;
-      }
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
 
@@ -222,25 +196,20 @@ class LabelPropertyIndex {
     Config::Items config_;
   };
 
-  Iterable Vertices(
-      LabelId label, PropertyId property,
-      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-      Transaction *transaction) {
+  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                    Transaction *transaction) {
     auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(),
-              "Index for label {} and property {} doesn't exist",
-              label.AsUint(), property.AsUint());
-    return Iterable(it->second.access(), label, property, lower_bound,
-                    upper_bound, view, transaction, indices_, constraints_,
-                    config_);
+    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+              property.AsUint());
+    return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
+                    constraints_, config_);
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
     auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(),
-              "Index for label {} and property {} doesn't exist",
-              label.AsUint(), property.AsUint());
+    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+              property.AsUint());
     return it->second.size();
   }
 
@@ -248,13 +217,11 @@ class LabelPropertyIndex {
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                 const PropertyValue &value) const;
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const;
 
-  int64_t ApproximateVertexCount(
-      LabelId label, PropertyId property,
-      const std::optional<utils::Bound<PropertyValue>> &lower,
-      const std::optional<utils::Bound<PropertyValue>> &upper) const;
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                 const std::optional<utils::Bound<PropertyValue>> &lower,
+                                 const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
   void Clear() { index_.clear(); }
 
@@ -267,8 +234,7 @@ class LabelPropertyIndex {
 
 struct Indices {
   Indices(Constraints *constraints, Config::Items config)
-      : label_index(this, constraints, config),
-        label_property_index(this, constraints, config) {}
+      : label_index(this, constraints, config), label_property_index(this, constraints, config) {}
 
   // Disable copy and move because members hold pointer to `this`.
   Indices(const Indices &) = delete;
@@ -283,8 +249,7 @@ struct Indices {
 
 /// This function should be called from garbage collection to clean-up the
 /// index.
-void RemoveObsoleteEntries(Indices *indices,
-                           uint64_t oldest_active_start_timestamp);
+void RemoveObsoleteEntries(Indices *indices, uint64_t oldest_active_start_timestamp);
 
 // Indices are updated whenever an update occurs, instead of only on commit or
 // advance command. This is necessary because we want indices to support `NEW`
@@ -292,13 +257,11 @@ void RemoveObsoleteEntries(Indices *indices,
 
 /// This function should be called whenever a label is added to a vertex.
 /// @throw std::bad_alloc
-void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex,
-                      const Transaction &tx);
+void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Transaction &tx);
 
 /// This function should be called whenever a property is modified on a vertex.
 /// @throw std::bad_alloc
-void UpdateOnSetProperty(Indices *indices, PropertyId property,
-                         const PropertyValue &value, Vertex *vertex,
+void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);
 
 }  // namespace storage

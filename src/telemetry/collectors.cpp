@@ -13,8 +13,7 @@
 
 namespace telemetry {
 
-const std::pair<const std::string, const double> GetCpuUsage(pid_t pid,
-                                                             pid_t tid = 0) {
+const std::pair<const std::string, const double> GetCpuUsage(pid_t pid, pid_t tid = 0) {
   std::string name;
   double cpu = 0;
   std::string path = "";
@@ -39,11 +38,7 @@ const std::pair<const std::string, const double> GetCpuUsage(pid_t pid,
       for (int i = 14; i <= 17; ++i) {
         cpu += std::stoull(split[i - 1 + off]);
       }
-      name = utils::Trim(
-          utils::Join(std::vector<std::string>(split.begin() + 1,
-                                               split.begin() + 2 + off),
-                      " "),
-          "()");
+      name = utils::Trim(utils::Join(std::vector<std::string>(split.begin() + 1, split.begin() + 2 + off), " "), "()");
     }
   }
   cpu /= sysconf(_SC_CLK_TCK);
@@ -68,8 +63,7 @@ const nlohmann::json GetResourceUsage() {
     if (split.size() < 1) continue;
     pid_t tid = std::stoi(split[split.size() - 1]);
     auto cpu_usage = GetCpuUsage(pid, tid);
-    cpu["threads"].push_back(
-        {{"name", cpu_usage.first}, {"usage", cpu_usage.second}});
+    cpu["threads"].push_back({{"name", cpu_usage.first}, {"usage", cpu_usage.second}});
   }
   auto cpu_total = GetCpuUsage(pid);
   cpu["usage"] = cpu_total.second;

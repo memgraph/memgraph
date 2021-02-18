@@ -28,40 +28,29 @@ class AllTypesFixture : public testing::Test {
     values_.emplace_back(42);
     values_.emplace_back(3.14);
     values_.emplace_back("something");
-    values_.emplace_back(
-        std::vector<TypedValue>{TypedValue(true), TypedValue("something"),
-                                TypedValue(42), TypedValue(0.5), TypedValue()});
-    values_.emplace_back(
-        std::map<std::string, TypedValue>{{"a", TypedValue(true)},
-                                          {"b", TypedValue("something")},
-                                          {"c", TypedValue(42)},
-                                          {"d", TypedValue(0.5)},
-                                          {"e", TypedValue()}});
+    values_.emplace_back(std::vector<TypedValue>{TypedValue(true), TypedValue("something"), TypedValue(42),
+                                                 TypedValue(0.5), TypedValue()});
+    values_.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(true)},
+                                                           {"b", TypedValue("something")},
+                                                           {"c", TypedValue(42)},
+                                                           {"d", TypedValue(0.5)},
+                                                           {"e", TypedValue()}});
     auto vertex = dba.InsertVertex();
     values_.emplace_back(vertex);
-    values_.emplace_back(
-        *dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et")));
+    values_.emplace_back(*dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et")));
     values_.emplace_back(query::Path(dba.InsertVertex()));
   }
 };
 
-void EXPECT_PROP_FALSE(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool());
-}
+void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
 
-void EXPECT_PROP_TRUE(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool());
-}
+void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool()); }
 
-void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
-  EXPECT_PROP_TRUE(a == b);
-}
+void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
 void EXPECT_PROP_ISNULL(const TypedValue &a) { EXPECT_TRUE(a.IsNull()); }
 
-void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) {
-  EXPECT_PROP_TRUE(a != b);
-}
+void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a != b); }
 
 TEST(TypedValue, CreationTypes) {
   EXPECT_TRUE(TypedValue().type() == TypedValue::Type::Null);
@@ -69,8 +58,7 @@ TEST(TypedValue, CreationTypes) {
   EXPECT_TRUE(TypedValue(true).type() == TypedValue::Type::Bool);
   EXPECT_TRUE(TypedValue(false).type() == TypedValue::Type::Bool);
 
-  EXPECT_TRUE(TypedValue(std::string("form string class")).type() ==
-              TypedValue::Type::String);
+  EXPECT_TRUE(TypedValue(std::string("form string class")).type() == TypedValue::Type::String);
   EXPECT_TRUE(TypedValue("form c-string").type() == TypedValue::Type::String);
 
   EXPECT_TRUE(TypedValue(0).type() == TypedValue::Type::Int);
@@ -101,8 +89,7 @@ TEST(TypedValue, Equals) {
 
   // compare two ints close to 2 ^ 62
   // this will fail if they are converted to float at any point
-  EXPECT_PROP_NE(TypedValue(4611686018427387905),
-                 TypedValue(4611686018427387900));
+  EXPECT_PROP_NE(TypedValue(4611686018427387905), TypedValue(4611686018427387900));
 
   EXPECT_PROP_NE(TypedValue(0.5), TypedValue(0.12));
   EXPECT_PROP_EQ(TypedValue(0.123), TypedValue(0.123));
@@ -114,33 +101,21 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue("str3"), TypedValue("str3"));
   EXPECT_PROP_EQ(TypedValue(std::string("str3")), TypedValue("str3"));
 
-  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1)}),
-                 TypedValue(1));
-  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{
-                     TypedValue(1), TypedValue(true), TypedValue("a")}),
-                 TypedValue(std::vector<TypedValue>{
-                     TypedValue(1), TypedValue(true), TypedValue("b")}));
-  EXPECT_PROP_EQ(TypedValue(std::vector<TypedValue>{
-                     TypedValue(1), TypedValue(true), TypedValue("a")}),
-                 TypedValue(std::vector<TypedValue>{
-                     TypedValue(1), TypedValue(true), TypedValue("a")}));
+  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1)}), TypedValue(1));
+  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("a")}),
+                 TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("b")}));
+  EXPECT_PROP_EQ(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("a")}),
+                 TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("a")}));
 
-  EXPECT_PROP_EQ(
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}));
-  EXPECT_PROP_NE(
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
-      TypedValue(1));
-  EXPECT_PROP_NE(
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
-      TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}}));
-  EXPECT_PROP_NE(
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(2)}}));
-  EXPECT_PROP_NE(
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)},
-                                                   {"b", TypedValue(1)}}));
+  EXPECT_PROP_EQ(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}), TypedValue(1));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(2)}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(1)}}));
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -160,36 +135,26 @@ TEST(TypedValue, Hash) {
   EXPECT_EQ(hash(TypedValue(1.5)), hash(TypedValue(1.5)));
   EXPECT_EQ(hash(TypedValue()), hash(TypedValue()));
   EXPECT_EQ(hash(TypedValue("bla")), hash(TypedValue("bla")));
-  EXPECT_EQ(
-      hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})),
-      hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
-  EXPECT_EQ(
-      hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})),
-      hash(
-          TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_EQ(hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})),
+            hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
+  EXPECT_EQ(hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})),
+            hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
 
   // these tests are not really true since they expect
   // hashes to differ, but it's the thought that counts
   EXPECT_NE(hash(TypedValue(1)), hash(TypedValue(42)));
   EXPECT_NE(hash(TypedValue(1.5)), hash(TypedValue(2.5)));
   EXPECT_NE(hash(TypedValue("bla")), hash(TypedValue("johnny")));
-  EXPECT_NE(
-      hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(1)})),
-      hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
-  EXPECT_NE(
-      hash(TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}})),
-      hash(
-          TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_NE(hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(1)})),
+            hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
+  EXPECT_NE(hash(TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}})),
+            hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
 }
 
 TEST_F(AllTypesFixture, Less) {
   // 'Less' is legal only between numerics, Null and strings.
-  auto is_string_compatible = [](const TypedValue &v) {
-    return v.IsNull() || v.type() == TypedValue::Type::String;
-  };
-  auto is_numeric_compatible = [](const TypedValue &v) {
-    return v.IsNull() || v.IsNumeric();
-  };
+  auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
+  auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
   for (TypedValue &a : values_) {
     for (TypedValue &b : values_) {
       if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
@@ -202,8 +167,7 @@ TEST_F(AllTypesFixture, Less) {
 
   // legal_type < Null = Null
   for (TypedValue &value : values_) {
-    if (!(value.IsNumeric() || value.type() == TypedValue::Type::String))
-      continue;
+    if (!(value.IsNumeric() || value.type() == TypedValue::Type::String)) continue;
     EXPECT_PROP_ISNULL(value < TypedValue());
     EXPECT_PROP_ISNULL(TypedValue() < value);
   }
@@ -270,13 +234,11 @@ class TypedValueArithmeticTest : public AllTypesFixture {
    * @param op  The operation lambda. Takes two values and resturns
    *  the results.
    */
-  void ExpectArithmeticThrowsAndNull(
-      bool string_list_ok,
-      std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
+  void ExpectArithmeticThrowsAndNull(bool string_list_ok,
+                                     std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
     // If one operand is always valid, the other can be of any type.
     auto always_valid = [string_list_ok](const TypedValue &value) {
-      return value.IsNull() ||
-             (string_list_ok && value.type() == TypedValue::Type::List);
+      return value.IsNull() || (string_list_ok && value.type() == TypedValue::Type::List);
     };
 
     // If we don't have an always_valid operand, they both must be plain valid.
@@ -310,8 +272,7 @@ class TypedValueArithmeticTest : public AllTypesFixture {
 };
 
 TEST_F(TypedValueArithmeticTest, Sum) {
-  ExpectArithmeticThrowsAndNull(
-      true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
+  ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
 
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).ValueInt(), 5);
@@ -323,23 +284,18 @@ TEST_F(TypedValueArithmeticTest, Sum) {
   EXPECT_EQ((TypedValue(1) + TypedValue("one")).ValueString(), "1one");
   EXPECT_EQ((TypedValue("one") + TypedValue(3.2)).ValueString(), "one3.2");
   EXPECT_EQ((TypedValue(3.2) + TypedValue("one")).ValueString(), "3.2one");
-  std::vector<TypedValue> in{TypedValue(1), TypedValue(2), TypedValue(true),
-                             TypedValue("a")};
-  std::vector<TypedValue> out1{TypedValue(2), TypedValue(1), TypedValue(2),
-                               TypedValue(true), TypedValue("a")};
-  std::vector<TypedValue> out2{TypedValue(1), TypedValue(2), TypedValue(true),
-                               TypedValue("a"), TypedValue(2)};
-  std::vector<TypedValue> out3{
-      TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
-      TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> in{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> out1{TypedValue(2), TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> out2{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"), TypedValue(2)};
+  std::vector<TypedValue> out3{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
+                               TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
 }
 
 TEST_F(TypedValueArithmeticTest, Difference) {
-  ExpectArithmeticThrowsAndNull(
-      false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
+  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
 
   // difference of props of the same type
   EXPECT_EQ((TypedValue(2) - TypedValue(3)).ValueInt(), -1);
@@ -351,8 +307,7 @@ TEST_F(TypedValueArithmeticTest, Difference) {
 }
 
 TEST_F(TypedValueArithmeticTest, Divison) {
-  ExpectArithmeticThrowsAndNull(
-      false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
+  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
   EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
@@ -366,19 +321,16 @@ TEST_F(TypedValueArithmeticTest, Divison) {
 }
 
 TEST_F(TypedValueArithmeticTest, Multiplication) {
-  ExpectArithmeticThrowsAndNull(
-      false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
+  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
 
   EXPECT_PROP_EQ(TypedValue(10) * TypedValue(2), TypedValue(20));
-  EXPECT_FLOAT_EQ((TypedValue(12.5) * TypedValue(6.6)).ValueDouble(),
-                  12.5 * 6.6);
+  EXPECT_FLOAT_EQ((TypedValue(12.5) * TypedValue(6.6)).ValueDouble(), 12.5 * 6.6);
   EXPECT_FLOAT_EQ((TypedValue(10) * TypedValue(4.5)).ValueDouble(), 10 * 4.5);
   EXPECT_FLOAT_EQ((TypedValue(10.2) * TypedValue(4)).ValueDouble(), 10.2 * 4);
 }
 
 TEST_F(TypedValueArithmeticTest, Modulo) {
-  ExpectArithmeticThrowsAndNull(
-      false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
+  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
   EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
@@ -401,8 +353,7 @@ class TypedValueLogicTest : public AllTypesFixture {
    *
    * @param op The logical operation to test.
    */
-  void TestLogicalThrows(
-      std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
+  void TestLogicalThrows(std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
     for (const auto &p1 : values_) {
       for (const auto &p2 : values_) {
         // skip situations when both p1 and p2 are either bool or null
@@ -417,8 +368,7 @@ class TypedValueLogicTest : public AllTypesFixture {
 };
 
 TEST_F(TypedValueLogicTest, LogicalAnd) {
-  TestLogicalThrows(
-      [](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
+  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue() && TypedValue(false), TypedValue(false));
@@ -427,8 +377,7 @@ TEST_F(TypedValueLogicTest, LogicalAnd) {
 }
 
 TEST_F(TypedValueLogicTest, LogicalOr) {
-  TestLogicalThrows(
-      [](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
+  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() || TypedValue(false));
   EXPECT_PROP_EQ(TypedValue() || TypedValue(true), TypedValue(true));
@@ -437,8 +386,7 @@ TEST_F(TypedValueLogicTest, LogicalOr) {
 }
 
 TEST_F(TypedValueLogicTest, LogicalXor) {
-  TestLogicalThrows(
-      [](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
+  TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
 
   EXPECT_PROP_ISNULL(TypedValue() && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(true), TypedValue(false));
@@ -473,16 +421,14 @@ TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
     values_with_default_memory.emplace_back(utils::NewDeleteResource());
     auto &move_assigned_value = values_with_default_memory.back();
     move_assigned_value = std::move(copy_assigned_value);
-    EXPECT_EQ(move_assigned_value.GetMemoryResource(),
-              utils::NewDeleteResource());
+    EXPECT_EQ(move_assigned_value.GetMemoryResource(), utils::NewDeleteResource());
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
   utils::MonotonicBufferResource monotonic_memory(1024);
-  std::vector<TypedValue, utils::Allocator<TypedValue>>
-      values_with_custom_memory(&monotonic_memory);
+  std::vector<TypedValue, utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
   for (const auto &value : values_) {
     EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
@@ -513,8 +459,7 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &moved = move_constructed_value.ValueMap();
       const auto &copied = copy_constructed_value.ValueMap();
       auto expect_allocator = [](const auto &kv, auto *memory_resource) {
-        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(),
-                  *memory_resource);
+        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(), *memory_resource);
         EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
       };
       for (const auto &kv : original) {

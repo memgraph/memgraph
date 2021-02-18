@@ -91,13 +91,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (property_value)
       // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_->VerticesCount(
-          logical_op.label_, logical_op.property_, property_value.value());
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, property_value.value());
     else
       // estimate the influence as ScanAll(label, property) * filtering
-      factor =
-          db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) *
-          CardParam::kFilter;
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) * CardParam::kFilter;
 
     cardinality_ *= factor;
 
@@ -115,18 +112,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     int64_t factor = 1;
     if (upper || lower)
       // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_->VerticesCount(logical_op.label_,
-                                           logical_op.property_, lower, upper);
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, lower, upper);
     else
       // no values, but we still have the label
-      factor =
-          db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
 
     // if we failed to take either bound from the op into account, then apply
     // the filtering constant to the factor
-    if ((logical_op.upper_bound_ && !upper) ||
-        (logical_op.lower_bound_ && !lower))
-      factor *= CardParam::kFilter;
+    if ((logical_op.upper_bound_ && !upper) || (logical_op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
 
     cardinality_ *= factor;
 
@@ -136,8 +129,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperty &logical_op) override {
-    const auto factor =
-        db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
+    const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
     cardinality_ *= factor;
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
     return true;
@@ -181,8 +173,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal =
-            utils::Downcast<query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
       unwind_value = literal->elements_.size();
     else
       unwind_value = MiscParam::kUnwindNoLiteral;
@@ -218,21 +209,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       std::optional<ScanAllByLabelPropertyRange::Bound> bound) {
     if (bound) {
       auto property_value = ConstPropertyValue(bound->value());
-      if (property_value)
-        return utils::Bound<storage::PropertyValue>(*property_value,
-                                                    bound->type());
+      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
     }
     return std::nullopt;
   }
 
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
-  std::optional<storage::PropertyValue> ConstPropertyValue(
-      const Expression *expression) {
+  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
-    } else if (auto *param_lookup =
-                   utils::Downcast<const ParameterLookup>(expression)) {
+    } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
       return parameters.AtTokenPosition(param_lookup->token_position_);
     }
     return std::nullopt;
@@ -241,8 +228,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters,
-                        LogicalOperator &plan) {
+double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOperator &plan) {
   CostEstimator<TDbAccessor> estimator(db, parameters);
   plan.Accept(estimator);
   return estimator.cost();

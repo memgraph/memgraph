@@ -74,8 +74,7 @@ const uint64_t kSkipListGcStackSize = 8191;
 template <typename TObj>
 struct SkipListNode {
   template <typename TObjUniv>
-  SkipListNode(uint8_t height, TObjUniv &&object)
-      : obj(std::forward<TObjUniv>(object)), height(height) {}
+  SkipListNode(uint8_t height, TObjUniv &&object) : obj(std::forward<TObjUniv>(object)), height(height) {}
 
   // The items here are carefully placed to minimize padding gaps.
 
@@ -83,8 +82,7 @@ struct SkipListNode {
   SpinLock lock;
   std::atomic<bool> marked;
   std::atomic<bool> fully_linked;
-  static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight,
-                "Maximum height doesn't fit in uint8_t");
+  static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight, "Maximum height doesn't fit in uint8_t");
   uint8_t height;
   // uint8_t PAD;
   std::atomic<SkipListNode<TObj> *> nexts[0];
@@ -95,8 +93,7 @@ struct SkipListNode {
 /// This can be used to tune the pool allocator for SkipListNode instances.
 template <typename TObj>
 constexpr size_t MaxSkipListNodeSize() {
-  return sizeof(SkipListNode<TObj>) +
-         kSkipListMaxHeight * sizeof(std::atomic<SkipListNode<TObj> *>);
+  return sizeof(SkipListNode<TObj>) + kSkipListMaxHeight * sizeof(std::atomic<SkipListNode<TObj> *>);
 }
 
 /// Get the size in bytes of the given SkipListNode instance.
@@ -133,8 +130,7 @@ constexpr uint64_t SkipListLayerForCountEstimation(const uint64_t N) {
 /// `*count` estimates.
 constexpr uint64_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
   if (N <= 500) return 1;
-  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1),
-                  utils::kSkipListMaxHeight);
+  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight);
 }
 
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
@@ -252,8 +248,7 @@ class SkipListGc final {
         uint64_t bit = id % kIdsInField;
         uint64_t value = 1;
         value <<= bit;
-        auto ret =
-            head->field[field].fetch_or(value, std::memory_order_acq_rel);
+        auto ret = head->field[field].fetch_or(value, std::memory_order_acq_rel);
         MG_ASSERT(!(ret & value), "A SkipList Accessor was released twice!");
         break;
       }
@@ -336,9 +331,7 @@ class SkipListGc final {
 
   void Clear() {
 #ifndef NDEBUG
-    MG_ASSERT(
-        alive_accessors_ == 0,
-        "The SkipList can't be cleared while there are existing accessors!");
+    MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
 #endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
@@ -562,13 +555,9 @@ class SkipList final {
 
     TObj *operator->() const { return &node_->obj; }
 
-    bool operator==(const Iterator &other) const {
-      return node_ == other.node_;
-    }
+    bool operator==(const Iterator &other) const { return node_ == other.node_; }
 
-    bool operator!=(const Iterator &other) const {
-      return node_ != other.node_;
-    }
+    bool operator!=(const Iterator &other) const { return node_ != other.node_; }
 
     Iterator &operator++() {
       while (true) {
@@ -598,13 +587,9 @@ class SkipList final {
 
     const TObj *operator->() const { return &node_->obj; }
 
-    bool operator==(const ConstIterator &other) const {
-      return node_ == other.node_;
-    }
+    bool operator==(const ConstIterator &other) const { return node_ == other.node_; }
 
-    bool operator!=(const ConstIterator &other) const {
-      return node_ != other.node_;
-    }
+    bool operator!=(const ConstIterator &other) const { return node_ != other.node_; }
 
     ConstIterator &operator++() {
       while (true) {
@@ -625,8 +610,7 @@ class SkipList final {
    private:
     friend class SkipList;
 
-    explicit Accessor(SkipList *skiplist)
-        : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
+    explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
     ~Accessor() {
@@ -636,10 +620,7 @@ class SkipList final {
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
 
-    Accessor(Accessor &&other) noexcept
-        : skiplist_(other.skiplist_), id_(other.id_) {
-      other.skiplist_ = nullptr;
-    }
+    Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
     Accessor &operator=(Accessor &&other) noexcept {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
@@ -648,18 +629,9 @@ class SkipList final {
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
     /// the list.
-    Iterator begin() {
-      return Iterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
-    }
-    ConstIterator begin() const {
-      return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
-    }
-    ConstIterator cbegin() const {
-      return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
-    }
+    Iterator begin() { return Iterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     /// Functions that return an Iterator (or ConstIterator) to the end of the
     /// list.
@@ -667,9 +639,7 @@ class SkipList final {
     ConstIterator end() const { return ConstIterator{nullptr}; }
     ConstIterator cend() const { return ConstIterator{nullptr}; }
 
-    std::pair<Iterator, bool> insert(const TObj &object) {
-      return skiplist_->insert(object);
-    }
+    std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
     /// Inserts an object into the list. It returns an iterator to the item that
     /// is in the list. If the item already exists in the list no insertion is
@@ -677,9 +647,7 @@ class SkipList final {
     ///
     /// @return Iterator to the item that is in the list
     ///         bool indicates whether the item was inserted into the list
-    std::pair<Iterator, bool> insert(TObj &&object) {
-      return skiplist_->insert(std::move(object));
-    }
+    std::pair<Iterator, bool> insert(TObj &&object) { return skiplist_->insert(std::move(object)); }
 
     /// Checks whether the key exists in the list.
     ///
@@ -717,9 +685,7 @@ class SkipList final {
     ///
     /// @return uint64_t estimated count of identical items in the list
     template <typename TKey>
-    uint64_t estimate_count(const TKey &key,
-                            int max_layer_for_estimation =
-                                kSkipListCountEstimateDefaultLayer) const {
+    uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->template estimate_count(key, max_layer_for_estimation);
     }
 
@@ -732,13 +698,10 @@ class SkipList final {
     ///
     /// @return uint64_t estimated count of items in the range in the list
     template <typename TKey>
-    uint64_t estimate_range_count(
-        const std::optional<utils::Bound<TKey>> &lower,
-        const std::optional<utils::Bound<TKey>> &upper,
-        int max_layer_for_estimation =
-            kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper,
-                                                      max_layer_for_estimation);
+    uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
+                                  const std::optional<utils::Bound<TKey>> &upper,
+                                  int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     /// Estimates the average number of objects in the list that have the same
@@ -754,11 +717,8 @@ class SkipList final {
     /// @return uint64_t estimated average number of equal items in the list
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
-        const TCallable &equal_cmp,
-        int max_layer_for_estimation =
-            kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(
-          equal_cmp, max_layer_for_estimation);
+        const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     /// Removes the key from the list.
@@ -783,8 +743,7 @@ class SkipList final {
    private:
     friend class SkipList;
 
-    explicit ConstAccessor(const SkipList *skiplist)
-        : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
+    explicit ConstAccessor(const SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
     ~ConstAccessor() {
@@ -794,8 +753,7 @@ class SkipList final {
     ConstAccessor(const ConstAccessor &) = delete;
     ConstAccessor &operator=(const ConstAccessor &) = delete;
 
-    ConstAccessor(ConstAccessor &&other) noexcept
-        : skiplist_(other.skiplist_), id_(other.id_) {
+    ConstAccessor(ConstAccessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
     ConstAccessor &operator=(ConstAccessor &&other) noexcept {
@@ -804,14 +762,8 @@ class SkipList final {
       other.skiplist_ = nullptr;
     }
 
-    ConstIterator begin() const {
-      return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
-    }
-    ConstIterator cbegin() const {
-      return ConstIterator{
-          skiplist_->head_->nexts[0].load(std::memory_order_acquire)};
-    }
+    ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+    ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     ConstIterator end() const { return ConstIterator{nullptr}; }
     ConstIterator cend() const { return ConstIterator{nullptr}; }
@@ -832,29 +784,21 @@ class SkipList final {
     }
 
     template <typename TKey>
-    uint64_t estimate_count(const TKey &key,
-                            int max_layer_for_estimation =
-                                kSkipListCountEstimateDefaultLayer) const {
+    uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
       return skiplist_->template estimate_count(key, max_layer_for_estimation);
     }
 
     template <typename TKey>
-    uint64_t estimate_range_count(
-        const std::optional<utils::Bound<TKey>> &lower,
-        const std::optional<utils::Bound<TKey>> &upper,
-        int max_layer_for_estimation =
-            kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper,
-                                                      max_layer_for_estimation);
+    uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
+                                  const std::optional<utils::Bound<TKey>> &upper,
+                                  int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
-        const TCallable &equal_cmp,
-        int max_layer_for_estimation =
-            kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(
-          equal_cmp, max_layer_for_estimation);
+        const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     uint64_t size() const { return skiplist_->size(); }
@@ -864,10 +808,8 @@ class SkipList final {
     uint64_t id_{0};
   };
 
-  explicit SkipList(MemoryResource *memory = NewDeleteResource())
-      : gc_(memory) {
-    static_assert(kSkipListMaxHeight <= 32,
-                  "The SkipList height must be less or equal to 32!");
+  explicit SkipList(MemoryResource *memory = NewDeleteResource()) : gc_(memory) {
+    static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
     void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
@@ -882,10 +824,7 @@ class SkipList final {
     new (&head_->lock) utils::SpinLock();
   }
 
-  SkipList(SkipList &&other) noexcept
-      : head_(other.head_),
-        gc_(other.GetMemoryResource()),
-        size_(other.size_.load()) {
+  SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.GetMemoryResource()), size_(other.size_.load()) {
     other.head_ = nullptr;
   }
 
@@ -1005,16 +944,14 @@ class SkipList final {
           prev_pred = pred;
         }
         // Existence test is missing in the paper.
-        valid =
-            !pred->marked.load(std::memory_order_acquire) &&
-            pred->nexts[layer].load(std::memory_order_acquire) == succ &&
-            (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
+        valid = !pred->marked.load(std::memory_order_acquire) &&
+                pred->nexts[layer].load(std::memory_order_acquire) == succ &&
+                (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
       }
 
       if (!valid) continue;
 
-      size_t node_bytes =
-          sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
+      size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
       void *ptr = GetMemoryResource()->Allocate(node_bytes);
       // `calloc` would be faster, but the API has no such call.
       memset(ptr, 0, node_bytes);
@@ -1040,8 +977,7 @@ class SkipList final {
   bool contains(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
-    return (layer_found != -1 &&
-            succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+    return (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
             !succs[layer_found]->marked.load(std::memory_order_acquire));
   }
 
@@ -1049,8 +985,7 @@ class SkipList final {
   Iterator find(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
-    if (layer_found != -1 &&
-        succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+    if (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
         !succs[layer_found]->marked.load(std::memory_order_acquire)) {
       return Iterator{succs[layer_found]};
     }
@@ -1070,8 +1005,7 @@ class SkipList final {
 
   template <typename TKey>
   uint64_t estimate_count(const TKey &key, int max_layer_for_estimation) const {
-    MG_ASSERT(max_layer_for_estimation >= 1 &&
-                  max_layer_for_estimation <= kSkipListMaxHeight,
+    MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
@@ -1082,8 +1016,7 @@ class SkipList final {
 
     uint64_t count = 0;
     TNode *pred = preds[layer_found];
-    for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
-         layer >= 0; --layer) {
+    for (int layer = std::min(layer_found, max_layer_for_estimation - 1); layer >= 0; --layer) {
       uint64_t nodes_traversed = 0;
       TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       while (curr != nullptr && curr->obj < key) {
@@ -1105,10 +1038,8 @@ class SkipList final {
 
   template <typename TKey>
   uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
-                                const std::optional<utils::Bound<TKey>> &upper,
-                                int max_layer_for_estimation) const {
-    MG_ASSERT(max_layer_for_estimation >= 1 &&
-                  max_layer_for_estimation <= kSkipListMaxHeight,
+                                const std::optional<utils::Bound<TKey>> &upper, int max_layer_for_estimation) const {
+    MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
@@ -1127,8 +1058,7 @@ class SkipList final {
 
     uint64_t count = 0;
     TNode *pred = preds[layer_found];
-    for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
-         layer >= 0; --layer) {
+    for (int layer = std::min(layer_found, max_layer_for_estimation - 1); layer >= 0; --layer) {
       uint64_t nodes_traversed = 0;
       TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       if (lower) {
@@ -1172,10 +1102,8 @@ class SkipList final {
   }
 
   template <typename TCallable>
-  uint64_t estimate_average_number_of_equals(
-      const TCallable &equal_cmp, int max_layer_for_estimation) const {
-    MG_ASSERT(max_layer_for_estimation >= 1 &&
-                  max_layer_for_estimation <= kSkipListMaxHeight,
+  uint64_t estimate_average_number_of_equals(const TCallable &equal_cmp, int max_layer_for_estimation) const {
+    MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
     // We need to traverse some nodes to make the calculation correct, so find
@@ -1215,8 +1143,7 @@ class SkipList final {
       // because the whole list can be the same item. That is why we limit the
       // traversal to at most `sqrt(list_size)` items which is a good balance
       // between general correctness and time complexity.
-      traversal_limit = static_cast<uint64_t>(
-          std::sqrt(size_.load(std::memory_order_acquire)));
+      traversal_limit = static_cast<uint64_t>(std::sqrt(size_.load(std::memory_order_acquire)));
     }
     while (curr != nullptr) {
       // First, traverse the bottom layer to count the items.
@@ -1251,8 +1178,7 @@ class SkipList final {
   bool ok_to_delete(TNode *candidate, int layer_found) {
     // The paper has an incorrect check here. It expects the `layer_found`
     // variable to be 1-indexed, but in fact it is 0-indexed.
-    return (candidate->fully_linked.load(std::memory_order_acquire) &&
-            candidate->height == layer_found + 1 &&
+    return (candidate->fully_linked.load(std::memory_order_acquire) && candidate->height == layer_found + 1 &&
             !candidate->marked.load(std::memory_order_acquire));
   }
 
@@ -1265,8 +1191,7 @@ class SkipList final {
     std::unique_lock<SpinLock> node_guard;
     while (true) {
       int layer_found = find_node(key, preds, succs);
-      if (is_marked || (layer_found != -1 &&
-                        ok_to_delete(succs[layer_found], layer_found))) {
+      if (is_marked || (layer_found != -1 && ok_to_delete(succs[layer_found], layer_found))) {
         if (!is_marked) {
           node_to_delete = succs[layer_found];
           top_layer = node_to_delete->height;
@@ -1299,9 +1224,8 @@ class SkipList final {
         // The paper is also wrong here. It states that the loop should start
         // from `top_layer` which is wrong.
         for (int layer = top_layer - 1; layer >= 0; --layer) {
-          preds[layer]->nexts[layer].store(
-              node_to_delete->nexts[layer].load(std::memory_order_acquire),
-              std::memory_order_release);
+          preds[layer]->nexts[layer].store(node_to_delete->nexts[layer].load(std::memory_order_acquire),
+                                           std::memory_order_release);
         }
         gc_.Collect(node_to_delete);
         size_.fetch_add(-1, std::memory_order_acq_rel);

@@ -50,13 +50,10 @@ class VerboseError : public utils::BasicException {
   };
 
   template <class... Args>
-  VerboseError(Classification classification, const std::string &category,
-               const std::string &title, const std::string &format,
-               Args &&... args)
+  VerboseError(Classification classification, const std::string &category, const std::string &title,
+               const std::string &format, Args &&...args)
       : BasicException(format, std::forward<Args>(args)...),
-        code_(fmt::format("Memgraph.{}.{}.{}",
-                          ClassificationToString(classification), category,
-                          title)) {}
+        code_(fmt::format("Memgraph.{}.{}.{}", ClassificationToString(classification), category, title)) {}
 
   const std::string &code() const noexcept { return code_; }
 

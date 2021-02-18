@@ -36,8 +36,7 @@ auto rand_gen_bool(size_t n = 1) {
 
 // Checks for all owned keys if their data is data.
 template <typename TAccessor>
-void check_present_same(TAccessor &acc, size_t data,
-                        std::vector<size_t> &owned) {
+void check_present_same(TAccessor &acc, size_t data, std::vector<size_t> &owned) {
   for (auto num : owned) {
     MG_ASSERT(acc.find(num)->second == data, "My data is present and my");
   }
@@ -45,8 +44,7 @@ void check_present_same(TAccessor &acc, size_t data,
 
 // Checks for all owned.second keys if their data is owned.first.
 template <typename TAccessor>
-void check_present_same(TAccessor &acc,
-                        std::pair<size_t, std::vector<size_t>> &owned) {
+void check_present_same(TAccessor &acc, std::pair<size_t, std::vector<size_t>> &owned) {
   check_present_same(acc, owned.first, owned.second);
 }
 
@@ -55,8 +53,7 @@ template <typename TAccessor>
 void check_size_list(TAccessor &acc, long long size) {
   // check size
 
-  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size,
-            acc.size());
+  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size, acc.size());
 
   // check count
 
@@ -65,16 +62,14 @@ void check_size_list(TAccessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  MG_ASSERT(static_cast<int64_t>(iterator_counter) == size,
-            "Iterator count should be {}, but size is {}", size,
+  MG_ASSERT(static_cast<int64_t>(iterator_counter) == size, "Iterator count should be {}, but size is {}", size,
             iterator_counter);
 }
 template <typename TAccessor>
 void check_size(TAccessor &acc, long long size) {
   // check size
 
-  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size,
-            acc.size());
+  MG_ASSERT(acc.size() == size, "Size should be {}, but size is {}", size, acc.size());
 
   // check count
 
@@ -84,8 +79,7 @@ void check_size(TAccessor &acc, long long size) {
     ++iterator_counter;
   }
   MG_ASSERT(static_cast<int64_t>(iterator_counter) == size)
-      << "Iterator count should be " << size << ", but size is "
-      << iterator_counter;
+      << "Iterator count should be " << size << ", but size is " << iterator_counter;
 }
 
 // Checks if order in list is maintened. It expects map
@@ -95,8 +89,7 @@ void check_order(TAccessor &acc) {
     auto last = acc.begin()->first;
     for (auto elem : acc) {
       if (!(last <= elem))
-        std::cout << "Order isn't maintained. Before was: " << last
-                  << " next is " << elem.first << "\n";
+        std::cout << "Order isn't maintained. Before was: " << last << " next is " << elem.first << "\n";
       last = elem.first;
     }
   }
@@ -104,9 +97,7 @@ void check_order(TAccessor &acc) {
 
 void check_zero(size_t key_range, long array[], const char *str) {
   for (int i = 0; i < static_cast<int>(key_range); i++) {
-    MG_ASSERT(array[i] == 0,
-              "{} doesn't hold it's guarantees. It has {} extra elements.", str,
-              array[i]);
+    MG_ASSERT(array[i] == 0, "{} doesn't hold it's guarantees. It has {} extra elements.", str, array[i]);
   }
 }
 
@@ -119,8 +110,7 @@ void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
 // Runs given function in threads_no threads and returns vector of futures for
 // their results.
 template <class R, typename S, class FunT>
-std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
-                                                   S &skiplist, FunT f) {
+std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no, S &skiplist, FunT f) {
   std::vector<std::future<std::pair<size_t, R>>> futures;
 
   for (size_t thread_i = 0; thread_i < threads_no; ++thread_i) {
@@ -136,15 +126,13 @@ std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
 // Runs given function in threads_no threads and returns vector of futures for
 // their results.
 template <class R>
-std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
-                                                   std::function<R(size_t)> f) {
+std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no, std::function<R(size_t)> f) {
   std::vector<std::future<std::pair<size_t, R>>> futures;
 
   for (size_t thread_i = 0; thread_i < threads_no; ++thread_i) {
-    std::packaged_task<std::pair<size_t, R>()> task([f, thread_i]() {
-      return std::pair<size_t, R>(thread_i, f(thread_i));
-    });                                    // wrap the function
-    futures.push_back(task.get_future());  // get a future
+    std::packaged_task<std::pair<size_t, R>()> task(
+        [f, thread_i]() { return std::pair<size_t, R>(thread_i, f(thread_i)); });  // wrap the function
+    futures.push_back(task.get_future());                                          // get a future
     std::thread(std::move(task)).detach();
   }
   return futures;
@@ -160,8 +148,7 @@ auto collect(std::vector<std::future<R>> &collect) {
   return collection;
 }
 
-std::vector<bool> collect_set(
-    std::vector<std::future<std::pair<size_t, std::vector<bool>>>> &&futures) {
+std::vector<bool> collect_set(std::vector<std::future<std::pair<size_t, std::vector<bool>>>> &&futures) {
   std::vector<bool> set;
   for (auto &data : collect(futures)) {
     set.resize(data.second.size());

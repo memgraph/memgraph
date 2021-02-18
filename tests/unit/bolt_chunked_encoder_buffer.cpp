@@ -96,6 +96,5 @@ TEST_F(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   //  0x86, 0xA1, 34465 bytes of test data after the first 65535 bytes]
   auto output = output_stream.output.data();
   VerifyChunkOfTestData(output, kChunkMaxDataSize);
-  VerifyChunkOfTestData(output + kChunkWholeSize,
-                        kTestDataSize - kChunkMaxDataSize, kChunkMaxDataSize);
+  VerifyChunkOfTestData(output + kChunkWholeSize, kTestDataSize - kChunkMaxDataSize, kChunkMaxDataSize);
 }

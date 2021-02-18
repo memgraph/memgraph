@@ -25,9 +25,7 @@ class AuthWithStorage : public ::testing::Test {
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
-  fs::path test_folder_{
-      fs::temp_directory_path() /
-      ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  fs::path test_folder_{fs::temp_directory_path() / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
 
   Auth auth{test_folder_};
 };
@@ -99,14 +97,10 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
   ASSERT_NE(user, std::nullopt);
 
   // Test initial user permissions.
-  ASSERT_EQ(user->permissions().Has(Permission::MATCH),
-            PermissionLevel::NEUTRAL);
-  ASSERT_EQ(user->permissions().Has(Permission::CREATE),
-            PermissionLevel::NEUTRAL);
-  ASSERT_EQ(user->permissions().Has(Permission::MERGE),
-            PermissionLevel::NEUTRAL);
-  ASSERT_EQ(user->permissions().Has(Permission::DELETE),
-            PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::DELETE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(user->permissions(), user->GetPermissions());
 
   // Change one user permission.
@@ -114,12 +108,9 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
   // Check permissions.
   ASSERT_EQ(user->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(user->permissions().Has(Permission::CREATE),
-            PermissionLevel::NEUTRAL);
-  ASSERT_EQ(user->permissions().Has(Permission::MERGE),
-            PermissionLevel::NEUTRAL);
-  ASSERT_EQ(user->permissions().Has(Permission::DELETE),
-            PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(user->permissions().Has(Permission::DELETE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(user->permissions(), user->GetPermissions());
 
   // Create role.
@@ -220,9 +211,7 @@ TEST_F(AuthWithStorage, RoleManipulations) {
 
   {
     auto users = auth.AllUsers();
-    std::sort(users.begin(), users.end(), [](const User &a, const User &b) {
-      return a.username() < b.username();
-    });
+    std::sort(users.begin(), users.end(), [](const User &a, const User &b) { return a.username() < b.username(); });
     ASSERT_EQ(users.size(), 2);
     ASSERT_EQ(users[0].username(), "user1");
     ASSERT_EQ(users[1].username(), "user2");
@@ -230,9 +219,7 @@ TEST_F(AuthWithStorage, RoleManipulations) {
 
   {
     auto roles = auth.AllRoles();
-    std::sort(roles.begin(), roles.end(), [](const Role &a, const Role &b) {
-      return a.rolename() < b.rolename();
-    });
+    std::sort(roles.begin(), roles.end(), [](const Role &a, const Role &b) { return a.rolename() < b.rolename(); });
     ASSERT_EQ(roles.size(), 2);
     ASSERT_EQ(roles[0].rolename(), "role1");
     ASSERT_EQ(roles[1].rolename(), "role2");
@@ -303,8 +290,7 @@ TEST_F(AuthWithStorage, PasswordStrength) {
       "a-z]).{8,}$";
 
   const std::string kWeakPassword = "weak";
-  const std::string kAlmostStrongPassword =
-      "ThisPasswordMeetsAllButOneCriterion1234";
+  const std::string kAlmostStrongPassword = "ThisPasswordMeetsAllButOneCriterion1234";
   const std::string kStrongPassword = "ThisIsAVeryStrongPassword123$";
 
   auto user = auth.AddUser("user");
@@ -376,9 +362,7 @@ TEST(AuthWithoutStorage, Permissions) {
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(),
-            utils::UnderlyingCast(Permission::MATCH) |
-                utils::UnderlyingCast(Permission::DELETE));
+  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH) | utils::UnderlyingCast(Permission::DELETE));
   ASSERT_EQ(permissions.denies(), utils::UnderlyingCast(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
@@ -551,9 +535,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
   {
     auto users = auth.AllUsers();
     ASSERT_EQ(users.size(), 2);
-    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) {
-      return a.username() < b.username();
-    });
+    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });
     ASSERT_EQ(users[0].username(), "alice");
     ASSERT_EQ(users[1].username(), "bob");
   }
@@ -603,9 +585,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
   {
     auto roles = auth.AllRoles();
     ASSERT_EQ(roles.size(), 2);
-    std::sort(roles.begin(), roles.end(), [](const auto &a, const auto &b) {
-      return a.rolename() < b.rolename();
-    });
+    std::sort(roles.begin(), roles.end(), [](const auto &a, const auto &b) { return a.rolename() < b.rolename(); });
     ASSERT_EQ(roles[0].rolename(), "admin");
     ASSERT_EQ(roles[1].rolename(), "moderator");
   }
@@ -622,8 +602,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto role = auth.GetRole("modeRATOR");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    ASSERT_EQ(role->permissions().Has(auth::Permission::MATCH),
-              auth::PermissionLevel::GRANT);
+    ASSERT_EQ(role->permissions().Has(auth::Permission::MATCH), auth::PermissionLevel::GRANT);
   }
 
   // SaveUser
@@ -669,9 +648,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
   {
     auto users = auth.AllUsersForRole("AdmiN");
     ASSERT_EQ(users.size(), 2);
-    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) {
-      return a.username() < b.username();
-    });
+    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });
     ASSERT_EQ(users[0].username(), "carol");
     ASSERT_EQ(users[1].username(), "dave");
   }

@@ -29,29 +29,19 @@ void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
-void Save(const EchoMessage &echo, Builder *builder) {
-  Save(echo.data, builder);
-}
+void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
 
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 }  // namespace slk
 
 void SumReq::Load(SumReq *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void SumReq::Save(const SumReq &obj, slk::Builder *builder) {
-  slk::Save(obj, builder);
-}
+void SumReq::Save(const SumReq &obj, slk::Builder *builder) { slk::Save(obj, builder); }
 
 void SumRes::Load(SumRes *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void SumRes::Save(const SumRes &obj, slk::Builder *builder) {
-  slk::Save(obj, builder);
-}
+void SumRes::Save(const SumRes &obj, slk::Builder *builder) { slk::Save(obj, builder); }
 
-void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) {
-  slk::Load(obj, reader);
-}
-void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) {
-  slk::Save(obj, builder);
-}
+void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) { slk::Load(obj, reader); }
+void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) { slk::Save(obj, builder); }
 
 TEST(Rpc, Call) {
   communication::ServerContext server_context;

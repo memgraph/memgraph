@@ -6,8 +6,7 @@
 
 namespace slk {
 
-Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func)
-    : write_func_(write_func) {}
+Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(write_func) {}
 
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
@@ -73,8 +72,7 @@ void Reader::Finalize() { GetSegment(true); }
 void Reader::GetSegment(bool should_be_final) {
   if (have_ != 0) {
     if (should_be_final) {
-      throw SlkReaderException(
-          "There is still leftover data in the SLK stream!");
+      throw SlkReaderException("There is still leftover data in the SLK stream!");
     }
     return;
   }
@@ -87,12 +85,10 @@ void Reader::GetSegment(bool should_be_final) {
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
   if (should_be_final && len != 0) {
-    throw SlkReaderException(
-        "Got a non-empty SLK segment when expecting the final segment!");
+    throw SlkReaderException("Got a non-empty SLK segment when expecting the final segment!");
   }
   if (!should_be_final && len == 0) {
-    throw SlkReaderException(
-        "Got an empty SLK segment when expecting a non-empty segment!");
+    throw SlkReaderException("Got an empty SLK segment when expecting a non-empty segment!");
   }
 
   // The position is incremented after the checks above so that the new

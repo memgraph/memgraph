@@ -21,24 +21,12 @@ struct TypeInfo {
   const TypeInfo *superclass{nullptr};
 };
 
-inline bool operator==(const TypeInfo &a, const TypeInfo &b) {
-  return a.id == b.id;
-}
-inline bool operator!=(const TypeInfo &a, const TypeInfo &b) {
-  return a.id != b.id;
-}
-inline bool operator<(const TypeInfo &a, const TypeInfo &b) {
-  return a.id < b.id;
-}
-inline bool operator<=(const TypeInfo &a, const TypeInfo &b) {
-  return a.id <= b.id;
-}
-inline bool operator>(const TypeInfo &a, const TypeInfo &b) {
-  return a.id > b.id;
-}
-inline bool operator>=(const TypeInfo &a, const TypeInfo &b) {
-  return a.id >= b.id;
-}
+inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
+inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
+inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
+inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
+inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
+inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
 
 /// Return true if `a` is subtype or the same type as `b`.
 inline bool IsSubtype(const TypeInfo &a, const TypeInfo &b) {

@@ -40,8 +40,7 @@ class Listener final {
   using SessionHandler = Session<TSession, TSessionData>;
 
  public:
-  Listener(TSessionData *data, ServerContext *context,
-           int inactivity_timeout_sec, const std::string &service_name,
+  Listener(TSessionData *data, ServerContext *context, int inactivity_timeout_sec, const std::string &service_name,
            size_t workers_count)
       : data_(data),
         alive_(false),
@@ -77,8 +76,8 @@ class Listener final {
     int fd = connection.fd();
 
     // Create a new Session for the connection.
-    sessions_.push_back(std::make_unique<SessionHandler>(
-        std::move(connection), data_, context_, inactivity_timeout_sec_));
+    sessions_.push_back(
+        std::make_unique<SessionHandler>(std::move(connection), data_, context_, inactivity_timeout_sec_));
 
     // Register the connection in Epoll.
     // We want to listen to an incoming event which is edge triggered and
@@ -86,8 +85,7 @@ class Listener final {
     // concurrently and that is why we use `EPOLLONESHOT`, for a detailed
     // description what are the problems and why this is correct see:
     // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
-    epoll_.Add(fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT,
-               sessions_.back().get());
+    epoll_.Add(fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT, sessions_.back().get());
   }
 
   /**
@@ -117,8 +115,7 @@ class Listener final {
             std::lock_guard<utils::SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
-                spdlog::warn("{} session associated with {} timed out",
-                             service_name, session->socket().endpoint());
+                spdlog::warn("{} session associated with {} timed out", service_name, session->socket().endpoint());
                 // Here we shutdown the socket to terminate any leftover
                 // blocking `Write` calls and to signal an event that the
                 // session is closed. Session cleanup will be done in the event
@@ -178,8 +175,7 @@ class Listener final {
     // dereference it here. It is safe to dereference the pointer because
     // this design guarantees that there will never be an event that has
     // a stale Session pointer.
-    SessionHandler &session =
-        *reinterpret_cast<SessionHandler *>(event.data.ptr);
+    SessionHandler &session = *reinterpret_cast<SessionHandler *>(event.data.ptr);
 
     // Process epoll events. We use epoll in edge-triggered mode so we process
     // all events here. Only one of the `if` statements must be executed
@@ -192,20 +188,16 @@ class Listener final {
         ;
     } else if (event.events & EPOLLRDHUP) {
       // The client closed the connection.
-      spdlog::info("{} client {} closed the connection.", service_name_,
-                   session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
       CloseSession(session);
-    } else if (!(event.events & EPOLLIN) ||
-               event.events & (EPOLLHUP | EPOLLERR)) {
+    } else if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      spdlog::error("Error occured in {} session associated with {}",
-                    service_name_, session.socket().endpoint());
+      spdlog::error("Error occured in {} session associated with {}", service_name_, session.socket().endpoint());
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      spdlog::error(
-          "Unhandled event occured in {} session associated with {} events: {}",
-          service_name_, session.socket().endpoint(), event.events);
+      spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
+                    session.socket().endpoint(), event.events);
       CloseSession(session);
     }
   }
@@ -215,13 +207,11 @@ class Listener final {
       if (session.Execute()) {
         // Session execution done, rearm epoll to send events for this
         // socket.
-        epoll_.Modify(session.socket().fd(),
-                      EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT, &session);
+        epoll_.Modify(session.socket().fd(), EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT, &session);
         return false;
       }
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_,
-                   session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
       CloseSession(session);
       return false;
     } catch (const std::exception &e) {
@@ -245,11 +235,9 @@ class Listener final {
     epoll_.Delete(session.socket().fd());
 
     std::lock_guard<utils::SpinLock> guard(lock_);
-    auto it = std::find_if(sessions_.begin(), sessions_.end(),
-                           [&](const auto &l) { return l.get() == &session; });
+    auto it = std::find_if(sessions_.begin(), sessions_.end(), [&](const auto &l) { return l.get() == &session; });
 
-    MG_ASSERT(it != sessions_.end(),
-              "Trying to remove session that is not found in sessions!");
+    MG_ASSERT(it != sessions_.end(), "Trying to remove session that is not found in sessions!");
     int i = it - sessions_.begin();
     swap(sessions_[i], sessions_.back());
 

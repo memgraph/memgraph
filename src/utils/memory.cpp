@@ -25,20 +25,15 @@ size_t GrowMonotonicBuffer(size_t current_size, size_t max_size) {
 
 }  // namespace
 
-MonotonicBufferResource::MonotonicBufferResource(size_t initial_size)
-    : initial_size_(initial_size) {}
+MonotonicBufferResource::MonotonicBufferResource(size_t initial_size) : initial_size_(initial_size) {}
 
-MonotonicBufferResource::MonotonicBufferResource(size_t initial_size,
-                                                 MemoryResource *memory)
+MonotonicBufferResource::MonotonicBufferResource(size_t initial_size, MemoryResource *memory)
     : memory_(memory), initial_size_(initial_size) {}
 
-MonotonicBufferResource::MonotonicBufferResource(void *buffer,
-                                                 size_t buffer_size,
-                                                 MemoryResource *memory)
+MonotonicBufferResource::MonotonicBufferResource(void *buffer, size_t buffer_size, MemoryResource *memory)
     : memory_(memory), initial_buffer_(buffer), initial_size_(buffer_size) {}
 
-MonotonicBufferResource::MonotonicBufferResource(
-    MonotonicBufferResource &&other) noexcept
+MonotonicBufferResource::MonotonicBufferResource(MonotonicBufferResource &&other) noexcept
     : memory_(other.memory_),
       current_buffer_(other.current_buffer_),
       initial_buffer_(other.initial_buffer_),
@@ -48,8 +43,7 @@ MonotonicBufferResource::MonotonicBufferResource(
   other.current_buffer_ = nullptr;
 }
 
-MonotonicBufferResource &MonotonicBufferResource::operator=(
-    MonotonicBufferResource &&other) noexcept {
+MonotonicBufferResource &MonotonicBufferResource::operator=(MonotonicBufferResource &&other) noexcept {
   if (this == &other) return *this;
   Release();
   memory_ = other.memory_;
@@ -93,16 +87,14 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     static_assert(IsPow2(alignof(Buffer)),
                   "Buffer should not be a packed struct in order to be placed "
                   "at the start of an allocation request");
-    const auto maybe_bytes_for_buffer =
-        RoundUint64ToMultiple(sizeof(Buffer), alloc_align);
+    const auto maybe_bytes_for_buffer = RoundUint64ToMultiple(sizeof(Buffer), alloc_align);
     if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
     const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
     const size_t alloc_size = bytes_for_buffer + size;
     if (alloc_size < size) throw BadAlloc("Allocation size overflow");
     void *ptr = memory_->Allocate(alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.
-    current_buffer_ = new (ptr)
-        Buffer{current_buffer_, alloc_size - bytes_for_buffer, alloc_align};
+    current_buffer_ = new (ptr) Buffer{current_buffer_, alloc_size - bytes_for_buffer, alloc_align};
     allocated_ = 0;
   };
 
@@ -126,13 +118,10 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     // Not enough memory, so allocate a new block with aligned data.
     push_current_buffer(next_buffer_size_);
     aligned_ptr = buffer_head = data = current_buffer_->data();
-    next_buffer_size_ = GrowMonotonicBuffer(
-        next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer));
+    next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer));
   }
-  if (reinterpret_cast<char *>(aligned_ptr) < buffer_head)
-    throw BadAlloc("Allocation alignment overflow");
-  if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr)
-    throw BadAlloc("Allocation size overflow");
+  if (reinterpret_cast<char *>(aligned_ptr) < buffer_head) throw BadAlloc("Allocation alignment overflow");
+  if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr) throw BadAlloc("Allocation size overflow");
   allocated_ = reinterpret_cast<char *>(aligned_ptr) - data + bytes;
   return aligned_ptr;
 }
@@ -147,20 +136,14 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
 
 namespace impl {
 
-Pool::Pool(size_t block_size, unsigned char blocks_per_chunk,
-           MemoryResource *memory)
-    : blocks_per_chunk_(blocks_per_chunk),
-      block_size_(block_size),
-      chunks_(memory) {}
+Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory)
+    : blocks_per_chunk_(blocks_per_chunk), block_size_(block_size), chunks_(memory) {}
 
-Pool::~Pool() {
-  MG_ASSERT(chunks_.empty(), "You need to call Release before destruction!");
-}
+Pool::~Pool() { MG_ASSERT(chunks_.empty(), "You need to call Release before destruction!"); }
 
 void *Pool::Allocate() {
   auto allocate_block_from_chunk = [this](Chunk *chunk) {
-    unsigned char *available_block =
-        chunk->data + (chunk->first_available_block_ix * block_size_);
+    unsigned char *available_block = chunk->data + (chunk->first_available_block_ix * block_size_);
     // Update free-list pointer (index in our case) by reading "next" from the
     // available_block.
     chunk->first_available_block_ix = *available_block;
@@ -177,8 +160,7 @@ void *Pool::Allocate() {
     }
   }
   // We haven't found a Chunk with available memory, so allocate a new one.
-  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_)
-    throw BadAlloc("Allocation size overflow");
+  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
   size_t data_size = blocks_per_chunk_ * block_size_;
   // Use the next pow2 of block_size_ as alignment, so that we cover alignment
   // requests between 1 and block_size_. Users of this class should make sure
@@ -186,8 +168,7 @@ void *Pool::Allocate() {
   // block itself.
   size_t alignment = Ceil2(block_size_);
   if (alignment < block_size_) throw BadAlloc("Allocation alignment overflow");
-  auto *data = reinterpret_cast<unsigned char *>(
-      GetUpstreamResource()->Allocate(data_size, alignment));
+  auto *data = reinterpret_cast<unsigned char *>(GetUpstreamResource()->Allocate(data_size, alignment));
   // Form a free-list of blocks in data.
   for (unsigned char i = 0U; i < blocks_per_chunk_; ++i) {
     *(data + (i * block_size_)) = i + 1U;
@@ -211,8 +192,7 @@ void Pool::Deallocate(void *p) {
   auto is_in_chunk = [this, p](const Chunk &chunk) {
     auto ptr = reinterpret_cast<uintptr_t>(p);
     size_t data_size = blocks_per_chunk_ * block_size_;
-    return reinterpret_cast<uintptr_t>(chunk.data) <= ptr &&
-           ptr < reinterpret_cast<uintptr_t>(chunk.data + data_size);
+    return reinterpret_cast<uintptr_t>(chunk.data) <= ptr && ptr < reinterpret_cast<uintptr_t>(chunk.data + data_size);
   };
   auto deallocate_block_from_chunk = [this, p](Chunk *chunk) {
     // NOTE: This check is not enough to cover all double-free issues.
@@ -257,13 +237,10 @@ void Pool::Release() {
 
 }  // namespace impl
 
-PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
-                           MemoryResource *memory)
+PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory)
     : pools_(memory),
       unpooled_(memory),
-      max_blocks_per_chunk_(
-          std::min(max_blocks_per_chunk,
-                   static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
+      max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
       max_block_size_(max_block_size) {
   MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
   MG_ASSERT(max_block_size_ > 0U, "Invalid size of block");
@@ -279,16 +256,13 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   // property can never be correctly handled with contiguous blocks. We would
   // have to write a general-purpose allocator which has to behave as complex
   // as malloc/free.
-  if (block_size % alignment != 0)
-    throw BadAlloc("Requested bytes must be a multiple of alignment");
+  if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
   if (block_size > max_block_size_) {
     // Allocate a big block.
-    BigBlock big_block{bytes, alignment,
-                       GetUpstreamResource()->Allocate(bytes, alignment)};
+    BigBlock big_block{bytes, alignment, GetUpstreamResource()->Allocate(bytes, alignment)};
     // Insert the big block in the sorted position.
-    auto it = std::lower_bound(
-        unpooled_.begin(), unpooled_.end(), big_block,
-        [](const auto &a, const auto &b) { return a.data < b.data; });
+    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
+                               [](const auto &a, const auto &b) { return a.data < b.data; });
     try {
       unpooled_.insert(it, big_block);
     } catch (...) {
@@ -304,9 +278,7 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   // Find the pool with greater or equal block_size.
   impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
   auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) {
-                               return a.GetBlockSize() < b.GetBlockSize();
-                             });
+                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
   if (it != pools_.end() && it->GetBlockSize() == block_size) {
     last_alloc_pool_ = &*it;
     return it->Allocate();
@@ -321,33 +293,27 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
 
 void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max(bytes, alignment);
-  MG_ASSERT(
-      block_size % alignment == 0,
-      "PoolResource shouldn't serve allocation requests where bytes aren't "
-      "a multiple of alignment");
+  MG_ASSERT(block_size % alignment == 0,
+            "PoolResource shouldn't serve allocation requests where bytes aren't "
+            "a multiple of alignment");
   if (block_size > max_block_size_) {
     // Deallocate a big block.
     BigBlock big_block{bytes, alignment, p};
-    auto it = std::lower_bound(
-        unpooled_.begin(), unpooled_.end(), big_block,
-        [](const auto &a, const auto &b) { return a.data < b.data; });
+    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
+                               [](const auto &a, const auto &b) { return a.data < b.data; });
     MG_ASSERT(it != unpooled_.end(), "Failed deallocation");
-    MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment,
-              "Failed deallocation");
+    MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment, "Failed deallocation");
     unpooled_.erase(it);
     GetUpstreamResource()->Deallocate(p, bytes, alignment);
     return;
   }
   // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
   MG_ASSERT(last_dealloc_pool_, "Failed deallocation");
-  if (last_dealloc_pool_->GetBlockSize() == block_size)
-    return last_dealloc_pool_->Deallocate(p);
+  if (last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
   // Find the pool with equal block_size.
   impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
   auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) {
-                               return a.GetBlockSize() < b.GetBlockSize();
-                             });
+                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
   MG_ASSERT(it != pools_.end(), "Failed deallocation");
   MG_ASSERT(it->GetBlockSize() == block_size, "Failed deallocation");
   last_alloc_pool_ = &*it;
@@ -359,8 +325,7 @@ void PoolResource::Release() {
   for (auto &pool : pools_) pool.Release();
   pools_.clear();
   for (auto &big_block : unpooled_)
-    GetUpstreamResource()->Deallocate(big_block.data, big_block.bytes,
-                                      big_block.alignment);
+    GetUpstreamResource()->Deallocate(big_block.data, big_block.bytes, big_block.alignment);
   unpooled_.clear();
   last_alloc_pool_ = nullptr;
   last_dealloc_pool_ = nullptr;

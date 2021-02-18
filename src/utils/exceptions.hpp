@@ -41,8 +41,7 @@ class BasicException : public std::exception {
    *
    * @param message The error message.
    */
-  explicit BasicException(const std::string &message) noexcept
-      : msg_(message) {}
+  explicit BasicException(const std::string &message) noexcept : msg_(message) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -51,7 +50,7 @@ class BasicException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit BasicException(const std::string &format, Args &&... args) noexcept
+  explicit BasicException(const std::string &format, Args &&...args) noexcept
       : BasicException(fmt::format(format, std::forward<Args>(args)...)) {}
 
   /**
@@ -63,9 +62,8 @@ class BasicException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit BasicException(const char *format, Args &&... args) noexcept
-      : BasicException(
-            fmt::format(std::string(format), std::forward<Args>(args)...)) {}
+  explicit BasicException(const char *format, Args &&...args) noexcept
+      : BasicException(fmt::format(std::string(format), std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.
@@ -110,8 +108,7 @@ class StacktraceException : public std::exception {
    *                Hence, responsibility for deleting the `char*` lies
    *                with the caller.
    */
-  explicit StacktraceException(const char *message) noexcept
-      : message_(message), stacktrace_(Stacktrace().dump()) {}
+  explicit StacktraceException(const char *message) noexcept : message_(message), stacktrace_(Stacktrace().dump()) {}
 
   /**
    * @brief Constructor (C++ STL strings).
@@ -128,8 +125,7 @@ class StacktraceException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit StacktraceException(const std::string &format,
-                               Args &&... args) noexcept
+  explicit StacktraceException(const std::string &format, Args &&...args) noexcept
       : StacktraceException(fmt::format(format, std::forward<Args>(args)...)) {}
 
   /**
@@ -141,9 +137,8 @@ class StacktraceException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit StacktraceException(const char *format, Args &&... args) noexcept
-      : StacktraceException(
-            fmt::format(std::string(format), std::forward<Args>(args)...)) {}
+  explicit StacktraceException(const char *format, Args &&...args) noexcept
+      : StacktraceException(fmt::format(std::string(format), std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.
@@ -178,12 +173,10 @@ class StacktraceException : public std::exception {
  */
 class NotYetImplemented final : public BasicException {
  public:
-  explicit NotYetImplemented(const std::string &what) noexcept
-      : BasicException("Not yet implemented: " + what) {}
+  explicit NotYetImplemented(const std::string &what) noexcept : BasicException("Not yet implemented: " + what) {}
 
   template <class... Args>
-  explicit NotYetImplemented(const std::string &format,
-                             Args &&... args) noexcept
+  explicit NotYetImplemented(const std::string &format, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(format, std::forward<Args>(args)...)) {}
 };
 

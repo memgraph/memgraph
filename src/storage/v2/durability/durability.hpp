@@ -22,16 +22,12 @@ namespace storage::durability {
 /// Verifies that the owner of the storage directory is the same user that
 /// started the current process. If the verification fails, the process is
 /// killed (`CHECK` failure).
-void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
-    const std::filesystem::path &storage_directory);
+void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory);
 
 // Used to capture the snapshot's data related to durability
 struct SnapshotDurabilityInfo {
-  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid,
-                                  const uint64_t start_timestamp)
-      : path(std::move(path)),
-        uuid(std::move(uuid)),
-        start_timestamp(start_timestamp) {}
+  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, const uint64_t start_timestamp)
+      : path(std::move(path)), uuid(std::move(uuid)), start_timestamp(start_timestamp) {}
 
   std::filesystem::path path;
   std::string uuid;
@@ -46,16 +42,13 @@ struct SnapshotDurabilityInfo {
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
 /// @return List of snapshot files defined with its path and UUID.
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
-    const std::filesystem::path &snapshot_directory,
-    std::string_view uuid = "");
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                     std::string_view uuid = "");
 
 /// Used to capture a WAL's data related to durability
 struct WalDurabilityInfo {
-  explicit WalDurabilityInfo(const uint64_t seq_num,
-                             const uint64_t from_timestamp,
-                             const uint64_t to_timestamp, std::string uuid,
-                             std::string epoch_id, std::filesystem::path path)
+  explicit WalDurabilityInfo(const uint64_t seq_num, const uint64_t from_timestamp, const uint64_t to_timestamp,
+                             std::string uuid, std::string epoch_id, std::filesystem::path path)
       : seq_num(seq_num),
         from_timestamp(from_timestamp),
         to_timestamp(to_timestamp),
@@ -83,30 +76,28 @@ struct WalDurabilityInfo {
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
-    const std::filesystem::path &wal_directory, std::string_view uuid = "",
-    std::optional<size_t> current_seq_num = {});
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
+                                                          std::string_view uuid = "",
+                                                          std::optional<size_t> current_seq_num = {});
 
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndConstraints(
-    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-    Constraints *constraints, utils::SkipList<Vertex> *vertices);
+void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices);
 
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
 /// @throw std::bad_alloc
-std::optional<RecoveryInfo> RecoverData(
-    const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, std::string *uuid,
-    std::string *epoch_id,
-    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-    Indices *indices, Constraints *constraints, Config::Items items,
-    uint64_t *wal_seq_num);
+std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
+                                        const std::filesystem::path &wal_directory, std::string *uuid,
+                                        std::string *epoch_id,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
+                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        uint64_t *wal_seq_num);
 
 }  // namespace storage::durability

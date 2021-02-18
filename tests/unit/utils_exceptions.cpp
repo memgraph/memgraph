@@ -7,9 +7,7 @@ void bar() { i_will_throw(); }
 
 void foo() { bar(); }
 
-void i_will_throw_stacktrace_exception() {
-  throw utils::StacktraceException("this is not {}", "ok!");
-}
+void i_will_throw_stacktrace_exception() { throw utils::StacktraceException("this is not {}", "ok!"); }
 
 void bar_stacktrace() { i_will_throw_stacktrace_exception(); }
 

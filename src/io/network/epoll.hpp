@@ -21,13 +21,11 @@ class Epoll {
  public:
   using Event = struct epoll_event;
 
-  Epoll(bool set_cloexec = false)
-      : epoll_fd_(epoll_create1(set_cloexec ? EPOLL_CLOEXEC : 0)) {
+  Epoll(bool set_cloexec = false) : epoll_fd_(epoll_create1(set_cloexec ? EPOLL_CLOEXEC : 0)) {
     // epoll_create1 returns an error if there is a logical error in our code
     // (for example invalid flags) or if there is irrecoverable error. In both
     // cases it is best to terminate.
-    MG_ASSERT(epoll_fd_ != -1, "Error on epoll create: ({}) {}", errno,
-              strerror(errno));
+    MG_ASSERT(epoll_fd_ != -1, "Error on epoll create: ({}) {}", errno, strerror(errno));
   }
 
   /**
@@ -42,15 +40,13 @@ class Epoll {
     Event event;
     event.events = events;
     event.data.ptr = ptr;
-    int status = epoll_ctl(epoll_fd_, (modify ? EPOLL_CTL_MOD : EPOLL_CTL_ADD),
-                           fd, &event);
+    int status = epoll_ctl(epoll_fd_, (modify ? EPOLL_CTL_MOD : EPOLL_CTL_ADD), fd, &event);
     // epoll_ctl can return an error on our logical error or on irrecoverable
     // error. There is a third possibility that some system limit is reached. In
     // that case we could return an erorr and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
-    MG_ASSERT(!status, "Error on epoll {}: ({}) {}",
-              (modify ? "modify" : "add"), errno, strerror(errno));
+    MG_ASSERT(!status, "Error on epoll {}: ({}) {}", (modify ? "modify" : "add"), errno, strerror(errno));
   }
 
   /**
@@ -60,9 +56,7 @@ class Epoll {
    * @param events epoll events mask
    * @param ptr pointer to the associated event handler
    */
-  void Modify(int fd, uint32_t events, void *ptr) {
-    Add(fd, events, ptr, true);
-  }
+  void Modify(int fd, uint32_t events, void *ptr) { Add(fd, events, ptr, true); }
 
   /**
    * This function deletes a file descriptor that is listened for events.
@@ -76,8 +70,7 @@ class Epoll {
     // that case we could return an erorr and close connection. Chances of
     // reaching system limit in normally working memgraph is extremely unlikely,
     // so it is correct to terminate even in that case.
-    MG_ASSERT(!status, "Error on epoll delete: ({}) {}", errno,
-              strerror(errno));
+    MG_ASSERT(!status, "Error on epoll delete: ({}) {}", errno, strerror(errno));
   }
 
   /**
@@ -91,8 +84,7 @@ class Epoll {
   int Wait(Event *events, int max_events, int timeout) {
     auto num_events = epoll_wait(epoll_fd_, events, max_events, timeout);
     // If this check fails there was logical error in our code.
-    MG_ASSERT(num_events != -1 || errno == EINTR,
-              "Error on epoll wait: ({}) {}", errno, strerror(errno));
+    MG_ASSERT(num_events != -1 || errno == EINTR, "Error on epoll wait: ({}) {}", errno, strerror(errno));
     // num_events can be -1 if errno was EINTR (epoll_wait interrupted by signal
     // handler). We treat that as no events, so we return 0.
     return num_events == -1 ? 0 : num_events;

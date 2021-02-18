@@ -24,8 +24,7 @@ namespace utils {
  *  item to the stream.
  */
 template <typename TStream, typename TIterator, typename TStreamer>
-inline void PrintIterable(TStream *stream, TIterator first, TIterator last,
-                          const std::string &delim = ", ",
+inline void PrintIterable(TStream *stream, TIterator first, TIterator last, const std::string &delim = ", ",
                           TStreamer streamer = {}) {
   if (first != last) {
     streamer(*stream, *first);
@@ -48,8 +47,7 @@ inline void PrintIterable(TStream *stream, TIterator first, TIterator last,
  *  streams the item to the stream.
  */
 template <typename TStream, typename TIterable, typename TStreamer>
-inline void PrintIterable(TStream &stream, const TIterable &iterable,
-                          const std::string &delim = ", ",
+inline void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ",
                           TStreamer streamer = {}) {
   PrintIterable(&stream, iterable.begin(), iterable.end(), delim, streamer);
 }
@@ -63,10 +61,8 @@ inline void PrintIterable(TStream &stream, const TIterable &iterable,
  * @param delim Delimiter that is put between items.
  */
 template <typename TStream, typename TIterable>
-inline void PrintIterable(TStream &stream, const TIterable &iterable,
-                          const std::string &delim = ", ") {
-  PrintIterable(stream, iterable, delim,
-                [](auto &stream, const auto &item) { stream << item; });
+inline void PrintIterable(TStream &stream, const TIterable &iterable, const std::string &delim = ", ") {
+  PrintIterable(stream, iterable, delim, [](auto &stream, const auto &item) { stream << item; });
 }
 
 /**
@@ -79,8 +75,7 @@ inline void PrintIterable(TStream &stream, const TIterable &iterable,
  * map.
  */
 template <class TMap, class TKey, class TVal>
-inline std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key,
-                                    TVal &&or_value) {
+inline std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key, TVal &&or_value) {
   auto it = map.find(key);
   if (it != map.end()) return {it->second, true};
   return {std::forward<TVal>(or_value), false};
@@ -113,17 +108,12 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
 }
 
 template <class TElement, class THash, class TEqual, class TAllocator>
-bool Contains(
-    const std::unordered_set<TElement, THash, TEqual, TAllocator> &iterable,
-    const TElement &element) {
+bool Contains(const std::unordered_set<TElement, THash, TEqual, TAllocator> &iterable, const TElement &element) {
   return iterable.find(element) != iterable.end();
 }
 
-template <class TKey, class TValue, class THash, class TKeyEqual,
-          class TAllocator>
-bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual,
-                                       TAllocator> &iterable,
-              const TKey &key) {
+template <class TKey, class TValue, class THash, class TKeyEqual, class TAllocator>
+bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator> &iterable, const TKey &key) {
   return iterable.find(key) != iterable.end();
 }
 
@@ -167,8 +157,7 @@ template <typename TIterator>
 class Iterable {
  public:
   Iterable(TIterator &&begin, TIterator &&end)
-      : begin_(std::forward<TIterator>(begin)),
-        end_(std::forward<TIterator>(end)) {}
+      : begin_(std::forward<TIterator>(begin)), end_(std::forward<TIterator>(end)) {}
 
   auto begin() { return begin_; };
   auto end() { return end_; };

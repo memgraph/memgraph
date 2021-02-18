@@ -14,8 +14,7 @@ using communication::bolt::Value;
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
-uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len,
-                         uint8_t offset = 1) {
+uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
   uint64_t ret = 0;
   v.erase(v.begin(), v.begin() + offset);
   for (int i = 0; i < len; ++i) {
@@ -85,8 +84,7 @@ TEST_F(BoltEncoder, Int) {
   for (int i = 0; i < N; ++i) vals.push_back(Value(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
-  for (int i = 0; i < N; ++i)
-    CheckOutput(output, int_encoded[i], int_encoded_len[i], false);
+  for (int i = 0; i < N; ++i) CheckOutput(output, int_encoded[i], int_encoded_len[i], false);
   CheckOutput(output, nullptr, 0);
 }
 
@@ -104,8 +102,7 @@ TEST_F(BoltEncoder, Double) {
 TEST_F(BoltEncoder, String) {
   output.clear();
   std::vector<Value> vals;
-  for (uint64_t i = 0; i < sizes_num; ++i)
-    vals.push_back(Value(std::string((const char *)data, sizes[i])));
+  for (uint64_t i = 0; i < sizes_num; ++i) vals.push_back(Value(std::string((const char *)data, sizes[i])));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
@@ -120,8 +117,7 @@ TEST_F(BoltEncoder, List) {
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
     std::vector<Value> val;
-    for (uint64_t j = 0; j < sizes[i]; ++j)
-      val.push_back(Value(std::string((const char *)&data[j], 1)));
+    for (uint64_t j = 0; j < sizes[i]; ++j) val.push_back(Value(std::string((const char *)&data[j], 1)));
     vals.push_back(Value(val));
   }
   bolt_encoder.MessageRecord(vals);
@@ -193,12 +189,9 @@ TEST_F(BoltEncoder, VertexAndEdge) {
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*glue::ToBoltValue(
-      query::TypedValue(query::VertexAccessor(va1)), db, storage::View::NEW));
-  vals.push_back(*glue::ToBoltValue(
-      query::TypedValue(query::VertexAccessor(va2)), db, storage::View::NEW));
-  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::EdgeAccessor(*ea)),
-                                    db, storage::View::NEW));
+  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::VertexAccessor(va1)), db, storage::View::NEW));
+  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::VertexAccessor(va2)), db, storage::View::NEW));
+  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::EdgeAccessor(*ea)), db, storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
@@ -236,12 +229,10 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   svals.insert(std::make_pair(sk, slist));
   bolt_encoder.MessageSuccess(svals);
   CheckOutput(output,
-                (const uint8_t *) "\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x92\x84\x6E\x61\x6D\x65\x83\x61\x67\x65",
-                20);
+              (const uint8_t *)"\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x92\x84\x6E\x61\x6D\x65\x83\x61\x67\x65", 20);
 
   // failure message
-  std::string fv1("Neo.ClientError.Statement.SyntaxError"),
-      fv2("Invalid syntax.");
+  std::string fv1("Neo.ClientError.Statement.SyntaxError"), fv2("Invalid syntax.");
   std::string fk1("code"), fk2("message");
   Value ftv1(fv1), ftv2(fv2);
   std::map<std::string, Value> fvals;

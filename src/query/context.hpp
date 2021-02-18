@@ -26,8 +26,8 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters;
 };
 
-inline std::vector<storage::PropertyId> NamesToProperties(
-    const std::vector<std::string> &property_names, DbAccessor *dba) {
+inline std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
+                                                          DbAccessor *dba) {
   std::vector<storage::PropertyId> properties;
   properties.reserve(property_names.size());
   for (const auto &name : property_names) {
@@ -36,8 +36,7 @@ inline std::vector<storage::PropertyId> NamesToProperties(
   return properties;
 }
 
-inline std::vector<storage::LabelId> NamesToLabels(
-    const std::vector<std::string> &label_names, DbAccessor *dba) {
+inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba) {
   std::vector<storage::LabelId> labels;
   labels.reserve(label_names.size());
   for (const auto &name : label_names) {
@@ -60,11 +59,9 @@ struct ExecutionContext {
 };
 
 inline bool MustAbort(const ExecutionContext &context) {
-  return (context.is_shutting_down &&
-          context.is_shutting_down->load(std::memory_order_acquire)) ||
+  return (context.is_shutting_down && context.is_shutting_down->load(std::memory_order_acquire)) ||
          (context.max_execution_time_sec > 0 &&
-          context.execution_tsc_timer.Elapsed() >=
-              context.max_execution_time_sec);
+          context.execution_tsc_timer.Elapsed() >= context.max_execution_time_sec);
 }
 
 }  // namespace query

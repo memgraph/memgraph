@@ -19,11 +19,9 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
-DEFINE_string(save_mock_db_file, "",
-              "File where the mock database should be saved (on exit)");
+DEFINE_string(save_mock_db_file, "", "File where the mock database should be saved (on exit)");
 
-DEFINE_string(load_mock_db_file, "",
-              "File from which the mock database should be loaded");
+DEFINE_string(load_mock_db_file, "", "File from which the mock database should be loaded");
 
 #ifdef HAS_READLINE
 // TODO: This should probably be moved to some utils file.
@@ -128,17 +126,12 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(query::DbAccessor *dba, int64_t vertices_count,
-                        Timer &timer)
+  InteractiveDbAccessor(query::DbAccessor *dba, int64_t vertices_count, Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
-  auto NameToProperty(const std::string &name) {
-    return dba_->NameToProperty(name);
-  }
-  auto NameToEdgeType(const std::string &name) {
-    return dba_->NameToEdgeType(name);
-  }
+  auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
+  auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
 
   int64_t VerticesCount() { return vertices_count_; }
 
@@ -150,21 +143,17 @@ class InteractiveDbAccessor {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label_id,
-                        storage::PropertyId property_id) {
+  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) ==
-        label_property_vertex_count_.end()) {
-      label_property_vertex_count_[key] = ReadVertexCount(
-          "label '" + label + "' and property '" + property + "'");
+    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end()) {
+      label_property_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
     }
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label_id,
-                        storage::PropertyId property_id,
+  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id,
                         const storage::PropertyValue &value) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
@@ -176,44 +165,38 @@ class InteractiveDbAccessor {
     if (value_vertex_count.find(value) == value_vertex_count.end()) {
       std::stringstream ss;
       ss << value;
-      int64_t count = ReadVertexCount("label '" + label + "' and property '" +
-                                      property + "' value '" + ss.str() + "'");
+      int64_t count = ReadVertexCount("label '" + label + "' and property '" + property + "' value '" + ss.str() + "'");
       value_vertex_count[value] = count;
     }
     return value_vertex_count.at(value);
   }
 
-  int64_t VerticesCount(
-      storage::LabelId label_id, storage::PropertyId property_id,
-      const std::optional<utils::Bound<storage::PropertyValue>> lower,
-      const std::optional<utils::Bound<storage::PropertyValue>> upper) {
+  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id,
+                        const std::optional<utils::Bound<storage::PropertyValue>> lower,
+                        const std::optional<utils::Bound<storage::PropertyValue>> upper) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     std::stringstream range_string;
     if (lower) {
-      range_string << (lower->IsInclusive() ? "[" : "(") << lower->value()
-                   << (upper ? "," : ", inf)");
+      range_string << (lower->IsInclusive() ? "[" : "(") << lower->value() << (upper ? "," : ", inf)");
     } else {
       range_string << "(-inf, ";
     }
     if (upper) {
       range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
     }
-    return ReadVertexCount("label '" + label + "' and property '" + property +
-                           "' in range " + range_string.str());
+    return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
   bool LabelIndexExists(storage::LabelId label) { return true; }
 
-  bool LabelPropertyIndexExists(storage::LabelId label_id,
-                                storage::PropertyId property_id) {
+  bool LabelPropertyIndexExists(storage::LabelId label_id, storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
     if (label_property_index_.find(key) == label_property_index_.end()) {
-      bool resp = timer_.WithPause([&label, &property]() {
-        return AskYesNo("Index for ':" + label + "(" + property + ")' exists:");
-      });
+      bool resp = timer_.WithPause(
+          [&label, &property]() { return AskYesNo("Index for ':" + label + "(" + property + ")' exists:"); });
       label_property_index_[key] = resp;
     }
     return label_property_index_.at(key);
@@ -224,30 +207,24 @@ class InteractiveDbAccessor {
     out << "vertex-count " << vertices_count_ << std::endl;
     out << "label-index-count " << label_vertex_count_.size() << std::endl;
     for (const auto &label_count : label_vertex_count_) {
-      out << "  " << label_count.first << " " << label_count.second
-          << std::endl;
+      out << "  " << label_count.first << " " << label_count.second << std::endl;
     }
-    auto save_label_prop_map = [&](const auto &name,
-                                   const auto &label_prop_map) {
+    auto save_label_prop_map = [&](const auto &name, const auto &label_prop_map) {
       out << name << " " << label_prop_map.size() << std::endl;
       for (const auto &label_prop : label_prop_map) {
-        out << "  " << label_prop.first.first << " " << label_prop.first.second
-            << " " << label_prop.second << std::endl;
+        out << "  " << label_prop.first.first << " " << label_prop.first.second << " " << label_prop.second
+            << std::endl;
       }
     };
     save_label_prop_map("label-property-index-exists", label_property_index_);
-    save_label_prop_map("label-property-index-count",
-                        label_property_vertex_count_);
-    out << "label-property-value-index-count "
-        << property_value_vertex_count_.size() << std::endl;
+    save_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    out << "label-property-value-index-count " << property_value_vertex_count_.size() << std::endl;
     for (const auto &prop_value_count : property_value_vertex_count_) {
-      out << "  " << prop_value_count.first.first << " "
-          << prop_value_count.first.second << " "
+      out << "  " << prop_value_count.first.first << " " << prop_value_count.first.second << " "
           << prop_value_count.second.size() << std::endl;
       for (const auto &value_count : prop_value_count.second) {
         const auto &value = value_count.first;
-        out << "    " << value.type() << " " << value << " "
-            << value_count.second << std::endl;
+        out << "    " << value.type() << " " << value << " " << value_count.second << std::endl;
       }
     }
   }
@@ -291,10 +268,8 @@ class InteractiveDbAccessor {
       }
     };
     load_label_prop_map("label-property-index-exists", label_property_index_);
-    load_label_prop_map("label-property-index-count",
-                        label_property_vertex_count_);
-    int label_property_value_index_size =
-        load_named_size("label-property-value-index-count");
+    load_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    int label_property_value_index_size = load_named_size("label-property-value-index-count");
     for (int i = 0; i < label_property_value_index_size; ++i) {
       std::string label;
       std::string property;
@@ -312,8 +287,7 @@ class InteractiveDbAccessor {
           throw utils::BasicException("Unable to load label property value");
         }
         SPDLOG_INFO("Load {} {} {}", value.type(), value, count);
-        property_value_vertex_count_[std::make_pair(label, property)][value] =
-            count;
+        property_value_vertex_count_[std::make_pair(label, property)][value] = count;
       }
     }
   }
@@ -325,17 +299,13 @@ class InteractiveDbAccessor {
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
-  std::map<std::pair<std::string, std::string>, int64_t>
-      label_property_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
-  std::map<std::pair<std::string, std::string>,
-           std::map<storage::PropertyValue, int64_t>>
-      property_value_vertex_count_;
+  std::map<std::pair<std::string, std::string>, std::map<storage::PropertyValue, int64_t>> property_value_vertex_count_;
   // TODO: Cache faked index counts by range.
 
   int64_t ReadVertexCount(const std::string &message) const {
-    return timer_.WithPause(
-        [&message]() { return ReadInt("Vertices with " + message + ": "); });
+    return timer_.WithPause([&message]() { return ReadInt("Vertices with " + message + ": "); });
   }
 
   storage::PropertyValue LoadPropertyValue(std::istream &in) {
@@ -401,15 +371,11 @@ DEFCOMMAND(Help);
 std::map<std::string, Command> commands = {
     {"top", {TopCommand, 1, "Show top N plans"}},
     {"show", {ShowCommand, 1, "Show the Nth plan"}},
-    {"show-unoptimized",
-     {ShowUnoptimizedCommand, 1,
-      "Show the Nth plan in its original, unoptimized form"}},
+    {"show-unoptimized", {ShowUnoptimizedCommand, 1, "Show the Nth plan in its original, unoptimized form"}},
     {"help", {HelpCommand, 0, "Show available commands"}},
 };
 
-void AddCommand(const std::string &name, const Command &command) {
-  commands[name] = command;
-}
+void AddCommand(const std::string &name, const Command &command) { commands[name] = command; }
 
 DEFCOMMAND(Help) {
   std::cout << "Available commands:" << std::endl;
@@ -422,9 +388,7 @@ DEFCOMMAND(Help) {
   }
 }
 
-void ExaminePlans(query::DbAccessor *dba,
-                  const query::SymbolTable &symbol_table,
-                  std::vector<InteractivePlan> &plans,
+void ExaminePlans(query::DbAccessor *dba, const query::SymbolTable &symbol_table, std::vector<InteractivePlan> &plans,
                   const query::AstStorage &ast) {
   while (true) {
     auto line = ReadLine("plan? ");
@@ -435,14 +399,12 @@ void ExaminePlans(query::DbAccessor *dba,
     std::vector<std::string> args(words.begin() + 1, words.end());
     auto command_it = commands.find(command_name);
     if (command_it == commands.end()) {
-      std::cout << "Undefined command: '" << command_name << "'. Try 'help'."
-                << std::endl;
+      std::cout << "Undefined command: '" << command_name << "'. Try 'help'." << std::endl;
       continue;
     }
     const auto &command = command_it->second;
     if (args.size() < command.arg_count) {
-      std::cout << command_name << " expects " << command.arg_count
-                << " arguments" << std::endl;
+      std::cout << command_name << " expects " << command.arg_count << " arguments" << std::endl;
       continue;
     }
     command.function(*dba, symbol_table, plans, args, ast);
@@ -462,8 +424,7 @@ query::Query *MakeAst(const std::string &query, query::AstStorage *storage) {
 
 // Returns a list of InteractivePlan instances, sorted in the ascending order by
 // cost.
-auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
-                      query::SymbolTable &symbol_table,
+auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast, query::SymbolTable &symbol_table,
                       InteractiveDbAccessor *dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
   std::vector<InteractivePlan> interactive_plans;
@@ -474,8 +435,7 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
   }
   query::Parameters parameters;
   query::plan::PostProcessor post_process(parameters);
-  auto plans = query::plan::MakeLogicalPlanForSingleQuery<
-      query::plan::VariableStartPlanner>(
+  auto plans = query::plan::MakeLogicalPlanForSingleQuery<query::plan::VariableStartPlanner>(
       query_parts.query_parts.at(0).single_query_parts, &ctx);
   for (auto plan : plans) {
     query::AstStorage ast_copy;
@@ -483,12 +443,10 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
     auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
     double cost = post_process.EstimatePlanCost(rewritten_plan, dba);
     interactive_plans.push_back(
-        InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy),
-                        std::move(rewritten_plan), cost});
+        InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }
-  std::stable_sort(
-      interactive_plans.begin(), interactive_plans.end(),
-      [](const auto &a, const auto &b) { return a.cost < b.cost; });
+  std::stable_sort(interactive_plans.begin(), interactive_plans.end(),
+                   [](const auto &a, const auto &b) { return a.cost < b.cost; });
   return interactive_plans;
 }
 
@@ -499,9 +457,7 @@ void RunInteractivePlanning(query::DbAccessor *dba) {
     std::exit(EXIT_FAILURE);
   }
   Timer planning_timer;
-  InteractiveDbAccessor interactive_db(
-      dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
-      planning_timer);
+  InteractiveDbAccessor interactive_db(dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0, planning_timer);
   if (!in_db_filename.empty()) {
     std::ifstream db_file(in_db_filename);
     interactive_db.Load(db_file);
@@ -522,10 +478,8 @@ void RunInteractivePlanning(query::DbAccessor *dba) {
       planning_timer.Start();
       auto plans = MakeLogicalPlans(query, ast, symbol_table, &interactive_db);
       auto planning_time = planning_timer.Elapsed();
-      std::cout
-          << "Planning took "
-          << std::chrono::duration<double, std::milli>(planning_time).count()
-          << "ms" << std::endl;
+      std::cout << "Planning took " << std::chrono::duration<double, std::milli>(planning_time).count() << "ms"
+                << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
       ExaminePlans(dba, symbol_table, plans, ast);
     } catch (const utils::BasicException &e) {

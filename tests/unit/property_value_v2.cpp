@@ -275,8 +275,7 @@ TEST(PropertyValue, StringMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, ListCopy) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"),
-                                          storage::PropertyValue(123)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"), storage::PropertyValue(123)};
   storage::PropertyValue pv(vec);
 
   ASSERT_EQ(vec.size(), 2);
@@ -333,8 +332,7 @@ TEST(PropertyValue, ListCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, ListMove) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"),
-                                          storage::PropertyValue(123)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"), storage::PropertyValue(123)};
   storage::PropertyValue pv(std::move(vec));
 
   ASSERT_EQ(vec.size(), 0);
@@ -389,8 +387,7 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(123)}};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(123)}};
   storage::PropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
@@ -444,8 +441,7 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(123)}};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(123)}};
   storage::PropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
@@ -498,15 +494,12 @@ TEST(PropertyValue, MapMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (const auto &item : data) {
     storage::PropertyValue pv(item);
     ASSERT_EQ(pv.type(), item.type());
@@ -538,15 +531,12 @@ TEST(PropertyValue, CopyConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (auto &item : data) {
     storage::PropertyValue copy(item);
     storage::PropertyValue pv(std::move(item));
@@ -580,15 +570,12 @@ TEST(PropertyValue, MoveConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (const auto &item : data) {
     storage::PropertyValue pv(123);
     pv = item;
@@ -621,15 +608,12 @@ TEST(PropertyValue, CopyAssignment) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (auto &item : data) {
     storage::PropertyValue copy(item);
     storage::PropertyValue pv(123);
@@ -686,15 +670,12 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (const auto &item1 : data) {
     for (const auto &item2 : data) {
       if (item1.type() == item2.type()) {
@@ -708,15 +689,12 @@ TEST(PropertyValue, Equal) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true),
-                                          storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{
-      {"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),          storage::PropertyValue(true),
-      storage::PropertyValue(123),       storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-      storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
+  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
+                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
+                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
+                                           storage::PropertyValue(map)};
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
       auto item1 = data[i];
@@ -741,17 +719,12 @@ TEST(PropertyValue, NumeralTypesComparison) {
 }
 
 TEST(PropertyValue, NestedNumeralTypesComparison) {
-  auto v1 = storage::PropertyValue(
-      std::vector<storage::PropertyValue>{storage::PropertyValue(1)});
-  auto v2 = storage::PropertyValue(
-      std::vector<storage::PropertyValue>{storage::PropertyValue(1.5)});
-  auto v3 = storage::PropertyValue(
-      std::vector<storage::PropertyValue>{storage::PropertyValue(2)});
+  auto v1 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1)});
+  auto v2 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1.5)});
+  auto v3 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2)});
 
-  auto v1alt = storage::PropertyValue(
-      std::vector<storage::PropertyValue>{storage::PropertyValue(1.0)});
-  auto v3alt = storage::PropertyValue(
-      std::vector<storage::PropertyValue>{storage::PropertyValue(2.0)});
+  auto v1alt = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1.0)});
+  auto v3alt = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2.0)});
 
   ASSERT_TRUE(v1 == v1alt);
   ASSERT_TRUE(v3 == v3alt);

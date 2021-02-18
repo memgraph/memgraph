@@ -25,8 +25,7 @@ using communication::bolt::Vertex;
 
 class BfsPokecClient : public TestClient {
  public:
-  BfsPokecClient(int id, const std::string &db)
-      : TestClient(), rg_(id), db_(db) {
+  BfsPokecClient(int id, const std::string &db) : TestClient(), rg_(id), db_(db) {
     auto result = Execute("MATCH (n:User) RETURN count(1)", {}, "NumNodes");
     MG_ASSERT(result, "Read-only query should not fail");
     num_nodes_ = result->records[0][0].ValueInt();

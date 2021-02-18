@@ -28,8 +28,7 @@ class RWLock {
   explicit RWLock(Priority priority) {
     pthread_rwlockattr_t attr;
 
-    MG_ASSERT(pthread_rwlockattr_init(&attr) == 0,
-              "Couldn't initialize utils::RWLock!");
+    MG_ASSERT(pthread_rwlockattr_init(&attr) == 0, "Couldn't initialize utils::RWLock!");
 
     switch (priority) {
       case Priority::READ:
@@ -49,13 +48,11 @@ class RWLock {
         // but, as the name implies a writer may not lock recursively."
         //
         // For this reason, `RWLock` should not be used recursively.
-        pthread_rwlockattr_setkind_np(
-            &attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+        pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
         break;
     }
 
-    MG_ASSERT(pthread_rwlock_init(&lock_, &attr) == 0,
-              "Couldn't initialize utils::RWLock!");
+    MG_ASSERT(pthread_rwlock_init(&lock_, &attr) == 0, "Couldn't initialize utils::RWLock!");
     pthread_rwlockattr_destroy(&attr);
   }
 
@@ -66,10 +63,7 @@ class RWLock {
 
   ~RWLock() { pthread_rwlock_destroy(&lock_); }
 
-  void lock() {
-    MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0,
-              "Couldn't lock utils::RWLock!");
-  }
+  void lock() { MG_ASSERT(pthread_rwlock_wrlock(&lock_) == 0, "Couldn't lock utils::RWLock!"); }
 
   bool try_lock() {
     int err = pthread_rwlock_trywrlock(&lock_);
@@ -78,10 +72,7 @@ class RWLock {
     return false;
   }
 
-  void unlock() {
-    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0,
-              "Couldn't unlock utils::RWLock!");
-  }
+  void unlock() { MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock utils::RWLock!"); }
 
   void lock_shared() {
     int err;
@@ -113,10 +104,7 @@ class RWLock {
     }
   }
 
-  void unlock_shared() {
-    MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0,
-              "Couldn't unlock shared utils::RWLock!");
-  }
+  void unlock_shared() { MG_ASSERT(pthread_rwlock_unlock(&lock_) == 0, "Couldn't unlock shared utils::RWLock!"); }
 
  private:
   pthread_rwlock_t lock_ = PTHREAD_RWLOCK_INITIALIZER;

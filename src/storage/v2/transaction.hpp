@@ -20,10 +20,7 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp)
-      : transaction_id(transaction_id),
-        start_timestamp(start_timestamp),
-        command_id(0),
-        must_abort(false) {}
+      : transaction_id(transaction_id), start_timestamp(start_timestamp), command_id(0), must_abort(false) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id),
@@ -63,11 +60,7 @@ inline bool operator==(const Transaction &first, const Transaction &second) {
 inline bool operator<(const Transaction &first, const Transaction &second) {
   return first.transaction_id < second.transaction_id;
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id == second;
-}
-inline bool operator<(const Transaction &first, const uint64_t &second) {
-  return first.transaction_id < second;
-}
+inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace storage

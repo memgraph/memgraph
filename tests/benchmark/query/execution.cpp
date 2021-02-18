@@ -66,9 +66,7 @@ static void AddStarGraph(storage::Storage *db, int spoke_count, int depth) {
       auto prev_vertex = center_vertex;
       for (int j = 0; j < depth; ++j) {
         auto dest = dba.CreateVertex();
-        MG_ASSERT(
-            dba.CreateEdge(&prev_vertex, &dest, dba.NameToEdgeType("Type"))
-                .HasValue());
+        MG_ASSERT(dba.CreateEdge(&prev_vertex, &dest, dba.NameToEdgeType("Type")).HasValue());
         prev_vertex = dest;
       }
     }
@@ -91,8 +89,7 @@ static void AddTree(storage::Storage *db, int vertex_count) {
       auto v = dba.CreateVertex();
       std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
       auto &parent = vertices.at(dis(rg));
-      MG_ASSERT(
-          dba.CreateEdge(&parent, &v, dba.NameToEdgeType("Type")).HasValue());
+      MG_ASSERT(dba.CreateEdge(&parent, &v, dba.NameToEdgeType("Type")).HasValue());
       vertices.push_back(v);
     }
     MG_ASSERT(!dba.Commit().HasError());
@@ -100,8 +97,7 @@ static void AddTree(storage::Storage *db, int vertex_count) {
   MG_ASSERT(db->CreateIndex(db->NameToLabel(kStartLabel)));
 }
 
-static query::CypherQuery *ParseCypherQuery(const std::string &query_string,
-                                            query::AstStorage *ast) {
+static query::CypherQuery *ParseCypherQuery(const std::string &query_string, query::AstStorage *ast) {
   query::frontend::ParsingContext parsing_context;
   parsing_context.is_query_cached = false;
   query::frontend::opencypher::Parser parser(query_string);
@@ -123,17 +119,14 @@ static void Distinct(benchmark::State &state) {
   auto query_string = "MATCH (s) RETURN DISTINCT s";
   auto *cypher_query = ParseCypherQuery(query_string, &ast);
   auto symbol_table = query::MakeSymbolTable(cypher_query);
-  auto context =
-      query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba);
-  auto plan_and_cost =
-      query::plan::MakeLogicalPlan(&context, parameters, false);
+  auto context = query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba);
+  auto plan_and_cost = query::plan::MakeLogicalPlan(&context, parameters, false);
   ResultStreamFaker results(&db);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = plan_and_cost.first->MakeCursor(memory.get());
@@ -142,20 +135,14 @@ static void Distinct(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_TEMPLATE(Distinct, NewDeleteResource)
-    ->Range(1024, 1U << 21U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Distinct, NewDeleteResource)->Range(1024, 1U << 21U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(Distinct, MonotonicBufferResource)
-    ->Range(1024, 1U << 21U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Distinct, MonotonicBufferResource)->Range(1024, 1U << 21U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(Distinct, PoolResource)
-    ->Range(1024, 1U << 21U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Distinct, PoolResource)->Range(1024, 1U << 21U)->Unit(benchmark::kMicrosecond);
 
-static query::plan::ExpandVariable MakeExpandVariable(
-    query::EdgeAtom::Type expand_type, query::SymbolTable *symbol_table) {
+static query::plan::ExpandVariable MakeExpandVariable(query::EdgeAtom::Type expand_type,
+                                                      query::SymbolTable *symbol_table) {
   auto input_symbol = symbol_table->CreateSymbol("input", false);
   auto dest_symbol = symbol_table->CreateSymbol("dest", false);
   auto edge_symbol = symbol_table->CreateSymbol("edge", false);
@@ -165,10 +152,9 @@ static query::plan::ExpandVariable MakeExpandVariable(
   filter_lambda.inner_node_symbol = lambda_node_symbol;
   filter_lambda.inner_edge_symbol = lambda_edge_symbol;
   filter_lambda.expression = nullptr;
-  return query::plan::ExpandVariable(
-      nullptr, input_symbol, dest_symbol, edge_symbol, expand_type,
-      query::EdgeAtom::Direction::OUT, {}, false, nullptr, nullptr, false,
-      filter_lambda, std::nullopt, std::nullopt);
+  return query::plan::ExpandVariable(nullptr, input_symbol, dest_symbol, edge_symbol, expand_type,
+                                     query::EdgeAtom::Direction::OUT, {}, false, nullptr, nullptr, false, filter_lambda,
+                                     std::nullopt, std::nullopt);
 }
 
 template <class TMemory>
@@ -179,23 +165,19 @@ static void ExpandVariable(benchmark::State &state) {
   storage::Storage db;
   AddStarGraph(&db, state.range(0), state.range(1));
   query::SymbolTable symbol_table;
-  auto expand_variable =
-      MakeExpandVariable(query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
+  auto expand_variable = MakeExpandVariable(query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v :
-         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] =
-          query::TypedValue(query::VertexAccessor(v));
+    for (const auto &v : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+      frame[expand_variable.input_symbol_] = query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -222,40 +204,30 @@ static void ExpandBfs(benchmark::State &state) {
   storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
-  auto expand_variable =
-      MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
+  auto expand_variable = MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v :
-         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] =
-          query::TypedValue(query::VertexAccessor(v));
+    for (const auto &v : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+      frame[expand_variable.input_symbol_] = query::TypedValue(query::VertexAccessor(v));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_TEMPLATE(ExpandBfs, NewDeleteResource)
-    ->Range(512, 1U << 19U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandBfs, NewDeleteResource)->Range(512, 1U << 19U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(ExpandBfs, MonotonicBufferResource)
-    ->Range(512, 1U << 19U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandBfs, MonotonicBufferResource)->Range(512, 1U << 19U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(ExpandBfs, PoolResource)
-    ->Range(512, 1U << 19U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandBfs, PoolResource)->Range(512, 1U << 19U)->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -265,8 +237,7 @@ static void ExpandShortest(benchmark::State &state) {
   storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
-  auto expand_variable =
-      MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
+  auto expand_variable = MakeExpandVariable(query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   expand_variable.common_.existing_node = true;
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto storage_dba = db.Access();
@@ -275,17 +246,13 @@ static void ExpandShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v :
-         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] =
-          query::TypedValue(query::VertexAccessor(v));
-      for (const auto &dest :
-           dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+    for (const auto &v : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+      frame[expand_variable.input_symbol_] = query::TypedValue(query::VertexAccessor(v));
+      for (const auto &dest : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
@@ -294,17 +261,11 @@ static void ExpandShortest(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_TEMPLATE(ExpandShortest, NewDeleteResource)
-    ->Range(512, 1U << 20U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandShortest, NewDeleteResource)->Range(512, 1U << 20U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(ExpandShortest, MonotonicBufferResource)
-    ->Range(512, 1U << 20U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandShortest, MonotonicBufferResource)->Range(512, 1U << 20U)->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(ExpandShortest, PoolResource)
-    ->Range(512, 1U << 20U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandShortest, PoolResource)->Range(512, 1U << 20U)->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -314,12 +275,10 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   storage::Storage db;
   AddTree(&db, state.range(0));
   query::SymbolTable symbol_table;
-  auto expand_variable = MakeExpandVariable(
-      query::EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, &symbol_table);
+  auto expand_variable = MakeExpandVariable(query::EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, &symbol_table);
   expand_variable.common_.existing_node = true;
   expand_variable.weight_lambda_ =
-      query::plan::ExpansionLambda{symbol_table.CreateSymbol("edge", false),
-                                   symbol_table.CreateSymbol("vertex", false),
+      query::plan::ExpansionLambda{symbol_table.CreateSymbol("edge", false), symbol_table.CreateSymbol("vertex", false),
                                    ast.Create<query::PrimitiveLiteral>(1)};
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto storage_dba = db.Access();
@@ -328,17 +287,13 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v :
-         dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] =
-          query::TypedValue(query::VertexAccessor(v));
-      for (const auto &dest :
-           dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+    for (const auto &v : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
+      frame[expand_variable.input_symbol_] = query::TypedValue(query::VertexAccessor(v));
+      for (const auto &dest : dba.Vertices(storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame[dest_symbol] = query::TypedValue(query::VertexAccessor(dest));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
@@ -347,17 +302,13 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_TEMPLATE(ExpandWeightedShortest, NewDeleteResource)
-    ->Range(512, 1U << 20U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandWeightedShortest, NewDeleteResource)->Range(512, 1U << 20U)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(ExpandWeightedShortest, MonotonicBufferResource)
     ->Range(512, 1U << 20U)
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(ExpandWeightedShortest, PoolResource)
-    ->Range(512, 1U << 20U)
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(ExpandWeightedShortest, PoolResource)->Range(512, 1U << 20U)->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -367,8 +318,7 @@ static void Accumulate(benchmark::State &state) {
   storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
-  auto scan_all = std::make_shared<query::plan::ScanAll>(
-      nullptr, symbol_table.CreateSymbol("v", false));
+  auto scan_all = std::make_shared<query::plan::ScanAll>(nullptr, symbol_table.CreateSymbol("v", false));
   std::vector<query::Symbol> symbols;
   symbols.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
@@ -382,8 +332,7 @@ static void Accumulate(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = accumulate.MakeCursor(memory.get());
@@ -400,9 +349,7 @@ BENCHMARK_TEMPLATE(Accumulate, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(Accumulate, PoolResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Accumulate, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -412,8 +359,7 @@ static void Aggregate(benchmark::State &state) {
   storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
-  auto scan_all = std::make_shared<query::plan::ScanAll>(
-      nullptr, symbol_table.CreateSymbol("v", false));
+  auto scan_all = std::make_shared<query::plan::ScanAll>(nullptr, symbol_table.CreateSymbol("v", false));
   std::vector<query::Symbol> symbols;
   symbols.reserve(state.range(0));
   std::vector<query::Expression *> group_by;
@@ -424,10 +370,8 @@ static void Aggregate(benchmark::State &state) {
     auto sym = symbol_table.CreateSymbol(std::to_string(i), false);
     symbols.push_back(sym);
     group_by.push_back(ast.Create<query::Identifier>(sym.name())->MapTo(sym));
-    aggregations.push_back(
-        {ast.Create<query::PrimitiveLiteral>(i), nullptr,
-         query::Aggregation::Op::SUM,
-         symbol_table.CreateSymbol("out" + std::to_string(i), false)});
+    aggregations.push_back({ast.Create<query::PrimitiveLiteral>(i), nullptr, query::Aggregation::Op::SUM,
+                            symbol_table.CreateSymbol("out" + std::to_string(i), false)});
   }
   query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
   auto storage_dba = db.Access();
@@ -436,8 +380,7 @@ static void Aggregate(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = aggregate.MakeCursor(memory.get());
@@ -458,9 +401,7 @@ BENCHMARK_TEMPLATE(Aggregate, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(Aggregate, PoolResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Aggregate, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -470,8 +411,7 @@ static void OrderBy(benchmark::State &state) {
   storage::Storage db;
   AddVertices(&db, state.range(1));
   query::SymbolTable symbol_table;
-  auto scan_all = std::make_shared<query::plan::ScanAll>(
-      nullptr, symbol_table.CreateSymbol("v", false));
+  auto scan_all = std::make_shared<query::plan::ScanAll>(nullptr, symbol_table.CreateSymbol("v", false));
   std::vector<query::Symbol> symbols;
   symbols.reserve(state.range(0));
   // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
@@ -481,8 +421,7 @@ static void OrderBy(benchmark::State &state) {
   for (int i = 0; i < state.range(0); ++i) {
     symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
     auto rand_value = utils::MemcpyCast<int64_t>(rg());
-    sort_items.push_back({query::Ordering::ASC,
-                          ast.Create<query::PrimitiveLiteral>(rand_value)});
+    sort_items.push_back({query::Ordering::ASC, ast.Create<query::PrimitiveLiteral>(rand_value)});
   }
   query::plan::OrderBy order_by(scan_all, sort_items, symbols);
   auto storage_dba = db.Access();
@@ -491,8 +430,7 @@ static void OrderBy(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = order_by.MakeCursor(memory.get());
@@ -509,9 +447,7 @@ BENCHMARK_TEMPLATE(OrderBy, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(OrderBy, PoolResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(OrderBy, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
@@ -521,8 +457,7 @@ static void Unwind(benchmark::State &state) {
   storage::Storage db;
   AddVertices(&db, state.range(0));
   query::SymbolTable symbol_table;
-  auto scan_all = std::make_shared<query::plan::ScanAll>(
-      nullptr, symbol_table.CreateSymbol("v", false));
+  auto scan_all = std::make_shared<query::plan::ScanAll>(nullptr, symbol_table.CreateSymbol("v", false));
   auto list_sym = symbol_table.CreateSymbol("list", false);
   auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
@@ -533,28 +468,22 @@ static void Unwind(benchmark::State &state) {
   TMemory per_pull_memory;
   query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table,
-                                              evaluation_context};
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
-    frame[list_sym] =
-        query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
+    frame[list_sym] = query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
     auto cursor = unwind.MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_TEMPLATE(Unwind, NewDeleteResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Unwind, NewDeleteResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(Unwind, MonotonicBufferResource)
     ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(Unwind, PoolResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Unwind, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

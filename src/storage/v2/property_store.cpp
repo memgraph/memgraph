@@ -160,8 +160,7 @@ class Writer {
     void Set(Metadata metadata) {
       if (!value_) return;
       auto value = static_cast<uint8_t>(metadata.type);
-      value |= static_cast<uint8_t>(static_cast<uint8_t>(metadata.id_size)
-                                    << kShiftIdSize);
+      value |= static_cast<uint8_t>(static_cast<uint8_t>(metadata.id_size) << kShiftIdSize);
       value |= static_cast<uint8_t>(metadata.payload_size);
       *value_ = value;
     }
@@ -210,9 +209,7 @@ class Writer {
     }
   }
 
-  std::optional<Size> WriteDouble(double value) {
-    return WriteUint(utils::MemcpyCast<uint64_t>(value));
-  }
+  std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
 
   bool WriteBytes(const uint8_t *data, uint64_t size) {
     if (data_ && pos_ + size > size_) return false;
@@ -233,11 +230,8 @@ class Writer {
   bool InternalWriteInt(V value) {
     static_assert(std::numeric_limits<T>::is_integer);
     static_assert(std::numeric_limits<V>::is_integer);
-    static_assert(std::numeric_limits<T>::is_signed ==
-                  std::numeric_limits<V>::is_signed);
-    if (value < std::numeric_limits<T>::min() ||
-        value > std::numeric_limits<T>::max())
-      return false;
+    static_assert(std::numeric_limits<T>::is_signed == std::numeric_limits<V>::is_signed);
+    if (value < std::numeric_limits<T>::min() || value > std::numeric_limits<T>::max()) return false;
     if (data_ && pos_ + sizeof(T) > size_) return false;
     T tmp = value;
     if (data_) memcpy(data_ + pos_, &tmp, sizeof(T));
@@ -253,16 +247,14 @@ class Writer {
 // Helper class used to read data from the binary stream.
 class Reader {
  public:
-  Reader(const uint8_t *data, uint64_t size)
-      : data_(data), size_(size), pos_(0) {}
+  Reader(const uint8_t *data, uint64_t size) : data_(data), size_(size), pos_(0) {}
 
   std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
     uint8_t value = data_[pos_++];
     Metadata metadata;
     metadata.type = static_cast<Type>(value & kMaskType);
-    metadata.id_size = static_cast<Size>(
-        static_cast<uint8_t>(value & kMaskIdSize) >> kShiftIdSize);
+    metadata.id_size = static_cast<Size>(static_cast<uint8_t>(value & kMaskIdSize) >> kShiftIdSize);
     metadata.payload_size = static_cast<Size>(value & kMaskPayloadSize);
     return metadata;
   }
@@ -342,9 +334,7 @@ class Reader {
     return true;
   }
 
-  bool ReadBytes(char *data, uint64_t size) {
-    return ReadBytes(reinterpret_cast<uint8_t *>(data), size);
-  }
+  bool ReadBytes(char *data, uint64_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
 
   bool VerifyBytes(const uint8_t *data, uint64_t size) {
     if (pos_ + size > size_) return false;
@@ -381,8 +371,7 @@ class Reader {
 };
 
 // Function used to encode a PropertyValue into a byte stream.
-std::optional<std::pair<Type, Size>> EncodePropertyValue(
-    Writer *writer, const PropertyValue &value) {
+std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
       return {{Type::NONE, Size::INT8}};
@@ -432,8 +421,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
         if (!metadata) return std::nullopt;
         auto key_size = writer->WriteUint(item.first.size());
         if (!key_size) return std::nullopt;
-        if (!writer->WriteBytes(item.first.data(), item.first.size()))
-          return std::nullopt;
+        if (!writer->WriteBytes(item.first.data(), item.first.size())) return std::nullopt;
         auto ret = EncodePropertyValue(writer, item.second);
         if (!ret) return std::nullopt;
         metadata->Set({ret->first, *key_size, ret->second});
@@ -448,9 +436,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
 // pointer.
 //
 // @sa ComparePropertyValue
-[[nodiscard]] bool DecodePropertyValue(Reader *reader, Type type,
-                                       Size payload_size,
-                                       PropertyValue *value) {
+[[nodiscard]] bool DecodePropertyValue(Reader *reader, Type type, Size payload_size, PropertyValue *value) {
   switch (type) {
     case Type::EMPTY: {
       return false;
@@ -509,9 +495,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
           auto metadata = reader->ReadMetadata();
           if (!metadata) return false;
           PropertyValue item;
-          if (!DecodePropertyValue(reader, metadata->type,
-                                   metadata->payload_size, &item))
-            return false;
+          if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, &item)) return false;
           list.emplace_back(std::move(item));
         }
         *value = PropertyValue(std::move(list));
@@ -519,9 +503,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
         for (uint64_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
           if (!metadata) return false;
-          if (!DecodePropertyValue(reader, metadata->type,
-                                   metadata->payload_size, nullptr))
-            return false;
+          if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, nullptr)) return false;
         }
       }
       return true;
@@ -539,9 +521,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
           std::string key(*key_size, '\0');
           if (!reader->ReadBytes(key.data(), *key_size)) return false;
           PropertyValue item;
-          if (!DecodePropertyValue(reader, metadata->type,
-                                   metadata->payload_size, &item))
-            return false;
+          if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, &item)) return false;
           map.emplace(std::move(key), std::move(item));
         }
         *value = PropertyValue(std::move(map));
@@ -552,9 +532,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
           auto key_size = reader->ReadUint(metadata->id_size);
           if (!key_size) return false;
           if (!reader->SkipBytes(*key_size)) return false;
-          if (!DecodePropertyValue(reader, metadata->type,
-                                   metadata->payload_size, nullptr))
-            return false;
+          if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, nullptr)) return false;
         }
       }
       return true;
@@ -570,9 +548,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
 // the operator so that they have identical functionality.
 //
 // @sa DecodePropertyValue
-[[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type,
-                                        Size payload_size,
-                                        const PropertyValue &value) {
+[[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value) {
   switch (type) {
     case Type::EMPTY: {
       return false;
@@ -630,9 +606,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
       for (uint64_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        if (!ComparePropertyValue(reader, metadata->type,
-                                  metadata->payload_size, list[i]))
-          return false;
+        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
       }
       return true;
     }
@@ -649,9 +623,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
         if (!key_size) return false;
         if (*key_size != item.first.size()) return false;
         if (!reader->VerifyBytes(item.first.data(), *key_size)) return false;
-        if (!ComparePropertyValue(reader, metadata->type,
-                                  metadata->payload_size, item.second))
-          return false;
+        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, item.second)) return false;
       }
       return true;
     }
@@ -660,8 +632,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(
 
 // Function used to encode a property (PropertyId, PropertyValue) into a byte
 // stream.
-bool EncodeProperty(Writer *writer, PropertyId property,
-                    const PropertyValue &value) {
+bool EncodeProperty(Writer *writer, PropertyId property, const PropertyValue &value) {
   auto metadata = writer->WriteMetadata();
   if (!metadata) return false;
 
@@ -671,8 +642,7 @@ bool EncodeProperty(Writer *writer, PropertyId property,
   auto type_property_size = EncodePropertyValue(writer, value);
   if (!type_property_size) return false;
 
-  metadata->Set(
-      {type_property_size->first, *id_size, type_property_size->second});
+  metadata->Set({type_property_size->first, *id_size, type_property_size->second});
   return true;
 }
 
@@ -702,8 +672,8 @@ enum class DecodeExpectedPropertyStatus {
 //
 // @sa DecodeAnyProperty
 // @sa CompareExpectedProperty
-[[nodiscard]] DecodeExpectedPropertyStatus DecodeExpectedProperty(
-    Reader *reader, PropertyId expected_property, PropertyValue *value) {
+[[nodiscard]] DecodeExpectedPropertyStatus DecodeExpectedProperty(Reader *reader, PropertyId expected_property,
+                                                                  PropertyValue *value) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return DecodeExpectedPropertyStatus::MISSING_DATA;
 
@@ -715,8 +685,7 @@ enum class DecodeExpectedPropertyStatus {
     value = nullptr;
   }
 
-  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size,
-                           value))
+  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
     return DecodeExpectedPropertyStatus::MISSING_DATA;
 
   if (*property_id < expected_property.AsUint()) {
@@ -734,17 +703,14 @@ enum class DecodeExpectedPropertyStatus {
 //
 // @sa DecodeExpectedProperty
 // @sa CompareExpectedProperty
-[[nodiscard]] std::optional<PropertyId> DecodeAnyProperty(
-    Reader *reader, PropertyValue *value) {
+[[nodiscard]] std::optional<PropertyId> DecodeAnyProperty(Reader *reader, PropertyValue *value) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return std::nullopt;
 
   auto property_id = reader->ReadUint(metadata->id_size);
   if (!property_id) return std::nullopt;
 
-  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size,
-                           value))
-    return std::nullopt;
+  if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
 
   return PropertyId::FromUint(*property_id);
 }
@@ -754,9 +720,7 @@ enum class DecodeExpectedPropertyStatus {
 //
 // @sa DecodeExpectedProperty
 // @sa DecodeAnyProperty
-[[nodiscard]] bool CompareExpectedProperty(Reader *reader,
-                                           PropertyId expected_property,
-                                           const PropertyValue &value) {
+[[nodiscard]] bool CompareExpectedProperty(Reader *reader, PropertyId expected_property, const PropertyValue &value) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return false;
 
@@ -764,8 +728,7 @@ enum class DecodeExpectedPropertyStatus {
   if (!property_id) return false;
   if (*property_id != expected_property.AsUint()) return false;
 
-  return ComparePropertyValue(reader, metadata->type, metadata->payload_size,
-                              value);
+  return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
 }
 
 // Function used to find and (selectively) get the property value of the
@@ -774,8 +737,8 @@ enum class DecodeExpectedPropertyStatus {
 // the `value` won't be updated.
 //
 // @sa FindSpecificPropertyAndBufferInfo
-[[nodiscard]] DecodeExpectedPropertyStatus FindSpecificProperty(
-    Reader *reader, PropertyId property, PropertyValue *value) {
+[[nodiscard]] DecodeExpectedPropertyStatus FindSpecificProperty(Reader *reader, PropertyId property,
+                                                                PropertyValue *value) {
   while (true) {
     auto ret = DecodeExpectedProperty(reader, property, value);
     // Because the properties are sorted in the buffer, we only need to
@@ -810,8 +773,7 @@ struct SpecificPropertyAndBufferInfo {
 // found).
 //
 // @sa FindSpecificProperty
-SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(
-    Reader *reader, PropertyId property) {
+SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, PropertyId property) {
   uint64_t property_begin = reader->GetPosition();
   uint64_t property_end = reader->GetPosition();
   uint64_t all_begin = reader->GetPosition();
@@ -828,8 +790,7 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(
     }
     all_end = reader->GetPosition();
   }
-  return {property_begin, property_end, property_end - property_begin,
-          all_begin,      all_end,      all_end - all_begin};
+  return {property_begin, property_end, property_end - property_begin, all_begin, all_end, all_end - all_begin};
 }
 
 // All data buffers will be allocated to a power of 8 size.
@@ -933,9 +894,7 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   }
   Reader reader(data, size);
   PropertyValue value;
-  if (FindSpecificProperty(&reader, property, &value) !=
-      DecodeExpectedPropertyStatus::EQUAL)
-    return PropertyValue();
+  if (FindSpecificProperty(&reader, property, &value) != DecodeExpectedPropertyStatus::EQUAL) return PropertyValue();
   return value;
 }
 
@@ -949,12 +908,10 @@ bool PropertyStore::HasProperty(PropertyId property) const {
     data = &buffer_[1];
   }
   Reader reader(data, size);
-  return FindSpecificProperty(&reader, property, nullptr) ==
-         DecodeExpectedPropertyStatus::EQUAL;
+  return FindSpecificProperty(&reader, property, nullptr) == DecodeExpectedPropertyStatus::EQUAL;
 }
 
-bool PropertyStore::IsPropertyEqual(PropertyId property,
-                                    const PropertyValue &value) const {
+bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   uint64_t size;
   const uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -991,8 +948,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return props;
 }
 
-bool PropertyStore::SetProperty(PropertyId property,
-                                const PropertyValue &value) {
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
   uint64_t property_size = 0;
   if (!value.IsNull()) {
     Writer writer;
@@ -1036,8 +992,7 @@ bool PropertyStore::SetProperty(PropertyId property,
 
       // Encode the property into the data buffer.
       Writer writer(data, size);
-      MG_ASSERT(EncodeProperty(&writer, property, value),
-                "Invalid database state!");
+      MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
       auto metadata = writer.WriteMetadata();
       if (metadata) {
         // If there is any space left in the buffer we add a tombstone to
@@ -1060,8 +1015,7 @@ bool PropertyStore::SetProperty(PropertyId property,
       SetSizeData(buffer_, 0, nullptr);
       data = nullptr;
       size = 0;
-    } else if (new_size_to_power_of_8 > size ||
-               new_size_to_power_of_8 <= size * 2 / 3) {
+    } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
       uint8_t *current_data = nullptr;
@@ -1081,8 +1035,8 @@ bool PropertyStore::SetProperty(PropertyId property,
       // Copy everything before the property to the new buffer.
       memmove(current_data, data, info.property_begin);
       // Copy everything after the property to the new buffer.
-      memmove(current_data + info.property_begin + property_size,
-              data + info.property_end, info.all_end - info.property_end);
+      memmove(current_data + info.property_begin + property_size, data + info.property_end,
+              info.all_end - info.property_end);
       // Free the old buffer.
       if (!in_local_buffer) delete[] data;
       // Permanently remember the new buffer.
@@ -1097,15 +1051,13 @@ bool PropertyStore::SetProperty(PropertyId property,
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      memmove(data + info.property_begin + property_size,
-              data + info.property_end, info.all_end - info.property_end);
+      memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
     }
 
     if (!value.IsNull()) {
       // We need to encode the new value.
       Writer writer(data + info.property_begin, property_size);
-      MG_ASSERT(EncodeProperty(&writer, property, value),
-                "Invalid database state!");
+      MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
     }
 
     // We need to recreate the tombstone (if possible).

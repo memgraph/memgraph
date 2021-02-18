@@ -119,8 +119,7 @@ TEST_F(BoltDecoder, String) {
 
   Value dv;
 
-  uint8_t headers[][6] = {"\x8F", "\xD0\x0F", "\xD1\x00\x0F",
-                          "\xD2\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\x8F", "\xD0\x0F", "\xD1\x00\x0F", "\xD2\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   for (int i = 0; i < 4; ++i) {
@@ -175,8 +174,7 @@ TEST_F(BoltDecoder, List) {
 
   Value dv;
 
-  uint8_t headers[][6] = {"\x9F", "\xD4\x0F", "\xD5\x00\x0F",
-                          "\xD6\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\x9F", "\xD4\x0F", "\xD5\x00\x0F", "\xD6\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   for (int i = 0; i < 4; ++i) {
@@ -209,8 +207,7 @@ TEST_F(BoltDecoder, Map) {
 
   Value dv;
 
-  uint8_t headers[][6] = {"\xAF", "\xD8\x0F", "\xD9\x00\x0F",
-                          "\xDA\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\xAF", "\xD8\x0F", "\xD9\x00\x0F", "\xDA\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   uint8_t index[] = "\x81\x61";

@@ -44,23 +44,18 @@ class QueryCostEstimator : public ::testing::Test {
     dba.emplace(&*storage_dba);
   }
 
-  Symbol NextSymbol() {
-    return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++),
-                                      true);
-  }
+  Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
 
   /** Adds the given number of vertices to the DB, of which
    * the given numbers are labeled and have a property set. */
-  void AddVertices(int vertex_count, int labeled_count,
-                   int property_count = 0) {
+  void AddVertices(int vertex_count, int labeled_count, int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
       auto vertex = dba->InsertVertex();
       if (i < labeled_count) {
         ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       }
       if (i < property_count) {
-        ASSERT_TRUE(
-            vertex.SetProperty(property, storage::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue(i)).HasValue());
       }
     }
 
@@ -90,9 +85,7 @@ class QueryCostEstimator : public ::testing::Test {
     return storage_.Create<ParameterLookup>(token_position);
   }
 
-  auto InclusiveBound(Expression *expression) {
-    return std::make_optional(utils::MakeBoundInclusive(expression));
-  };
+  auto InclusiveBound(Expression *expression) { return std::make_optional(utils::MakeBoundInclusive(expression)); };
 
   const std::nullopt_t nullopt = std::nullopt;
 };
@@ -117,8 +110,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property,
-                                        "property", const_val);
+    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property", const_val);
     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
   }
 }
@@ -126,20 +118,17 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyValue>(
-        nullptr, NextSymbol(), label, property, "property",
-        // once we make expression const-folding this test case will fail
-        storage_.Create<UnaryPlusOperator>(const_val));
-    EXPECT_COST(20 * CardParam::kFilter *
-                CostParam::MakeScanAllByLabelPropertyValue);
+    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property",
+                                        // once we make expression const-folding this test case will fail
+                                        storage_.Create<UnaryPlusOperator>(const_val));
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyValue);
   }
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property,
-                                        "property", nullopt,
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", nullopt,
                                         InclusiveBound(const_val));
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(13 * CostParam::MakeScanAllByLabelPropertyRange);
@@ -149,8 +138,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(17), Parameter(17)}) {
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property,
-                                        "property", InclusiveBound(const_val),
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", InclusiveBound(const_val),
                                         nullopt);
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(3 * CostParam::MakeScanAllByLabelPropertyRange);
@@ -160,30 +148,23 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
-    auto bound =
-        std::make_optional(utils::MakeBoundInclusive(static_cast<Expression *>(
-            storage_.Create<UnaryPlusOperator>(const_val))));
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property,
-                                        "property", bound, nullopt);
-    EXPECT_COST(20 * CardParam::kFilter *
-                CostParam::MakeScanAllByLabelPropertyRange);
+    auto bound = std::make_optional(
+        utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", bound, nullopt);
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyRange);
   }
 }
 
 TEST_F(QueryCostEstimator, Expand) {
-  MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
-                 EdgeAtom::Direction::IN, std::vector<storage::EdgeTypeId>{},
-                 false, storage::View::OLD);
+  MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
+                 std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
-  MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
-                         EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
-                         std::vector<storage::EdgeTypeId>{}, false, nullptr,
-                         nullptr, false,
-                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
-                         std::nullopt, std::nullopt);
+  MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
+                         EdgeAtom::Direction::IN, std::vector<storage::EdgeTypeId>{}, false, nullptr, nullptr, false,
+                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
@@ -197,28 +178,23 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TEST_F(QueryCostEstimator, Filter) {
-  TEST_OP(MakeOp<Filter>(last_op_, Literal(true)), CostParam::kFilter,
-          CardParam::kFilter);
+  TEST_OP(MakeOp<Filter>(last_op_, Literal(true)), CostParam::kFilter, CardParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {
-  TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(),
-                                       std::vector<Symbol>()),
-          CostParam::kEdgeUniquenessFilter, CardParam::kEdgeUniquenessFilter);
+  TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(), std::vector<Symbol>()), CostParam::kEdgeUniquenessFilter,
+          CardParam::kEdgeUniquenessFilter);
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(
-      MakeOp<query::plan::Unwind>(
-          last_op_,
-          storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
-          NextSymbol()),
-      CostParam::kUnwind, 7);
+  TEST_OP(MakeOp<query::plan::Unwind>(last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
+                                      NextSymbol()),
+          CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(last_op_, nullptr, NextSymbol()),
-          CostParam::kUnwind, MiscParam::kUnwindNoLiteral);
+  TEST_OP(MakeOp<query::plan::Unwind>(last_op_, nullptr, NextSymbol()), CostParam::kUnwind,
+          MiscParam::kUnwindNoLiteral);
 }
 
 #undef TEST_OP

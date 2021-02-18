@@ -43,7 +43,6 @@ class SignalHandler {
   /// Like RegisterHandler, but takes a `signal_mask` argument for blocking
   /// signals during execution of the handler. `signal_mask` should be created
   /// using `sigemptyset` and `sigaddset` functions from `<signal.h>`.
-  static bool RegisterHandler(Signal signal, std::function<void()> func,
-                              sigset_t signal_mask);
+  static bool RegisterHandler(Signal signal, std::function<void()> func, sigset_t signal_mask);
 };
 }  // namespace utils

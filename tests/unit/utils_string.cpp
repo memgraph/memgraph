@@ -155,12 +155,8 @@ TEST(String, Substr) {
   EXPECT_TRUE(Substr(string, string.size() + 1).empty());
   EXPECT_EQ(Substr(string, 1, string.size()), string.substr(1, string.size()));
   EXPECT_EQ(Substr(string, 0, string.size()), string.substr(0, string.size()));
-  EXPECT_EQ(Substr(string, 0, string.size() + 1),
-            string.substr(0, string.size() + 1));
-  EXPECT_EQ(Substr(string, 0, string.size() - 1),
-            string.substr(0, string.size() - 1));
-  EXPECT_EQ(Substr(string, string.size() - 1, 1),
-            string.substr(string.size() - 1, 1));
-  EXPECT_EQ(Substr(string, string.size() - 1, 2),
-            string.substr(string.size() - 1, 2));
+  EXPECT_EQ(Substr(string, 0, string.size() + 1), string.substr(0, string.size() + 1));
+  EXPECT_EQ(Substr(string, 0, string.size() - 1), string.substr(0, string.size() - 1));
+  EXPECT_EQ(Substr(string, string.size() - 1, 1), string.substr(string.size() - 1, 1));
+  EXPECT_EQ(Substr(string, string.size() - 1, 2), string.substr(string.size() - 1, 2));
 }

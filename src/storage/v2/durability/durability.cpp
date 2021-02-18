@@ -20,8 +20,7 @@
 
 namespace storage::durability {
 
-void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
-    const std::filesystem::path &storage_directory) {
+void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
   // Get the process user ID.
   auto process_euid = geteuid();
 
@@ -32,8 +31,7 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
     // The directory doesn't currently exist.
     return;
   }
-  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})",
-            storage_directory, strerror(errno), errno);
+  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
   auto directory_owner = statbuf.st_uid;
 
   auto get_username = [](auto uid) {
@@ -50,57 +48,48 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(
             user_process, user_directory, user_directory);
 }
 
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(
-    const std::filesystem::path &snapshot_directory,
-    const std::string_view uuid) {
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                     const std::string_view uuid) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
   std::error_code error_code;
   if (utils::DirExists(snapshot_directory)) {
-    for (const auto &item :
-         std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+    for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
       try {
         auto info = ReadSnapshotInfo(item.path());
         if (uuid.empty() || info.uuid == uuid) {
-          snapshot_files.emplace_back(item.path(), std::move(info.uuid),
-                                      info.start_timestamp);
+          snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
         }
       } catch (const RecoveryFailure &) {
         continue;
       }
     }
-    MG_ASSERT(!error_code,
-              "Couldn't recover data because an error occurred: {}!",
-              error_code.message());
+    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
   }
 
   return snapshot_files;
 }
 
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
-    const std::filesystem::path &wal_directory, const std::string_view uuid,
-    const std::optional<size_t> current_seq_num) {
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
+                                                          const std::string_view uuid,
+                                                          const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
   std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
-  for (const auto &item :
-       std::filesystem::directory_iterator(wal_directory, error_code)) {
+  for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if ((uuid.empty() || info.uuid == uuid) &&
-          (!current_seq_num || info.seq_num < *current_seq_num))
-        wal_files.emplace_back(info.seq_num, info.from_timestamp,
-                               info.to_timestamp, std::move(info.uuid),
+      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num))
+        wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read {}", item.path());
       continue;
     }
   }
-  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!",
-            error_code.message());
+  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
   std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
@@ -110,9 +99,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
-void RecoverIndicesAndConstraints(
-    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-    Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices) {
   // Recover label indices.
   for (const auto &item : indices_constraints.indices.label) {
     if (!indices->label_index.CreateIndex(item, vertices->access()))
@@ -121,40 +109,33 @@ void RecoverIndicesAndConstraints(
 
   // Recover label+property indices.
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!indices->label_property_index.CreateIndex(item.first, item.second,
-                                                   vertices->access()))
+    if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
       throw RecoveryFailure("The label+property index must be created here!");
   }
 
   // Recover existence constraints.
   for (const auto &item : indices_constraints.constraints.existence) {
-    auto ret = CreateExistenceConstraint(constraints, item.first, item.second,
-                                         vertices->access());
-    if (ret.HasError() || !ret.GetValue())
-      throw RecoveryFailure("The existence constraint must be created here!");
+    auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
+    if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
   }
 
   // Recover unique constraints.
   for (const auto &item : indices_constraints.constraints.unique) {
-    auto ret = constraints->unique_constraints.CreateConstraint(
-        item.first, item.second, vertices->access());
-    if (ret.HasError() ||
-        ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
+    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
   }
 }
 
-std::optional<RecoveryInfo> RecoverData(
-    const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, std::string *uuid,
-    std::string *epoch_id,
-    std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-    Indices *indices, Constraints *constraints, Config::Items items,
-    uint64_t *wal_seq_num) {
-  if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory))
-    return std::nullopt;
+std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
+                                        const std::filesystem::path &wal_directory, std::string *uuid,
+                                        std::string *epoch_id,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
+                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        uint64_t *wal_seq_num) {
+  if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) return std::nullopt;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
@@ -171,36 +152,30 @@ std::optional<RecoveryInfo> RecoverData(
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
       const auto &[path, file_uuid, _] = *it;
       if (file_uuid != *uuid) {
-        spdlog::warn(
-            "The snapshot file {} isn't related to the latest snapshot file!",
-            path);
+        spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
       }
       spdlog::info("Starting snapshot recovery from {}", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history,
-                                          name_id_mapper, edge_count, items);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Couldn't recover snapshot from {} because of: {}", path,
-                     e.what());
+        spdlog::warn("Couldn't recover snapshot from {} because of: {}", path, e.what());
         continue;
       }
     }
-    MG_ASSERT(
-        recovered_snapshot,
-        "The database is configured to recover on startup, but couldn't "
-        "recover using any of the specified snapshots! Please inspect them "
-        "and restart the database.");
+    MG_ASSERT(recovered_snapshot,
+              "The database is configured to recover on startup, but couldn't "
+              "recover using any of the specified snapshots! Please inspect them "
+              "and restart the database.");
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
-                                   vertices);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -210,11 +185,8 @@ std::optional<RecoveryInfo> RecoverData(
     // necessary for the rest of the recovery function.
     // Also, the struct is sorted primarily on the path it contains.
     struct WalFileInfo {
-      explicit WalFileInfo(std::filesystem::path path, std::string uuid,
-                           std::string epoch_id)
-          : path(std::move(path)),
-            uuid(std::move(uuid)),
-            epoch_id(std::move(epoch_id)) {}
+      explicit WalFileInfo(std::filesystem::path path, std::string uuid, std::string epoch_id)
+          : path(std::move(path)), uuid(std::move(uuid)), epoch_id(std::move(epoch_id)) {}
       std::filesystem::path path;
       std::string uuid;
       std::string epoch_id;
@@ -222,20 +194,16 @@ std::optional<RecoveryInfo> RecoverData(
       auto operator<=>(const WalFileInfo &) const = default;
     };
     std::vector<WalFileInfo> wal_files;
-    for (const auto &item :
-         std::filesystem::directory_iterator(wal_directory, error_code)) {
+    for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
       if (!item.is_regular_file()) continue;
       try {
         auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), std::move(info.uuid),
-                               std::move(info.epoch_id));
+        wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
         continue;
       }
     }
-    MG_ASSERT(!error_code,
-              "Couldn't recover data because an error occurred: {}!",
-              error_code.message());
+    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
     if (wal_files.empty()) return std::nullopt;
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
@@ -257,10 +225,9 @@ std::optional<RecoveryInfo> RecoverData(
   // a WAL file. The above `else` has an early exit in case there are no WAL
   // files. Because we reached this point there must have been some WAL files
   // and we must have some WAL files after this second WAL directory iteration.
-  MG_ASSERT(
-      snapshot_timestamp || !wal_files.empty(),
-      "The database didn't recover from a snapshot and didn't find any WAL "
-      "files that match the last WAL file!");
+  MG_ASSERT(snapshot_timestamp || !wal_files.empty(),
+            "The database didn't recover from a snapshot and didn't find any WAL "
+            "files that match the last WAL file!");
 
   if (!wal_files.empty()) {
     {
@@ -288,8 +255,7 @@ std::optional<RecoveryInfo> RecoverData(
     auto last_loaded_timestamp = snapshot_timestamp;
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
-        LOG_FATAL("You are missing a WAL file with the sequence number {}!",
-                  *previous_seq_num + 1);
+        LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
@@ -299,26 +265,20 @@ std::optional<RecoveryInfo> RecoverData(
         // is nullopt as this can only happen if the WAL file with seq = 0
         // does not contain any deltas and we didn't find any snapshots.
         if (last_loaded_timestamp) {
-          epoch_history->emplace_back(wal_file.epoch_id,
-                                      *last_loaded_timestamp);
+          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
         }
         *epoch_id = std::move(wal_file.epoch_id);
       }
       try {
-        auto info =
-            LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp,
-                    vertices, edges, name_id_mapper, edge_count, items);
-        recovery_info.next_vertex_id =
-            std::max(recovery_info.next_vertex_id, info.next_vertex_id);
-        recovery_info.next_edge_id =
-            std::max(recovery_info.next_edge_id, info.next_edge_id);
-        recovery_info.next_timestamp =
-            std::max(recovery_info.next_timestamp, info.next_timestamp);
+        auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
+                            edge_count, items);
+        recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
+        recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
+        recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
       } catch (const RecoveryFailure &e) {
-        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}",
-                  wal_file.path, e.what());
+        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
 
       if (recovery_info.next_timestamp != 0) {
@@ -330,8 +290,7 @@ std::optional<RecoveryInfo> RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints,
-                               vertices);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
   return recovery_info;
 }
 

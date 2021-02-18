@@ -2,8 +2,7 @@
 
 namespace query {
 
-class PrivilegeExtractor : public QueryVisitor<void>,
-                           public HierarchicalTreeVisitor {
+class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVisitor {
  public:
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -12,19 +11,13 @@ class PrivilegeExtractor : public QueryVisitor<void>,
 
   std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
 
-  void Visit(IndexQuery &) override {
-    AddPrivilege(AuthQuery::Privilege::INDEX);
-  }
+  void Visit(IndexQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
-  void Visit(ExplainQuery &query) override {
-    query.cypher_query_->Accept(*this);
-  }
+  void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(*this); }
 
-  void Visit(ProfileQuery &query) override {
-    query.cypher_query_->Accept(*this);
-  }
+  void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(*this); }
 
   void Visit(InfoQuery &info_query) override {
     switch (info_query.info_type_) {
@@ -44,9 +37,7 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override {
-    AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
-  }
+  void Visit(ConstraintQuery &constraint_query) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
@@ -55,13 +46,9 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     }
   }
 
-  void Visit(DumpQuery &dump_query) override {
-    AddPrivilege(AuthQuery::Privilege::DUMP);
-  }
+  void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override {
-    AddPrivilege(AuthQuery::Privilege::LOCK_PATH);
-  }
+  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCK_PATH); }
 
   void Visit(ReplicationQuery &replication_query) override {
     switch (replication_query.action_) {
