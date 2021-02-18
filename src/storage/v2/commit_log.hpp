@@ -23,6 +23,9 @@ class CommitLog final {
  public:
   // TODO(mtomic): use pool allocator for blocks
   CommitLog();
+  /// Create a commit log which has the oldest active id set to
+  /// oldest_active
+  /// @param oldest_active the oldest active id
   explicit CommitLog(uint64_t oldest_active);
 
   CommitLog(const CommitLog &) = delete;
