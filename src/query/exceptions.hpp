@@ -45,23 +45,19 @@ class SemanticException : public QueryException {
 
 class UnboundVariableError : public SemanticException {
  public:
-  explicit UnboundVariableError(const std::string &name)
-      : SemanticException("Unbound variable: " + name + ".") {}
+  explicit UnboundVariableError(const std::string &name) : SemanticException("Unbound variable: " + name + ".") {}
 };
 
 class RedeclareVariableError : public SemanticException {
  public:
-  explicit RedeclareVariableError(const std::string &name)
-      : SemanticException("Redeclaring variable: " + name + ".") {}
+  explicit RedeclareVariableError(const std::string &name) : SemanticException("Redeclaring variable: " + name + ".") {}
 };
 
 class TypeMismatchError : public SemanticException {
  public:
-  TypeMismatchError(const std::string &name, const std::string &datum,
-                    const std::string &expected)
-      : SemanticException(
-            fmt::format("Type mismatch: {} already defined as {}, expected {}.",
-                        name, datum, expected)) {}
+  TypeMismatchError(const std::string &name, const std::string &datum, const std::string &expected)
+      : SemanticException(fmt::format("Type mismatch: {} already defined as {}, expected {}.", name, datum, expected)) {
+  }
 };
 
 class UnprovidedParameterError : public QueryException {
@@ -72,16 +68,13 @@ class UnprovidedParameterError : public QueryException {
 class ProfileInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;
-  ProfileInMulticommandTxException()
-      : QueryException("PROFILE not allowed in multicommand transactions.") {}
+  ProfileInMulticommandTxException() : QueryException("PROFILE not allowed in multicommand transactions.") {}
 };
 
 class IndexInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;
-  IndexInMulticommandTxException()
-      : QueryException(
-            "Index manipulation not allowed in multicommand transactions.") {}
+  IndexInMulticommandTxException() : QueryException("Index manipulation not allowed in multicommand transactions.") {}
 };
 
 class ConstraintInMulticommandTxException : public QueryException {
@@ -96,9 +89,7 @@ class ConstraintInMulticommandTxException : public QueryException {
 class InfoInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;
-  InfoInMulticommandTxException()
-      : QueryException(
-            "Info reporting not allowed in multicommand transactions.") {}
+  InfoInMulticommandTxException() : QueryException("Info reporting not allowed in multicommand transactions.") {}
 };
 
 /**
@@ -147,38 +138,30 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
 class UserModificationInMulticommandTxException : public QueryException {
  public:
   UserModificationInMulticommandTxException()
-      : QueryException(
-            "Authentication clause not allowed in multicommand transactions.") {
-  }
+      : QueryException("Authentication clause not allowed in multicommand transactions.") {}
 };
 
 class StreamClauseInMulticommandTxException : public QueryException {
  public:
-  StreamClauseInMulticommandTxException()
-      : QueryException(
-            "Stream clause not allowed in multicommand transactions.") {}
+  StreamClauseInMulticommandTxException() : QueryException("Stream clause not allowed in multicommand transactions.") {}
 };
 
 class InvalidArgumentsException : public QueryException {
  public:
-  InvalidArgumentsException(const std::string &argument_name,
-                            const std::string &message)
-      : QueryException(fmt::format("Invalid arguments sent: {} - {}",
-                                   argument_name, message)) {}
+  InvalidArgumentsException(const std::string &argument_name, const std::string &message)
+      : QueryException(fmt::format("Invalid arguments sent: {} - {}", argument_name, message)) {}
 };
 
 class ReplicationModificationInMulticommandTxException : public QueryException {
  public:
   ReplicationModificationInMulticommandTxException()
-      : QueryException(
-            "Replication clause not allowed in multicommand transactions.") {}
+      : QueryException("Replication clause not allowed in multicommand transactions.") {}
 };
 
 class LockPathModificationInMulticommandTxException : public QueryException {
  public:
   LockPathModificationInMulticommandTxException()
-      : QueryException(
-            "Lock path clause not allowed in multicommand transactions.") {}
+      : QueryException("Lock path clause not allowed in multicommand transactions.") {}
 };
 
 }  // namespace query

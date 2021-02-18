@@ -17,8 +17,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   logging::RedirectToStderr();
 
-  auto database_endpoints =
-      mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
+  auto database_endpoints = mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
 
   mg::Client::Init();
 
@@ -40,8 +39,7 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT hava valid constraint created.",
-                    database_endpoint)
+          LOG_FATAL("{} does NOT hava valid constraint created.", database_endpoint)
         }
       } else {
         LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
@@ -53,12 +51,10 @@ int main(int argc, char **argv) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
     }
-    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0,
-                                                      FLAGS_nodes - 1);
+    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0, FLAGS_nodes - 1);
     for (int i = 0; i < FLAGS_edges; ++i) {
       client->Execute("MATCH (n {id:" + std::to_string(edge_generator.Next()) +
-                      "}), (m {id:" + std::to_string(edge_generator.Next()) +
-                      "}) CREATE (n)-[:Edge]->(m);");
+                      "}), (m {id:" + std::to_string(edge_generator.Next()) + "}) CREATE (n)-[:Edge]->(m);");
       client->DiscardAll();
     }
   }
@@ -71,49 +67,44 @@ int main(int argc, char **argv) {
     thread_duration.resize(num_threads);
 
     for (int i = 0; i < num_threads; ++i) {
-      const auto &database_endpoint =
-          database_endpoints[i % database_endpoints.size()];
-      threads.emplace_back([i, &database_endpoint,
-                            cluster_size = database_endpoints.size(),
-                            &local_duration = thread_duration[i]] {
-        auto client = mg::e2e::replication::Connect(database_endpoint);
-        mg::e2e::replication::IntGenerator node_update_generator(
-            fmt::format("NodeUpdateGenerator {}", i), 0, FLAGS_nodes - 1);
-        utils::Timer t;
+      const auto &database_endpoint = database_endpoints[i % database_endpoints.size()];
+      threads.emplace_back(
+          [i, &database_endpoint, cluster_size = database_endpoints.size(), &local_duration = thread_duration[i]] {
+            auto client = mg::e2e::replication::Connect(database_endpoint);
+            mg::e2e::replication::IntGenerator node_update_generator(fmt::format("NodeUpdateGenerator {}", i), 0,
+                                                                     FLAGS_nodes - 1);
+            utils::Timer t;
 
-        while (true) {
-          local_duration = t.Elapsed().count();
-          if (local_duration >= FLAGS_reads_duration_limit) break;
-          // In the main case try to update.
-          if (i % cluster_size == 0) {
-            try {
-              client->Execute("MATCH (n:Node {id:" +
-                              std::to_string(node_update_generator.Next()) +
-                              "}) SET n.id = " +
-                              std::to_string(node_update_generator.Next()) +
-                              " RETURN n.id;");
-              client->FetchAll();
-            } catch (const std::exception &e) {
-              // Pass.
-            }
-          } else {  // In the replica case fetch all unique ids.
-            try {
-              client->Execute("MATCH (n) RETURN n.id;");
-              const auto data = client->FetchAll();
-              std::unordered_set<int64_t> unique;
-              for (const auto &value : *data) {
-                unique.insert(value[0].ValueInt());
+            while (true) {
+              local_duration = t.Elapsed().count();
+              if (local_duration >= FLAGS_reads_duration_limit) break;
+              // In the main case try to update.
+              if (i % cluster_size == 0) {
+                try {
+                  client->Execute("MATCH (n:Node {id:" + std::to_string(node_update_generator.Next()) +
+                                  "}) SET n.id = " + std::to_string(node_update_generator.Next()) + " RETURN n.id;");
+                  client->FetchAll();
+                } catch (const std::exception &e) {
+                  // Pass.
+                }
+              } else {  // In the replica case fetch all unique ids.
+                try {
+                  client->Execute("MATCH (n) RETURN n.id;");
+                  const auto data = client->FetchAll();
+                  std::unordered_set<int64_t> unique;
+                  for (const auto &value : *data) {
+                    unique.insert(value[0].ValueInt());
+                  }
+                  if ((*data).size() != unique.size()) {
+                    LOG_FATAL("Some ids are equal.");
+                  }
+                } catch (const std::exception &e) {
+                  LOG_FATAL(e.what());
+                  break;
+                }
               }
-              if ((*data).size() != unique.size()) {
-                LOG_FATAL("Some ids are equal.");
-              }
-            } catch (const std::exception &e) {
-              LOG_FATAL(e.what());
-              break;
             }
-          }
-        }
-      });
+          });
     }
 
     for (auto &t : threads) {

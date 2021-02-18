@@ -26,8 +26,7 @@ bool EchoMessage(communication::Client &client, const std::string &data) {
     spdlog::warn("Couldn't receive data!");
     return false;
   }
-  if (std::string(reinterpret_cast<const char *>(client.GetData()), size) !=
-      data) {
+  if (std::string(reinterpret_cast<const char *>(client.GetData()), size) != data) {
     spdlog::warn("Received data isn't equal to sent data!");
     return false;
   }

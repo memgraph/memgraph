@@ -121,8 +121,7 @@ TEST(SlkCore, MapPrimitive) {
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
-  ASSERT_EQ(loopback.size(),
-            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, MapString) {
@@ -151,13 +150,11 @@ TEST(SlkCore, UnorderedMapPrimitive) {
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
-  ASSERT_EQ(loopback.size(),
-            sizeof(uint64_t) + original.size() * sizeof(int) * 2);
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, UnorderedMapString) {
-  std::unordered_map<std::string, std::string> original{
-      {"hai hai hai", "nandare!"}};
+  std::unordered_map<std::string, std::string> original{{"hai hai hai", "nandare!"}};
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
@@ -178,8 +175,7 @@ TEST(SlkCore, UniquePtrEmpty) {
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
-  std::unique_ptr<std::string> decoded =
-      std::make_unique<std::string>("nandare!");
+  std::unique_ptr<std::string> decoded = std::make_unique<std::string>("nandare!");
   ASSERT_NE(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
@@ -188,8 +184,7 @@ TEST(SlkCore, UniquePtrEmpty) {
 }
 
 TEST(SlkCore, UniquePtrFull) {
-  std::unique_ptr<std::string> original =
-      std::make_unique<std::string>("nandare!");
+  std::unique_ptr<std::string> original = std::make_unique<std::string>("nandare!");
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder);
@@ -199,8 +194,7 @@ TEST(SlkCore, UniquePtrFull) {
   slk::Load(&decoded, reader);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
-  ASSERT_EQ(loopback.size(),
-            sizeof(bool) + sizeof(uint64_t) + original.get()->size());
+  ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(uint64_t) + original.get()->size());
 }
 
 TEST(SlkCore, OptionalPrimitiveEmpty) {
@@ -254,8 +248,7 @@ TEST(SlkCore, OptionalStringFull) {
   slk::Load(&decoded, reader);
   ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
-  ASSERT_EQ(loopback.size(),
-            sizeof(bool) + sizeof(uint64_t) + original->size());
+  ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(uint64_t) + original->size());
 }
 
 TEST(SlkCore, Pair) {
@@ -267,8 +260,7 @@ TEST(SlkCore, Pair) {
   auto reader = loopback.GetReader();
   slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
-  ASSERT_EQ(loopback.size(),
-            sizeof(uint64_t) + original.first.size() + sizeof(int));
+  ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.first.size() + sizeof(int));
 }
 
 TEST(SlkCore, SharedPtrEmpty) {
@@ -277,8 +269,7 @@ TEST(SlkCore, SharedPtrEmpty) {
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   slk::Save(original, builder, &saved);
-  std::shared_ptr<std::string> decoded =
-      std::make_shared<std::string>("nandare!");
+  std::shared_ptr<std::string> decoded = std::make_shared<std::string>("nandare!");
   std::vector<std::shared_ptr<std::string>> loaded;
   ASSERT_NE(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
@@ -290,8 +281,7 @@ TEST(SlkCore, SharedPtrEmpty) {
 }
 
 TEST(SlkCore, SharedPtrFull) {
-  std::shared_ptr<std::string> original =
-      std::make_shared<std::string>("nandare!");
+  std::shared_ptr<std::string> original = std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
@@ -305,15 +295,13 @@ TEST(SlkCore, SharedPtrFull) {
   ASSERT_EQ(*original.get(), *decoded.get());
   ASSERT_EQ(saved.size(), 1);
   ASSERT_EQ(loaded.size(), 1);
-  ASSERT_EQ(loopback.size(),
-            sizeof(bool) * 2 + sizeof(uint64_t) + original.get()->size());
+  ASSERT_EQ(loopback.size(), sizeof(bool) * 2 + sizeof(uint64_t) + original.get()->size());
 }
 
 TEST(SlkCore, SharedPtrMultiple) {
   std::shared_ptr<std::string> ptr1 = std::make_shared<std::string>("nandare!");
   std::shared_ptr<std::string> ptr2;
-  std::shared_ptr<std::string> ptr3 =
-      std::make_shared<std::string>("hai hai hai");
+  std::shared_ptr<std::string> ptr3 = std::make_shared<std::string>("hai hai hai");
   std::vector<std::string *> saved;
 
   slk::Loopback loopback;
@@ -418,9 +406,7 @@ struct Foo {
   std::optional<int> value;
 };
 
-bool operator==(const Foo &a, const Foo &b) {
-  return a.name == b.name && a.value == b.value;
-}
+bool operator==(const Foo &a, const Foo &b) { return a.name == b.name && a.value == b.value; }
 
 namespace slk {
 void Save(const Foo &obj, Builder *builder) {
@@ -459,8 +445,7 @@ sizeof(int) + sizeof(uint64_t) + original[1].name.size() + sizeof(bool));
 TEST(SlkCore, VectorSharedPtr) {
   std::shared_ptr<std::string> ptr1 = std::make_shared<std::string>("nandare!");
   std::shared_ptr<std::string> ptr2;
-  std::shared_ptr<std::string> ptr3 =
-      std::make_shared<std::string>("hai hai hai");
+  std::shared_ptr<std::string> ptr3 = std::make_shared<std::string>("hai hai hai");
 
   std::vector<std::shared_ptr<std::string>> original;
   std::vector<std::string *> saved;
@@ -473,18 +458,15 @@ TEST(SlkCore, VectorSharedPtr) {
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(
-      original, builder, [&saved](const auto &item, auto *builder) {
-        Save(item, builder, &saved);
-      });
+  slk::Save<std::shared_ptr<std::string>>(original, builder,
+                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::vector<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader,
-      [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
+                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_EQ(decoded.size(), original.size());
 
@@ -504,24 +486,20 @@ TEST(SlkCore, VectorSharedPtr) {
 }
 
 TEST(SlkCore, OptionalSharedPtr) {
-  std::optional<std::shared_ptr<std::string>> original =
-      std::make_shared<std::string>("nandare!");
+  std::optional<std::shared_ptr<std::string>> original = std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(
-      original, builder, [&saved](const auto &item, auto *builder) {
-        Save(item, builder, &saved);
-      });
+  slk::Save<std::shared_ptr<std::string>>(original, builder,
+                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader,
-      [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
+                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_NE(decoded, std::nullopt);
 
@@ -537,18 +515,15 @@ TEST(SlkCore, OptionalSharedPtrEmpty) {
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(
-      original, builder, [&saved](const auto &item, auto *builder) {
-        Save(item, builder, &saved);
-      });
+  slk::Save<std::shared_ptr<std::string>>(original, builder,
+                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(
-      &decoded, reader,
-      [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
+                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_EQ(decoded, std::nullopt);
 

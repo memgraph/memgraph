@@ -46,13 +46,11 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept;
 bool DeleteFile(const std::filesystem::path &file) noexcept;
 
 /// Copies the file from `src` to `dst`.
-bool CopyFile(const std::filesystem::path &src,
-              const std::filesystem::path &dst) noexcept;
+bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept;
 
 /// Renames the path from `src` to `dst`. If the `dst` contains directories that
 /// don't exist, the renaming fails. Symlinks are not followed.
-bool RenamePath(const std::filesystem::path &src,
-                const std::filesystem::path &dst);
+bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst);
 
 /// Buffer size used for `InputFile` and `OutputFile` implementations. Using
 /// system calls is very expensive and we can't afford to call either `read` or

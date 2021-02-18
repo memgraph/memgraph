@@ -27,15 +27,12 @@ class Loopback {
   slk::Builder *GetBuilder() {
     MG_ASSERT(!builder_, "You have already allocated a builder!");
     builder_ = std::make_unique<slk::Builder>(
-        [this](const uint8_t *data, size_t size, bool have_more) {
-          Write(data, size, have_more);
-        });
+        [this](const uint8_t *data, size_t size, bool have_more) { Write(data, size, have_more); });
     return builder_.get();
   }
 
   slk::Reader *GetReader() {
-    MG_ASSERT(builder_,
-              "You must first get a builder before getting a reader!");
+    MG_ASSERT(builder_, "You must first get a builder before getting a reader!");
     MG_ASSERT(!reader_, "You have already allocated a reader!");
     builder_->Finalize();
     auto ret = slk::CheckStreamComplete(data_.data(), data_.size());

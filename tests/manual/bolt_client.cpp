@@ -10,8 +10,7 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
-DEFINE_bool(print_records, true,
-            "Set to false to disable printing of records.");
+DEFINE_bool(print_records, true, "Set to false to disable printing of records.");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -19,8 +18,7 @@ int main(int argc, char **argv) {
   communication::SSLInit sslInit;
 
   // TODO: handle endpoint exception
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);

@@ -34,26 +34,22 @@ int main(int argc, char **argv) {
       auto item = i_distribution(i_generator);
       switch (value) {
         case 0:
-          stats->succ[OP_CONTAINS] +=
-              static_cast<uint64_t>(accessor.contains(item));
+          stats->succ[OP_CONTAINS] += static_cast<uint64_t>(accessor.contains(item));
           break;
         case 1:
         case 2:
         case 3:
         case 4:
         case 5:
-          stats->succ[OP_FIND] +=
-              static_cast<uint64_t>(accessor.find(item) != accessor.end());
+          stats->succ[OP_FIND] += static_cast<uint64_t>(accessor.find(item) != accessor.end());
           break;
         case 6:
         case 7:
         case 8:
-          stats->succ[OP_INSERT] +=
-              static_cast<uint64_t>(accessor.insert(item).second);
+          stats->succ[OP_INSERT] += static_cast<uint64_t>(accessor.insert(item).second);
           break;
         case 9:
-          stats->succ[OP_REMOVE] +=
-              static_cast<uint64_t>(accessor.remove(item));
+          stats->succ[OP_REMOVE] += static_cast<uint64_t>(accessor.remove(item));
           break;
         default:
           std::terminate();

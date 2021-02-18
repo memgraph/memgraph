@@ -35,22 +35,17 @@ using InputStream = Buffer::ReadEnd;
  */
 class OutputStream final {
  public:
-  OutputStream(
-      std::function<bool(const uint8_t *, size_t, bool)> write_function)
-      : write_function_(write_function) {}
+  OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function) : write_function_(write_function) {}
 
   OutputStream(const OutputStream &) = delete;
   OutputStream(OutputStream &&) = delete;
   OutputStream &operator=(const OutputStream &) = delete;
   OutputStream &operator=(OutputStream &&) = delete;
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) {
-    return write_function_(data, len, have_more);
-  }
+  bool Write(const uint8_t *data, size_t len, bool have_more = false) { return write_function_(data, len, have_more); }
 
   bool Write(const std::string &str, bool have_more = false) {
-    return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(),
-                 have_more);
+    return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
   }
 
  private:
@@ -65,14 +60,10 @@ class OutputStream final {
 template <class TSession, class TSessionData>
 class Session final {
  public:
-  Session(io::network::Socket &&socket, TSessionData *data,
-          ServerContext *context, int inactivity_timeout_sec)
+  Session(io::network::Socket &&socket, TSessionData *data, ServerContext *context, int inactivity_timeout_sec)
       : socket_(std::move(socket)),
-        output_stream_([this](const uint8_t *data, size_t len, bool have_more) {
-          return Write(data, len, have_more);
-        }),
-        session_(data, socket_.endpoint(), input_buffer_.read_end(),
-                 &output_stream_),
+        output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
+        session_(data, socket_.endpoint(), input_buffer_.read_end(), &output_stream_),
         inactivity_timeout_sec_(inactivity_timeout_sec) {
     // Set socket options.
     // The socket is set to be a non-blocking socket. We use the socket in a
@@ -243,8 +234,7 @@ class Session final {
   bool TimedOut() {
     std::unique_lock<utils::SpinLock> guard(lock_);
     if (execution_active_) return false;
-    return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) <
-           std::chrono::steady_clock::now();
+    return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) < std::chrono::steady_clock::now();
   }
 
   /**
@@ -316,8 +306,7 @@ class Session final {
   TSession session_;
 
   // Time of the last event and associated lock.
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_{
-      std::chrono::steady_clock::now()};
+  std::chrono::time_point<std::chrono::steady_clock> last_event_time_{std::chrono::steady_clock::now()};
   bool execution_active_{false};
   utils::SpinLock lock_;
   const int inactivity_timeout_sec_;

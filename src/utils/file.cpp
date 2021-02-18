@@ -15,9 +15,7 @@
 
 namespace utils {
 
-std::filesystem::path GetExecutablePath() {
-  return std::filesystem::read_symlink("/proc/self/exe");
-}
+std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   std::vector<std::string> lines;
@@ -35,8 +33,7 @@ std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
 
 bool EnsureDir(const std::filesystem::path &dir) noexcept {
   std::error_code error_code;  // For exception suppression.
-  if (std::filesystem::exists(dir, error_code))
-    return std::filesystem::is_directory(dir, error_code);
+  if (std::filesystem::exists(dir, error_code)) return std::filesystem::is_directory(dir, error_code);
   return std::filesystem::create_directories(dir, error_code);
 }
 
@@ -63,14 +60,12 @@ bool DeleteFile(const std::filesystem::path &file) noexcept {
   return std::filesystem::remove(file, error_code);
 }
 
-bool CopyFile(const std::filesystem::path &src,
-              const std::filesystem::path &dst) noexcept {
+bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept {
   std::error_code error_code;  // For exception suppression.
   return std::filesystem::copy_file(src, dst, error_code);
 }
 
-bool RenamePath(const std::filesystem::path &src,
-                const std::filesystem::path &dst) {
+bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst) {
   std::error_code error_code;  // For exception suppression.
   std::filesystem::rename(src, dst, error_code);
   return !error_code;
@@ -198,8 +193,7 @@ size_t InputFile::GetPosition() {
   return file_position_;
 }
 
-std::optional<size_t> InputFile::SetPosition(Position position,
-                                             ssize_t offset) {
+std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
   int whence;
   switch (position) {
     case Position::SET:
@@ -243,8 +237,7 @@ void InputFile::Close() noexcept {
   }
 
   if (ret != 0) {
-    spdlog::error("While trying to close {} an error occured: {} ({})", path_,
-                  strerror(errno), errno);
+    spdlog::error("While trying to close {} an error occured: {} ({})", path_, strerror(errno), errno);
   }
 
   fd_ = -1;
@@ -289,9 +282,7 @@ OutputFile::~OutputFile() {
 }
 
 OutputFile::OutputFile(OutputFile &&other) noexcept
-    : fd_(other.fd_),
-      written_since_last_sync_(other.written_since_last_sync_),
-      path_(std::move(other.path_)) {
+    : fd_(other.fd_), written_since_last_sync_(other.written_since_last_sync_), path_(std::move(other.path_)) {
   memcpy(buffer_, other.buffer_, kFileBufferSize);
   buffer_position_.store(other.buffer_position_.load());
   other.fd_ = -1;
@@ -339,9 +330,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1,
-            "While trying to open {} for writing an error occured: {} ({})",
-            path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -369,12 +358,8 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   }
 }
 
-void OutputFile::Write(const char *data, size_t size) {
-  Write(reinterpret_cast<const uint8_t *>(data), size);
-}
-void OutputFile::Write(const std::string_view &data) {
-  Write(data.data(), data.size());
-}
+void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
+void OutputFile::Write(const std::string_view &data) { Write(data.data(), data.size()); }
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence;
@@ -394,17 +379,13 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(
-        pos >= 0,
-        "While trying to set the position in {} an error occured: {} ({})",
-        path_, strerror(errno), errno);
+    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
+              errno);
     return pos;
   }
 }
 
-size_t OutputFile::GetPosition() {
-  return SetPosition(Position::RELATIVE_TO_CURRENT, 0);
-}
+size_t OutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t OutputFile::SetPosition(Position position, ssize_t offset) {
   FlushBuffer(true);
@@ -534,8 +515,7 @@ void OutputFile::FlushBufferInternal() {
               "while trying to write to {} an error occurred: {} ({}). "
               "Possibly {} bytes of data were lost from this call and "
               "possibly {} bytes were lost from previous calls.",
-              path_, strerror(errno), errno, buffer_position_,
-              written_since_last_sync_);
+              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
 
     buffer_position -= written;
     buffer += written;
@@ -551,9 +531,7 @@ void OutputFile::EnableFlushing() {
   TryFlushing();
 }
 
-std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
-  return {buffer_, buffer_position_.load()};
-}
+std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const { return {buffer_, buffer_position_.load()}; }
 
 size_t OutputFile::GetSize() {
   // There's an alternative way of fetching the files size using fstat.
@@ -567,8 +545,7 @@ size_t OutputFile::GetSize() {
 }
 
 void OutputFile::TryFlushing() {
-  if (std::unique_lock guard(flush_lock_, std::try_to_lock);
-      guard.owns_lock()) {
+  if (std::unique_lock guard(flush_lock_, std::try_to_lock); guard.owns_lock()) {
     FlushBufferInternal();
   }
 }

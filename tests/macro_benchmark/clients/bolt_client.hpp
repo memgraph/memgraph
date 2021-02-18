@@ -16,8 +16,7 @@ using communication::bolt::Value;
 
 class BoltClient {
  public:
-  BoltClient(const std::string &address, uint16_t port,
-             const std::string &username, const std::string &password,
+  BoltClient(const std::string &address, uint16_t port, const std::string &username, const std::string &password,
              const std::string & = "", bool use_ssl = false)
       : context_(use_ssl), client_(context_) {
     EndpointT endpoint(address, port);
@@ -27,8 +26,7 @@ class BoltClient {
     }
   }
 
-  QueryDataT Execute(const std::string &query,
-                     const std::map<std::string, Value> &parameters) {
+  QueryDataT Execute(const std::string &query, const std::map<std::string, Value> &parameters) {
     return client_.Execute(query, parameters);
   }
 

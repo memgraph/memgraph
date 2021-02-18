@@ -9,18 +9,14 @@ using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
 
-INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest,
-                        ::testing::Values(true));
-INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, StorageEdgeTest,
-                        ::testing::Values(false));
+INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, StorageEdgeTest, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -89,42 +85,19 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et}, &*vertex_to)
-                  ->size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_to)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_from)
-            ->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et}, &*vertex_from)
-                  ->size(),
-              0);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_from)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_to)
-            ->size(),
-        0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -198,78 +171,32 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et}, &*vertex_to)
-                  ->size(),
-              0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et}, &*vertex_to)
-                  ->size(),
-              0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {et, other_et}, &*vertex_to)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_to)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {et, other_et}, &*vertex_from)
-            ->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_from)
-            ->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et}, &*vertex_from)
-                  ->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et}, &*vertex_from)
-                  ->size(),
-              0);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::OLD, {et, other_et}, &*vertex_from)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_from)
-            ->size(),
-        1);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::OLD, {et, other_et}, &*vertex_to)
-            ->size(),
-        0);
-    ASSERT_EQ(
-        vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_to)
-            ->size(),
-        0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -278,10 +205,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -350,20 +275,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -437,34 +355,20 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -473,8 +377,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
@@ -533,13 +436,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -606,15 +507,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -623,10 +522,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -695,20 +592,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     acc.Abort();
   }
@@ -799,20 +689,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -886,34 +769,20 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -922,10 +791,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -994,20 +861,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     acc.Abort();
   }
@@ -1098,20 +958,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1185,34 +1038,20 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1221,8 +1060,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
@@ -1281,13 +1119,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     acc.Abort();
   }
@@ -1360,13 +1196,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1434,20 +1268,16 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1456,10 +1286,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -1528,20 +1356,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1615,34 +1436,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1703,20 +1510,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1754,10 +1554,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -1826,20 +1624,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -1913,34 +1704,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2001,20 +1778,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2052,8 +1822,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
@@ -2112,13 +1881,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2186,20 +1953,16 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2252,13 +2015,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2286,10 +2047,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -2358,20 +2117,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2445,34 +2197,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2533,20 +2271,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     acc.Abort();
   }
@@ -2620,34 +2351,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2708,20 +2425,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2759,10 +2469,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertices
   {
@@ -2831,20 +2539,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -2918,34 +2619,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3006,20 +2693,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     acc.Abort();
   }
@@ -3094,34 +2774,20 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::NEW, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3182,20 +2848,13 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     // Check edges with filters
     ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
-    ASSERT_EQ(
-        vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-        0);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_to)->size(), 1);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::OLD, {}, &*vertex_from)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {other_et})->size(), 0);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(),
-              1);
-    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(),
-              0);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_from)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(storage::View::OLD, {}, &*vertex_to)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3233,8 +2892,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
@@ -3293,13 +2951,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3367,20 +3023,16 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3433,13 +3085,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
 
     acc.Abort();
   }
@@ -3507,20 +3157,16 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
-    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->InEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::NEW, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3573,13 +3219,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->InEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(),
-              0);
+    ASSERT_EQ(vertex->InEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {}, &*vertex)->size(), 1);
-    ASSERT_EQ(
-        vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
+    ASSERT_EQ(vertex->OutEdges(storage::View::OLD, {other_et}, &*vertex)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -3607,10 +3251,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create dataset
   {
@@ -3688,10 +3330,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     // Check edges
     ASSERT_EQ(vertex_from->InEdges(storage::View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_from->InDegree(storage::View::OLD), 0);
-    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -3703,10 +3343,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -3751,10 +3389,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex1 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_vertex2 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex1 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex2 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create dataset
   {
@@ -3803,9 +3439,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex1.InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.InDegree(storage::View::NEW), 2);
       {
@@ -3825,9 +3459,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex1.OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.OutDegree(storage::View::NEW), 2);
       {
@@ -3847,9 +3479,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex2.InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.InDegree(storage::View::NEW), 2);
       {
@@ -3869,9 +3499,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex2.OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.OutDegree(storage::View::NEW), 2);
       {
@@ -3923,9 +3551,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex1->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(storage::View::OLD), 2);
       {
@@ -3941,17 +3567,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(storage::View::OLD), 2);
       {
@@ -3967,17 +3589,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(storage::View::OLD), 2);
       {
@@ -4008,9 +3626,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       auto ret = vertex2->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(storage::View::OLD), 2);
       {
@@ -4102,10 +3718,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_from =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_to =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_from = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_to = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create dataset
   {
@@ -4183,10 +3797,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     // Check edges
     ASSERT_EQ(vertex_from->InEdges(storage::View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_from->InDegree(storage::View::OLD), 0);
-    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -4198,10 +3810,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -4291,10 +3901,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     // Check edges
     ASSERT_EQ(vertex_from->InEdges(storage::View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_from->InDegree(storage::View::OLD), 0);
-    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_from->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -4306,10 +3914,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
       ASSERT_EQ(e.FromVertex(), *vertex_from);
       ASSERT_EQ(e.ToVertex(), *vertex_to);
     }
-    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex_to->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -4354,10 +3960,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
   storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-  storage::Gid gid_vertex1 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid_vertex2 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex1 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid_vertex2 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create dataset
   {
@@ -4406,9 +4010,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1.InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.InDegree(storage::View::NEW), 2);
       {
@@ -4428,9 +4030,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1.OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1.OutDegree(storage::View::NEW), 2);
       {
@@ -4450,9 +4050,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2.InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.InDegree(storage::View::NEW), 2);
       {
@@ -4472,9 +4070,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2.OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2.OutDegree(storage::View::NEW), 2);
       {
@@ -4526,9 +4122,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(storage::View::OLD), 2);
       {
@@ -4544,17 +4138,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(storage::View::OLD), 2);
       {
@@ -4570,17 +4160,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(storage::View::OLD), 2);
       {
@@ -4611,9 +4197,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(storage::View::OLD), 2);
       {
@@ -4662,9 +4246,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(storage::View::OLD), 2);
       {
@@ -4684,9 +4266,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(storage::View::NEW), 2);
       {
@@ -4706,9 +4286,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(storage::View::OLD), 2);
       {
@@ -4728,9 +4306,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(storage::View::NEW), 2);
       {
@@ -4750,9 +4326,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(storage::View::OLD), 2);
       {
@@ -4772,9 +4346,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->InEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(storage::View::NEW), 2);
       {
@@ -4794,9 +4366,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(storage::View::OLD), 2);
       {
@@ -4816,9 +4386,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->OutEdges(storage::View::NEW);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(storage::View::NEW), 2);
       {
@@ -4870,9 +4438,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex1->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->InDegree(storage::View::OLD), 2);
       {
@@ -4888,17 +4454,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->InDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex1->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex1->OutDegree(storage::View::OLD), 2);
       {
@@ -4914,17 +4476,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
         ASSERT_EQ(e.ToVertex(), *vertex1);
       }
     }
-    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutEdges(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex1->OutDegree(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto ret = vertex2->InEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->InDegree(storage::View::OLD), 2);
       {
@@ -4955,9 +4513,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       auto ret = vertex2->OutEdges(storage::View::OLD);
       ASSERT_TRUE(ret.HasValue());
       auto edges = ret.GetValue();
-      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) {
-        return a.EdgeType() < b.EdgeType();
-      });
+      std::sort(edges.begin(), edges.end(), [](const auto &a, const auto &b) { return a.EdgeType() < b.EdgeType(); });
       ASSERT_EQ(edges.size(), 2);
       ASSERT_EQ(*vertex2->OutDegree(storage::View::OLD), 2);
       {
@@ -5049,8 +4605,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertyCommit) {
   storage::Storage store({.items = {.properties_on_edges = true}});
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -5067,14 +4622,12 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          edge.SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5087,8 +4640,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5105,16 +4657,14 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5142,8 +4692,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5186,8 +4735,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertyAbort) {
   storage::Storage store({.items = {.properties_on_edges = true}});
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
@@ -5215,14 +4763,12 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          edge.SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5235,8 +4781,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5281,14 +4826,12 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          edge.SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5301,8 +4844,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5321,16 +4863,14 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5354,16 +4894,14 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5376,8 +4914,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5399,16 +4936,14 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5432,16 +4967,14 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5454,8 +4987,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(edge.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = edge.Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -5494,8 +5026,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithProperties, EdgePropertySerializationError) {
   storage::Storage store({.items = {.properties_on_edges = true}});
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -5629,12 +5160,10 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_TRUE(vertex);
     auto edge = vertex->OutEdges(storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(),
-              "value");
+    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(), "value");
     ASSERT_TRUE(edge.GetProperty(property2, storage::View::OLD)->IsNull());
     ASSERT_THAT(edge.Properties(storage::View::OLD).GetValue(),
-                UnorderedElementsAre(
-                    std::pair(property1, storage::PropertyValue("value"))));
+                UnorderedElementsAre(std::pair(property1, storage::PropertyValue("value"))));
 
     {
       auto ret = edge.ClearProperties();
@@ -5676,13 +5205,11 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_TRUE(vertex);
     auto edge = vertex->OutEdges(storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(),
-              "value");
+    ASSERT_EQ(edge.GetProperty(property1, storage::View::OLD)->ValueString(), "value");
     ASSERT_EQ(edge.GetProperty(property2, storage::View::OLD)->ValueInt(), 42);
     ASSERT_THAT(edge.Properties(storage::View::OLD).GetValue(),
-                UnorderedElementsAre(
-                    std::pair(property1, storage::PropertyValue("value")),
-                    std::pair(property2, storage::PropertyValue(42))));
+                UnorderedElementsAre(std::pair(property1, storage::PropertyValue("value")),
+                                     std::pair(property2, storage::PropertyValue(42))));
 
     {
       auto ret = edge.ClearProperties();
@@ -5723,8 +5250,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageWithoutProperties, EdgePropertyAbort) {
   storage::Storage store({.items = {.properties_on_edges = false}});
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -5748,8 +5274,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     ASSERT_EQ(edge.Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          edge.SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = edge.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasError());
       ASSERT_EQ(res.GetError(), storage::Error::PROPERTIES_DISABLED);
     }
@@ -5811,8 +5336,7 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
     ASSERT_TRUE(vertex);
     auto edge = vertex->OutEdges(storage::View::NEW).GetValue()[0];
 
-    ASSERT_EQ(edge.ClearProperties().GetError(),
-              storage::Error::PROPERTIES_DISABLED);
+    ASSERT_EQ(edge.ClearProperties().GetError(), storage::Error::PROPERTIES_DISABLED);
 
     acc.Abort();
   }
@@ -5829,30 +5353,23 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_TRUE(edge.HasValue());
 
   // Check state before (OLD view).
-  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
 
   // Check state before (NEW view).
   ASSERT_EQ(edge->Properties(storage::View::NEW)->size(), 0);
-  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW),
-            storage::PropertyValue());
+  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW), storage::PropertyValue());
 
   // Modify edge.
-  ASSERT_TRUE(
-      edge->SetProperty(property, storage::PropertyValue("value")).HasValue());
+  ASSERT_TRUE(edge->SetProperty(property, storage::PropertyValue("value")).HasValue());
 
   // Check state after (OLD view).
-  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->Properties(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(edge->GetProperty(property, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
 
   // Check state after (NEW view).
   ASSERT_EQ(edge->Properties(storage::View::NEW)->size(), 1);
-  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW),
-            storage::PropertyValue("value"));
+  ASSERT_EQ(*edge->GetProperty(property, storage::View::NEW), storage::PropertyValue("value"));
 
   ASSERT_FALSE(acc.Commit().HasError());
 }

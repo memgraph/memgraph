@@ -9,8 +9,7 @@
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
 
-DEFINE_bool(auth_password_permit_null, true,
-            "Set to false to disable null passwords.");
+DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
 DEFINE_string(auth_password_strength_regex, ".+",
               "The regular expression that should be used to match the entire "
@@ -129,8 +128,7 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  if (!data["grants"].is_number_unsigned() ||
-      !data["denies"].is_number_unsigned()) {
+  if (!data["grants"].is_number_unsigned() || !data["denies"].is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
   return {data["grants"], data["denies"]};
@@ -143,12 +141,9 @@ bool operator==(const Permissions &first, const Permissions &second) {
   return first.grants() == second.grants() && first.denies() == second.denies();
 }
 
-bool operator!=(const Permissions &first, const Permissions &second) {
-  return !(first == second);
-}
+bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
-Role::Role(const std::string &rolename)
-    : rolename_(utils::ToLowerCase(rolename)) {}
+Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
 Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
@@ -176,18 +171,13 @@ Role Role::Deserialize(const nlohmann::json &data) {
 }
 
 bool operator==(const Role &first, const Role &second) {
-  return first.rolename_ == second.rolename_ &&
-         first.permissions_ == second.permissions_;
+  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
 }
 
-User::User(const std::string &username)
-    : username_(utils::ToLowerCase(username)) {}
+User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
-User::User(const std::string &username, const std::string &password_hash,
-           const Permissions &permissions)
-    : username_(utils::ToLowerCase(username)),
-      password_hash_(password_hash),
-      permissions_(permissions) {}
+User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)
+    : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_ == "") return true;
@@ -244,8 +234,7 @@ User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  if (!data["username"].is_string() || !data["password_hash"].is_string() ||
-      !data["permissions"].is_object()) {
+  if (!data["username"].is_string() || !data["password_hash"].is_string() || !data["permissions"].is_object()) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
@@ -253,9 +242,7 @@ User User::Deserialize(const nlohmann::json &data) {
 }
 
 bool operator==(const User &first, const User &second) {
-  return first.username_ == second.username_ &&
-         first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ &&
-         first.role_ == second.role_;
+  return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
+         first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
 }  // namespace auth

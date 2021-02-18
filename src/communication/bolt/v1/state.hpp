@@ -44,4 +44,4 @@ enum class State : uint8_t {
    */
   Close
 };
-}
+}  // namespace communication::bolt

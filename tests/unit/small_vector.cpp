@@ -54,8 +54,7 @@ TEST(SmallVector, Resize) {
   EXPECT_EQ(small_vector.size(), kSmallStorageSize);
 
   small_vector.resize(kTwiceTheSmallStorage, kSomeRandomConst);
-  for (int i = kSmallStorageSize; i < kTwiceTheSmallStorage; ++i)
-    EXPECT_EQ(small_vector[i], kSomeRandomConst);
+  for (int i = kSmallStorageSize; i < kTwiceTheSmallStorage; ++i) EXPECT_EQ(small_vector[i], kSomeRandomConst);
 }
 
 TEST(SmallVector, Reserve) {
@@ -167,8 +166,7 @@ TEST(SmallVector, Assign1) {
   const int kElemNum = 100;
   const std::string kElement = "brate samo loudam malo toga sejvam";
   utils::SmallVector<std::string, kSize> test_vector;
-  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c",
-                                                         "d", "e", "f"};
+  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c", "d", "e", "f"};
   for (int i = 0; i < kElemNum; ++i) {
     test_vector.push_back(kElement);
   }
@@ -181,16 +179,14 @@ TEST(SmallVector, Assign2) {
   const int kSize = 3;
   const std::string kElement = "preko tjedna gospoda";
   utils::SmallVector<std::string, kSize> test_vector = {kElement};
-  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c",
-                                                         "d", "e", "f"};
+  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c", "d", "e", "f"};
   small_vector.assign({kElement});
   EXPECT_EQ(test_vector, small_vector);
 }
 
 TEST(SmallVector, Erase) {
   const int kSize = 3;
-  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c",
-                                                         "d", "e", "f"};
+  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c", "d", "e", "f"};
   small_vector.erase(small_vector.begin() + 1, small_vector.end());
   EXPECT_EQ(1, small_vector.size());
   EXPECT_EQ("a", small_vector[0]);
@@ -202,15 +198,12 @@ TEST(SmallVector, Insert) {
   const int kSize = 3;
   const std::string kXXX = "xxx";
 
-  utils::SmallVector<std::string, kSize> test_vector = {"1", "2", "3", "4",
-                                                        "5"};
-  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c",
-                                                         "d", "e", "f"};
+  utils::SmallVector<std::string, kSize> test_vector = {"1", "2", "3", "4", "5"};
+  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c", "d", "e", "f"};
   small_vector.insert(small_vector.begin(), kXXX);
   EXPECT_EQ(kXXX, small_vector[0]);
 
-  small_vector.insert(small_vector.begin() + 1, test_vector.begin(),
-                      test_vector.end());
+  small_vector.insert(small_vector.begin() + 1, test_vector.begin(), test_vector.end());
 
   for (int i = 0; i < 5; ++i) {
     EXPECT_EQ(test_vector[i], small_vector[i + 1]);
@@ -229,8 +222,7 @@ TEST(SmallVector, Insert) {
 
 TEST(SmallVector, EmplaceBack) {
   const int kSize = 3;
-  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c",
-                                                         "d", "e", "f"};
+  utils::SmallVector<std::string, kSize> small_vector = {"a", "b", "c", "d", "e", "f"};
   small_vector.emplace_back("g");
   EXPECT_EQ("g", small_vector.back());
 }

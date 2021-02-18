@@ -180,11 +180,9 @@ struct Or<ArgType, ArgTypes...> {
 
   static std::string TypeNames() {
     if constexpr (sizeof...(ArgTypes) > 1) {
-      return fmt::format("'{}', {}", ArgTypeName<ArgType>(),
-                         Or<ArgTypes...>::TypeNames());
+      return fmt::format("'{}', {}", ArgTypeName<ArgType>(), Or<ArgTypes...>::TypeNames());
     } else {
-      return fmt::format("'{}' or '{}'", ArgTypeName<ArgType>(),
-                         Or<ArgTypes...>::TypeNames());
+      return fmt::format("'{}' or '{}'", ArgTypeName<ArgType>(), Or<ArgTypes...>::TypeNames());
     }
   }
 };
@@ -206,21 +204,18 @@ template <class ArgType>
 struct Optional<ArgType> {
   static constexpr size_t size = 1;
 
-  static void Check(const char *name, const TypedValue *args, int64_t nargs,
-                    int64_t pos) {
+  static void Check(const char *name, const TypedValue *args, int64_t nargs, int64_t pos) {
     if (nargs == 0) return;
     const TypedValue &arg = args[0];
     if constexpr (IsOrType<ArgType>::value) {
       if (!ArgType::Check(arg)) {
-        throw QueryRuntimeException(
-            "Optional '{}' argument at position {} must be either {}.", name,
-            pos, ArgType::TypeNames());
+        throw QueryRuntimeException("Optional '{}' argument at position {} must be either {}.", name, pos,
+                                    ArgType::TypeNames());
       }
     } else {
       if (!ArgIsType<ArgType>(arg))
-        throw QueryRuntimeException(
-            "Optional '{}' argument at position {} must be '{}'.", name, pos,
-            ArgTypeName<ArgType>());
+        throw QueryRuntimeException("Optional '{}' argument at position {} must be '{}'.", name, pos,
+                                    ArgTypeName<ArgType>());
     }
   }
 };
@@ -229,8 +224,7 @@ template <class ArgType, class... ArgTypes>
 struct Optional<ArgType, ArgTypes...> {
   static constexpr size_t size = 1 + sizeof...(ArgTypes);
 
-  static void Check(const char *name, const TypedValue *args, int64_t nargs,
-                    int64_t pos) {
+  static void Check(const char *name, const TypedValue *args, int64_t nargs, int64_t pos) {
     if (nargs == 0) return;
     Optional<ArgType>::Check(name, args, nargs, pos);
     Optional<ArgTypes...>::Check(name, args + 1, nargs - 1, pos + 1);
@@ -272,8 +266,7 @@ constexpr size_t FTypeOptionalArgs() {
 }
 
 template <class ArgType, class... ArgTypes>
-void FType(const char *name, const TypedValue *args, int64_t nargs,
-           int64_t pos = 1) {
+void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos = 1) {
   if constexpr (std::is_same_v<ArgType, void>) {
     if (nargs != 0) {
       throw QueryRuntimeException("'{}' requires no arguments.", name);
@@ -285,30 +278,25 @@ void FType(const char *name, const TypedValue *args, int64_t nargs,
   constexpr int64_t total_args = required_args + optional_args;
   if constexpr (optional_args > 0) {
     if (nargs < required_args || nargs > total_args) {
-      throw QueryRuntimeException("'{}' requires between {} and {} arguments.",
-                                  name, required_args, total_args);
+      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", name, required_args, total_args);
     }
   } else {
     if (nargs != required_args) {
-      throw QueryRuntimeException(
-          "'{}' requires exactly {} {}.", name, required_args,
-          required_args == 1 ? "argument" : "arguments");
+      throw QueryRuntimeException("'{}' requires exactly {} {}.", name, required_args,
+                                  required_args == 1 ? "argument" : "arguments");
     }
   }
   const TypedValue &arg = args[0];
   if constexpr (IsOrType<ArgType>::value) {
     if (!ArgType::Check(arg)) {
-      throw QueryRuntimeException(
-          "'{}' argument at position {} must be either {}.", name, pos,
-          ArgType::TypeNames());
+      throw QueryRuntimeException("'{}' argument at position {} must be either {}.", name, pos, ArgType::TypeNames());
     }
   } else if constexpr (IsOptional<ArgType>::value) {
     static_assert(sizeof...(ArgTypes) == 0, "Optional arguments must be last!");
     ArgType::Check(name, args, nargs, pos);
   } else {
     if (!ArgIsType<ArgType>(arg)) {
-      throw QueryRuntimeException("'{}' argument at position {} must be '{}'",
-                                  name, pos, ArgTypeName<ArgType>());
+      throw QueryRuntimeException("'{}' argument at position {} must be '{}'", name, pos, ArgTypeName<ArgType>());
     }
   }
   if constexpr (sizeof...(ArgTypes) > 0) {
@@ -339,15 +327,13 @@ void FType(const char *name, const TypedValue *args, int64_t nargs,
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement spatial functions
 
-TypedValue EndNode(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
+TypedValue EndNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("endNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(args[0].ValueEdge().To(), ctx.memory);
 }
 
-TypedValue Head(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Head(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>>("head", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &list = args[0].ValueList();
@@ -355,8 +341,7 @@ TypedValue Head(const TypedValue *args, int64_t nargs,
   return TypedValue(list[0], ctx.memory);
 }
 
-TypedValue Last(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>>("last", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &list = args[0].ValueList();
@@ -364,8 +349,7 @@ TypedValue Last(const TypedValue *args, int64_t nargs,
   return TypedValue(list.back(), ctx.memory);
 }
 
-TypedValue Properties(const TypedValue *args, int64_t nargs,
-                      const FunctionContext &ctx) {
+TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor) {
@@ -374,16 +358,13 @@ TypedValue Properties(const TypedValue *args, int64_t nargs,
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException(
-              "Trying to get properties from a deleted object.");
+          throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException(
-              "Trying to get properties from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException(
-              "Unexpected error when getting properties.");
+          throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
     for (const auto &property : *maybe_props) {
@@ -401,31 +382,25 @@ TypedValue Properties(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Size(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsList()) {
-    return TypedValue(static_cast<int64_t>(value.ValueList().size()),
-                      ctx.memory);
+    return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
   } else if (value.IsString()) {
-    return TypedValue(static_cast<int64_t>(value.ValueString().size()),
-                      ctx.memory);
+    return TypedValue(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
   } else if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
-    return TypedValue(static_cast<int64_t>(value.ValueMap().size()),
-                      ctx.memory);
+    return TypedValue(static_cast<int64_t>(value.ValueMap().size()), ctx.memory);
   } else {
-    return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()),
-                      ctx.memory);
+    return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
   }
 }
 
-TypedValue StartNode(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
+TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
@@ -439,13 +414,11 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get degree of a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException(
-            "Unexpected error when getting node degree.");
+        throw QueryRuntimeException("Unexpected error when getting node degree.");
     }
   }
   return *maybe_degree;
@@ -453,8 +426,7 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
 
 }  // namespace
 
-TypedValue Degree(const TypedValue *args, int64_t nargs,
-                  const FunctionContext &ctx) {
+TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
@@ -463,8 +435,7 @@ TypedValue Degree(const TypedValue *args, int64_t nargs,
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
 }
 
-TypedValue InDegree(const TypedValue *args, int64_t nargs,
-                    const FunctionContext &ctx) {
+TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
@@ -472,8 +443,7 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs,
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
 
-TypedValue OutDegree(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
+TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
@@ -481,8 +451,7 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs,
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
-TypedValue ToBoolean(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
+TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
@@ -501,8 +470,7 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue ToFloat(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
+TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Number, String>>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
@@ -513,16 +481,14 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs,
     return TypedValue(value, ctx.memory);
   } else {
     try {
-      return TypedValue(utils::ParseDouble(utils::Trim(value.ValueString())),
-                        ctx.memory);
+      return TypedValue(utils::ParseDouble(utils::Trim(value.ValueString())), ctx.memory);
     } catch (const utils::BasicException &) {
       return TypedValue(ctx.memory);
     }
   }
 }
 
-TypedValue ToInteger(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
+TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
@@ -537,28 +503,22 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs,
     try {
       // Yup, this is correct. String is valid if it has floating point
       // number, then it is parsed and converted to int.
-      return TypedValue(static_cast<int64_t>(utils::ParseDouble(
-                            utils::Trim(value.ValueString()))),
-                        ctx.memory);
+      return TypedValue(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
     } catch (const utils::BasicException &) {
       return TypedValue(ctx.memory);
     }
   }
 }
 
-TypedValue Type(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()),
-                    ctx.memory);
+  return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()), ctx.memory);
 }
 
-TypedValue ValueType(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path>>(
-      "type", args, nargs);
+TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -586,8 +546,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs,
 }
 
 // TODO: How is Keys different from Properties function?
-TypedValue Keys(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
@@ -596,11 +555,9 @@ TypedValue Keys(const TypedValue *args, int64_t nargs,
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException(
-              "Trying to get keys from a deleted object.");
+          throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException(
-              "Trying to get keys from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -622,8 +579,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Labels(const TypedValue *args, int64_t nargs,
-                  const FunctionContext &ctx) {
+TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("labels", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -632,11 +588,9 @@ TypedValue Labels(const TypedValue *args, int64_t nargs,
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw QueryRuntimeException(
-            "Trying to get labels from a deleted node.");
+        throw QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get labels from a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
@@ -649,8 +603,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(labels));
 }
 
-TypedValue Nodes(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
+TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertices = args[0].ValuePath().vertices();
@@ -660,8 +613,7 @@ TypedValue Nodes(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(values));
 }
 
-TypedValue Relationships(const TypedValue *args, int64_t nargs,
-                         const FunctionContext &ctx) {
+TypedValue Relationships(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &edges = args[0].ValuePath().edges();
@@ -671,10 +623,8 @@ TypedValue Relationships(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(values));
 }
 
-TypedValue Range(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
-  FType<Or<Null, Integer>, Or<Null, Integer>,
-        Optional<Or<Null, NonZeroInteger>>>("range", args, nargs);
+TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Integer>, Or<Null, Integer>, Optional<Or<Null, NonZeroInteger>>>("range", args, nargs);
   for (int64_t i = 0; i < nargs; ++i)
     if (args[i].IsNull()) return TypedValue(ctx.memory);
   auto lbound = args[0].ValueInt();
@@ -693,8 +643,7 @@ TypedValue Range(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(list));
 }
 
-TypedValue Tail(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Tail(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>>("tail", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector list(args[0].ValueList(), ctx.memory);
@@ -703,10 +652,8 @@ TypedValue Tail(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(list));
 }
 
-TypedValue UniformSample(const TypedValue *args, int64_t nargs,
-                         const FunctionContext &ctx) {
-  FType<Or<Null, List>, Or<Null, NonNegativeInteger>>("uniformSample", args,
-                                                      nargs);
+TypedValue UniformSample(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>, Or<Null, NonNegativeInteger>>("uniformSample", args, nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &population = args[0].ValueList();
@@ -722,8 +669,7 @@ TypedValue UniformSample(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(sampled));
 }
 
-TypedValue Abs(const TypedValue *args, int64_t nargs,
-               const FunctionContext &ctx) {
+TypedValue Abs(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Number>>("abs", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
@@ -735,18 +681,17 @@ TypedValue Abs(const TypedValue *args, int64_t nargs,
   }
 }
 
-#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                   \
-  TypedValue name(const TypedValue *args, int64_t nargs,                   \
-                  const FunctionContext &ctx) {                            \
-    FType<Or<Null, Number>>(#lowercased_name, args, nargs);                \
-    const auto &value = args[0];                                           \
-    if (value.IsNull()) {                                                  \
-      return TypedValue(ctx.memory);                                       \
-    } else if (value.IsInt()) {                                            \
-      return TypedValue(lowercased_name(value.ValueInt()), ctx.memory);    \
-    } else {                                                               \
-      return TypedValue(lowercased_name(value.ValueDouble()), ctx.memory); \
-    }                                                                      \
+#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                               \
+  TypedValue name(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) { \
+    FType<Or<Null, Number>>(#lowercased_name, args, nargs);                            \
+    const auto &value = args[0];                                                       \
+    if (value.IsNull()) {                                                              \
+      return TypedValue(ctx.memory);                                                   \
+    } else if (value.IsInt()) {                                                        \
+      return TypedValue(lowercased_name(value.ValueInt()), ctx.memory);                \
+    } else {                                                                           \
+      return TypedValue(lowercased_name(value.ValueDouble()), ctx.memory);             \
+    }                                                                                  \
   }
 
 WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
@@ -767,8 +712,7 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 #undef WRAP_CMATH_FLOAT_FUNCTION
 
-TypedValue Atan2(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
+TypedValue Atan2(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Number>, Or<Null, Number>>("atan2", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   auto to_double = [](const TypedValue &t) -> double {
@@ -783,8 +727,7 @@ TypedValue Atan2(const TypedValue *args, int64_t nargs,
   return TypedValue(atan2(y, x), ctx.memory);
 }
 
-TypedValue Sign(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Sign(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Number>>("sign", args, nargs);
   auto sign = [&](auto x) { return TypedValue((0 < x) - (x < 0), ctx.memory); };
   const auto &value = args[0];
@@ -797,20 +740,17 @@ TypedValue Sign(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue E(const TypedValue *args, int64_t nargs,
-             const FunctionContext &ctx) {
+TypedValue E(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("e", args, nargs);
   return TypedValue(M_E, ctx.memory);
 }
 
-TypedValue Pi(const TypedValue *args, int64_t nargs,
-              const FunctionContext &ctx) {
+TypedValue Pi(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("pi", args, nargs);
   return TypedValue(M_PI, ctx.memory);
 }
 
-TypedValue Rand(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Rand(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("rand", args, nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
@@ -818,8 +758,7 @@ TypedValue Rand(const TypedValue *args, int64_t nargs,
 }
 
 template <class TPredicate>
-TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs,
-                               const FunctionContext &ctx) {
+TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>>(TPredicate::name, args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &s1 = args[0].ValueString();
@@ -830,8 +769,7 @@ TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs,
 // Check if s1 starts with s2.
 struct StartsWithPredicate {
   constexpr static const char *name = "startsWith";
-  bool operator()(const TypedValue::TString &s1,
-                  const TypedValue::TString &s2) const {
+  bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.begin(), s2.end(), s1.begin());
   }
@@ -841,8 +779,7 @@ auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 // Check if s1 ends with s2.
 struct EndsWithPredicate {
   constexpr static const char *name = "endsWith";
-  bool operator()(const TypedValue::TString &s1,
-                  const TypedValue::TString &s2) const {
+  bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
   }
@@ -852,16 +789,14 @@ auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 // Check if s1 contains s2.
 struct ContainsPredicate {
   constexpr static const char *name = "contains";
-  bool operator()(const TypedValue::TString &s1,
-                  const TypedValue::TString &s2) const {
+  bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return s1.find(s2) != std::string::npos;
   }
 };
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
-TypedValue Assert(const TypedValue *args, int64_t nargs,
-                  const FunctionContext &ctx) {
+TypedValue Assert(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Bool, Optional<String>>("assert", args, nargs);
   if (!args[0].ValueBool()) {
     std::string message("Assertion failed");
@@ -875,24 +810,21 @@ TypedValue Assert(const TypedValue *args, int64_t nargs,
   return TypedValue(args[0], ctx.memory);
 }
 
-TypedValue Counter(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &context) {
+TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext &context) {
   FType<String, Integer, Optional<NonZeroInteger>>("counter", args, nargs);
   int64_t step = 1;
   if (nargs == 3) {
     step = args[2].ValueInt();
   }
 
-  auto [it, inserted] =
-      context.counters->emplace(args[0].ValueString(), args[1].ValueInt());
+  auto [it, inserted] = context.counters->emplace(args[0].ValueString(), args[1].ValueInt());
   auto value = it->second;
   it->second += step;
 
   return TypedValue(value, context.memory);
 }
 
-TypedValue Id(const TypedValue *args, int64_t nargs,
-              const FunctionContext &ctx) {
+TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("id", args, nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
@@ -904,8 +836,7 @@ TypedValue Id(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue ToString(const TypedValue *args, int64_t nargs,
-                    const FunctionContext &ctx) {
+TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
@@ -923,106 +854,80 @@ TypedValue ToString(const TypedValue *args, int64_t nargs,
   }
 }
 
-TypedValue Timestamp(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
+TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("timestamp", args, nargs);
   return TypedValue(ctx.timestamp, ctx.memory);
 }
 
-TypedValue Left(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
+TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("left", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()),
-                    ctx.memory);
+  return TypedValue(utils::Substr(args[0].ValueString(), 0, args[1].ValueInt()), ctx.memory);
 }
 
-TypedValue Right(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
+TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, NonNegativeInteger>>("right", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto len = args[1].ValueInt();
-  return len <= str.size()
-             ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
-             : TypedValue(str, ctx.memory);
+  return len <= str.size() ? TypedValue(utils::Substr(str, str.size() - len, len), ctx.memory)
+                           : TypedValue(str, ctx.memory);
 }
 
-TypedValue CallStringFunction(
-    const TypedValue *args, int64_t nargs, utils::MemoryResource *memory,
-    const char *name,
-    std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
+TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::MemoryResource *memory, const char *name,
+                              std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
   FType<Or<Null, String>>(name, args, nargs);
   if (args[0].IsNull()) return TypedValue(memory);
   return TypedValue(fun(args[0].ValueString()), memory);
 }
 
-TypedValue LTrim(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "lTrim", [&](const auto &str) {
-        return TypedValue::TString(utils::LTrim(str), ctx.memory);
-      });
+TypedValue LTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "lTrim",
+                            [&](const auto &str) { return TypedValue::TString(utils::LTrim(str), ctx.memory); });
 }
 
-TypedValue RTrim(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "rTrim", [&](const auto &str) {
-        return TypedValue::TString(utils::RTrim(str), ctx.memory);
-      });
+TypedValue RTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "rTrim",
+                            [&](const auto &str) { return TypedValue::TString(utils::RTrim(str), ctx.memory); });
 }
 
-TypedValue Trim(const TypedValue *args, int64_t nargs,
-                const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "trim", [&](const auto &str) {
-        return TypedValue::TString(utils::Trim(str), ctx.memory);
-      });
+TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "trim",
+                            [&](const auto &str) { return TypedValue::TString(utils::Trim(str), ctx.memory); });
 }
 
-TypedValue Reverse(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
-  return CallStringFunction(
-      args, nargs, ctx.memory, "reverse",
-      [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
+TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "reverse",
+                            [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
 }
 
-TypedValue ToLower(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "toLower",
-                            [&](const auto &str) {
-                              TypedValue::TString res(ctx.memory);
-                              utils::ToLowerCase(&res, str);
-                              return res;
-                            });
+TypedValue ToLower(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "toLower", [&](const auto &str) {
+    TypedValue::TString res(ctx.memory);
+    utils::ToLowerCase(&res, str);
+    return res;
+  });
 }
 
-TypedValue ToUpper(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "toUpper",
-                            [&](const auto &str) {
-                              TypedValue::TString res(ctx.memory);
-                              utils::ToUpperCase(&res, str);
-                              return res;
-                            });
+TypedValue ToUpper(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return CallStringFunction(args, nargs, ctx.memory, "toUpper", [&](const auto &str) {
+    TypedValue::TString res(ctx.memory);
+    utils::ToUpperCase(&res, str);
+    return res;
+  });
 }
 
-TypedValue Replace(const TypedValue *args, int64_t nargs,
-                   const FunctionContext &ctx) {
-  FType<Or<Null, String>, Or<Null, String>, Or<Null, String>>("replace", args,
-                                                              nargs);
+TypedValue Replace(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, String>, Or<Null, String>, Or<Null, String>>("replace", args, nargs);
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
     return TypedValue(ctx.memory);
   }
   TypedValue::TString replaced(ctx.memory);
-  utils::Replace(&replaced, args[0].ValueString(), args[1].ValueString(),
-                 args[2].ValueString());
+  utils::Replace(&replaced, args[0].ValueString(), args[1].ValueString(), args[2].ValueString());
   return TypedValue(std::move(replaced));
 }
 
-TypedValue Split(const TypedValue *args, int64_t nargs,
-                 const FunctionContext &ctx) {
+TypedValue Split(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String>, Or<Null, String>>("split", args, nargs);
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue(ctx.memory);
@@ -1032,10 +937,8 @@ TypedValue Split(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(result));
 }
 
-TypedValue Substring(const TypedValue *args, int64_t nargs,
-                     const FunctionContext &ctx) {
-  FType<Or<Null, String>, NonNegativeInteger, Optional<NonNegativeInteger>>(
-      "substring", args, nargs);
+TypedValue Substring(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, String>, NonNegativeInteger, Optional<NonNegativeInteger>>("substring", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &str = args[0].ValueString();
   auto start = args[1].ValueInt();
@@ -1044,8 +947,7 @@ TypedValue Substring(const TypedValue *args, int64_t nargs,
   return TypedValue(utils::Substr(str, start, len), ctx.memory);
 }
 
-TypedValue ToByteString(const TypedValue *args, int64_t nargs,
-                        const FunctionContext &ctx) {
+TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<String>("toByteString", args, nargs);
   const auto &str = args[0].ValueString();
   if (str.empty()) return TypedValue("", ctx.memory);
@@ -1057,8 +959,7 @@ TypedValue ToByteString(const TypedValue *args, int64_t nargs,
     if (ch >= '0' && ch <= '9') return ch - '0';
     if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
     if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-    throw QueryRuntimeException(
-        "'toByteString' argument has an invalid character '{}'", ch);
+    throw QueryRuntimeException("'toByteString' argument has an invalid character '{}'", ch);
   };
   utils::pmr::string bytes(ctx.memory);
   bytes.reserve((1 + hex_str.size()) / 2);
@@ -1074,27 +975,23 @@ TypedValue ToByteString(const TypedValue *args, int64_t nargs,
   return TypedValue(std::move(bytes));
 }
 
-TypedValue FromByteString(const TypedValue *args, int64_t nargs,
-                          const FunctionContext &ctx) {
+TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<String, Optional<PositiveInteger>>("fromByteString", args, nargs);
   const auto &bytes = args[0].ValueString();
   if (bytes.empty()) return TypedValue("", ctx.memory);
   size_t min_length = bytes.size();
-  if (nargs == 2)
-    min_length = std::max(min_length, static_cast<size_t>(args[1].ValueInt()));
+  if (nargs == 2) min_length = std::max(min_length, static_cast<size_t>(args[1].ValueInt()));
   utils::pmr::string str(ctx.memory);
   str.reserve(min_length * 2 + 2);
   str.append("0x");
-  for (size_t pad = 0; pad < min_length - bytes.size(); ++pad)
-    str.append(2, '0');
+  for (size_t pad = 0; pad < min_length - bytes.size(); ++pad) str.append(2, '0');
   // Convert the bytes to a character string in hex representation.
   // Unfortunately, we don't know whether the default `char` is signed or
   // unsigned, so we have to work around any potential undefined behaviour when
   // conversions between the 2 occur. That's why this function is more
   // complicated than it should be.
   auto to_hex = [](const unsigned char val) -> char {
-    unsigned char ch = val < 10U ? static_cast<unsigned char>('0') + val
-                                 : static_cast<unsigned char>('a') + val - 10U;
+    unsigned char ch = val < 10U ? static_cast<unsigned char>('0') + val : static_cast<unsigned char>('a') + val - 10U;
     return utils::MemcpyCast<char>(ch);
   };
   for (unsigned char byte : bytes) {
@@ -1106,9 +1003,8 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs,
 
 }  // namespace
 
-std::function<TypedValue(const TypedValue *, int64_t,
-                         const FunctionContext &ctx)>
-NameToFunction(const std::string &function_name) {
+std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
+    const std::string &function_name) {
   // Scalar functions
   if (function_name == "DEGREE") return Degree;
   if (function_name == "INDEGREE") return InDegree;

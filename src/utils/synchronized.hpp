@@ -51,8 +51,7 @@ template <class T, class TMutex = std::mutex>
 class Synchronized {
  public:
   template <class... Args>
-  explicit Synchronized(Args &&... args)
-      : object_(std::forward<Args>(args)...) {}
+  explicit Synchronized(Args &&...args) : object_(std::forward<Args>(args)...) {}
 
   Synchronized(const Synchronized &) = delete;
   Synchronized(Synchronized &&) = delete;
@@ -64,8 +63,7 @@ class Synchronized {
    private:
     friend class Synchronized<T, TMutex>;
 
-    LockedPtr(T *object_ptr, TMutex *mutex)
-        : object_ptr_(object_ptr), guard_(*mutex) {}
+    LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
 
    public:
     T *operator->() { return object_ptr_; }

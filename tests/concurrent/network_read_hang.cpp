@@ -22,14 +22,11 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &,
-              communication::InputStream *input_stream,
+  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
-  void Execute() {
-    output_stream_->Write(input_stream_->data(), input_stream_->size());
-  }
+  void Execute() { output_stream_->Write(input_stream_->data(), input_stream_->size()); }
 
   communication::InputStream *input_stream_;
   communication::OutputStream *output_stream_;
@@ -63,15 +60,13 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
   communication::ServerContext context;
-  communication::Server<TestSession, TestData> server(endpoint, &data, &context,
-                                                      -1, "Test", N);
+  communication::Server<TestSession, TestData> server(endpoint, &data, &context, -1, "Test", N);
   ASSERT_TRUE(server.Start());
 
   const auto &ep = server.endpoint();
   // start clients
   std::vector<std::thread> clients;
-  for (int i = 0; i < Nc; ++i)
-    clients.push_back(std::thread(client_run, i, interface, ep.port));
+  for (int i = 0; i < Nc; ++i) clients.push_back(std::thread(client_run, i, interface, ep.port));
 
   // wait for 2s and stop clients
   std::this_thread::sleep_for(std::chrono::seconds(2));

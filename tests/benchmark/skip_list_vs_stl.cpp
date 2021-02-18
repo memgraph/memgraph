@@ -90,11 +90,8 @@ class StdSetWithPoolAllocatorInsertFixture : public benchmark::Fixture {
   }
 
  protected:
-  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
-                              1024U /* max_block_size */,
-                              utils::NewDeleteResource()};
-  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{
-      &memory_};
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */, 1024U /* max_block_size */, utils::NewDeleteResource()};
+  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{&memory_};
   utils::SpinLock lock;
 };
 
@@ -186,10 +183,7 @@ BENCHMARK_DEFINE_F(StdSetFindFixture, Find)(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK_REGISTER_F(StdSetFindFixture, Find)
-    ->ThreadRange(1, kThreadsNum)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK_REGISTER_F(StdSetFindFixture, Find)->ThreadRange(1, kThreadsNum)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
  protected:
@@ -202,11 +196,8 @@ class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
   }
 
  protected:
-  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
-                              1024U /* max_block_size */,
-                              utils::NewDeleteResource()};
-  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{
-      &memory_};
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */, 1024U /* max_block_size */, utils::NewDeleteResource()};
+  std::set<uint64_t, std::less<>, utils::Allocator<uint64_t>> container{&memory_};
   utils::SpinLock lock;
 };
 
@@ -238,9 +229,7 @@ struct MapObject {
   uint64_t value;
 };
 
-bool operator==(const MapObject &a, const MapObject &b) {
-  return a.key == b.key;
-}
+bool operator==(const MapObject &a, const MapObject &b) { return a.key == b.key; }
 bool operator<(const MapObject &a, const MapObject &b) { return a.key < b.key; }
 bool operator==(const MapObject &a, uint64_t b) { return a.key == b; }
 bool operator<(const MapObject &a, uint64_t b) { return a.key < b; }
@@ -323,12 +312,8 @@ class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
   }
 
  protected:
-  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
-                              1024U /* max_block_size */,
-                              utils::NewDeleteResource()};
-  std::map<uint64_t, uint64_t, std::less<>,
-           utils::Allocator<std::pair<const uint64_t, uint64_t>>>
-      container{&memory_};
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */, 1024U /* max_block_size */, utils::NewDeleteResource()};
+  std::map<uint64_t, uint64_t, std::less<>, utils::Allocator<std::pair<const uint64_t, uint64_t>>> container{&memory_};
   utils::SpinLock lock;
 };
 
@@ -420,10 +405,7 @@ BENCHMARK_DEFINE_F(StdMapFindFixture, Find)(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK_REGISTER_F(StdMapFindFixture, Find)
-    ->ThreadRange(1, kThreadsNum)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK_REGISTER_F(StdMapFindFixture, Find)->ThreadRange(1, kThreadsNum)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
  protected:
@@ -436,12 +418,8 @@ class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
   }
 
  protected:
-  utils::PoolResource memory_{256U /* max_blocks_per_chunk */,
-                              1024U /* max_block_size */,
-                              utils::NewDeleteResource()};
-  std::map<uint64_t, uint64_t, std::less<>,
-           utils::Allocator<std::pair<const uint64_t, uint64_t>>>
-      container{&memory_};
+  utils::PoolResource memory_{256U /* max_blocks_per_chunk */, 1024U /* max_block_size */, utils::NewDeleteResource()};
+  std::map<uint64_t, uint64_t, std::less<>, utils::Allocator<std::pair<const uint64_t, uint64_t>>> container{&memory_};
   utils::SpinLock lock;
 };
 

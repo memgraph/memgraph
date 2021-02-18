@@ -42,14 +42,12 @@ int main() {
   for (int i = 0; i < kNumThreadsFind; ++i) {
     threads_find.push_back(std::thread([&list, &run, &modify_done, i] {
       std::mt19937 gen(3137 + i);
-      std::uniform_int_distribution<uint64_t> dist(
-          0, kNumThreadsInsert * kMaxNum - 1);
+      std::uniform_int_distribution<uint64_t> dist(0, kNumThreadsInsert * kMaxNum - 1);
       while (run.load(std::memory_order_relaxed)) {
         auto acc = list.access();
         auto num = dist(gen);
         auto it = acc.find(num);
-        if (modify_done.load(std::memory_order_relaxed) &&
-            num >= kNumThreadsRemove * kMaxNum) {
+        if (modify_done.load(std::memory_order_relaxed) && num >= kNumThreadsRemove * kMaxNum) {
           MG_ASSERT(it != acc.end());
           MG_ASSERT(*it == num);
         }
@@ -70,8 +68,7 @@ int main() {
   }
 
   MG_ASSERT(list.size() == (kNumThreadsInsert - kNumThreadsRemove) * kMaxNum);
-  for (uint64_t i = kMaxNum * kNumThreadsRemove;
-       i < kMaxNum * kNumThreadsInsert; ++i) {
+  for (uint64_t i = kMaxNum * kNumThreadsRemove; i < kMaxNum * kNumThreadsInsert; ++i) {
     auto acc = list.access();
     auto it = acc.find(i);
     MG_ASSERT(it != acc.end());

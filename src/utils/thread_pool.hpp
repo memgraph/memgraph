@@ -41,9 +41,7 @@ class ThreadPool {
   std::atomic<size_t> unfinished_tasks_num_{0};
   std::atomic<bool> terminate_pool_{false};
   std::atomic<bool> stopped_{false};
-  utils::Synchronized<std::queue<std::unique_ptr<TaskSignature>>,
-                      utils::SpinLock>
-      task_queue_;
+  utils::Synchronized<std::queue<std::unique_ptr<TaskSignature>>, utils::SpinLock> task_queue_;
   std::mutex pool_lock_;
   std::condition_variable queue_cv_;
 };

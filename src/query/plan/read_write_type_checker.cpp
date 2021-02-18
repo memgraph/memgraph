@@ -81,9 +81,7 @@ void ReadWriteTypeChecker::UpdateType(RWType op_type) {
   }
 }
 
-void ReadWriteTypeChecker::InferRWType(LogicalOperator &root) {
-  root.Accept(*this);
-}
+void ReadWriteTypeChecker::InferRWType(LogicalOperator &root) { root.Accept(*this); }
 
 std::string ReadWriteTypeChecker::TypeToString(const RWType type) {
   switch (type) {

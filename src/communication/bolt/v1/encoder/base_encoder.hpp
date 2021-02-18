@@ -7,8 +7,7 @@
 #include "utils/cast.hpp"
 #include "utils/endian.hpp"
 
-static_assert(std::is_same_v<std::uint8_t, char> ||
-                  std::is_same_v<std::uint8_t, unsigned char>,
+static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t, unsigned char>,
               "communication::bolt::Encoder requires uint8_t to be "
               "implemented as char or unsigned char.");
 
@@ -29,9 +28,7 @@ class BaseEncoder {
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
-  void WriteRAW(const char *data, uint64_t len) {
-    WriteRAW((const uint8_t *)data, len);
-  }
+  void WriteRAW(const char *data, uint64_t len) { WriteRAW((const uint8_t *)data, len); }
 
   void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
 
@@ -126,8 +123,7 @@ class BaseEncoder {
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + (unbound ? 3 : 5));
-    WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship
-                                           : Signature::Relationship));
+    WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
     WriteInt(edge.id.AsInt());
     if (!unbound) {

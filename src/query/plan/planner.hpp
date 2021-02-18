@@ -28,38 +28,31 @@ class PostProcessor final {
  public:
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
-  explicit PostProcessor(const Parameters &parameters)
-      : parameters_(parameters) {}
+  explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
 
   template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> Rewrite(
-      std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    return RewriteWithIndexLookup(std::move(plan), context->symbol_table,
-                                  context->ast_storage, context->db);
+  std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
+    return RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db);
   }
 
   template <class TVertexCounts>
-  double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan,
-                          TVertexCounts *vertex_counts) {
+  double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts) {
     return ::query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
   }
 
   template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> MergeWithCombinator(
-      std::unique_ptr<LogicalOperator> curr_op,
-      std::unique_ptr<LogicalOperator> last_op, const Tree &combinator,
-      TPlanningContext *context) {
+  std::unique_ptr<LogicalOperator> MergeWithCombinator(std::unique_ptr<LogicalOperator> curr_op,
+                                                       std::unique_ptr<LogicalOperator> last_op, const Tree &combinator,
+                                                       TPlanningContext *context) {
     if (const auto *union_ = utils::Downcast<const CypherUnion>(&combinator)) {
       return std::unique_ptr<LogicalOperator>(
-          impl::GenUnion(*union_, std::move(last_op), std::move(curr_op),
-                         *context->symbol_table));
+          impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context->symbol_table));
     }
     throw utils::NotYetImplemented("query combinator");
   }
 
   template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> MakeDistinct(
-      std::unique_ptr<LogicalOperator> last_op, TPlanningContext *context) {
+  std::unique_ptr<LogicalOperator> MakeDistinct(std::unique_ptr<LogicalOperator> last_op, TPlanningContext *context) {
     auto output_symbols = last_op->OutputSymbols(*context->symbol_table);
     return std::make_unique<Distinct>(std::move(last_op), output_symbols);
   }
@@ -78,12 +71,10 @@ class PostProcessor final {
 /// @sa RuleBasedPlanner
 /// @sa VariableStartPlanner
 template <template <class> class TPlanner, class TDbAccessor>
-auto MakeLogicalPlanForSingleQuery(
-    std::vector<SingleQueryPart> single_query_parts,
-    PlanningContext<TDbAccessor> *context) {
+auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_parts,
+                                   PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
-  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(
-      single_query_parts);
+  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts);
 }
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -98,10 +89,8 @@ auto MakeLogicalPlanForSingleQuery(
 /// @return pair consisting of the final `TPlanPostProcess::ProcessedPlan` and
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
-auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process,
-                     bool use_variable_planner) {
-  auto query_parts = CollectQueryParts(*context->symbol_table,
-                                       *context->ast_storage, context->query);
+auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
+  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
   auto &vertex_counts = *context->db;
   double total_cost = 0;
 
@@ -113,22 +102,19 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process,
     double min_cost = std::numeric_limits<double>::max();
 
     if (use_variable_planner) {
-      auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(
-          query_part.single_query_parts, context);
+      auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_part.single_query_parts, context);
       for (auto plan : plans) {
         // Plans are generated lazily and the current plan will disappear, so
         // it's ok to move it.
         auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-        double cost =
-            post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+        double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
         if (!curr_plan || cost < min_cost) {
           curr_plan.emplace(std::move(rewritten_plan));
           min_cost = cost;
         }
       }
     } else {
-      auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-          query_part.single_query_parts, context);
+      auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_part.single_query_parts, context);
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
       min_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
       curr_plan.emplace(std::move(rewritten_plan));
@@ -136,9 +122,8 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process,
 
     total_cost += min_cost;
     if (query_part.query_combinator) {
-      last_plan = post_process->MergeWithCombinator(
-          std::move(*curr_plan), std::move(last_plan),
-          *query_part.query_combinator, context);
+      last_plan = post_process->MergeWithCombinator(std::move(*curr_plan), std::move(last_plan),
+                                                    *query_part.query_combinator, context);
     } else {
       last_plan = std::move(*curr_plan);
     }
@@ -152,8 +137,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process,
 }
 
 template <class TPlanningContext>
-auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters,
-                     bool use_variable_planner) {
+auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
   PostProcessor post_processor(parameters);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }

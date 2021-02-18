@@ -22,16 +22,12 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
  public:
   using Session<TestInputStream, TestOutputStream>::TEncoder;
 
-  TestSession(TestSessionData *data, TestInputStream *input_stream,
-              TestOutputStream *output_stream)
-      : Session<TestInputStream, TestOutputStream>(input_stream,
-                                                   output_stream) {}
+  TestSession(TestSessionData *data, TestInputStream *input_stream, TestOutputStream *output_stream)
+      : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query,
-      const std::map<std::string, Value> &params) override {
-    if (query == kQueryReturn42 || query == kQueryEmpty ||
-        query == kQueryReturnMultiple) {
+      const std::string &query, const std::map<std::string, Value> &params) override {
+    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
       return {{"result_name"}, {}};
     } else {
@@ -40,8 +36,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n,
-                                    std::optional<int> qid) override {
+  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
     if (query_ == kQueryReturn42) {
       encoder->MessageRecord(std::vector<Value>{Value(42)});
       return {};
@@ -52,10 +47,8 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       static size_t global_counter = 0;
 
       int local_counter = 0;
-      for (; global_counter < elements.size() && (!n || local_counter < *n);
-           ++global_counter) {
-        encoder->MessageRecord(
-            std::vector<Value>{Value(elements[global_counter])});
+      for (; global_counter < elements.size() && (!n || local_counter < *n); ++global_counter) {
+        encoder->MessageRecord(std::vector<Value>{Value(elements[global_counter])});
         ++local_counter;
       }
 
@@ -70,10 +63,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int>,
-                                       std::optional<int>) override {
-    return {};
-  }
+  std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
 
   void BeginTransaction() override {}
   void CommitTransaction() override {}
@@ -81,14 +71,9 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   void Abort() override {}
 
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override {
-    return true;
-  }
+  bool Authenticate(const std::string &username, const std::string &password) override { return true; }
 
-  std::optional<std::string> GetServerNameForInit() override {
-    return std::nullopt;
-  }
+  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
  private:
   std::string query_;
@@ -104,21 +89,16 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.
-constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
-                                     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x01};
-constexpr uint8_t init_req[] = {
-    0xb2, 0x01, 0xd0, 0x15, 0x6c, 0x69, 0x62, 0x6e, 0x65, 0x6f, 0x34,
-    0x6a, 0x2d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2f, 0x31, 0x2e,
-    0x32, 0x2e, 0x31, 0xa3, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65,
-    0x85, 0x62, 0x61, 0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e,
-    0x63, 0x69, 0x70, 0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64,
-    0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x80};
-constexpr uint8_t init_resp[] = {0x00, 0x18, 0xb1, 0x70, 0xa1, 0x8d, 0x63,
-                                 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69,
-                                 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x86, 0x62,
-                                 0x6f, 0x6c, 0x74, 0x2d, 0x31, 0x00, 0x00};
+constexpr uint8_t init_req[] = {0xb2, 0x01, 0xd0, 0x15, 0x6c, 0x69, 0x62, 0x6e, 0x65, 0x6f, 0x34, 0x6a, 0x2d,
+                                0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2f, 0x31, 0x2e, 0x32, 0x2e, 0x31, 0xa3,
+                                0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x85, 0x62, 0x61, 0x73, 0x69, 0x63,
+                                0x89, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x61, 0x6c, 0x80, 0x8b, 0x63,
+                                0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x80};
+constexpr uint8_t init_resp[] = {0x00, 0x18, 0xb1, 0x70, 0xa1, 0x8d, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69,
+                                 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x86, 0x62, 0x6f, 0x6c, 0x74, 0x2d, 0x31, 0x00, 0x00};
 constexpr uint8_t run_req_header[] = {0xb2, 0x10, 0xd1};
 constexpr uint8_t pullall_req[] = {0xb0, 0x3f};
 constexpr uint8_t discardall_req[] = {0xb0, 0x2f};
@@ -128,27 +108,20 @@ constexpr uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 constexpr uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
 
 namespace v4 {
-constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
-                                     0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x04};
 constexpr uint8_t init_req[] = {
-    0xb1, 0x01, 0xa5, 0x8a, 0x75, 0x73, 0x65, 0x72, 0x5f, 0x61, 0x67, 0x65,
-    0x6e, 0x74, 0xd0, 0x2f, 0x6e, 0x65, 0x6f, 0x34, 0x6a, 0x2d, 0x70, 0x79,
-    0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x34, 0x2e, 0x31, 0x2e, 0x31, 0x20, 0x50,
-    0x79, 0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x33, 0x2e, 0x37, 0x2e, 0x33, 0x2d,
-    0x66, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x30, 0x20, 0x28, 0x6c, 0x69, 0x6e,
-    0x75, 0x78, 0x29, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x85, 0x62,
-    0x61, 0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70,
-    0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69,
-    0x61, 0x6c, 0x73, 0x80, 0x87, 0x72, 0x6f, 0x75, 0x74, 0x69, 0x6e, 0x67,
-    0xa1, 0x87, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x8e, 0x6c, 0x6f,
-    0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x3a, 0x37, 0x36, 0x38, 0x37};
+    0xb1, 0x01, 0xa5, 0x8a, 0x75, 0x73, 0x65, 0x72, 0x5f, 0x61, 0x67, 0x65, 0x6e, 0x74, 0xd0, 0x2f, 0x6e, 0x65, 0x6f,
+    0x34, 0x6a, 0x2d, 0x70, 0x79, 0x74, 0x68, 0x6f, 0x6e, 0x2f, 0x34, 0x2e, 0x31, 0x2e, 0x31, 0x20, 0x50, 0x79, 0x74,
+    0x68, 0x6f, 0x6e, 0x2f, 0x33, 0x2e, 0x37, 0x2e, 0x33, 0x2d, 0x66, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x30, 0x20, 0x28,
+    0x6c, 0x69, 0x6e, 0x75, 0x78, 0x29, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x85, 0x62, 0x61, 0x73, 0x69, 0x63,
+    0x89, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74,
+    0x69, 0x61, 0x6c, 0x73, 0x80, 0x87, 0x72, 0x6f, 0x75, 0x74, 0x69, 0x6e, 0x67, 0xa1, 0x87, 0x61, 0x64, 0x64, 0x72,
+    0x65, 0x73, 0x73, 0x8e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x68, 0x6f, 0x73, 0x74, 0x3a, 0x37, 0x36, 0x38, 0x37};
 
-constexpr uint8_t init_resp[] = {0x00, 0x18, 0xb1, 0x70, 0xa1, 0x8d, 0x63,
-                                 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69,
-                                 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x86, 0x62,
-                                 0x6f, 0x6c, 0x74, 0x2d, 0x31, 0x00, 0x00};
+constexpr uint8_t init_resp[] = {0x00, 0x18, 0xb1, 0x70, 0xa1, 0x8d, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69,
+                                 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x86, 0x62, 0x6f, 0x6c, 0x74, 0x2d, 0x31, 0x00, 0x00};
 constexpr uint8_t run_req_header[] = {0xb3, 0x10, 0xd1};
 constexpr uint8_t pullall_req[] = {0xb1, 0x3f, 0xa0};
 constexpr uint8_t pull_one_req[] = {0xb1, 0x3f, 0xa1, 0x81, 0x6e, 0x01};
@@ -157,9 +130,8 @@ constexpr uint8_t goodbye[] = {0xb0, 0x02};
 }  // namespace v4
 
 namespace v4_1 {
-constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x01,
-                                     0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x01, 0x04};
 constexpr uint8_t noop[] = {0x00, 0x00};
 }  // namespace v4_1
@@ -171,9 +143,7 @@ void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
 }
 
 // Write bolt chunk tail (two zeros)
-void WriteChunkTail(TestInputStream &input_stream) {
-  WriteChunkHeader(input_stream, 0);
-}
+void WriteChunkTail(TestInputStream &input_stream) { WriteChunkHeader(input_stream, 0); }
 
 // Check that the server responded with a failure message.
 void CheckFailureMessage(std::vector<uint8_t> &output) {
@@ -205,10 +175,8 @@ void CheckIgnoreMessage(std::vector<uint8_t> &output) {
 }
 
 // Execute and check a correct handshake
-void ExecuteHandshake(TestInputStream &input_stream, TestSession &session,
-                      std::vector<uint8_t> &output,
-                      const uint8_t *request = handshake_req,
-                      const uint8_t *expected_resp = handshake_resp) {
+void ExecuteHandshake(TestInputStream &input_stream, TestSession &session, std::vector<uint8_t> &output,
+                      const uint8_t *request = handshake_req, const uint8_t *expected_resp = handshake_resp) {
   input_stream.Write(request, 20);
   session.Execute();
   ASSERT_EQ(session.state_, State::Init);
@@ -217,8 +185,8 @@ void ExecuteHandshake(TestInputStream &input_stream, TestSession &session,
 }
 
 // Write bolt chunk and execute command
-void ExecuteCommand(TestInputStream &input_stream, TestSession &session,
-                    const uint8_t *data, size_t len, bool chunk = true) {
+void ExecuteCommand(TestInputStream &input_stream, TestSession &session, const uint8_t *data, size_t len,
+                    bool chunk = true) {
   if (chunk) WriteChunkHeader(input_stream, len);
   input_stream.Write(data, len);
   if (chunk) WriteChunkTail(input_stream);
@@ -226,8 +194,8 @@ void ExecuteCommand(TestInputStream &input_stream, TestSession &session,
 }
 
 // Execute and check a correct init
-void ExecuteInit(TestInputStream &input_stream, TestSession &session,
-                 std::vector<uint8_t> &output, const bool is_v4 = false) {
+void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vector<uint8_t> &output,
+                 const bool is_v4 = false) {
   const auto *request = is_v4 ? v4::init_req : init_req;
   const auto request_size = is_v4 ? sizeof(v4::init_req) : sizeof(init_req);
   ExecuteCommand(input_stream, session, request, request_size);
@@ -238,15 +206,13 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session,
 }
 
 // Write bolt encoded run request
-void WriteRunRequest(TestInputStream &input_stream, const char *str,
-                     const bool is_v4 = false) {
+void WriteRunRequest(TestInputStream &input_stream, const char *str, const bool is_v4 = false) {
   // write chunk header
   auto len = strlen(str);
   WriteChunkHeader(input_stream, (3 + is_v4) + 2 + len + 1);
 
   const auto *run_header = is_v4 ? v4::run_req_header : run_req_header;
-  const auto run_header_size =
-      is_v4 ? sizeof(v4::run_req_header) : sizeof(run_req_header);
+  const auto run_header_size = is_v4 ? sizeof(v4::run_req_header) : sizeof(run_req_header);
   // write string header
   input_stream.Write(run_header, run_header_size);
 
@@ -299,9 +265,7 @@ TEST(BoltSession, HandshakeInTwoPackets) {
 TEST(BoltSession, HandshakeWriteFail) {
   INIT_VARS;
   output_stream.SetWriteSuccess(false);
-  ASSERT_THROW(ExecuteCommand(input_stream, session, handshake_req,
-                              sizeof(handshake_req), false),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, handshake_req, sizeof(handshake_req), false), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_EQ(output.size(), 0);
@@ -317,12 +281,10 @@ TEST(BoltSession, HandshakeMultiVersionRequest) {
   // but with a lower priority
   {
     INIT_VARS;
-    const uint8_t priority_request[] = {
-        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
-        0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+                                        0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     const uint8_t priority_response[] = {0x00, 0x00, 0x00, 0x04};
-    ExecuteHandshake(input_stream, session, output, priority_request,
-                     priority_response);
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
     ASSERT_EQ(session.version_.minor, 0);
     ASSERT_EQ(session.version_.major, 4);
   }
@@ -330,12 +292,10 @@ TEST(BoltSession, HandshakeMultiVersionRequest) {
   // Should pick the second version, 4.1, because first, 3.0, is not supported
   {
     INIT_VARS;
-    const uint8_t unsupported_first_request[] = {
-        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-        0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t unsupported_first_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+                                                 0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     const uint8_t unsupported_first_response[] = {0x00, 0x00, 0x01, 0x04};
-    ExecuteHandshake(input_stream, session, output, unsupported_first_request,
-                     unsupported_first_response);
+    ExecuteHandshake(input_stream, session, output, unsupported_first_request, unsupported_first_response);
     ASSERT_EQ(session.version_.minor, 1);
     ASSERT_EQ(session.version_.major, 4);
   }
@@ -343,21 +303,16 @@ TEST(BoltSession, HandshakeMultiVersionRequest) {
   // No supported version present in the request
   {
     INIT_VARS;
-    const uint8_t no_supported_versions_request[] = {
-        0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-        0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    ASSERT_THROW(ExecuteHandshake(input_stream, session, output,
-                                  no_supported_versions_request),
-                 SessionException);
+    const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+                                                     0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
   }
 }
 
 TEST(BoltSession, InitWrongSignature) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
-  ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header,
-                              sizeof(run_req_header)),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header, sizeof(run_req_header)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -369,8 +324,7 @@ TEST(BoltSession, InitWrongMarker) {
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, init_req[1]};
-  ASSERT_THROW(ExecuteCommand(input_stream, session, data, 2),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, 2), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -384,8 +338,7 @@ TEST(BoltSession, InitMissingData) {
   for (int i = 0; i < 3; ++i) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output);
-    ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, len[i]),
-                 SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, len[i]), SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -396,9 +349,7 @@ TEST(BoltSession, InitWriteFail) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
   output_stream.SetWriteSuccess(false);
-  ASSERT_THROW(
-      ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
-      SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, sizeof(init_req)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_EQ(output.size(), 0);
@@ -412,8 +363,7 @@ TEST(BoltSession, InitOK) {
   }
   {
     INIT_VARS;
-    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                     v4::handshake_resp);
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
   }
 }
@@ -426,8 +376,7 @@ TEST(BoltSession, ExecuteRunWrongMarker) {
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, run_req_header[1]};
-  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -442,8 +391,7 @@ TEST(BoltSession, ExecuteRunMissingData) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
-    ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header, len[i]),
-                 SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header, len[i]), SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -494,8 +442,7 @@ TEST(BoltSession, ExecuteRunWithoutPullAll) {
   {
     INIT_VARS;
 
-    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                     v4::handshake_resp);
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
 
     WriteRunRequest(input_stream, kQueryReturn42, true);
@@ -518,8 +465,7 @@ TEST(BoltSession, ExecutePullAllDiscardAllResetWrongMarker) {
 
     // wrong marker, good signature
     uint8_t data[2] = {0x00, dataset[i][1]};
-    ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
-                 SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)), SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -535,9 +481,7 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
     ExecuteInit(input_stream, session, output);
 
     output_stream.SetWriteSuccess(i == 0);
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req)), SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     if (i == 0) {
@@ -570,8 +514,7 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
         if (j == 0) {
           ExecuteCommand(input_stream, session, dataset[i], 2);
         } else {
-          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
-                       SessionException);
+          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2), SessionException);
         }
 
         if (j == 0) {
@@ -592,9 +535,7 @@ TEST(BoltSession, ExecuteInvalidMessage) {
 
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
-  ASSERT_THROW(
-      ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
-      SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, sizeof(init_req)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -617,9 +558,7 @@ TEST(BoltSession, ErrorIgnoreMessage) {
     if (i == 0) {
       ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
     } else {
-      ASSERT_THROW(
-          ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
-          SessionException);
+      ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, sizeof(init_req)), SessionException);
     }
 
     // assert that all data from the init message was cleaned up
@@ -671,9 +610,7 @@ TEST(BoltSession, ErrorCantCleanup) {
   output.clear();
 
   // there is data missing in the request, cleanup should fail
-  ASSERT_THROW(
-      ExecuteCommand(input_stream, session, init_req, sizeof(init_req) - 10),
-      SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, sizeof(init_req) - 10), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -692,8 +629,7 @@ TEST(BoltSession, ErrorWrongMarker) {
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, init_req[1]};
-  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -722,8 +658,7 @@ TEST(BoltSession, ErrorOK) {
         if (j == 0) {
           ExecuteCommand(input_stream, session, dataset[i], 2);
         } else {
-          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
-                       SessionException);
+          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2), SessionException);
         }
 
         // assert that all data from the init message was cleaned up
@@ -746,8 +681,7 @@ TEST(BoltSession, ErrorOK) {
     for (int i = 0; i < 2; ++i) {
       INIT_VARS;
 
-      ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                       v4::handshake_resp);
+      ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
       ExecuteInit(input_stream, session, output, true);
 
       WriteRunRequest(input_stream, kInvalidQuery, true);
@@ -781,8 +715,7 @@ TEST(BoltSession, ErrorMissingData) {
 
   // some marker, missing signature
   uint8_t data[1] = {0x00};
-  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
-               SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -818,13 +751,11 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
 TEST(BoltSession, PartialPull) {
   INIT_VARS;
 
-  ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                   v4::handshake_resp);
+  ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
   ExecuteInit(input_stream, session, output, true);
 
   WriteRunRequest(input_stream, kQueryReturnMultiple, true);
-  ExecuteCommand(input_stream, session, v4::pull_one_req,
-                 sizeof(v4::pull_one_req));
+  ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
 
   // Not all results were pulled
   ASSERT_EQ(session.state_, State::Result);
@@ -842,8 +773,7 @@ TEST(BoltSession, PartialPull) {
   // and the last is a success message with query run metadata
   ASSERT_EQ(num, 3);
 
-  ExecuteCommand(input_stream, session, v4::pullall_req,
-                 sizeof(v4::pullall_req));
+  ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
 
@@ -887,12 +817,10 @@ TEST(BoltSession, Goodbye) {
   // v4 supports goodbye message
   {
     INIT_VARS;
-    ExecuteHandshake(input_stream, session, output, v4::handshake_req,
-                     v4::handshake_resp);
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
-        communication::SessionClosedException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
+                 communication::SessionClosedException);
   }
 
   // v1 does not support goodbye message
@@ -900,9 +828,7 @@ TEST(BoltSession, Goodbye) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)), SessionException);
   }
 }
 
@@ -911,15 +837,13 @@ TEST(BoltSession, Noop) {
   {
     INIT_VARS;
 
-    ExecuteHandshake(input_stream, session, output, v4_1::handshake_req,
-                     v4_1::handshake_resp);
+    ExecuteHandshake(input_stream, session, output, v4_1::handshake_req, v4_1::handshake_resp);
     ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
     ExecuteInit(input_stream, session, output, true);
     ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
     WriteRunRequest(input_stream, kQueryReturn42, true);
     ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
-    ExecuteCommand(input_stream, session, v4::pullall_req,
-                   sizeof(v4::pullall_req));
+    ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
     ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop));
   }
 
@@ -927,20 +851,15 @@ TEST(BoltSession, Noop) {
   {
     INIT_VARS;
 
-    ExecuteHandshake(input_stream, session, output, handshake_req,
-                     handshake_resp);
+    ExecuteHandshake(input_stream, session, output, handshake_req, handshake_resp);
 
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
     CheckFailureMessage(output);
 
     session.state_ = State::Init;
     ExecuteInit(input_stream, session, output);
 
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
     CheckFailureMessage(output);
 
     session.state_ = State::Idle;
@@ -948,17 +867,13 @@ TEST(BoltSession, Noop) {
     session.Execute();
     CheckSuccessMessage(output);
 
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
     CheckFailureMessage(output);
 
     session.state_ = State::Result;
     ExecuteCommand(input_stream, session, pullall_req, sizeof(v4::pullall_req));
     CheckSuccessMessage(output);
 
-    ASSERT_THROW(
-        ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)),
-        SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
   }
 }

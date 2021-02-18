@@ -46,14 +46,10 @@ auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {
 };
 
 int main(int argc, char *argv[]) {
-  auto preprocess = [](const std::string &query) {
-    return query::frontend::StrippedQuery(query);
-  };
+  auto preprocess = [](const std::string &query) { return query::frontend::StrippedQuery(query); };
 
   for (auto test : kQueries) {
-    benchmark::RegisterBenchmark(test, BM_Strip, preprocess, test)
-        ->Range(1, 1)
-        ->Complexity(benchmark::oN);
+    benchmark::RegisterBenchmark(test, BM_Strip, preprocess, test)->Range(1, 1)->Complexity(benchmark::oN);
   }
 
   benchmark::Initialize(&argc, argv);

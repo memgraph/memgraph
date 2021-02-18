@@ -19,12 +19,9 @@ struct EchoData {
 
 class EchoSession {
  public:
-  EchoSession(EchoData *data, const io::network::Endpoint &,
-              communication::InputStream *input_stream,
+  EchoSession(EchoData *data, const io::network::Endpoint &, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
-      : data_(data),
-        input_stream_(input_stream),
-        output_stream_(output_stream) {}
+      : data_(data), input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
     if (input_stream_->size() < 2) return;
@@ -37,8 +34,7 @@ class EchoSession {
       data_->alive.store(false);
       return;
     }
-    spdlog::info("Server received '{}'",
-                 std::string(reinterpret_cast<const char *>(data + 2), size));
+    spdlog::info("Server received '{}'", std::string(reinterpret_cast<const char *>(data + 2), size));
     if (!output_stream_->Write(data + 2, size)) {
       throw utils::BasicException("Output stream write failed!");
     }
@@ -59,10 +55,8 @@ int main(int argc, char **argv) {
   // Initialize the server.
   EchoData echo_data;
   io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-  communication::ServerContext context(FLAGS_key_file, FLAGS_cert_file,
-                                       FLAGS_ca_file, FLAGS_verify_peer);
-  communication::Server<EchoSession, EchoData> server(endpoint, &echo_data,
-                                                      &context, -1, "SSL", 1);
+  communication::ServerContext context(FLAGS_key_file, FLAGS_cert_file, FLAGS_ca_file, FLAGS_verify_peer);
+  communication::Server<EchoSession, EchoData> server(endpoint, &echo_data, &context, -1, "SSL", 1);
   server.Start();
 
   while (echo_data.alive) {

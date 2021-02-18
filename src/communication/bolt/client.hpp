@@ -43,16 +43,14 @@ class ClientFatalException : public utils::BasicException {
 // only handle the `ClientFatalException`.
 class ServerCommunicationException : public ClientFatalException {
  public:
-  ServerCommunicationException()
-      : ClientFatalException("Couldn't communicate with the server!") {}
+  ServerCommunicationException() : ClientFatalException("Couldn't communicate with the server!") {}
 };
 
 // Internal exception used whenever a malformed data error occurs. You should
 // only handle the `ClientFatalException`.
 class ServerMalformedDataException : public ClientFatalException {
  public:
-  ServerMalformedDataException()
-      : ClientFatalException("The server sent malformed data!") {}
+  ServerMalformedDataException() : ClientFatalException("The server sent malformed data!") {}
 };
 
 /// Structure that is used to return results from an executed query.
@@ -79,8 +77,7 @@ class Client final {
   /// connection is set-up, multiple queries may be executed through a single
   /// established connection.
   /// @throws ClientFatalException when we couldn't connect to the server
-  void Connect(const io::network::Endpoint &endpoint,
-               const std::string &username, const std::string &password,
+  void Connect(const io::network::Endpoint &endpoint, const std::string &username, const std::string &password,
                const std::string &client_name = "memgraph-bolt") {
     if (!client_.Connect(endpoint)) {
       throw ClientFatalException("Couldn't connect to {}!", endpoint);
@@ -103,14 +100,11 @@ class Client final {
     }
     if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
       SPDLOG_ERROR("Server negotiated unsupported protocol version!");
-      throw ClientFatalException(
-          "The server negotiated an usupported protocol version!");
+      throw ClientFatalException("The server negotiated an usupported protocol version!");
     }
     client_.ShiftData(sizeof(kProtocol));
 
-    if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
-                                            {"principal", username},
-                                            {"credentials", password}})) {
+    if (!encoder_.MessageInit(client_name, {{"scheme", "basic"}, {"principal", username}, {"credentials", password}})) {
       SPDLOG_ERROR("Couldn't send init message!");
       throw ServerCommunicationException();
     }
@@ -135,15 +129,12 @@ class Client final {
   ///                              executing the query (eg. mistyped query,
   ///                              etc.)
   /// @throws ClientFatalException when we couldn't communicate with the server
-  QueryData Execute(const std::string &query,
-                    const std::map<std::string, Value> &parameters) {
+  QueryData Execute(const std::string &query, const std::map<std::string, Value> &parameters) {
     if (!client_.IsConnected()) {
-      throw ClientFatalException(
-          "You must first connect to the server before using the client!");
+      throw ClientFatalException("You must first connect to the server before using the client!");
     }
 
-    SPDLOG_INFO("Sending run message with statement: '{}'; parameters: {}",
-                query, parameters);
+    SPDLOG_INFO("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
     encoder_.MessageRun(query, parameters);
     encoder_.MessagePullAll();
@@ -165,8 +156,7 @@ class Client final {
       if (it != tmp.end()) {
         auto it_code = tmp.find("code");
         if (it_code != tmp.end()) {
-          throw ClientQueryException(it_code->second.ValueString(),
-                                     it->second.ValueString());
+          throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
         } else {
           throw ClientQueryException("", it->second.ValueString());
         }
@@ -209,8 +199,7 @@ class Client final {
         if (it != tmp.end()) {
           auto it_code = tmp.find("code");
           if (it_code != tmp.end()) {
-            throw ClientQueryException(it_code->second.ValueString(),
-                                       it->second.ValueString());
+            throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
           } else {
             throw ClientQueryException("", it->second.ValueString());
           }
@@ -308,15 +297,11 @@ class Client final {
   communication::ClientOutputStream output_stream_{client_};
 
   // decoder objects
-  ChunkedDecoderBuffer<communication::ClientInputStream> decoder_buffer_{
-      input_stream_};
-  Decoder<ChunkedDecoderBuffer<communication::ClientInputStream>> decoder_{
-      decoder_buffer_};
+  ChunkedDecoderBuffer<communication::ClientInputStream> decoder_buffer_{input_stream_};
+  Decoder<ChunkedDecoderBuffer<communication::ClientInputStream>> decoder_{decoder_buffer_};
 
   // encoder objects
-  ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{
-      output_stream_};
-  ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>
-      encoder_{encoder_buffer_};
+  ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{output_stream_};
+  ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>> encoder_{encoder_buffer_};
 };
 }  // namespace communication::bolt

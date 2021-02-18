@@ -34,20 +34,11 @@ struct Vertex {
   Delta *delta;
 };
 
-static_assert(alignof(Vertex) >= 8,
-              "The Vertex should be aligned to at least 8!");
+static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
 
-inline bool operator==(const Vertex &first, const Vertex &second) {
-  return first.gid == second.gid;
-}
-inline bool operator<(const Vertex &first, const Vertex &second) {
-  return first.gid < second.gid;
-}
-inline bool operator==(const Vertex &first, const Gid &second) {
-  return first.gid == second;
-}
-inline bool operator<(const Vertex &first, const Gid &second) {
-  return first.gid < second;
-}
+inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
+inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
+inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
+inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace storage

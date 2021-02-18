@@ -34,9 +34,7 @@ class InterpreterTest : public ::testing::Test {
   query::InterpreterContext interpreter_context_{&db_};
   query::Interpreter interpreter_{&interpreter_context_};
 
-  auto Prepare(
-      const std::string &query,
-      const std::map<std::string, storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(&db_);
 
     const auto [header, _, qid] = interpreter_.Prepare(query, params);
@@ -44,8 +42,7 @@ class InterpreterTest : public ::testing::Test {
     return std::pair{std::move(stream), qid};
   }
 
-  void Pull(ResultStreamFaker *stream, std::optional<int> n = {},
-            std::optional<int> qid = {}) {
+  void Pull(ResultStreamFaker *stream, std::optional<int> n = {}, std::optional<int> qid = {}) {
     const auto summary = interpreter_.Pull(stream, n, qid);
     stream->Summary(summary);
   }
@@ -55,9 +52,7 @@ class InterpreterTest : public ::testing::Test {
    *
    * Return the query stream.
    */
-  auto Interpret(
-      const std::string &query,
-      const std::map<std::string, storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     auto prepare_result = Prepare(query, params);
 
     auto &stream = prepare_result.first;
@@ -154,8 +149,7 @@ TEST_F(InterpreterTest, AstCache) {
 TEST_F(InterpreterTest, Parameters) {
   {
     auto stream =
-        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue(10)},
-                                         {"a b", storage::PropertyValue(15)}});
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue(10)}, {"a b", storage::PropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -164,10 +158,9 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream =
-        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue(10)},
-                                         {"a b", storage::PropertyValue(15)},
-                                         {"c", storage::PropertyValue(10)}});
+    auto stream = Interpret(
+        "RETURN $2 + $`a b`",
+        {{"2", storage::PropertyValue(10)}, {"a b", storage::PropertyValue(15)}, {"c", storage::PropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -176,9 +169,8 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = Interpret("RETURN $2 + $`a b`",
-                            {{"2", storage::PropertyValue("da")},
-                             {"a b", storage::PropertyValue("ne")}});
+    auto stream =
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue("da")}, {"a b", storage::PropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
@@ -186,21 +178,17 @@ TEST_F(InterpreterTest, Parameters) {
   {
     // Non-primitive literal.
     auto stream = Interpret(
-        "RETURN $2",
-        {{"2", storage::PropertyValue(std::vector<storage::PropertyValue>{
-                   storage::PropertyValue(5), storage::PropertyValue(2),
-                   storage::PropertyValue(3)})}});
+        "RETURN $2", {{"2", storage::PropertyValue(std::vector<storage::PropertyValue>{
+                                storage::PropertyValue(5), storage::PropertyValue(2), storage::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = query::test_common::ToIntList(
-        glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result = query::test_common::ToIntList(glue::ToTypedValue(stream.GetResults()[0][0]));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
     // Cached ast, unprovided parameter.
     ASSERT_THROW(
-        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue("da")},
-                                         {"ab", storage::PropertyValue("ne")}}),
+        Interpret("RETURN $2 + $`a b`", {{"2", storage::PropertyValue("da")}, {"ab", storage::PropertyValue("ne")}}),
         query::UnprovidedParameterError);
   }
 }
@@ -225,21 +213,15 @@ TEST_F(InterpreterTest, Bfs) {
     query::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId),
-                                 storage::PropertyValue(id++))
-                    .HasValue());
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kReachable),
-                                 storage::PropertyValue(reachable))
-                    .HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), storage::PropertyValue(id++)).HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kReachable), storage::PropertyValue(reachable)).HasValue());
       levels[level].push_back(node);
       return node;
     };
 
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
-      MG_ASSERT(edge->SetProperty(dba.NameToProperty(kReachable),
-                                  storage::PropertyValue(reachable))
-                    .HasValue());
+      MG_ASSERT(edge->SetProperty(dba.NameToProperty(kReachable), storage::PropertyValue(reachable)).HasValue());
     };
 
     // Add source node.
@@ -330,16 +312,14 @@ TEST_F(InterpreterTest, ShortestPath) {
       "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
       "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)");
 
-  auto stream =
-      Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
+  auto stream = Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "e");
   ASSERT_EQ(stream.GetResults().size(), 3U);
 
   auto dba = db_.Access();
-  std::vector<std::vector<std::string>> expected_results{
-      {"r1"}, {"r2"}, {"r1", "r2"}};
+  std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
 
   for (const auto &result : stream.GetResults()) {
     const auto &edges = ToEdgeList(result[0]);
@@ -365,51 +345,44 @@ TEST_F(InterpreterTest, ShortestPath) {
 
 TEST_F(InterpreterTest, CreateLabelIndexInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE INDEX ON :X"),
-               query::IndexInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X"), query::IndexInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateLabelPropertyIndexInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"),
-               query::IndexInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"), query::IndexInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateExistenceConstraintInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a)"),
-               query::ConstraintInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a)"), query::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateUniqueConstraintInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(
-      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE"),
-      query::ConstraintInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE"),
+               query::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowIndexInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW INDEX INFO"),
-               query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW INDEX INFO"), query::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowConstraintInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW CONSTRAINT INFO"),
-               query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW CONSTRAINT INFO"), query::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW STORAGE INFO"),
-               query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW STORAGE INFO"), query::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
@@ -423,16 +396,13 @@ TEST_F(InterpreterTest, ExistenceConstraintTest) {
   Interpret("CREATE (:A{a:2})");
   Interpret("MATCH (n:A{a:2}) DETACH DELETE n");
   Interpret("CREATE (n:A{a:2})");
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.b);"),
-               query::QueryRuntimeException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.b);"), query::QueryRuntimeException);
 }
 
 TEST_F(InterpreterTest, UniqueConstraintTest) {
   // Empty property list should result with syntax exception.
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
-               query::SyntaxException);
-  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
-               query::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), query::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), query::SyntaxException);
 
   // Too large list of properties should also result with syntax exception.
   {
@@ -450,12 +420,8 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   }
 
   // Providing property list with duplicates results with syntax exception.
-  ASSERT_THROW(
-      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
-      query::SyntaxException);
-  ASSERT_THROW(
-      Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
-      query::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"), query::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"), query::SyntaxException);
 
   // Commit of vertex should fail if a constraint is violated.
   Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
@@ -466,9 +432,7 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   // Attempt to create a constraint should fail if it's violated.
   Interpret("CREATE (:A{a:1, c:2})");
   Interpret("CREATE (:A{a:1, c:2})");
-  ASSERT_THROW(
-      Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.c IS UNIQUE;"),
-      query::QueryRuntimeException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.c IS UNIQUE;"), query::QueryRuntimeException);
 
   Interpret("MATCH (n:A{a:2, b:2}) SET n.a=1");
   Interpret("CREATE (:A{a:2})");
@@ -506,8 +470,7 @@ TEST_F(InterpreterTest, ExplainQuery) {
   auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
-                                         " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)", " * Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -530,8 +493,7 @@ TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
   auto [stream, qid] = Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
-                                         " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)", " * Once"};
   Pull(&stream, 1);
   ASSERT_EQ(stream.GetResults().size(), 1);
   auto expected_it = expected_rows.begin();
@@ -566,8 +528,7 @@ TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   Interpret("COMMIT");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)",
-                                         " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * ScanAll (n)", " * Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -587,12 +548,10 @@ TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
 TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
-  auto stream = Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
-                          {{"id", storage::PropertyValue(42)}});
+  auto stream = Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter",
-                                         " * ScanAll (n)", " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter", " * ScanAll (n)", " * Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -604,8 +563,7 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
-  Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-            {{"id", storage::PropertyValue("something else")}});
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
@@ -614,8 +572,7 @@ TEST_F(InterpreterTest, ProfileQuery) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE MATCH (n) RETURN *;");
-  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
-                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
   std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
@@ -638,8 +595,7 @@ TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
   auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
-  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
-                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
 
   std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
@@ -673,21 +629,17 @@ TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
 
 TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"),
-               query::ProfileInMulticommandTxException);
+  ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"), query::ProfileInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
-  auto stream = Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
-                          {{"id", storage::PropertyValue(42)}});
-  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
-                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  auto stream = Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue(42)}});
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll",
-                                         "* Once"};
+  std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -699,8 +651,7 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
-  Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-            {{"id", storage::PropertyValue("something else")}});
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
 }
@@ -708,10 +659,8 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
 TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
   EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
-  auto stream = Interpret(
-      "PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
-  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS",
-                                           "RELATIVE TIME", "ABSOLUTE TIME"};
+  auto stream = Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
+  std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
   std::vector<std::string> expected_rows{"* CreateNode", "* Unwind", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
@@ -732,13 +681,10 @@ TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
 
 TEST_F(InterpreterTest, Transactions) {
   {
-    ASSERT_THROW(interpreter_.CommitTransaction(),
-                 query::ExplicitTransactionUsageException);
-    ASSERT_THROW(interpreter_.RollbackTransaction(),
-                 query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter_.CommitTransaction(), query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter_.RollbackTransaction(), query::ExplicitTransactionUsageException);
     interpreter_.BeginTransaction();
-    ASSERT_THROW(interpreter_.BeginTransaction(),
-                 query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter_.BeginTransaction(), query::ExplicitTransactionUsageException);
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");

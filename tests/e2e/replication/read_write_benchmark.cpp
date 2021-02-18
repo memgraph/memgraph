@@ -13,8 +13,7 @@
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
-DEFINE_string(output_file,
-              "memgraph__e2e__replication__read_write_benchmark.json",
+DEFINE_string(output_file, "memgraph__e2e__replication__read_write_benchmark.json",
               "Output file where the results should be in JSON format.");
 
 int main(int argc, char **argv) {
@@ -22,8 +21,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   logging::RedirectToStderr();
 
-  const auto database_endpoints =
-      mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
+  const auto database_endpoints = mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
   nlohmann::json output;
   output["nodes"] = FLAGS_nodes;
   output["edges"] = FLAGS_edges;
@@ -46,8 +44,7 @@ int main(int argc, char **argv) {
         auto label_name = (*data)[0][1].ValueString();
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have valid indexes created.",
-                    database_endpoint);
+          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint);
         }
       } else {
         LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
@@ -62,13 +59,11 @@ int main(int argc, char **argv) {
     }
     output["node_write_time"] = node_write_timer.Elapsed().count();
 
-    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0,
-                                                      FLAGS_nodes - 1);
+    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0, FLAGS_nodes - 1);
     utils::Timer edge_write_timer;
     for (int i = 0; i < FLAGS_edges; ++i) {
       client->Execute("MATCH (n {id:" + std::to_string(edge_generator.Next()) +
-                      "}), (m {id:" + std::to_string(edge_generator.Next()) +
-                      "}) CREATE (n)-[:Edge]->(m);");
+                      "}), (m {id:" + std::to_string(edge_generator.Next()) + "}) CREATE (n)-[:Edge]->(m);");
       client->DiscardAll();
     }
     output["edge_write_time"] = node_write_timer.Elapsed().count();
@@ -83,23 +78,18 @@ int main(int argc, char **argv) {
     thread_duration.resize(num_threads);
 
     for (int i = 0; i < num_threads; ++i) {
-      const auto &database_endpoint =
-          database_endpoints[i % database_endpoints.size()];
-      threads.emplace_back([i, &database_endpoint, &query_counter,
-                            &local_duration = thread_duration[i]] {
+      const auto &database_endpoint = database_endpoints[i % database_endpoints.size()];
+      threads.emplace_back([i, &database_endpoint, &query_counter, &local_duration = thread_duration[i]] {
         utils::ThreadSetName(fmt::format("BenchWriter{}", i));
         auto client = mg::e2e::replication::Connect(database_endpoint);
-        mg::e2e::replication::IntGenerator node_generator(
-            fmt::format("NodeReadGenerator {}", i), 0, FLAGS_nodes - 1);
+        mg::e2e::replication::IntGenerator node_generator(fmt::format("NodeReadGenerator {}", i), 0, FLAGS_nodes - 1);
         utils::Timer t;
 
         while (true) {
           local_duration = t.Elapsed().count();
           if (local_duration >= FLAGS_reads_duration_limit) break;
           try {
-            client->Execute(
-                "MATCH (n {id:" + std::to_string(node_generator.Next()) +
-                "})-[e]->(m) RETURN e, m;");
+            client->Execute("MATCH (n {id:" + std::to_string(node_generator.Next()) + "})-[e]->(m) RETURN e, m;");
             client->DiscardAll();
             query_counter.fetch_add(1);
           } catch (const std::exception &e) {

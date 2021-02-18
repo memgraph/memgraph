@@ -27,8 +27,7 @@ inline std::string_view LTrim(const std::string_view &s) {
 }
 
 /** Remove characters found in `chars` from the start of a string. */
-inline std::string_view LTrim(const std::string_view &s,
-                              const std::string_view &chars) {
+inline std::string_view LTrim(const std::string_view &s, const std::string_view &chars) {
   size_t start = 0;
   while (start < s.size() && chars.find(s[start]) != std::string::npos) {
     ++start;
@@ -46,11 +45,9 @@ inline std::string_view RTrim(const std::string_view &s) {
 }
 
 /** Remove characters found in `chars` from the end of a string. */
-inline std::string_view RTrim(const std::string_view &s,
-                              const std::string_view &chars) {
+inline std::string_view RTrim(const std::string_view &s, const std::string_view &chars) {
   size_t count = s.size();
-  while (count > static_cast<size_t>(0) &&
-         chars.find(s[count - 1]) != std::string::npos) {
+  while (count > static_cast<size_t>(0) && chars.find(s[count - 1]) != std::string::npos) {
     --count;
   }
   return std::string_view(s.data(), count);
@@ -70,8 +67,7 @@ inline std::string_view Trim(const std::string_view &s) {
 }
 
 /** Remove characters found in `chars` from the start and the end of `s`. */
-inline std::string_view Trim(const std::string_view &s,
-                             const std::string_view &chars) {
+inline std::string_view Trim(const std::string_view &s, const std::string_view &chars) {
   size_t start = 0;
   size_t count = s.size();
   while (start < s.size() && chars.find(s[start]) != std::string::npos) {
@@ -90,11 +86,9 @@ inline std::string_view Trim(const std::string_view &s,
  */
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *ToLowerCase(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    const std::string_view &s) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view &s) {
   out->resize(s.size());
-  std::transform(s.begin(), s.end(), out->begin(),
-                 [](char c) { return tolower(c); });
+  std::transform(s.begin(), s.end(), out->begin(), [](char c) { return tolower(c); });
   return out;
 }
 
@@ -115,11 +109,9 @@ inline std::string ToLowerCase(const std::string_view &s) {
  */
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *ToUpperCase(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    const std::string_view &s) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view &s) {
   out->resize(s.size());
-  std::transform(s.begin(), s.end(), out->begin(),
-                 [](char c) { return toupper(c); });
+  std::transform(s.begin(), s.end(), out->begin(), [](char c) { return toupper(c); });
   return out;
 }
 
@@ -139,8 +131,8 @@ inline std::string ToUpperCase(const std::string_view &s) {
  */
 template <class TCollection, class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    const TCollection &strings, const std::string_view &separator) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const TCollection &strings,
+    const std::string_view &separator) {
   out->clear();
   if (strings.empty()) return out;
   int64_t total_size = 0;
@@ -160,8 +152,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
 /**
  * Join the `strings` collection separated by a given separator.
  */
-inline std::string Join(const std::vector<std::string> &strings,
-                        const std::string_view &separator) {
+inline std::string Join(const std::vector<std::string> &strings, const std::string_view &separator) {
   std::string res;
   Join(&res, strings, separator);
   return res;
@@ -173,21 +164,18 @@ inline std::string Join(const std::vector<std::string> &strings,
  */
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    const std::string_view &src, const std::string_view &match,
-    const std::string_view &replacement) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view &src,
+    const std::string_view &match, const std::string_view &replacement) {
   // TODO: This could be implemented much more efficiently.
   *out = src;
-  for (size_t pos = out->find(match); pos != std::string::npos;
-       pos = out->find(match, pos + replacement.size())) {
+  for (size_t pos = out->find(match); pos != std::string::npos; pos = out->find(match, pos + replacement.size())) {
     out->erase(pos, match.length()).insert(pos, replacement);
   }
   return out;
 }
 
 /** Replace all occurrences of `match` in `src` with `replacement`. */
-inline std::string Replace(const std::string_view &src,
-                           const std::string_view &match,
+inline std::string Replace(const std::string_view &src, const std::string_view &match,
                            const std::string_view &replacement) {
   std::string res;
   Replace(&res, src, match, replacement);
@@ -201,10 +189,8 @@ inline std::string Replace(const std::string_view &src,
  * @return pointer to `out`.
  */
 template <class TString, class TAllocator>
-std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out,
-                                        const std::string_view &src,
-                                        const std::string_view &delimiter,
-                                        int splits = -1) {
+std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, const std::string_view &src,
+                                        const std::string_view &delimiter, int splits = -1) {
   out->clear();
   if (src.empty()) return out;
   size_t index = 0;
@@ -223,9 +209,7 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out,
  * The vector will have at most `splits` + 1 elements. Negative value of
  * `splits` indicates to perform all possible splits.
  */
-inline std::vector<std::string> Split(const std::string_view &src,
-                                      const std::string_view &delimiter,
-                                      int splits = -1) {
+inline std::vector<std::string> Split(const std::string_view &src, const std::string_view &delimiter, int splits = -1) {
   std::vector<std::string> res;
   Split(&res, src, delimiter, splits);
   return res;
@@ -239,15 +223,13 @@ inline std::vector<std::string> Split(const std::string_view &src,
  * @return pointer to `out`.
  */
 template <class TString, class TAllocator>
-std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out,
-                                        const std::string_view &src) {
+std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, const std::string_view &src) {
   out->clear();
   if (src.empty()) return out;
   // TODO: Investigate how much regex allocate and perhaps replace with custom
   // solution doing no allocations.
   std::regex not_whitespace("[^\\s]+");
-  auto matches_begin =
-      std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
+  auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
   auto matches_end = std::cregex_iterator();
   out->reserve(std::distance(matches_begin, matches_end));
   for (auto match = matches_begin; match != matches_end; ++match) {
@@ -278,18 +260,15 @@ inline std::vector<std::string> Split(const std::string_view &src) {
  * @return pointer to `out`.
  */
 template <class TString, class TAllocator>
-std::vector<TString, TAllocator> *RSplit(std::vector<TString, TAllocator> *out,
-                                         const std::string_view &src,
-                                         const std::string_view &delimiter,
-                                         int splits = -1) {
+std::vector<TString, TAllocator> *RSplit(std::vector<TString, TAllocator> *out, const std::string_view &src,
+                                         const std::string_view &delimiter, int splits = -1) {
   out->clear();
   if (src.empty()) return out;
   size_t index = src.size();
   while (splits < 0 || splits-- != 0) {
     auto n = src.rfind(delimiter, index - 1);
     if (n == std::string::npos) break;
-    out->emplace_back(
-        src.substr(n + delimiter.size(), index - n - delimiter.size()));
+    out->emplace_back(src.substr(n + delimiter.size(), index - n - delimiter.size()));
     index = n;
     if (n == 0) break;
   }
@@ -305,8 +284,7 @@ std::vector<TString, TAllocator> *RSplit(std::vector<TString, TAllocator> *out,
  * have at most `splits` + 1 elements. Negative value of `splits` indicates to
  * perform all possible splits.
  */
-inline std::vector<std::string> RSplit(const std::string_view &src,
-                                       const std::string_view &delimiter,
+inline std::vector<std::string> RSplit(const std::string_view &src, const std::string_view &delimiter,
                                        int splits = -1) {
   std::vector<std::string> res;
   RSplit(&res, src, delimiter, splits);
@@ -368,15 +346,12 @@ inline double ParseDouble(const std::string_view &s) {
 }
 
 /** Check if the given string `s` ends with the given `suffix`. */
-inline bool EndsWith(const std::string_view &s,
-                     const std::string_view &suffix) {
-  return s.size() >= suffix.size() &&
-         s.compare(s.size() - suffix.size(), std::string::npos, suffix) == 0;
+inline bool EndsWith(const std::string_view &s, const std::string_view &suffix) {
+  return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), std::string::npos, suffix) == 0;
 }
 
 /** Check if the given string `s` starts with the given `prefix`. */
-inline bool StartsWith(const std::string_view &s,
-                       const std::string_view &prefix) {
+inline bool StartsWith(const std::string_view &s, const std::string_view &prefix) {
   return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
 }
 
@@ -395,18 +370,15 @@ inline bool IEquals(const std::string_view &lhs, const std::string_view &rhs) {
  */
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    size_t length) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, size_t length) {
   static const char charset[] =
       "0123456789"
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       "abcdefghijklmnopqrstuvwxyz";
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
-  static thread_local std::uniform_int_distribution<size_t> rand_dist{
-      0, strlen(charset) - 1};
+  static thread_local std::uniform_int_distribution<size_t> rand_dist{0, strlen(charset) - 1};
   out->resize(length);
-  for (size_t i = 0; i < length; ++i)
-    (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
+  for (size_t i = 0; i < length; ++i) (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
   return out;
 }
 
@@ -423,8 +395,7 @@ inline std::string RandomString(size_t length) {
  */
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Escape(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out,
-    const std::string_view &src) {
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view &src) {
   out->clear();
   out->reserve(src.size() + 2);
   out->append(1, '"');
@@ -463,8 +434,7 @@ inline std::string Escape(const std::string_view &src) {
  * clamped to a valid interval. Therefore, this function never throws
  * std::out_of_range, unlike std::basic_string::substr.
  */
-inline std::string_view Substr(const std::string_view &string, size_t pos = 0,
-                               size_t count = std::string::npos) {
+inline std::string_view Substr(const std::string_view &string, size_t pos = 0, size_t count = std::string::npos) {
   if (pos >= string.size()) return std::string_view(string.data(), 0);
   auto len = std::min(string.size() - pos, count);
   return std::string_view(string.data() + pos, len);

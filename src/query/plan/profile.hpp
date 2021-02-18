@@ -23,11 +23,10 @@ struct ProfilingStats {
   std::vector<ProfilingStats> children;
 };
 
-std::vector<std::vector<TypedValue>> ProfilingStatsToTable(
-    const ProfilingStats &cumulative_stats, std::chrono::duration<double>);
+std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStats &cumulative_stats,
+                                                           std::chrono::duration<double>);
 
-nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats,
-                                    std::chrono::duration<double>);
+nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats, std::chrono::duration<double>);
 
 }  // namespace plan
 }  // namespace query

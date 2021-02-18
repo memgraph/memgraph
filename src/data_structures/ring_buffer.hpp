@@ -20,9 +20,7 @@
 template <typename TElement>
 class RingBuffer {
  public:
-  explicit RingBuffer(int capacity) : capacity_(capacity) {
-    buffer_ = std::make_unique<TElement[]>(capacity_);
-  }
+  explicit RingBuffer(int capacity) : capacity_(capacity) { buffer_ = std::make_unique<TElement[]>(capacity_); }
 
   RingBuffer(const RingBuffer &) = delete;
   RingBuffer(RingBuffer &&) = delete;

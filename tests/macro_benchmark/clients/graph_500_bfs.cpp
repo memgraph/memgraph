@@ -35,9 +35,7 @@ class Graph500BfsClient : public TestClient {
       }
     } while (true);
 
-    auto result =
-        Execute("MATCH path = (n:Node {id: $id})-[*bfs]->() RETURN count(1)",
-                {{"id", start}}, "Bfs");
+    auto result = Execute("MATCH path = (n:Node {id: $id})-[*bfs]->() RETURN count(1)", {{"id", start}}, "Bfs");
     MG_ASSERT(result, "Read-only query should not fail!");
   }
 };

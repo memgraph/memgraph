@@ -19,8 +19,7 @@ int main(int argc, char **argv) {
 
   communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
@@ -35,17 +34,14 @@ int main(int argc, char **argv) {
       count_got += record.size();
     }
     if (count_got != argc - 1) {
-      LOG_FATAL(
-          "Expected the grants to have {} entries but they had {} entries!",
-          argc - 1, count_got);
+      LOG_FATAL("Expected the grants to have {} entries but they had {} entries!", argc - 1, count_got);
     }
     uint64_t pos = 1;
     for (const auto &record : records) {
       for (const auto &value : record) {
         std::string expected(argv[pos++]);
         if (value.ValueString() != expected) {
-          LOG_FATAL("Expected to get the value '{} but got the value '{}'",
-                    expected, value.ValueString());
+          LOG_FATAL("Expected to get the value '{} but got the value '{}'", expected, value.ValueString());
         }
       }
     }

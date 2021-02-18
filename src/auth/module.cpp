@@ -86,54 +86,22 @@ class CharPP final {
 ////////////////////////////////////
 
 const std::vector<int> kSeccompSyscallsBlacklist = {
-    SCMP_SYS(mknod),
-    SCMP_SYS(mount),
-    SCMP_SYS(setuid),
-    SCMP_SYS(stime),
-    SCMP_SYS(ptrace),
-    SCMP_SYS(setgid),
-    SCMP_SYS(acct),
-    SCMP_SYS(umount),
-    SCMP_SYS(setpgid),
-    SCMP_SYS(chroot),
-    SCMP_SYS(setreuid),
-    SCMP_SYS(setregid),
-    SCMP_SYS(sethostname),
-    SCMP_SYS(settimeofday),
-    SCMP_SYS(setgroups),
-    SCMP_SYS(swapon),
-    SCMP_SYS(reboot),
-    SCMP_SYS(setpriority),
-    SCMP_SYS(ioperm),
-    SCMP_SYS(syslog),
-    SCMP_SYS(iopl),
-    SCMP_SYS(vhangup),
-    SCMP_SYS(vm86old),
-    SCMP_SYS(swapoff),
-    SCMP_SYS(setdomainname),
-    SCMP_SYS(adjtimex),
-    SCMP_SYS(init_module),
-    SCMP_SYS(delete_module),
-    SCMP_SYS(setfsuid),
-    SCMP_SYS(setfsgid),
-    SCMP_SYS(setresuid),
-    SCMP_SYS(vm86),
-    SCMP_SYS(setresgid),
-    SCMP_SYS(capset),
-    SCMP_SYS(setreuid),
-    SCMP_SYS(setregid),
-    SCMP_SYS(setgroups),
-    SCMP_SYS(setresuid),
-    SCMP_SYS(setresgid),
-    SCMP_SYS(setuid),
-    SCMP_SYS(setgid),
-    SCMP_SYS(setfsuid),
-    SCMP_SYS(setfsgid),
-    SCMP_SYS(pivot_root),
-    SCMP_SYS(sched_setaffinity),
-    SCMP_SYS(clock_settime),
-    SCMP_SYS(kexec_load),
-    SCMP_SYS(mknodat),
+    SCMP_SYS(mknod),         SCMP_SYS(mount),        SCMP_SYS(setuid),
+    SCMP_SYS(stime),         SCMP_SYS(ptrace),       SCMP_SYS(setgid),
+    SCMP_SYS(acct),          SCMP_SYS(umount),       SCMP_SYS(setpgid),
+    SCMP_SYS(chroot),        SCMP_SYS(setreuid),     SCMP_SYS(setregid),
+    SCMP_SYS(sethostname),   SCMP_SYS(settimeofday), SCMP_SYS(setgroups),
+    SCMP_SYS(swapon),        SCMP_SYS(reboot),       SCMP_SYS(setpriority),
+    SCMP_SYS(ioperm),        SCMP_SYS(syslog),       SCMP_SYS(iopl),
+    SCMP_SYS(vhangup),       SCMP_SYS(vm86old),      SCMP_SYS(swapoff),
+    SCMP_SYS(setdomainname), SCMP_SYS(adjtimex),     SCMP_SYS(init_module),
+    SCMP_SYS(delete_module), SCMP_SYS(setfsuid),     SCMP_SYS(setfsgid),
+    SCMP_SYS(setresuid),     SCMP_SYS(vm86),         SCMP_SYS(setresgid),
+    SCMP_SYS(capset),        SCMP_SYS(setreuid),     SCMP_SYS(setregid),
+    SCMP_SYS(setgroups),     SCMP_SYS(setresuid),    SCMP_SYS(setresgid),
+    SCMP_SYS(setuid),        SCMP_SYS(setgid),       SCMP_SYS(setfsuid),
+    SCMP_SYS(setfsgid),      SCMP_SYS(pivot_root),   SCMP_SYS(sched_setaffinity),
+    SCMP_SYS(clock_settime), SCMP_SYS(kexec_load),   SCMP_SYS(mknodat),
     SCMP_SYS(unshare),
 #ifdef SYS_seccomp
     SCMP_SYS(seccomp),
@@ -182,24 +150,20 @@ int Target(void *arg) {
   // Redirect `stdin` to `/dev/null`.
   int fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
   if (fd == -1) {
-    std::cerr
-        << "Couldn't open \"/dev/null\" for auth module stdin because of: "
-        << strerror(errno) << " (" << errno << ")!" << std::endl;
+    std::cerr << "Couldn't open \"/dev/null\" for auth module stdin because of: " << strerror(errno) << " (" << errno
+              << ")!" << std::endl;
     return EXIT_FAILURE;
   }
   if (dup2(fd, STDIN_FILENO) != STDIN_FILENO) {
-    std::cerr
-        << "Couldn't attach \"/dev/null\" to auth module stdin because of: "
-        << strerror(errno) << " (" << errno << ")!" << std::endl;
+    std::cerr << "Couldn't attach \"/dev/null\" to auth module stdin because of: " << strerror(errno) << " (" << errno
+              << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
   // Change the current directory to the module directory.
   if (chdir(ta->module_executable_path.parent_path().c_str()) != 0) {
-    std::cerr << "Couldn't change directory to "
-              << ta->module_executable_path.parent_path()
-              << " for auth module stdin because of: " << strerror(errno)
-              << " (" << errno << ")!" << std::endl;
+    std::cerr << "Couldn't change directory to " << ta->module_executable_path.parent_path()
+              << " for auth module stdin because of: " << strerror(errno) << " (" << errno << ")!" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -214,8 +178,7 @@ int Target(void *arg) {
   }
 
   // Connect the communication input pipe.
-  if (dup2(ta->pipe_to_module, kCommunicationToModuleFd) !=
-      kCommunicationToModuleFd) {
+  if (dup2(ta->pipe_to_module, kCommunicationToModuleFd) != kCommunicationToModuleFd) {
     std::cerr << "Couldn't attach communication to module pipe to auth module "
                  "because of: "
               << strerror(errno) << " (" << errno << ")!" << std::endl;
@@ -223,8 +186,7 @@ int Target(void *arg) {
   }
 
   // Connect the communication output pipe.
-  if (dup2(ta->pipe_from_module, kCommunicationFromModuleFd) !=
-      kCommunicationFromModuleFd) {
+  if (dup2(ta->pipe_from_module, kCommunicationFromModuleFd) != kCommunicationFromModuleFd) {
     std::cerr << "Couldn't attach communication from module pipe to auth "
                  "module because of: "
               << strerror(errno) << " (" << errno << ")!" << std::endl;
@@ -246,8 +208,8 @@ int Target(void *arg) {
   sigemptyset(&action.sa_mask);
   action.sa_flags = 0;
   if (sigaction(SIGINT, &action, nullptr) != 0) {
-    std::cerr << "Couldn't ignore SIGINT for auth module because of: "
-              << strerror(errno) << " (" << errno << ")!" << std::endl;
+    std::cerr << "Couldn't ignore SIGINT for auth module because of: " << strerror(errno) << " (" << errno << ")!"
+              << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -261,8 +223,7 @@ int Target(void *arg) {
 
   // If the `execve` call succeeded then the process will exit from that call
   // and won't reach this piece of code ever.
-  std::cerr << "Couldn't start auth module because of: " << strerror(errno)
-            << " (" << errno << ")!" << std::endl;
+  std::cerr << "Couldn't start auth module because of: " << strerror(errno) << " (" << errno << ")!" << std::endl;
 
   return EXIT_FAILURE;
 }
@@ -408,8 +369,7 @@ bool Module::Startup() {
   return true;
 }
 
-nlohmann::json Module::Call(const nlohmann::json &params,
-                            int timeout_millisec) {
+nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) {
   std::lock_guard<std::mutex> guard(lock_);
 
   if (!params.is_object()) return {};

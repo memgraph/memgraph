@@ -11,8 +11,7 @@ class Timer {
 
   template <typename TDuration = std::chrono::duration<double>>
   TDuration Elapsed() const {
-    return std::chrono::duration_cast<TDuration>(
-        std::chrono::steady_clock::now() - start_time_);
+    return std::chrono::duration_cast<TDuration>(std::chrono::steady_clock::now() - start_time_);
   }
 
  private:

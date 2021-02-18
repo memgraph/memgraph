@@ -18,8 +18,7 @@ namespace rpc {
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(const io::network::Endpoint &endpoint,
-         communication::ClientContext *context);
+  Client(const io::network::Endpoint &endpoint, communication::ClientContext *context);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -27,17 +26,13 @@ class Client {
    private:
     friend class Client;
 
-    StreamHandler(
-        Client *self, std::unique_lock<std::mutex> &&guard,
-        std::function<typename TRequestResponse::Response(slk::Reader *)>
-            res_load)
+    StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
+                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
         : self_(self),
           guard_(std::move(guard)),
-          req_builder_(
-              [self](const uint8_t *data, size_t size, bool have_more) {
-                if (!self->client_->Write(data, size, have_more))
-                  throw RpcFailedException(self->endpoint_);
-              }),
+          req_builder_([self](const uint8_t *data, size_t size, bool have_more) {
+            if (!self->client_->Write(data, size, have_more)) throw RpcFailedException(self->endpoint_);
+          }),
           res_load_(res_load) {}
 
    public:
@@ -60,14 +55,12 @@ class Client {
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
-        auto ret = slk::CheckStreamComplete(self_->client_->GetData(),
-                                            self_->client_->GetDataSize());
+        auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
           throw RpcFailedException(self_->endpoint_);
         } else if (ret.status == slk::StreamStatus::PARTIAL) {
-          if (!self_->client_->Read(
-                  ret.stream_size - self_->client_->GetDataSize(),
-                  /* exactly_len = */ false)) {
+          if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                    /* exactly_len = */ false)) {
             throw RpcFailedException(self_->endpoint_);
           }
         } else {
@@ -78,9 +71,7 @@ class Client {
 
       // Load the response.
       slk::Reader res_reader(self_->client_->GetData(), response_data_size);
-      utils::OnScopeExit res_cleanup([&, response_data_size] {
-        self_->client_->ShiftData(response_data_size);
-      });
+      utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
       uint64_t res_id = 0;
       slk::Load(&res_id, &res_reader);
@@ -130,9 +121,8 @@ class Client {
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&...args) {
+  StreamHandler<TRequestResponse> StreamWithLoad(std::function<typename TRequestResponse::Response(slk::Reader *)> load,
+                                                 Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
     SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
@@ -184,8 +174,7 @@ class Client {
   /// Same as `Call` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response CallWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-      Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> load, Args &&...args) {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }

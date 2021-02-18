@@ -36,8 +36,7 @@ class SessionException : public utils::BasicException {
  */
 class Session {
  public:
-  Session(Server *server, const io::network::Endpoint &endpoint,
-          communication::InputStream *input_stream,
+  Session(Server *server, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
           communication::OutputStream *output_stream);
 
   /**

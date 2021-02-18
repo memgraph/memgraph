@@ -39,9 +39,7 @@ class CartesianProduct {
 
  public:
   CartesianProduct(std::vector<TSet> sets)
-      : original_sets_(std::move(sets)),
-        begin_(original_sets_.begin()),
-        end_(original_sets_.end()) {}
+      : original_sets_(std::move(sets)), begin_(original_sets_.begin()), end_(original_sets_.end()) {}
 
   class iterator {
    public:
@@ -51,8 +49,7 @@ class CartesianProduct {
     typedef const std::vector<TElement> &reference;
     typedef const std::vector<TElement> *pointer;
 
-    explicit iterator(CartesianProduct *self, bool is_done)
-        : self_(self), is_done_(is_done) {
+    explicit iterator(CartesianProduct *self, bool is_done) : self_(self), is_done_(is_done) {
       if (is_done || self->begin_ == self->end_) {
         is_done_ = true;
         return;
@@ -92,9 +89,8 @@ class CartesianProduct {
         ++sets_it->second;
       }
       // We can now collect another product from the modified set iterators.
-      DMG_ASSERT(
-          current_product_.size() == sets_.size(),
-          "Expected size of current_product_ to match the size of sets_");
+      DMG_ASSERT(current_product_.size() == sets_.size(),
+                 "Expected size of current_product_ to match the size of sets_");
       size_t i = 0;
       // Change only the prefix of the product, remaining elements (after
       // sets_it) should be the same.
@@ -106,9 +102,7 @@ class CartesianProduct {
     }
 
     bool operator==(const iterator &other) const {
-      if (self_->begin_ != other.self_->begin_ ||
-          self_->end_ != other.self_->end_)
-        return false;
+      if (self_->begin_ != other.self_->begin_ || self_->end_ != other.self_->end_) return false;
       return (is_done_ && other.is_done_) || (sets_ == other.sets_);
     }
 
@@ -126,9 +120,7 @@ class CartesianProduct {
     // Vector of (original_sets_iterator, set_iterator) pairs. The
     // original_sets_iterator points to the set among all the sets, while the
     // set_iterator points to an element inside the pointed to set.
-    std::vector<
-        std::pair<decltype(self_->begin_), decltype(self_->begin_->begin())>>
-        sets_;
+    std::vector<std::pair<decltype(self_->begin_), decltype(self_->begin_->begin())>> sets_;
     // Currently built product from pointed to elements in all sets.
     std::vector<TElement> current_product_;
     // Set to true when we have generated all products.
@@ -153,8 +145,7 @@ namespace impl {
 
 class NodeSymbolHash {
  public:
-  explicit NodeSymbolHash(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
+  explicit NodeSymbolHash(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   size_t operator()(const NodeAtom *node_atom) const {
     return std::hash<Symbol>{}(symbol_table_.at(*node_atom->identifier_));
@@ -166,13 +157,10 @@ class NodeSymbolHash {
 
 class NodeSymbolEqual {
  public:
-  explicit NodeSymbolEqual(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
+  explicit NodeSymbolEqual(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  bool operator()(const NodeAtom *node_atom1,
-                  const NodeAtom *node_atom2) const {
-    return symbol_table_.at(*node_atom1->identifier_) ==
-           symbol_table_.at(*node_atom2->identifier_);
+  bool operator()(const NodeAtom *node_atom1, const NodeAtom *node_atom2) const {
+    return symbol_table_.at(*node_atom1->identifier_) == symbol_table_.at(*node_atom2->identifier_);
   }
 
  private:
@@ -213,9 +201,7 @@ class VaryMatchingStart {
     // being at the end. When there are no nodes, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
     // start_nodes_it_ to end signifies the end of our iteration.
-    std::optional<std::unordered_set<NodeAtom *, NodeSymbolHash,
-                                     NodeSymbolEqual>::iterator>
-        start_nodes_it_;
+    std::optional<std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual>::iterator> start_nodes_it_;
   };
 
   auto begin() { return iterator(this, false); }
@@ -231,8 +217,7 @@ class VaryMatchingStart {
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
 // matchings. After all matchings produce multiple alternative starts, the
 // Cartesian product of all of them is returned.
-CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
-    const std::vector<Matching> &, const SymbolTable &);
+CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
@@ -248,12 +233,9 @@ class VaryQueryPartMatching {
     typedef const SingleQueryPart &reference;
     typedef const SingleQueryPart *pointer;
 
-    iterator(const SingleQueryPart &, VaryMatchingStart::iterator,
-             VaryMatchingStart::iterator,
-             CartesianProduct<VaryMatchingStart>::iterator,
-             CartesianProduct<VaryMatchingStart>::iterator,
-             CartesianProduct<VaryMatchingStart>::iterator,
-             CartesianProduct<VaryMatchingStart>::iterator);
+    iterator(const SingleQueryPart &, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
+             CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
+             CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
 
     iterator &operator++();
     reference operator*() const { return current_query_part_; }
@@ -276,14 +258,12 @@ class VaryQueryPartMatching {
   };
 
   auto begin() {
-    return iterator(query_part_, matchings_.begin(), matchings_.end(),
-                    optional_matchings_.begin(), optional_matchings_.end(),
-                    merge_matchings_.begin(), merge_matchings_.end());
+    return iterator(query_part_, matchings_.begin(), matchings_.end(), optional_matchings_.begin(),
+                    optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end());
   }
   auto end() {
-    return iterator(query_part_, matchings_.end(), matchings_.end(),
-                    optional_matchings_.end(), optional_matchings_.end(),
-                    merge_matchings_.end(), merge_matchings_.end());
+    return iterator(query_part_, matchings_.end(), matchings_.end(), optional_matchings_.end(),
+                    optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end());
   }
 
  private:
@@ -313,21 +293,17 @@ class VariableStartPlanner {
 
   // Generates different, equivalent query parts by taking different graph
   // matching routes for each query part.
-  auto VaryQueryMatching(const std::vector<SingleQueryPart> &query_parts,
-                         const SymbolTable &symbol_table) {
+  auto VaryQueryMatching(const std::vector<SingleQueryPart> &query_parts, const SymbolTable &symbol_table) {
     std::vector<impl::VaryQueryPartMatching> alternative_query_parts;
     alternative_query_parts.reserve(query_parts.size());
     for (const auto &query_part : query_parts) {
-      alternative_query_parts.emplace_back(
-          impl::VaryQueryPartMatching(query_part, symbol_table));
+      alternative_query_parts.emplace_back(impl::VaryQueryPartMatching(query_part, symbol_table));
     }
-    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)),
-                       0UL, FLAGS_query_max_plans);
+    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)), 0UL, FLAGS_query_max_plans);
   }
 
  public:
-  explicit VariableStartPlanner(TPlanningContext *context)
-      : context_(context) {}
+  explicit VariableStartPlanner(TPlanningContext *context) : context_(context) {}
 
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const std::vector<SingleQueryPart> &query_parts) {
@@ -342,10 +318,8 @@ class VariableStartPlanner {
 
   /// @brief The result of plan generation is an iterable of roots to multiple
   /// generated operator trees.
-  using PlanResult = typename std::result_of<decltype (
-      &VariableStartPlanner<TPlanningContext>::Plan)(
-      VariableStartPlanner<TPlanningContext>,
-      std::vector<SingleQueryPart> &)>::type;
+  using PlanResult = typename std::result_of<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
+      VariableStartPlanner<TPlanningContext>, std::vector<SingleQueryPart> &)>::type;
 };
 
 }  // namespace query::plan

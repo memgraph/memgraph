@@ -8,9 +8,8 @@ namespace query::plan {
 
 namespace {
 
-void ForEachPattern(
-    Pattern &pattern, std::function<void(NodeAtom *)> base,
-    std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
+void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
+                    std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
   DMG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
@@ -20,8 +19,7 @@ void ForEachPattern(
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
     DMG_ASSERT(edge, "Expected an edge atom in pattern.");
-    DMG_ASSERT(atoms_it != pattern.atoms_.end(),
-               "Edge atom should not end the pattern.");
+    DMG_ASSERT(atoms_it != pattern.atoms_.end(), "Edge atom should not end the pattern.");
     auto prev_node = current_node;
     current_node = utils::Downcast<NodeAtom>(*atoms_it++);
     DMG_ASSERT(current_node, "Expected a node atom in pattern.");
@@ -37,32 +35,24 @@ void ForEachPattern(
 // (m) -[e]- (n), (n) -[f]- (o).
 // This representation makes it easier to permute from which node or edge we
 // want to start expanding.
-std::vector<Expansion> NormalizePatterns(
-    const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
+std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
   auto ignore_node = [&](auto *) {};
-  auto collect_expansion = [&](auto *prev_node, auto *edge,
-                               auto *current_node) {
+  auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
     UsedSymbolsCollector collector(symbol_table);
     if (edge->IsVariable()) {
       if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
       if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      if (edge->filter_lambda_.expression)
-        edge->filter_lambda_.expression->Accept(collector);
+      if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
       // Remove symbols which are bound by lambda arguments.
-      collector.symbols_.erase(
-          symbol_table.at(*edge->filter_lambda_.inner_edge));
-      collector.symbols_.erase(
-          symbol_table.at(*edge->filter_lambda_.inner_node));
+      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
+      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
       if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
-        collector.symbols_.erase(
-            symbol_table.at(*edge->weight_lambda_.inner_edge));
-        collector.symbols_.erase(
-            symbol_table.at(*edge->weight_lambda_.inner_node));
+        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
+        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
       }
     }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false,
-                                      collector.symbols_, current_node});
+    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node});
   };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
@@ -81,8 +71,7 @@ std::vector<Expansion> NormalizePatterns(
 // as well as edge symbols which determine Cyphermorphism. Collecting filters
 // will lift them out of a pattern and generate new expressions (just like they
 // were in a Where clause).
-void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
-                 SymbolTable &symbol_table, AstStorage &storage,
+void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
@@ -116,18 +105,15 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
       std::vector<Symbol> path_elements;
       for (auto *pattern_atom : pattern->atoms_)
         path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
-      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_),
-                                   std::move(path_elements));
+      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_), std::move(path_elements));
     }
   }
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
   }
 }
-void AddMatching(const Match &match, SymbolTable &symbol_table,
-                 AstStorage &storage, Matching &matching) {
-  return AddMatching(match.patterns_, match.where_, symbol_table, storage,
-                     matching);
+void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
+  return AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
 }
 
 auto SplitExpressionOnAnd(Expression *expression) {
@@ -151,8 +137,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 }  // namespace
 
-PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
-                               const Symbol &symbol, PropertyIx property,
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
     : symbol_(symbol), property_(property), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
@@ -161,15 +146,10 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(
-    const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
-    const std::optional<PropertyFilter::Bound> &lower_bound,
-    const std::optional<PropertyFilter::Bound> &upper_bound)
-    : symbol_(symbol),
-      property_(property),
-      type_(Type::RANGE),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
+                               const std::optional<PropertyFilter::Bound> &lower_bound,
+                               const std::optional<PropertyFilter::Bound> &upper_bound)
+    : symbol_(symbol), property_(property), type_(Type::RANGE), lower_bound_(lower_bound), upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
   if (lower_bound) {
     lower_bound->value()->Accept(collector);
@@ -180,8 +160,7 @@ PropertyFilter::PropertyFilter(
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property,
-                               Type type)
+PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property, Type type)
     : symbol_(symbol), property_(property), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
@@ -190,8 +169,7 @@ PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property,
   // we may be looking up.
 }
 
-IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol,
-                   Expression *value)
+IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
     : symbol_(symbol), value_(value) {
   MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
@@ -203,16 +181,12 @@ void Filters::EraseFilter(const FilterInfo &filter) {
   // TODO: Ideally, we want to determine the equality of both expression trees,
   // instead of a simple pointer compare.
   all_filters_.erase(std::remove_if(all_filters_.begin(), all_filters_.end(),
-                                    [&filter](const auto &f) {
-                                      return f.expression == filter.expression;
-                                    }),
+                                    [&filter](const auto &f) { return f.expression == filter.expression; }),
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label,
-                               std::vector<Expression *> *removed_filters) {
-  for (auto filter_it = all_filters_.begin();
-       filter_it != all_filters_.end();) {
+void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label, std::vector<Expression *> *removed_filters) {
+  for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
       ++filter_it;
       continue;
@@ -221,15 +195,13 @@ void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label,
       ++filter_it;
       continue;
     }
-    auto label_it =
-        std::find(filter_it->labels.begin(), filter_it->labels.end(), label);
+    auto label_it = std::find(filter_it->labels.begin(), filter_it->labels.end(), label);
     if (label_it == filter_it->labels.end()) {
       ++filter_it;
       continue;
     }
     filter_it->labels.erase(label_it);
-    DMG_ASSERT(!utils::Contains(filter_it->labels, label),
-               "Didn't expect duplicated labels");
+    DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
@@ -242,8 +214,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label,
   }
 }
 
-void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
-                                    AstStorage &storage) {
+void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table, AstStorage &storage) {
   UsedSymbolsCollector collector(symbol_table);
   auto add_properties_variable = [&](EdgeAtom *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
@@ -256,18 +227,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       {
         collector.symbols_.clear();
         prop_pair.second->Accept(collector);
-        collector.symbols_.emplace(
-            symbol_table.at(*atom->filter_lambda_.inner_node));
-        collector.symbols_.emplace(
-            symbol_table.at(*atom->filter_lambda_.inner_edge));
+        collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
+        collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
         // First handle the inline property filter.
-        auto *property_lookup = storage.Create<PropertyLookup>(
-            atom->filter_lambda_.inner_edge, prop_pair.first);
-        auto *prop_equal =
-            storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+        auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
+        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
         // Currently, variable expand has no gains if we set PropertyFilter.
-        all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic,
-                                             prop_equal, collector.symbols_});
+        all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic, prop_equal, collector.symbols_});
       }
       {
         collector.symbols_.clear();
@@ -275,23 +241,15 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
         // Now handle the post-expansion filter.
         // Create a new identifier and a symbol which will be filled in All.
-        auto *identifier =
-            storage
-                .Create<Identifier>(atom->identifier_->name_,
-                                    atom->identifier_->user_declared_)
-                ->MapTo(
-                    symbol_table.CreateSymbol(atom->identifier_->name_, false));
+        auto *identifier = storage.Create<Identifier>(atom->identifier_->name_, atom->identifier_->user_declared_)
+                               ->MapTo(symbol_table.CreateSymbol(atom->identifier_->name_, false));
         // Create an equality expression and store it in all_filters_.
-        auto *property_lookup =
-            storage.Create<PropertyLookup>(identifier, prop_pair.first);
-        auto *prop_equal =
-            storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+        auto *property_lookup = storage.Create<PropertyLookup>(identifier, prop_pair.first);
+        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
         // Currently, variable expand has no gains if we set PropertyFilter.
-        all_filters_.emplace_back(
-            FilterInfo{FilterInfo::Type::Generic,
-                       storage.Create<All>(identifier, atom->identifier_,
-                                           storage.Create<Where>(prop_equal)),
-                       collector.symbols_});
+        all_filters_.emplace_back(FilterInfo{
+            FilterInfo::Type::Generic,
+            storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)), collector.symbols_});
       }
     }
   };
@@ -299,17 +257,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &symbol = symbol_table.at(*atom->identifier_);
     for (auto &prop_pair : atom->properties_) {
       // Create an equality expression and store it in all_filters_.
-      auto *property_lookup =
-          storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
-      auto *prop_equal =
-          storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+      auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+      auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
       collector.symbols_.clear();
       prop_equal->Accept(collector);
-      FilterInfo filter_info{FilterInfo::Type::Property, prop_equal,
-                             collector.symbols_};
+      FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
       // Store a PropertyFilter on the value of the property.
-      filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first,
-                                          prop_pair.second,
+      filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
                                           PropertyFilter::Type::EQUAL);
       all_filters_.emplace_back(filter_info);
     }
@@ -318,10 +272,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     if (!node->labels_.empty()) {
       // Create a LabelsTest and store it.
-      auto *labels_test =
-          storage.Create<LabelsTest>(node->identifier_, node->labels_);
-      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test,
-                                     std::unordered_set<Symbol>{node_symbol}};
+      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, node->labels_);
+      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
       label_filter.labels = node->labels_;
       all_filters_.emplace_back(label_filter);
     }
@@ -339,15 +291,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where,
-                                 const SymbolTable &symbol_table) {
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
   CollectFilterExpression(where.expression_, symbol_table);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr,
-                                      const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
     AnalyzeAndStoreFilter(filter, symbol_table);
@@ -356,16 +306,12 @@ void Filters::CollectFilterExpression(Expression *expr,
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr,
-                                    const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
-  auto make_filter = [&collector, &expr](FilterInfo::Type type) {
-    return FilterInfo{type, expr, collector.symbols_};
-  };
-  auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
-                                auto *&ident) -> bool {
+  auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo{type, expr, collector.symbols_}; };
+  auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup, auto *&ident) -> bool {
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
@@ -376,9 +322,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(
-          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-          val_expr, PropertyFilter::Type::EQUAL);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
+                                              PropertyFilter::Type::EQUAL);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -390,9 +335,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(
-          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-          val_expr, PropertyFilter::Type::REGEX_MATCH);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
+                                              PropertyFilter::Type::REGEX_MATCH);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -400,16 +344,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
   };
   // Checks if either the expr1 and expr2 are property lookups, adds them as
   // PropertyFilter and returns true. Otherwise, returns false.
-  auto add_prop_greater = [&](auto *expr1, auto *expr2,
-                              auto bound_type) -> bool {
+  auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     bool is_prop_filter = false;
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident),
-                                     prop_lookup->property_,
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
                                      Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
@@ -417,8 +359,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident),
-                                     prop_lookup->property_, std::nullopt,
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
                                      Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
@@ -447,9 +388,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(
-          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-          val_expr, PropertyFilter::Type::IN);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
+                                              PropertyFilter::Type::IN);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -466,30 +406,26 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
       return false;
     }
 
-    auto *maybe_is_null_check =
-        utils::Downcast<IsNullOperator>(maybe_is_not_null_check->expression_);
+    auto *maybe_is_null_check = utils::Downcast<IsNullOperator>(maybe_is_not_null_check->expression_);
     if (!maybe_is_null_check) {
       return false;
     }
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
 
-    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup,
-                             ident)) {
+    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
       return false;
     }
 
     auto filter = make_filter(FilterInfo::Type::Property);
     filter.property_filter =
-        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_,
-                       PropertyFilter::Type::IS_NOT_NULL);
+        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
     all_filters_.emplace_back(filter);
     return true;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
-  DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType),
-             "Expected AndOperators have been split.");
+  DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType), "Expected AndOperators have been split.");
   if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
@@ -527,25 +463,21 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
-    if (!add_prop_greater(gt->expression1_, gt->expression2_,
-                          Bound::Type::EXCLUSIVE)) {
+    if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
-    if (!add_prop_greater(ge->expression1_, ge->expression2_,
-                          Bound::Type::INCLUSIVE)) {
+    if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
     // Like greater, but in reverse.
-    if (!add_prop_greater(lt->expression2_, lt->expression1_,
-                          Bound::Type::EXCLUSIVE)) {
+    if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
     // Like greater equal, but in reverse.
-    if (!add_prop_greater(le->expression2_, le->expression1_,
-                          Bound::Type::INCLUSIVE)) {
+    if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
@@ -571,29 +503,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
-std::vector<SingleQueryPart> CollectSingleQueryParts(
-    SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query) {
+std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage,
+                                                     SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
         query_part->optional_matching.emplace_back(Matching{});
-        AddMatching(*match, symbol_table, storage,
-                    query_part->optional_matching.back());
+        AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
       } else {
-        DMG_ASSERT(query_part->optional_matching.empty(),
-                   "Match clause cannot follow optional match.");
+        DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
         AddMatching(*match, symbol_table, storage, query_part->matching);
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
-        AddMatching({merge->pattern_}, nullptr, symbol_table, storage,
-                    query_part->merge_matching.back());
-      } else if (utils::IsSubtype(*clause, With::kType) ||
-                 utils::IsSubtype(*clause, query::Unwind::kType) ||
+        AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
@@ -606,14 +534,12 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
-                             CypherQuery *query) {
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(
-      QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
 
   bool distinct = false;
   for (auto *cypher_union : query->cypher_unions_) {
@@ -623,9 +549,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.push_back(
-        QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query),
-                  cypher_union});
+    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
   return QueryParts{query_parts, distinct};
 }

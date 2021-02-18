@@ -46,14 +46,12 @@ class Server final {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
    */
-  Server(const io::network::Endpoint &endpoint, TSessionData *session_data,
-         ServerContext *context, int inactivity_timeout_sec,
-         const std::string &service_name,
+  Server(const io::network::Endpoint &endpoint, TSessionData *session_data, ServerContext *context,
+         int inactivity_timeout_sec, const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
       : alive_(false),
         endpoint_(endpoint),
-        listener_(session_data, context, inactivity_timeout_sec, service_name,
-                  workers_count),
+        listener_(session_data, context, inactivity_timeout_sec, service_name, workers_count),
         service_name_(service_name) {}
 
   ~Server() {
@@ -69,8 +67,7 @@ class Server final {
   Server &operator=(Server &&) = delete;
 
   const auto &endpoint() const {
-    MG_ASSERT(alive_,
-              "You can't get the server endpoint when it's not running!");
+    MG_ASSERT(alive_, "You can't get the server endpoint when it's not running!");
     return socket_.endpoint();
   }
 
@@ -138,8 +135,7 @@ class Server final {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    spdlog::info("Accepted a {} connection from {}", service_name_,
-                 s->endpoint());
+    spdlog::info("Accepted a {} connection from {}", service_name_, s->endpoint());
     listener_.AddConnection(std::move(*s));
   }
 

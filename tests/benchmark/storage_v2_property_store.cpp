@@ -25,11 +25,7 @@ static void PropertyStoreSet(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK(PropertyStoreSet)
-    ->RangeMultiplier(2)
-    ->Range(1, 1024)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK(PropertyStoreSet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 ///////////////////////////////////////////////////////////////////////////////
 // std::map Set
@@ -49,11 +45,7 @@ static void StdMapSet(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK(StdMapSet)
-    ->RangeMultiplier(2)
-    ->Range(1, 1024)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK(StdMapSet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 ///////////////////////////////////////////////////////////////////////////////
 // PropertyStore Get
@@ -77,11 +69,7 @@ static void PropertyStoreGet(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK(PropertyStoreGet)
-    ->RangeMultiplier(2)
-    ->Range(1, 1024)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK(PropertyStoreGet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 ///////////////////////////////////////////////////////////////////////////////
 // std::map Get
@@ -105,10 +93,6 @@ static void StdMapGet(benchmark::State &state) {
   state.SetItemsProcessed(counter);
 }
 
-BENCHMARK(StdMapGet)
-    ->RangeMultiplier(2)
-    ->Range(1, 1024)
-    ->Unit(benchmark::kNanosecond)
-    ->UseRealTime();
+BENCHMARK(StdMapGet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 BENCHMARK_MAIN();

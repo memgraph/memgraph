@@ -16,8 +16,7 @@ namespace query::plan {
 /// Collects symbols from identifiers found in visited AST nodes.
 class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  public:
-  explicit UsedSymbolsCollector(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
+  explicit UsedSymbolsCollector(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -99,11 +98,10 @@ class PropertyFilter {
   enum class Type { EQUAL, REGEX_MATCH, RANGE, IN, IS_NOT_NULL };
 
   /// Construct with Expression being the equality or regex match check.
-  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *,
-                 Type);
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);
   /// Construct the range based filter.
-  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx,
-                 const std::optional<Bound> &, const std::optional<Bound> &);
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, const std::optional<Bound> &,
+                 const std::optional<Bound> &);
   /// Construct a filter without an expression that produces a value.
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
@@ -177,20 +175,14 @@ class Filters final {
 
   auto erase(iterator pos) { return all_filters_.erase(pos); }
   auto erase(const_iterator pos) { return all_filters_.erase(pos); }
-  auto erase(iterator first, iterator last) {
-    return all_filters_.erase(first, last);
-  }
-  auto erase(const_iterator first, const_iterator last) {
-    return all_filters_.erase(first, last);
-  }
+  auto erase(iterator first, iterator last) { return all_filters_.erase(first, last); }
+  auto erase(const_iterator first, const_iterator last) { return all_filters_.erase(first, last); }
 
   auto FilteredLabels(const Symbol &symbol) const {
     std::unordered_set<LabelIx> labels;
     for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Label &&
-          utils::Contains(filter.used_symbols, symbol)) {
-        MG_ASSERT(filter.used_symbols.size() == 1U,
-                  "Expected a single used symbol for label filter");
+      if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+        MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
         labels.insert(filter.labels.begin(), filter.labels.end());
       }
     }
@@ -205,15 +197,13 @@ class Filters final {
   /// Remove a label filter for symbol; may invalidate iterators.
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
-  void EraseLabelFilter(const Symbol &, LabelIx,
-                        std::vector<Expression *> *removed_filters = nullptr);
+  void EraseLabelFilter(const Symbol &, LabelIx, std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {
     std::vector<FilterInfo> filters;
     for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Property &&
-          filter.property_filter->symbol_ == symbol) {
+      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
         filters.push_back(filter);
       }
     }
@@ -224,8 +214,7 @@ class Filters final {
   auto IdFilters(const Symbol &symbol) const {
     std::vector<FilterInfo> filters;
     for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Id &&
-          filter.id_filter->symbol_ == symbol) {
+      if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {
         filters.push_back(filter);
       }
     }

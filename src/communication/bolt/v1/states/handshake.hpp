@@ -17,15 +17,13 @@ namespace communication::bolt {
  */
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
-  auto precmp =
-      std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
+  auto precmp = std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
     spdlog::trace("Received a wrong preamble!");
     return State::Close;
   }
 
-  DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize,
-             "Wrong size of the handshake data!");
+  DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize, "Wrong size of the handshake data!");
 
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
 
@@ -61,8 +59,7 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
-  spdlog::info("Using version {}.{} of protocol", session.version_.major,
-               session.version_.minor);
+  spdlog::info("Using version {}.{} of protocol", session.version_.major, session.version_.minor);
 
   // Delete data from the input stream. It is guaranteed that there will more
   // than, or equal to 20 bytes (kHandshakeSize) in the buffer.

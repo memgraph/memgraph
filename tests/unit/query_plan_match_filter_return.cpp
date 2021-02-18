@@ -37,8 +37,7 @@ class MatchReturnFixture : public testing::Test {
   std::vector<Path> PathResults(std::shared_ptr<Produce> &op) {
     std::vector<Path> res;
     auto context = MakeContext(storage, symbol_table, &dba);
-    for (const auto &row : CollectProduce(*op, &context))
-      res.emplace_back(row[0].ValuePath());
+    for (const auto &row : CollectProduce(*op, &context)) res.emplace_back(row[0].ValuePath());
     return res;
   }
 };
@@ -50,8 +49,7 @@ TEST_F(MatchReturnFixture, MatchReturn) {
   auto test_pull_count = [&](storage::View view) {
     auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
     auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*produce, &context);
@@ -72,20 +70,16 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
 
   auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
-  auto make_path = std::make_shared<ConstructNamedPath>(
-      scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
+  auto make_path = std::make_shared<ConstructNamedPath>(scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
   auto output =
-      NEXPR("path", IDENT("path")->MapTo(path_sym))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(make_path, output);
   auto results = PathResults(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(storage::View::OLD))
-    expected_paths.emplace_back(v);
+  for (const auto &v : dba.Vertices(storage::View::OLD)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
-  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
-                                  results.begin()));
+  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
@@ -102,12 +96,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
-  auto return_n =
-      NEXPR("n", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto return_m =
-      NEXPR("m", IDENT("m")->MapTo(m.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce = MakeProduce(m.op_, return_n, return_m);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -163,14 +153,10 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   ASSERT_TRUE(v2.AddLabel(label).HasValue());
   ASSERT_TRUE(v3.AddLabel(label).HasValue());
   // v1 and v4 will have the right properties
-  ASSERT_TRUE(
-      v1.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(
-      v2.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
-  ASSERT_TRUE(
-      v4.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(
-      v5.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v4.SetProperty(property.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v5.SetProperty(property.second, storage::PropertyValue(1)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -182,15 +168,12 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   n.node_->properties_[storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
-  auto *filter_expr =
-      AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-          EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
-  auto output =
-      NEXPR("x", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -238,14 +221,11 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label2)));
 
   // node filtering
-  auto *filter_expr =
-      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
-  auto output =
-      NEXPR("n", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -264,8 +244,7 @@ TEST(QueryPlan, Cartesian) {
     return vertex;
   };
 
-  std::vector<query::VertexAccessor> vertices{
-      add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
+  std::vector<query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -273,17 +252,12 @@ TEST(QueryPlan, Cartesian) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_n =
-      NEXPR("n", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto return_m =
-      NEXPR("m", IDENT("m")->MapTo(m.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
   std::vector<Symbol> left_symbols{n.sym_};
   std::vector<Symbol> right_symbols{m.sym_};
-  auto cartesian_op =
-      std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
+  auto cartesian_op = std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
@@ -308,17 +282,12 @@ TEST(QueryPlan, CartesianEmptySet) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_n =
-      NEXPR("n", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto return_m =
-      NEXPR("m", IDENT("m")->MapTo(m.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
   std::vector<Symbol> left_symbols{n.sym_};
   std::vector<Symbol> right_symbols{m.sym_};
-  auto cartesian_op =
-      std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
+  auto cartesian_op = std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -336,8 +305,7 @@ TEST(QueryPlan, CartesianThreeWay) {
     return vertex;
   };
 
-  std::vector<query::VertexAccessor> vertices{
-      add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
+  std::vector<query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -346,25 +314,17 @@ TEST(QueryPlan, CartesianThreeWay) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
   auto l = MakeScanAll(storage, symbol_table, "l");
-  auto return_n =
-      NEXPR("n", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto return_m =
-      NEXPR("m", IDENT("m")->MapTo(m.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
-  auto return_l =
-      NEXPR("l", IDENT("l")->MapTo(l.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_l = NEXPR("l", IDENT("l")->MapTo(l.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
 
   std::vector<Symbol> n_symbols{n.sym_};
   std::vector<Symbol> m_symbols{m.sym_};
   std::vector<Symbol> n_m_symbols{n.sym_, m.sym_};
   std::vector<Symbol> l_symbols{l.sym_};
-  auto cartesian_op_1 =
-      std::make_shared<Cartesian>(n.op_, n_symbols, m.op_, m_symbols);
+  auto cartesian_op_1 = std::make_shared<Cartesian>(n.op_, n_symbols, m.op_, m_symbols);
 
-  auto cartesian_op_2 = std::make_shared<Cartesian>(cartesian_op_1, n_m_symbols,
-                                                    l.op_, l_symbols);
+  auto cartesian_op_2 = std::make_shared<Cartesian>(cartesian_op_1, n_m_symbols, l.op_, l_symbols);
 
   auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -410,13 +370,11 @@ class ExpandFixture : public testing::Test {
 TEST_F(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
-                          {}, "m", false, view);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
     // make a named expression and a produce
     auto output =
-        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*produce, &context);
@@ -439,28 +397,22 @@ TEST_F(ExpandFixture, Expand) {
 
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m =
-      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                        storage::View::OLD);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
-  auto path = std::make_shared<ConstructNamedPath>(
-      r_m.op_, path_sym,
-      std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
+  auto path = std::make_shared<ConstructNamedPath>(r_m.op_, path_sym,
+                                                   std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
   auto output =
-      NEXPR("path", IDENT("path")->MapTo(path_sym))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
-  std::vector<query::Path> expected_paths{query::Path(v1, r2, v3),
-                                          query::Path(v1, r1, v2)};
+  std::vector<query::Path> expected_paths{query::Path(v1, r2, v3), query::Path(v1, r1, v2)};
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> results_paths;
-  for (const auto &result : results)
-    results_paths.emplace_back(result[0].ValuePath());
-  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
-                                  results_paths.begin()));
+  for (const auto &result : results) results_paths.emplace_back(result[0].ValuePath());
+  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results_paths.begin()));
 }
 
 /**
@@ -499,10 +451,8 @@ class QueryPlanExpandVariable : public testing::Test {
     // create the graph
     int chain_length = 3;
     std::vector<query::VertexAccessor> layer;
-    for (int from_layer_ind = -1; from_layer_ind < chain_length - 1;
-         from_layer_ind++) {
-      std::vector<query::VertexAccessor> new_layer{dba.InsertVertex(),
-                                                   dba.InsertVertex()};
+    for (int from_layer_ind = -1; from_layer_ind < chain_length - 1; from_layer_ind++) {
+      std::vector<query::VertexAccessor> new_layer{dba.InsertVertex(), dba.InsertVertex()};
       auto label = dba.NameToLabel(std::to_string(from_layer_ind + 1));
       labels.push_back(label);
       for (size_t v_to_ind = 0; v_to_ind < new_layer.size(); v_to_ind++) {
@@ -511,19 +461,16 @@ class QueryPlanExpandVariable : public testing::Test {
         for (size_t v_from_ind = 0; v_from_ind < layer.size(); v_from_ind++) {
           auto &v_from = layer[v_from_ind];
           auto edge = dba.InsertEdge(&v_from, &v_to, edge_type);
-          ASSERT_TRUE(
-              edge->SetProperty(dba.NameToProperty("p"),
-                                storage::PropertyValue(fmt::format(
-                                    "V{}{}->V{}{}", from_layer_ind, v_from_ind,
-                                    from_layer_ind + 1, v_to_ind)))
-                  .HasValue());
+          ASSERT_TRUE(edge->SetProperty(dba.NameToProperty("p"),
+                                        storage::PropertyValue(fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
+                                                                           from_layer_ind + 1, v_to_ind)))
+                          .HasValue());
         }
       }
       layer = new_layer;
     }
     dba.AdvanceCommand();
-    ASSERT_EQ(CountIterable(dba.Vertices(storage::View::OLD)),
-              2 * chain_length);
+    ASSERT_EQ(CountIterable(dba.Vertices(storage::View::OLD)), 2 * chain_length);
     ASSERT_EQ(CountEdges(&dba, storage::View::OLD), 4 * (chain_length - 1));
   }
 
@@ -539,18 +486,16 @@ class QueryPlanExpandVariable : public testing::Test {
    * @return the last created logical op.
    */
   template <typename TExpansionOperator>
-  std::shared_ptr<LogicalOperator> AddMatch(
-      std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
-      int layer, EdgeAtom::Direction direction,
-      const std::vector<storage::EdgeTypeId> &edge_types,
-      std::optional<size_t> lower, std::optional<size_t> upper, Symbol edge_sym,
-      const std::string &node_to, storage::View view, bool is_reverse = false) {
+  std::shared_ptr<LogicalOperator> AddMatch(std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
+                                            int layer, EdgeAtom::Direction direction,
+                                            const std::vector<storage::EdgeTypeId> &edge_types,
+                                            std::optional<size_t> lower, std::optional<size_t> upper, Symbol edge_sym,
+                                            const std::string &node_to, storage::View view, bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
         n_from.op_,
-        storage.Create<query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(
-                                           dba.LabelToName(labels[layer]))}));
+        storage.Create<query::LabelsTest>(n_from.node_->identifier_,
+                                          std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -561,22 +506,15 @@ class QueryPlanExpandVariable : public testing::Test {
       auto convert = [this](std::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
-      MG_ASSERT(
-          view == storage::View::OLD,
-          "ExpandVariable should only be planned with storage::View::OLD");
+      MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
 
-      return std::make_shared<ExpandVariable>(
-          filter_op, n_from.sym_, n_to_sym, edge_sym,
-          EdgeAtom::Type::DEPTH_FIRST, direction, edge_types, is_reverse,
-          convert(lower), convert(upper), false,
-          ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
-                          symbol_table.CreateSymbol("inner_node", false),
-                          nullptr},
-          std::nullopt, std::nullopt);
+      return std::make_shared<ExpandVariable>(filter_op, n_from.sym_, n_to_sym, edge_sym, EdgeAtom::Type::DEPTH_FIRST,
+                                              direction, edge_types, is_reverse, convert(lower), convert(upper), false,
+                                              ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
+                                                              symbol_table.CreateSymbol("inner_node", false), nullptr},
+                                              std::nullopt, std::nullopt);
     } else
-      return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym,
-                                      edge_sym, direction, edge_types, false,
-                                      view);
+      return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym, edge_sym, direction, edge_types, false, view);
   }
 
   /* Creates an edge (in the frame and symbol table). Returns the symbol. */
@@ -590,28 +528,24 @@ class QueryPlanExpandVariable : public testing::Test {
   /**
    * Pulls from the given input and returns the results under the given symbol.
    */
-  auto GetListResults(std::shared_ptr<LogicalOperator> input_op,
-                      Symbol symbol) {
+  auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba);
     std::vector<utils::pmr::vector<TypedValue>> results;
-    while (cursor->Pull(frame, context))
-      results.emplace_back(frame[symbol].ValueList());
+    while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValueList());
     return results;
   }
 
   /**
    * Pulls from the given input and returns the results under the given symbol.
    */
-  auto GetPathResults(std::shared_ptr<LogicalOperator> input_op,
-                      Symbol symbol) {
+  auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba);
     std::vector<Path> results;
-    while (cursor->Pull(frame, context))
-      results.emplace_back(frame[symbol].ValuePath());
+    while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValuePath());
     return results;
   }
 
@@ -621,8 +555,7 @@ class QueryPlanExpandVariable : public testing::Test {
    *
    * @return a map {edge_list_length -> number_of_results}
    */
-  auto GetEdgeListSizes(std::shared_ptr<LogicalOperator> input_op,
-                        Symbol symbol) {
+  auto GetEdgeListSizes(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     map_int count_per_length;
     for (const auto &edge_list : GetListResults(input_op, symbol)) {
       auto length = edge_list.size();
@@ -637,153 +570,113 @@ class QueryPlanExpandVariable : public testing::Test {
 };
 
 TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
-  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::optional<size_t> lower,
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse) {
     auto e = Edge("r", direction);
     return GetEdgeListSizes(
-        AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower,
-                                 upper, e, "m", storage::View::OLD, reverse),
+        AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m", storage::View::OLD, reverse),
         e);
   };
 
   for (int reverse = 0; reverse < 2; ++reverse) {
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, 0, reverse),
-              (map_int{{0, 2}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 0, reverse),
-              (map_int{{0, 2}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, 0, reverse),
-              (map_int{{0, 2}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, 1, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, reverse),
-              (map_int{{1, 4}}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, 1, reverse),
-              (map_int{{1, 4}}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, 1, reverse),
-              (map_int{{1, 4}}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, 1, reverse),
-              (map_int{{1, 8}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, reverse),
-              (map_int{{2, 8}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, reverse),
-              (map_int{{2, 8}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 2, reverse),
-              (map_int{{1, 4}, {2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, 0, reverse), (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 0, reverse), (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, 0, reverse), (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, 1, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, reverse), (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, 1, reverse), (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, 1, reverse), (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, 1, reverse), (map_int{{1, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, reverse), (map_int{{2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, reverse), (map_int{{2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 2, reverse), (map_int{{1, 4}, {2, 8}}));
 
     // the following tests also check edge-uniqueness (cyphermorphisim)
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, reverse),
-              (map_int{{1, 4}, {2, 12}}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4, reverse),
-              (map_int{{4, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, reverse), (map_int{{1, 4}, {2, 12}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4, reverse), (map_int{{4, 24}}));
 
     // default bound values (lower default is 1, upper default is inf)
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1, reverse),
-              (map_int{{1, 4}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2, reverse),
-              (map_int{{1, 4}, {2, 8}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt, reverse),
-              (map_int{{7, 24}, {8, 24}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt, reverse),
-              (map_int{{8, 24}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt, reverse),
-              (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1, reverse), (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2, reverse), (map_int{{1, 4}, {2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt, reverse), (map_int{{7, 24}, {8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt, reverse), (map_int{{8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt, reverse), (map_int{}));
   }
 }
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
-  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::optional<size_t> lower,
-                         std::optional<size_t> upper,
-                         bool single_expansion_before,
-                         bool add_uniqueness_check) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
+                         std::optional<size_t> upper, bool single_expansion_before, bool add_uniqueness_check) {
     std::shared_ptr<LogicalOperator> last_op{nullptr};
     std::vector<Symbol> symbols;
 
     if (single_expansion_before) {
       symbols.push_back(Edge("r0", direction));
       last_op =
-          AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper,
-                           symbols.back(), "m0", storage::View::OLD);
+          AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper, symbols.back(), "m0", storage::View::OLD);
     }
 
     auto var_length_sym = Edge("r1", direction);
     symbols.push_back(var_length_sym);
-    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {},
-                                       lower, upper, var_length_sym, "m1",
+    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower, upper, var_length_sym, "m1",
                                        storage::View::OLD);
 
     if (!single_expansion_before) {
       symbols.push_back(Edge("r2", direction));
       last_op =
-          AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper,
-                           symbols.back(), "m2", storage::View::OLD);
+          AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper, symbols.back(), "m2", storage::View::OLD);
     }
 
     if (add_uniqueness_check) {
       auto last_symbol = symbols.back();
       symbols.pop_back();
-      last_op =
-          std::make_shared<EdgeUniquenessFilter>(last_op, last_symbol, symbols);
+      last_op = std::make_shared<EdgeUniquenessFilter>(last_op, last_symbol, symbols);
     }
 
     return GetEdgeListSizes(last_op, var_length_sym);
   };
 
   // no uniqueness between variable and single expansion
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, false),
-            (map_int{{2, 4 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, false), (map_int{{2, 4 * 8}}));
   // with uniqueness test, different ordering of (variable, single) expansion
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, true),
-            (map_int{{2, 3 * 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false, true),
-            (map_int{{2, 3 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, true), (map_int{{2, 3 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false, true), (map_int{{2, 3 * 8}}));
 }
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
-  auto test_expand =
-      [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
-          std::optional<size_t> upper, bool add_uniqueness_check) {
-        auto e1 = Edge("r1", direction);
-        auto first =
-            AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower,
-                                     upper, e1, "m1", storage::View::OLD);
-        auto e2 = Edge("r2", direction);
-        auto last_op =
-            AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
-                                     upper, e2, "m2", storage::View::OLD);
-        if (add_uniqueness_check) {
-          last_op = std::make_shared<EdgeUniquenessFilter>(
-              last_op, e2, std::vector<Symbol>{e1});
-        }
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
+                         std::optional<size_t> upper, bool add_uniqueness_check) {
+    auto e1 = Edge("r1", direction);
+    auto first =
+        AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1", storage::View::OLD);
+    auto e2 = Edge("r2", direction);
+    auto last_op =
+        AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2", storage::View::OLD);
+    if (add_uniqueness_check) {
+      last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2, std::vector<Symbol>{e1});
+    }
 
-        return GetEdgeListSizes(last_op, e2);
-      };
+    return GetEdgeListSizes(last_op, e2);
+  };
 
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false),
-            (map_int{{2, 8 * 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true),
-            (map_int{{2, 5 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false), (map_int{{2, 8 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true), (map_int{{2, 5 * 8}}));
 }
 
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
   auto expand =
-      AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2,
-                               2, e, "m", storage::View::OLD);
+      AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m", storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &sym : symbol_table.table())
       if (sym.second.name() == name) return sym.second;
     throw std::runtime_error("Symbol not found");
   };
 
-  auto path_symbol =
-      symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
-  auto create_path = std::make_shared<ConstructNamedPath>(
-      expand, path_symbol,
-      std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
+  auto path_symbol = symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
+  auto create_path = std::make_shared<ConstructNamedPath>(expand, path_symbol,
+                                                          std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
 
   std::vector<query::Path> expected_paths;
   for (const auto &v : dba.Vertices(storage::View::OLD)) {
@@ -800,28 +693,24 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
 
   auto results = GetPathResults(create_path, path_symbol);
   ASSERT_EQ(results.size(), 8);
-  EXPECT_TRUE(std::is_permutation(results.begin(), results.end(),
-                                  expected_paths.begin()));
+  EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
 }
 
 TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
-  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::optional<size_t> lower,
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse) {
     auto e = Edge("r", direction);
 
     auto node = NODE("n");
     auto symbol = symbol_table.CreateSymbol("n", true);
     node->identifier_->MapTo(symbol);
-    auto logical_op =
-        std::make_shared<ScanAll>(nullptr, symbol, storage::View::OLD);
+    auto logical_op = std::make_shared<ScanAll>(nullptr, symbol, storage::View::OLD);
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
         n_from.op_,
-        storage.Create<query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(
-                                           dba.LabelToName(labels[layer]))}));
+        storage.Create<query::LabelsTest>(n_from.node_->identifier_,
+                                          std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
     // convert optional ints to optional expressions
     auto convert = [this](std::optional<size_t> bound) {
@@ -829,14 +718,12 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
     };
 
     return GetEdgeListSizes(
-        std::make_shared<ExpandVariable>(
-            filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST,
-            direction, std::vector<storage::EdgeTypeId>{}, reverse,
-            convert(lower), convert(upper), /* existing = */ true,
-            ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
-                            symbol_table.CreateSymbol("inner_node", false),
-                            nullptr},
-            std::nullopt, std::nullopt),
+        std::make_shared<ExpandVariable>(filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
+                                         std::vector<storage::EdgeTypeId>{}, reverse, convert(lower), convert(upper),
+                                         /* existing = */ true,
+                                         ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
+                                                         symbol_table.CreateSymbol("inner_node", false), nullptr},
+                                         std::nullopt, std::nullopt),
         e);
   };
 
@@ -871,15 +758,9 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
           expected_undirected.emplace(8, 24);
         }
 
-        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound,
-                              upper_bound, reverse),
-                  expected_directed);
-        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound,
-                              upper_bound, reverse),
-                  expected_directed);
-        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound,
-                              upper_bound, reverse),
-                  expected_undirected);
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound, upper_bound, reverse), expected_directed);
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound, upper_bound, reverse), expected_directed);
+        EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound, upper_bound, reverse), expected_undirected);
       }
     }
 
@@ -894,15 +775,9 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
         expected_undirected.emplace(8, 24);
       }
 
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt,
-                            upper_bound, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt,
-                            upper_bound, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt,
-                            upper_bound, reverse),
-                expected_undirected);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt, upper_bound, reverse), expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt, upper_bound, reverse), expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt, upper_bound, reverse), expected_undirected);
     }
 
     // Test only lower bound.
@@ -920,26 +795,15 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
         expected_undirected.emplace(8, 24);
       }
 
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound,
-                            std::nullopt, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound,
-                            std::nullopt, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound,
-                            std::nullopt, reverse),
-                expected_undirected);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, lower_bound, std::nullopt, reverse), expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, lower_bound, std::nullopt, reverse), expected_directed);
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, lower_bound, std::nullopt, reverse), expected_undirected);
     }
 
     // Test no bounds.
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt,
-                          std::nullopt, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt,
-                          std::nullopt, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt,
-                          std::nullopt, reverse),
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt, std::nullopt, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, std::nullopt, std::nullopt, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, std::nullopt, std::nullopt, reverse),
               (map_int{{4, 12}, {8, 24}}));
   }
 
@@ -972,15 +836,9 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
           expected_undirected.emplace(8, 48);
         }
 
-        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound,
-                              upper_bound, reverse),
-                  expected_directed);
-        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound,
-                              upper_bound, reverse),
-                  expected_directed);
-        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound,
-                              upper_bound, reverse),
-                  expected_undirected);
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound, upper_bound, reverse), expected_directed);
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound, upper_bound, reverse), expected_directed);
+        EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound, upper_bound, reverse), expected_undirected);
       }
     }
 
@@ -995,15 +853,9 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
         expected_undirected.emplace(8, 48);
       }
 
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt,
-                            upper_bound, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt,
-                            upper_bound, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt,
-                            upper_bound, reverse),
-                expected_undirected);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt, upper_bound, reverse), expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt, upper_bound, reverse), expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt, upper_bound, reverse), expected_undirected);
     }
 
     // Test only lower bound.
@@ -1021,26 +873,15 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
         expected_undirected.emplace(8, 48);
       }
 
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound,
-                            std::nullopt, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound,
-                            std::nullopt, reverse),
-                expected_directed);
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound,
-                            std::nullopt, reverse),
-                expected_undirected);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, lower_bound, std::nullopt, reverse), expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, lower_bound, std::nullopt, reverse), expected_directed);
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, lower_bound, std::nullopt, reverse), expected_undirected);
     }
 
     // Test no bounds.
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt,
-                          std::nullopt, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt,
-                          std::nullopt, reverse),
-              (map_int{}));
-    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt,
-                          std::nullopt, reverse),
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, std::nullopt, std::nullopt, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, std::nullopt, std::nullopt, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, std::nullopt, std::nullopt, reverse),
               (map_int{{4, 24}, {8, 48}}));
   }
 }
@@ -1048,9 +889,7 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
 namespace std {
 template <>
 struct hash<std::pair<int, int>> {
-  size_t operator()(const std::pair<int, int> &p) const {
-    return p.first + 31 * p.second;
-  }
+  size_t operator()(const std::pair<int, int> &p) const { return p.first + 31 * p.second; }
 };
 }  // namespace std
 
@@ -1092,15 +931,12 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   void SetUp() {
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
-      ASSERT_TRUE(v.back()
-                      .SetProperty(prop.second, storage::PropertyValue(i))
-                      .HasValue());
+      ASSERT_TRUE(v.back().SetProperty(prop.second, storage::PropertyValue(i)).HasValue());
     }
 
     auto add_edge = [&](int from, int to, double weight) {
       auto edge = dba.InsertEdge(&v[from], &v[to], edge_type);
-      ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(weight))
-                      .HasValue());
+      ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(weight)).HasValue());
       e.emplace(std::make_pair(from, to), *edge);
     };
 
@@ -1117,47 +953,33 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // defines and performs a weighted shortest expansion with the given
   // params returns a vector of pairs. each pair is (vector-of-edges,
   // vertex)
-  auto ExpandWShortest(EdgeAtom::Direction direction,
-                       std::optional<int> max_depth, Expression *where,
-                       std::optional<int> node_id = 0,
-                       ScanAllTuple *existing_node_input = nullptr) {
+  auto ExpandWShortest(EdgeAtom::Direction direction, std::optional<int> max_depth, Expression *where,
+                       std::optional<int> node_id = 0, ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
-    auto n =
-        MakeScanAll(storage, symbol_table, "n",
-                    existing_node_input ? existing_node_input->op_ : nullptr);
+    auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
     if (node_id) {
-      last_op = std::make_shared<Filter>(
-          last_op,
-          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
     ident_e->MapTo(weight_edge);
 
     // expand wshortest
-    auto node_sym = existing_node_input
-                        ? existing_node_input->sym_
-                        : symbol_table.CreateSymbol("node", true);
+    auto node_sym = existing_node_input ? existing_node_input->sym_ : symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
-        last_op, n.sym_, node_sym, edge_list_sym,
-        EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
-        std::vector<storage::EdgeTypeId>{}, false, nullptr,
-        max_depth ? LITERAL(max_depth.value()) : nullptr,
-        existing_node_input != nullptr,
-        ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node,
-                        PROPERTY_LOOKUP(ident_e, prop)},
-        total_weight);
+        last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
+        std::vector<storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
+        existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(ident_e, prop)}, total_weight);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(utils::NewDeleteResource());
     std::vector<ResultType> results;
     auto context = MakeContext(storage, symbol_table, &dba);
     while (cursor->Pull(frame, context)) {
-      results.push_back(ResultType{std::vector<query::EdgeAccessor>(),
-                                   frame[node_sym].ValueVertex(),
+      results.push_back(ResultType{std::vector<query::EdgeAccessor>(), frame[node_sym].ValueVertex(),
                                    frame[total_weight].ValueDouble()});
       for (const TypedValue &edge : frame[edge_list_sym].ValueList())
         results.back().path.emplace_back(edge.ValueEdge());
@@ -1196,8 +1018,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 //      3      3     3
 
 TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
-  auto results =
-      ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
 
   ASSERT_EQ(results.size(), 4);
 
@@ -1230,8 +1051,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1243,8 +1063,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
@@ -1259,8 +1078,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 2));
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 2));
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 1);
     EXPECT_EQ(results[0].total_weight, 5);
@@ -1270,8 +1088,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
     EXPECT_EQ(results[2].total_weight, 13);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 1));
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 1));
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1288,16 +1105,14 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
     auto n0 = MakeScanAll(storage, symbol_table, "n0");
     if (preceeding_node_id) {
       auto filter = std::make_shared<Filter>(
-          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
-                     LITERAL(*preceeding_node_id)));
+          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
       // inject the filter op into the ScanAllTuple. that way the filter
       // op can be passed into the ExpandWShortest function without too
       // much refactor
       n0.op_ = filter;
     }
 
-    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                           std::nullopt, &n0);
+    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true), std::nullopt, &n0);
   };
 
   EXPECT_EQ(ExpandPreceeding(std::nullopt).size(), 20);
@@ -1310,8 +1125,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1346,12 +1160,10 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   }
   {
     auto new_vertex = dba.InsertVertex();
-    ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
-                    .HasValue());
+    ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
     auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_TRUE(
-        edge->SetProperty(prop.second, storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
@@ -1372,34 +1184,26 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
   auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
-                  .HasValue());
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(
-      edge->SetProperty(prop.second, storage::PropertyValue("not a number"))
-          .HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue("not a number")).HasValue());
   dba.AdvanceCommand();
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
-               QueryRuntimeException);
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
   auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5))
-                  .HasValue());
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(-10))
-                  .HasValue());  // negative weight
+  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(-10)).HasValue());  // negative weight
   dba.AdvanceCommand();
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
-               QueryRuntimeException);
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)),
-               QueryRuntimeException);
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
 TEST(QueryPlan, ExpandOptional) {
@@ -1425,19 +1229,14 @@ TEST(QueryPlan, ExpandOptional) {
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m =
-      MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
-  auto optional = std::make_shared<plan::Optional>(
-      n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
+  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                        storage::View::OLD);
+  auto optional = std::make_shared<plan::Optional>(n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
   // RETURN n, r, m
-  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))
-                  ->MapTo(symbol_table.CreateSymbol("n", true));
-  auto r_ne = NEXPR("r", IDENT("r")->MapTo(r_m.edge_sym_))
-                  ->MapTo(symbol_table.CreateSymbol("r", true));
-  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
-                  ->MapTo(symbol_table.CreateSymbol("m", true));
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+  auto r_ne = NEXPR("r", IDENT("r")->MapTo(r_m.edge_sym_))->MapTo(symbol_table.CreateSymbol("r", true));
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1471,10 +1270,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   // OPTIONAL MATCH (n)
   auto n = MakeScanAll(storage, symbol_table, "n");
   // RETURN n
-  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))
-                  ->MapTo(symbol_table.CreateSymbol("n", true));
-  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
-                                                   std::vector<Symbol>{n.sym_});
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1490,20 +1287,17 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
-                                                   std::vector<Symbol>{n.sym_});
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   // WITH n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
   auto with_n_sym = symbol_table.CreateSymbol("n", true);
   n_ne->MapTo(with_n_sym);
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
-  auto r_m =
-      MakeExpand(storage, symbol_table, with, with_n_sym, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, storage::View::OLD);
+  auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                        storage::View::OLD);
   // RETURN m
-  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
-                  ->MapTo(symbol_table.CreateSymbol("m", true));
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(r_m.op_, m_ne);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1529,11 +1323,9 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto label_missing = "missing";
   n.node_->labels_.emplace_back(storage.GetLabelIx(label_missing));
 
-  auto *filter_expr =
-      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
-  auto optional = std::make_shared<plan::Optional>(nullptr, node_filter,
-                                                   std::vector<Symbol>{n.sym_});
+  auto optional = std::make_shared<plan::Optional>(nullptr, node_filter, std::vector<Symbol>{n.sym_});
   // WITH n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
   auto with_n_sym = symbol_table.CreateSymbol("n", true);
@@ -1547,12 +1339,10 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   edge->identifier_->MapTo(edge_sym);
   auto node = NODE("n");
   node->identifier_->MapTo(with_n_sym);
-  auto expand = std::make_shared<plan::Expand>(
-      m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
-      std::vector<storage::EdgeTypeId>{}, true, storage::View::OLD);
+  auto expand = std::make_shared<plan::Expand>(m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
+                                               std::vector<storage::EdgeTypeId>{}, true, storage::View::OLD);
   // RETURN m
-  auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))
-                  ->MapTo(symbol_table.CreateSymbol("m", true));
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(expand, m_ne);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1578,19 +1368,14 @@ TEST(QueryPlan, ExpandExistingNode) {
 
   auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, {}, "n", with_existing,
+    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "n", with_existing,
                           storage::View::OLD);
     if (with_existing)
-      r_n.op_ = std::make_shared<Expand>(n.op_, n.sym_, n.sym_, r_n.edge_sym_,
-                                         r_n.edge_->direction_,
-                                         std::vector<storage::EdgeTypeId>{},
-                                         with_existing, storage::View::OLD);
+      r_n.op_ = std::make_shared<Expand>(n.op_, n.sym_, n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
+                                         std::vector<storage::EdgeTypeId>{}, with_existing, storage::View::OLD);
 
     // make a named expression and a produce
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(n.sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_n.op_, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
@@ -1616,9 +1401,8 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_ =
-      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::BOTH, {}, "_", false, storage::View::OLD);
+  auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "_", false,
+                       storage::View::OLD);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
@@ -1633,25 +1417,19 @@ TEST(QueryPlan, EdgeFilter) {
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
   std::vector<storage::EdgeTypeId> edge_types;
-  for (int j = 0; j < 2; ++j)
-    edge_types.push_back(dba.NameToEdgeType("et" + std::to_string(j)));
+  for (int j = 0; j < 2; ++j) edge_types.push_back(dba.NameToEdgeType("et" + std::to_string(j)));
   std::vector<query::VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) vertices.push_back(dba.InsertVertex());
   auto prop = PROPERTY_PAIR("property");
   std::vector<query::EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
-    edges.push_back(
-        *dba.InsertEdge(&vertices[0], &vertices[i + 1], edge_types[i % 2]));
+    edges.push_back(*dba.InsertEdge(&vertices[0], &vertices[i + 1], edge_types[i % 2]));
     switch (i % 3) {
       case 0:
-        ASSERT_TRUE(edges.back()
-                        .SetProperty(prop.second, storage::PropertyValue(42))
-                        .HasValue());
+        ASSERT_TRUE(edges.back().SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
         break;
       case 1:
-        ASSERT_TRUE(edges.back()
-                        .SetProperty(prop.second, storage::PropertyValue(100))
-                        .HasValue());
+        ASSERT_TRUE(edges.back().SetProperty(prop.second, storage::PropertyValue(100)).HasValue());
         break;
       default:
         break;
@@ -1668,20 +1446,16 @@ TEST(QueryPlan, EdgeFilter) {
 
     auto n = MakeScanAll(storage, symbol_table, "n");
     const auto &edge_type = edge_types[0];
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, {edge_type}, "m", false,
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m", false,
                           storage::View::OLD);
-    r_m.edge_->edge_types_.push_back(
-        storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
+    r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
     r_m.edge_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
-    auto *filter_expr =
-        EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
+    auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
     auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 
     // make a named expression and a produce
     auto output =
-        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(edge_filter, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*produce, &context);
@@ -1689,9 +1463,7 @@ TEST(QueryPlan, EdgeFilter) {
 
   EXPECT_EQ(1, test_filter());
   // test that edge filtering always filters on old state
-  for (auto &edge : edges)
-    ASSERT_TRUE(
-        edge.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
+  for (auto &edge : edges) ASSERT_TRUE(edge.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   EXPECT_EQ(1, test_filter());
   dba.AdvanceCommand();
   EXPECT_EQ(3, test_filter());
@@ -1717,14 +1489,12 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {type_1, type_2}, "m", false,
-                        storage::View::OLD);
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {type_1, type_2}, "m",
+                        false, storage::View::OLD);
 
   // make a named expression and a produce
   auto output =
-      NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+      NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(r_m.op_, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1739,10 +1509,7 @@ TEST(QueryPlan, Filter) {
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property = PROPERTY_PAIR("property");
   for (int i = 0; i < 6; ++i)
-    ASSERT_TRUE(
-        dba.InsertVertex()
-            .SetProperty(property.second, storage::PropertyValue(i % 3 == 0))
-            .HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(property.second, storage::PropertyValue(i % 3 == 0)).HasValue());
   dba.InsertVertex();  // prop not set, gives NULL
   dba.AdvanceCommand();
 
@@ -1753,9 +1520,7 @@ TEST(QueryPlan, Filter) {
   auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), property);
   auto f = std::make_shared<Filter>(n.op_, e);
 
-  auto output =
-      NEXPR("x", IDENT("n")->MapTo(n.sym_))
-          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
@@ -1779,17 +1544,14 @@ TEST(QueryPlan, EdgeUniquenessFilter) {
     SymbolTable symbol_table;
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
-    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
-                            EdgeAtom::Direction::OUT, {}, "n2", false,
+    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1", EdgeAtom::Direction::OUT, {}, "n2", false,
                             storage::View::OLD);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
-    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_,
-                            "r2", EdgeAtom::Direction::OUT, {}, "n3", false,
-                            storage::View::OLD);
+    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2", EdgeAtom::Direction::OUT, {}, "n3",
+                            false, storage::View::OLD);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
-      last_op = std::make_shared<EdgeUniquenessFilter>(
-          last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
+      last_op = std::make_shared<EdgeUniquenessFilter>(last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*last_op, &context);
   };
@@ -1808,8 +1570,7 @@ TEST(QueryPlan, Distinct) {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  auto check_distinct = [&](const std::vector<TypedValue> input,
-                            const std::vector<TypedValue> output,
+  auto check_distinct = [&](const std::vector<TypedValue> input, const std::vector<TypedValue> output,
                             bool assume_int_value) {
     auto input_expr = LITERAL(TypedValue(input));
 
@@ -1818,8 +1579,7 @@ TEST(QueryPlan, Distinct) {
     auto x_expr = IDENT("x");
     x_expr->MapTo(x);
 
-    auto distinct =
-        std::make_shared<plan::Distinct>(unwind, std::vector<Symbol>{x});
+    auto distinct = std::make_shared<plan::Distinct>(unwind, std::vector<Symbol>{x});
 
     auto x_ne = NEXPR("x", x_expr);
     x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
@@ -1836,20 +1596,15 @@ TEST(QueryPlan, Distinct) {
     }
   };
 
-  check_distinct({TypedValue(1), TypedValue(1), TypedValue(2), TypedValue(3),
-                  TypedValue(3), TypedValue(3)},
+  check_distinct({TypedValue(1), TypedValue(1), TypedValue(2), TypedValue(3), TypedValue(3), TypedValue(3)},
                  {TypedValue(1), TypedValue(2), TypedValue(3)}, true);
-  check_distinct({TypedValue(3), TypedValue(2), TypedValue(3), TypedValue(5),
-                  TypedValue(3), TypedValue(5), TypedValue(2), TypedValue(1),
-                  TypedValue(2)},
-                 {TypedValue(3), TypedValue(2), TypedValue(5), TypedValue(1)},
-                 true);
+  check_distinct({TypedValue(3), TypedValue(2), TypedValue(3), TypedValue(5), TypedValue(3), TypedValue(5),
+                  TypedValue(2), TypedValue(1), TypedValue(2)},
+                 {TypedValue(3), TypedValue(2), TypedValue(5), TypedValue(1)}, true);
   check_distinct(
-      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(3),
-       TypedValue(true), TypedValue(false), TypedValue("TWO"), TypedValue()},
-      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(true),
-       TypedValue(false), TypedValue("TWO")},
-      false);
+      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(3), TypedValue(true), TypedValue(false),
+       TypedValue("TWO"), TypedValue()},
+      {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(true), TypedValue(false), TypedValue("TWO")}, false);
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
@@ -1867,11 +1622,9 @@ TEST(QueryPlan, ScanAllByLabel) {
   // MATCH (n :label)
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all_by_label =
-      MakeScanAllByLabel(storage, symbol_table, "n", label);
+  auto scan_all_by_label = MakeScanAllByLabel(storage, symbol_table, "n", label);
   // RETURN n
-  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label.sym_))
-                    ->MapTo(symbol_table.CreateSymbol("n", true));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all_by_label.op_, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -1899,12 +1652,9 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       storage::PropertyValue(0.5),
       storage::PropertyValue(1.5),
       storage::PropertyValue(2.5),
-      storage::PropertyValue(
-          std::vector<storage::PropertyValue>{storage::PropertyValue(0)}),
-      storage::PropertyValue(
-          std::vector<storage::PropertyValue>{storage::PropertyValue(1)}),
-      storage::PropertyValue(
-          std::vector<storage::PropertyValue>{storage::PropertyValue(2)})};
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(0)}),
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1)}),
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2)})};
   {
     auto storage_dba = db.Access();
     query::DbAccessor dba(&storage_dba);
@@ -1921,48 +1671,41 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   query::DbAccessor dba(&storage_dba);
   ASSERT_EQ(14, CountIterable(dba.Vertices(storage::View::OLD)));
 
-  auto run_scan_all = [&](const TypedValue &lower, Bound::Type lower_type,
-                          const TypedValue &upper, Bound::Type upper_type) {
+  auto run_scan_all = [&](const TypedValue &lower, Bound::Type lower_type, const TypedValue &upper,
+                          Bound::Type upper_type) {
     AstStorage storage;
     SymbolTable symbol_table;
-    auto scan_all = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, "prop",
-        Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
+    auto scan_all =
+        MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+                                        Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
     // RETURN n
-    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-                      ->MapTo(symbol_table.CreateSymbol("n", true));
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto produce = MakeProduce(scan_all.op_, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     return CollectProduce(*produce, &context);
   };
 
-  auto check = [&](TypedValue lower, Bound::Type lower_type, TypedValue upper,
-                   Bound::Type upper_type,
+  auto check = [&](TypedValue lower, Bound::Type lower_type, TypedValue upper, Bound::Type upper_type,
                    const std::vector<TypedValue> &expected) {
     auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
-      TypedValue equal = TypedValue(*results[i][0].ValueVertex().GetProperty(
-                             storage::View::OLD, prop)) == expected[i];
+      TypedValue equal = TypedValue(*results[i][0].ValueVertex().GetProperty(storage::View::OLD, prop)) == expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
       EXPECT_TRUE(equal.ValueBool());
     }
   };
 
   // normal ranges that return something
-  check(TypedValue("a"), Bound::Type::EXCLUSIVE, TypedValue("c"),
-        Bound::Type::EXCLUSIVE, {TypedValue("b")});
-  check(TypedValue(0), Bound::Type::EXCLUSIVE, TypedValue(2),
-        Bound::Type::INCLUSIVE,
+  check(TypedValue("a"), Bound::Type::EXCLUSIVE, TypedValue("c"), Bound::Type::EXCLUSIVE, {TypedValue("b")});
+  check(TypedValue(0), Bound::Type::EXCLUSIVE, TypedValue(2), Bound::Type::INCLUSIVE,
         {TypedValue(0.5), TypedValue(1), TypedValue(1.5), TypedValue(2)});
-  check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5),
-        Bound::Type::INCLUSIVE, {TypedValue(2), TypedValue(2.5)});
+  check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5), Bound::Type::INCLUSIVE,
+        {TypedValue(2), TypedValue(2.5)});
 
-  auto are_comparable = [](storage::PropertyValue::Type a,
-                           storage::PropertyValue::Type b) {
+  auto are_comparable = [](storage::PropertyValue::Type a, storage::PropertyValue::Type b) {
     auto is_numeric = [](const storage::PropertyValue::Type t) {
-      return t == storage::PropertyValue::Type::Int ||
-             t == storage::PropertyValue::Type::Double;
+      return t == storage::PropertyValue::Type::Int || t == storage::PropertyValue::Type::Double;
     };
 
     return a == b || (is_numeric(a) && is_numeric(b));
@@ -1979,29 +1722,23 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
                          static_cast<storage::PropertyValue>(value_b).type()))
         continue;
       if (is_orderable(value_a) && is_orderable(value_b)) {
-        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b),
-              Bound::Type::INCLUSIVE, {});
+        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
       } else {
-        EXPECT_THROW(run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE,
-                                  TypedValue(value_b), Bound::Type::INCLUSIVE),
-                     QueryRuntimeException);
+        EXPECT_THROW(
+            run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE),
+            QueryRuntimeException);
       }
     }
   }
   // These should all raise an exception due to type mismatch when using
   // `operator<`.
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::INCLUSIVE,
-                            TypedValue(true), Bound::Type::EXCLUSIVE),
+  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::INCLUSIVE, TypedValue(true), Bound::Type::EXCLUSIVE),
                QueryRuntimeException);
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::EXCLUSIVE,
-                            TypedValue(true), Bound::Type::INCLUSIVE),
+  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::EXCLUSIVE, TypedValue(true), Bound::Type::INCLUSIVE),
                QueryRuntimeException);
-  EXPECT_THROW(
-      run_scan_all(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}),
-                   Bound::Type::EXCLUSIVE,
-                   TypedValue(std::vector<TypedValue>{TypedValue(1.5)}),
-                   Bound::Type::INCLUSIVE),
-      QueryRuntimeException);
+  EXPECT_THROW(run_scan_all(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}), Bound::Type::EXCLUSIVE,
+                            TypedValue(std::vector<TypedValue>{TypedValue(1.5)}), Bound::Type::INCLUSIVE),
+               QueryRuntimeException);
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
@@ -2015,13 +1752,10 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     query::DbAccessor dba(&storage_dba);
     auto number_vertex = dba.InsertVertex();
     ASSERT_TRUE(number_vertex.AddLabel(label).HasValue());
-    ASSERT_TRUE(
-        number_vertex.SetProperty(prop, storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(number_vertex.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     auto string_vertex = dba.InsertVertex();
     ASSERT_TRUE(string_vertex.AddLabel(label).HasValue());
-    ASSERT_TRUE(
-        string_vertex.SetProperty(prop, storage::PropertyValue("string"))
-            .HasValue());
+    ASSERT_TRUE(string_vertex.SetProperty(prop, storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -2032,11 +1766,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
+  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
   // RETURN n
-  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-                    ->MapTo(symbol_table.CreateSymbol("n", true));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -2059,8 +1791,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-      ASSERT_TRUE(
-          vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -2075,8 +1806,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto scan_all = MakeScanAll(storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
   ident_m->MapTo(scan_all.sym_);
-  auto scan_index = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
+  auto scan_index =
+      MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
@@ -2091,8 +1822,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-      ASSERT_TRUE(
-          vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -2109,26 +1839,24 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   ident_m->MapTo(scan_all.sym_);
   {
     // Lower bound isn't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, "prop",
-        Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
+    auto scan_index =
+        MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+                                        Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Upper bound isn't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, "prop", std::nullopt,
-        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    auto scan_index = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop", std::nullopt,
+                                                      Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Both bounds aren't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, "prop",
-        Bound{ident_m, Bound::Type::INCLUSIVE},
-        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    auto scan_index = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+                                                      Bound{ident_m, Bound::Type::INCLUSIVE},
+                                                      Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
@@ -2148,8 +1876,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
-    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42))
-                    .HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -2160,11 +1887,10 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, "prop", LITERAL(TypedValue()));
+  auto scan_all =
+      MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(TypedValue()));
   // RETURN n
-  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-                    ->MapTo(symbol_table.CreateSymbol("n", true));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -2185,8 +1911,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
-    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42))
-                    .HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label, prop);
@@ -2197,13 +1922,11 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   // MATCH (n :label) WHERE null <= n.prop < null
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(
-      storage, symbol_table, "n", label, prop, "prop",
-      Bound{LITERAL(TypedValue()), Bound::Type::INCLUSIVE},
-      Bound{LITERAL(TypedValue()), Bound::Type::EXCLUSIVE});
+  auto scan_all = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+                                                  Bound{LITERAL(TypedValue()), Bound::Type::INCLUSIVE},
+                                                  Bound{LITERAL(TypedValue()), Bound::Type::EXCLUSIVE});
   // RETURN n
-  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-                    ->MapTo(symbol_table.CreateSymbol("n", true));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -2239,8 +1962,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   x_expr->MapTo(x);
 
   // MATCH (n :label {prop: x})
-  auto scan_all = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
+  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
 
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
@@ -2260,10 +1982,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     query::DbAccessor dba(&storage_dba);
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop, storage::PropertyValue(i < vertex_prop_count
-                                                               ? prop_value1
-                                                               : prop_value2))
-                    .HasValue());
+    ASSERT_TRUE(
+        v.SetProperty(prop, storage::PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -2282,11 +2002,10 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     SymbolTable symbol_table;
     auto storage_dba = db.Access();
     query::DbAccessor dba(&storage_dba);
-    auto scan_all_by_label_property_value = MakeScanAllByLabelPropertyValue(
-        storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto scan_all_by_label_property_value =
+        MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
+                      ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
@@ -2299,13 +2018,10 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto storage_dba = db.Access();
     query::DbAccessor dba(&storage_dba);
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_),
-                             std::make_pair("prop", prop));
-    auto filter =
-        std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
+    auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
+    auto filter = std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
     auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
-            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);

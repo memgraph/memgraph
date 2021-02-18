@@ -30,8 +30,7 @@ class BaseEncoder {
 /// Encoder that is used to generate a snapshot/WAL.
 class Encoder final : public BaseEncoder {
  public:
-  void Initialize(const std::filesystem::path &path,
-                  const std::string_view &magic, uint64_t version);
+  void Initialize(const std::filesystem::path &path, const std::string_view &magic, uint64_t version);
 
   void OpenExisting(const std::filesystem::path &path);
 
@@ -91,8 +90,7 @@ class BaseDecoder {
 /// Decoder that is used to read a generated snapshot/WAL.
 class Decoder final : public BaseDecoder {
  public:
-  std::optional<uint64_t> Initialize(const std::filesystem::path &path,
-                                     const std::string &magic);
+  std::optional<uint64_t> Initialize(const std::filesystem::path &path, const std::string &magic);
 
   // Main read functions, the only one that are allowed to read from the `file_`
   // directly.

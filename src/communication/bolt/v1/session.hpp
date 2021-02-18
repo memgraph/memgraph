@@ -62,9 +62,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Pull(TEncoder *encoder,
-                                            std::optional<int> n,
-                                            std::optional<int> qid) = 0;
+  virtual std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -74,8 +72,7 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Discard(std::optional<int> n,
-                                               std::optional<int> qid) = 0;
+  virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
   virtual void BeginTransaction() = 0;
   virtual void CommitTransaction() = 0;
@@ -85,8 +82,7 @@ class Session {
   virtual void Abort() = 0;
 
   /** Return `true` if the user was successfully authenticated. */
-  virtual bool Authenticate(const std::string &username,
-                            const std::string &password) = 0;
+  virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
@@ -104,8 +100,7 @@ class Session {
 
       // Receive the handshake.
       if (input_stream_.size() < kHandshakeSize) {
-        spdlog::trace("Received partial handshake of size {}",
-                      input_stream_.size());
+        spdlog::trace("Received partial handshake of size {}", input_stream_.size());
         return;
       }
       state_ = StateHandshakeRun(*this);

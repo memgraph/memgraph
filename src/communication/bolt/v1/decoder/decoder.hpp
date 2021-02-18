@@ -158,8 +158,7 @@ class Decoder {
   }
 
   bool ReadBool(const Marker &marker, Value *data) {
-    DMG_ASSERT(marker == Marker::False || marker == Marker::True,
-               "Received invalid marker!");
+    DMG_ASSERT(marker == Marker::False || marker == Marker::True, "Received invalid marker!");
     if (marker == Marker::False) {
       *data = Value(false);
     } else {

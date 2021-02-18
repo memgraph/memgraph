@@ -26,8 +26,7 @@
 namespace slk {
 
 // Static assert for the assumption made in this library.
-static_assert(std::is_same_v<std::uint8_t, char> ||
-                  std::is_same_v<std::uint8_t, unsigned char>,
+static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t, unsigned char>,
               "The slk library requires uint8_t to be implemented as char or "
               "unsigned char.");
 
@@ -67,8 +66,7 @@ void Save(const std::unique_ptr<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::unique_ptr<T> *obj, Reader *reader);
 template <typename T>
-void Load(std::unique_ptr<T> *obj, Reader *reader,
-          const std::function<void(std::unique_ptr<T> *, Reader *)> &load);
+void Load(std::unique_ptr<T> *obj, Reader *reader, const std::function<void(std::unique_ptr<T> *, Reader *)> &load);
 
 template <typename T>
 void Save(const std::optional<T> &obj, Builder *builder);
@@ -76,28 +74,22 @@ template <typename T>
 void Load(std::optional<T> *obj, Reader *reader);
 
 template <typename T>
-void Save(const std::shared_ptr<T> &obj, Builder *builder,
-          std::vector<T *> *saved);
+void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved);
 template <typename T>
-void Save(const std::shared_ptr<T> &obj, Builder *builder,
-          std::vector<T *> *saved,
+void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved,
           const std::function<void(const T &, Builder *builder)> &save);
 template <typename T>
-void Load(std::shared_ptr<T> *obj, Reader *reader,
-          std::vector<std::shared_ptr<T>> *loaded);
+void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::shared_ptr<T>> *loaded);
 template <typename T>
-void Load(
-    std::shared_ptr<T> *obj, Reader *reader,
-    std::vector<std::shared_ptr<T>> *loaded,
-    const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load);
+void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::shared_ptr<T>> *loaded,
+          const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load);
 
 // Implementation of serialization for primitive types.
 
-#define MAKE_PRIMITIVE_SAVE(primitive_type)                        \
-  inline void Save(primitive_type obj, Builder *builder) {         \
-    primitive_type obj_encoded = utils::HostToLittleEndian(obj);   \
-    builder->Save(reinterpret_cast<const uint8_t *>(&obj_encoded), \
-                  sizeof(primitive_type));                         \
+#define MAKE_PRIMITIVE_SAVE(primitive_type)                                                 \
+  inline void Save(primitive_type obj, Builder *builder) {                                  \
+    primitive_type obj_encoded = utils::HostToLittleEndian(obj);                            \
+    builder->Save(reinterpret_cast<const uint8_t *>(&obj_encoded), sizeof(primitive_type)); \
   }
 
 MAKE_PRIMITIVE_SAVE(bool)
@@ -113,12 +105,11 @@ MAKE_PRIMITIVE_SAVE(uint64_t)
 
 #undef MAKE_PRIMITIVE_SAVE
 
-#define MAKE_PRIMITIVE_LOAD(primitive_type)                 \
-  inline void Load(primitive_type *obj, Reader *reader) {   \
-    primitive_type obj_encoded;                             \
-    reader->Load(reinterpret_cast<uint8_t *>(&obj_encoded), \
-                 sizeof(primitive_type));                   \
-    *obj = utils::LittleEndianToHost(obj_encoded);          \
+#define MAKE_PRIMITIVE_LOAD(primitive_type)                                          \
+  inline void Load(primitive_type *obj, Reader *reader) {                            \
+    primitive_type obj_encoded;                                                      \
+    reader->Load(reinterpret_cast<uint8_t *>(&obj_encoded), sizeof(primitive_type)); \
+    *obj = utils::LittleEndianToHost(obj_encoded);                                   \
   }
 
 MAKE_PRIMITIVE_LOAD(bool)
@@ -134,13 +125,9 @@ MAKE_PRIMITIVE_LOAD(uint64_t)
 
 #undef MAKE_PRIMITIVE_LOAD
 
-inline void Save(float obj, Builder *builder) {
-  slk::Save(utils::MemcpyCast<uint32_t>(obj), builder);
-}
+inline void Save(float obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
 
-inline void Save(double obj, Builder *builder) {
-  slk::Save(utils::MemcpyCast<uint64_t>(obj), builder);
-}
+inline void Save(double obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
 
 inline void Load(float *obj, Reader *reader) {
   uint32_t obj_encoded;
@@ -287,9 +274,8 @@ inline void Load(std::unique_ptr<T> *obj, Reader *reader) {
 }
 
 template <typename T>
-inline void Load(
-    std::unique_ptr<T> *obj, Reader *reader,
-    const std::function<void(std::unique_ptr<T> *, Reader *)> &load) {
+inline void Load(std::unique_ptr<T> *obj, Reader *reader,
+                 const std::function<void(std::unique_ptr<T> *, Reader *)> &load) {
   bool exists = false;
   Load(&exists, reader);
   if (exists) {
@@ -342,15 +328,12 @@ inline void Load(std::pair<A, B> *obj, Reader *reader) {
 // Implementation of three argument serialization for complex types.
 
 template <typename T>
-inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
-                 std::vector<T *> *saved) {
-  Save<T>(obj, builder, saved,
-          [](const auto &elem, auto *builder) { Save(elem, builder); });
+inline void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved) {
+  Save<T>(obj, builder, saved, [](const auto &elem, auto *builder) { Save(elem, builder); });
 }
 
 template <typename T>
-inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
-                 std::vector<T *> *saved,
+inline void Save(const std::shared_ptr<T> &obj, Builder *builder, std::vector<T *> *saved,
                  const std::function<void(const T &, Builder *builder)> &save) {
   if (obj.get() == nullptr) {
     bool exists = false;
@@ -374,8 +357,7 @@ inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
 }
 
 template <typename T>
-inline void Load(std::shared_ptr<T> *obj, Reader *reader,
-                 std::vector<std::shared_ptr<T>> *loaded) {
+inline void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::shared_ptr<T>> *loaded) {
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
@@ -407,10 +389,8 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader,
 }
 
 template <typename T>
-inline void Load(
-    std::shared_ptr<T> *obj, Reader *reader,
-    std::vector<std::shared_ptr<T>> *loaded,
-    const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load) {
+inline void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::shared_ptr<T>> *loaded,
+                 const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load) {
   bool exists = false;
   Load(&exists, reader);
   if (exists) {
@@ -446,8 +426,7 @@ inline void Save(const std::vector<T> &obj, Builder *builder,
 }
 
 template <typename T>
-inline void Load(std::vector<T> *obj, Reader *reader,
-                 std::function<void(T *, Reader *)> item_load_function) {
+inline void Load(std::vector<T> *obj, Reader *reader, std::function<void(T *, Reader *)> item_load_function) {
   uint64_t size = 0;
   Load(&size, reader);
   obj->resize(size);
@@ -470,8 +449,7 @@ inline void Save(const std::optional<T> &obj, Builder *builder,
 }
 
 template <typename T>
-inline void Load(std::optional<T> *obj, Reader *reader,
-                 std::function<void(T *, Reader *)> item_load_function) {
+inline void Load(std::optional<T> *obj, Reader *reader, std::function<void(T *, Reader *)> item_load_function) {
   bool exists = false;
   Load(&exists, reader);
   if (exists) {

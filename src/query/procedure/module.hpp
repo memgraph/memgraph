@@ -29,8 +29,7 @@ class Module {
   virtual bool Close() = 0;
 
   /// Returns registered procedures of this module
-  virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures()
-      const = 0;
+  virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
 };
 
 /// Proxy for a registered Module, acquires a read lock from ModuleRegistry.
@@ -41,8 +40,7 @@ class ModulePtr final {
  public:
   ModulePtr() = default;
   ModulePtr(std::nullptr_t) {}
-  ModulePtr(const Module *module, std::shared_lock<utils::RWLock> lock)
-      : module_(module), lock_(std::move(lock)) {}
+  ModulePtr(const Module *module, std::shared_lock<utils::RWLock> lock) : module_(module), lock_(std::move(lock)) {}
 
   explicit operator bool() const { return static_cast<bool>(module_); }
 
@@ -55,8 +53,7 @@ class ModuleRegistry final {
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
 
-  bool RegisterModule(const std::string_view &name,
-                      std::unique_ptr<Module> module);
+  bool RegisterModule(const std::string_view &name, std::unique_ptr<Module> module);
 
   void DoUnloadAllModules();
 
@@ -105,8 +102,7 @@ extern ModuleRegistry gModuleRegistry;
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry,
-    const std::string_view &fully_qualified_procedure_name,
+    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
     utils::MemoryResource *memory);
 
 }  // namespace query::procedure

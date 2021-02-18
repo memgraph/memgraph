@@ -23,9 +23,8 @@ std::string ResolveHostname(std::string hostname) {
 
   int addr_result;
   addrinfo *servinfo;
-  MG_ASSERT((addr_result =
-                 getaddrinfo(hostname.c_str(), NULL, &hints, &servinfo)) == 0,
-            "Error with getaddrinfo: {}", gai_strerror(addr_result));
+  MG_ASSERT((addr_result = getaddrinfo(hostname.c_str(), NULL, &hints, &servinfo)) == 0, "Error with getaddrinfo: {}",
+            gai_strerror(addr_result));
   MG_ASSERT(servinfo, "Could not resolve address: {}", hostname);
 
   std::string address;

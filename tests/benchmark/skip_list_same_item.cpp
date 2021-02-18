@@ -15,19 +15,16 @@ int main(int argc, char **argv) {
       auto accessor = list.access();
       switch (value) {
         case 0:
-          stats->succ[OP_INSERT] +=
-              static_cast<uint64_t>(accessor.insert(5).second);
+          stats->succ[OP_INSERT] += static_cast<uint64_t>(accessor.insert(5).second);
           break;
         case 1:
-          stats->succ[OP_CONTAINS] +=
-              static_cast<uint64_t>(accessor.contains(5));
+          stats->succ[OP_CONTAINS] += static_cast<uint64_t>(accessor.contains(5));
           break;
         case 2:
           stats->succ[OP_REMOVE] += static_cast<uint64_t>(accessor.remove(5));
           break;
         case 3:
-          stats->succ[OP_FIND] +=
-              static_cast<uint64_t>(accessor.find(5) != accessor.end());
+          stats->succ[OP_FIND] += static_cast<uint64_t>(accessor.find(5) != accessor.end());
           break;
         default:
           std::terminate();

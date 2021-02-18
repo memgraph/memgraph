@@ -41,15 +41,14 @@ ThreadPool::~ThreadPool() {
 }
 
 std::unique_ptr<ThreadPool::TaskSignature> ThreadPool::PopTask() {
-  return task_queue_.WithLock(
-      [](auto &queue) -> std::unique_ptr<TaskSignature> {
-        if (queue.empty()) {
-          return nullptr;
-        }
-        auto front = std::move(queue.front());
-        queue.pop();
-        return front;
-      });
+  return task_queue_.WithLock([](auto &queue) -> std::unique_ptr<TaskSignature> {
+    if (queue.empty()) {
+      return nullptr;
+    }
+    auto front = std::move(queue.front());
+    queue.pop();
+    return front;
+  });
 }
 
 void ThreadPool::ThreadLoop() {
@@ -75,8 +74,6 @@ void ThreadPool::ThreadLoop() {
   }
 }
 
-size_t ThreadPool::UnfinishedTasksNum() const {
-  return unfinished_tasks_num_.load();
-}
+size_t ThreadPool::UnfinishedTasksNum() const { return unfinished_tasks_num_.load(); }
 
 }  // namespace utils

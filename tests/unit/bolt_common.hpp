@@ -26,9 +26,7 @@ class TestInputStream {
     }
   }
 
-  void Write(const char *data, size_t len) {
-    Write(reinterpret_cast<const uint8_t *>(data), len);
-  }
+  void Write(const char *data, size_t len) { Write(reinterpret_cast<const uint8_t *>(data), len); }
 
   void Shift(size_t count) {
     MG_ASSERT(count <= data_.size());
@@ -65,8 +63,7 @@ class TestOutputStream {
  */
 class TestBuffer {
  public:
-  explicit TestBuffer(TestOutputStream &output_stream)
-      : output_stream_(output_stream) {}
+  explicit TestBuffer(TestOutputStream &output_stream) : output_stream_(output_stream) {}
 
   void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
   bool Flush(bool have_more = false) { return true; }
@@ -89,8 +86,7 @@ void PrintOutput(std::vector<uint8_t> &output) {
 /**
  * TODO (mferencevic): document
  */
-void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data,
-                 uint64_t len, bool clear = true) {
+void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len, bool clear = true) {
   if (clear)
     ASSERT_EQ(len, output.size());
   else

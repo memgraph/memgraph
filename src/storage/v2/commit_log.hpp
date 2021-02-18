@@ -23,11 +23,7 @@ class CommitLog final {
  public:
   // TODO(mtomic): use pool allocator for blocks
   CommitLog()
-      : head_(nullptr),
-        head_start_(0),
-        next_start_(0),
-        oldest_active_(0),
-        allocator_(utils::NewDeleteResource()) {}
+      : head_(nullptr), head_start_(0), next_start_(0), oldest_active_(0), allocator_(utils::NewDeleteResource()) {}
 
   CommitLog(const CommitLog &) = delete;
   CommitLog &operator=(const CommitLog &) = delete;
@@ -49,8 +45,7 @@ class CommitLog final {
     std::lock_guard<utils::SpinLock> guard(lock_);
 
     Block *block = FindOrCreateBlock(id);
-    block->field[(id % kIdsInBlock) / kIdsInField] |= 1ULL
-                                                      << (id % kIdsInField);
+    block->field[(id % kIdsInBlock) / kIdsInField] |= 1ULL << (id % kIdsInField);
     if (id == oldest_active_) {
       UpdateOldestActive();
     }
@@ -77,13 +72,10 @@ class CommitLog final {
       // This is necessary for amortized constant complexity. If we always start
       // from the 0th field, the amount of steps we make through each block is
       // quadratic in kBlockSize.
-      uint64_t start_field = oldest_active_ >= head_start_
-                                 ? (oldest_active_ - head_start_) / kIdsInField
-                                 : 0;
+      uint64_t start_field = oldest_active_ >= head_start_ ? (oldest_active_ - head_start_) / kIdsInField : 0;
       for (uint64_t i = start_field; i < kBlockSize; ++i) {
         if (head_->field[i] != std::numeric_limits<uint64_t>::max()) {
-          oldest_active_ = head_start_ + i * kIdsInField +
-                           __builtin_ffsl(~head_->field[i]) - 1;
+          oldest_active_ = head_start_ + i * kIdsInField + __builtin_ffsl(~head_->field[i]) - 1;
           return;
         }
       }

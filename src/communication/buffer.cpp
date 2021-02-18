@@ -4,8 +4,7 @@
 
 namespace communication {
 
-Buffer::Buffer()
-    : data_(kBufferInitialSize, 0), read_end_(this), write_end_(this) {}
+Buffer::Buffer() : data_(kBufferInitialSize, 0), read_end_(this), write_end_(this) {}
 
 Buffer::ReadEnd::ReadEnd(Buffer *buffer) : buffer_(buffer) {}
 
@@ -21,9 +20,7 @@ void Buffer::ReadEnd::Clear() { buffer_->Clear(); }
 
 Buffer::WriteEnd::WriteEnd(Buffer *buffer) : buffer_(buffer) {}
 
-io::network::StreamBuffer Buffer::WriteEnd::Allocate() {
-  return buffer_->Allocate();
-}
+io::network::StreamBuffer Buffer::WriteEnd::Allocate() { return buffer_->Allocate(); }
 
 void Buffer::WriteEnd::Written(size_t len) { buffer_->Written(len); }
 

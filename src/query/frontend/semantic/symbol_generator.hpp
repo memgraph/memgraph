@@ -17,8 +17,7 @@ namespace query {
 /// variable types.
 class SymbolGenerator : public HierarchicalTreeVisitor {
  public:
-  explicit SymbolGenerator(SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
+  explicit SymbolGenerator(SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -117,14 +116,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
-  auto CreateSymbol(const std::string &name, bool user_declared,
-                    Symbol::Type type = Symbol::Type::ANY,
+  auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                     int token_position = -1);
 
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbol(const std::string &name, bool user_declared,
-                         Symbol::Type type = Symbol::Type::ANY);
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 

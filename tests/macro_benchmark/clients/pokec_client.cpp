@@ -43,20 +43,15 @@ class PokecClient : public TestClient {
   std::vector<VertexAndEdges> removed_;
 
   auto MatchVertex(const std::string &label, int64_t id) {
-    return Execute(fmt::format("MATCH (n :{} {{id : $id}}) RETURN n", label),
-                   {{"id", id}});
+    return Execute(fmt::format("MATCH (n :{} {{id : $id}}) RETURN n", label), {{"id", id}});
   }
 
   auto MatchNeighbours(const std::string &label, int64_t id) {
-    return Execute(
-        fmt::format("MATCH (n :{} {{id : $id}})-[e]-(m) RETURN n, e, m", label),
-        {{"id", id}});
+    return Execute(fmt::format("MATCH (n :{} {{id : $id}})-[e]-(m) RETURN n, e, m", label), {{"id", id}});
   }
 
   auto DetachDeleteVertex(const std::string &label, int64_t id) {
-    return Execute(
-        fmt::format("MATCH (n :{} {{id : $id}}) DETACH DELETE n", label),
-        {{"id", id}});
+    return Execute(fmt::format("MATCH (n :{} {{id : $id}}) DETACH DELETE n", label), {{"id", id}});
   }
 
   auto CreateVertex(const Vertex &vertex) {
@@ -64,14 +59,13 @@ class PokecClient : public TestClient {
     os << "CREATE (n :";
     utils::PrintIterable(os, vertex.labels, ":");
     os << " {";
-    utils::PrintIterable(
-        os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
-          if (pair.second.type() == Value::Type::String) {
-            stream << pair.first << ": \"" << pair.second << "\"";
-          } else {
-            stream << pair.first << ": " << pair.second;
-          }
-        });
+    utils::PrintIterable(os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
+      if (pair.second.type() == Value::Type::String) {
+        stream << pair.first << ": \"" << pair.second << "\"";
+      } else {
+        stream << pair.first << ": " << pair.second;
+      }
+    });
     os << "})";
     return Execute(os.str(), {}, "CREATE (n :labels... {...})");
   }
@@ -90,9 +84,8 @@ class PokecClient : public TestClient {
         {{"id", id}});
   }
 
-  auto CreateEdge(const Vertex &from, const std::string &from_label,
-                  int64_t from_id, const std::string &to_label, int64_t to_id,
-                  const Edge &edge) {
+  auto CreateEdge(const Vertex &from, const std::string &from_label, int64_t from_id, const std::string &to_label,
+                  int64_t to_id, const Edge &edge) {
     std::stringstream os;
     os << fmt::format("MATCH (n :{} {{id : {}}}) ", from_label, from_id);
     os << fmt::format("MATCH (m :{} {{id : {}}}) ", to_label, to_id);
@@ -103,14 +96,13 @@ class PokecClient : public TestClient {
       os << "-";
     }
     os << "[:" << edge.type << " {";
-    utils::PrintIterable(
-        os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
-          if (pair.second.type() == Value::Type::String) {
-            stream << pair.first << ": \"" << pair.second << "\"";
-          } else {
-            stream << pair.first << ": " << pair.second;
-          }
-        });
+    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+      if (pair.second.type() == Value::Type::String) {
+        stream << pair.first << ": \"" << pair.second << "\"";
+      } else {
+        stream << pair.first << ": " << pair.second;
+      }
+    });
     os << "}]";
     if (edge.from == from.id) {
       os << "->";
@@ -122,8 +114,7 @@ class PokecClient : public TestClient {
     auto ret = Execute(os.str(), {},
                        "MATCH (n :label {id: ...}) MATCH (m :label {id: ...}) "
                        "CREATE (n)-[:type ...]-(m)");
-    MG_ASSERT(ret->records.size() == 1U,
-              "from_id: {} to_id: {} ret.records.size(): {}", from_id, to_id,
+    MG_ASSERT(ret->records.size() == 1U, "from_id: {} to_id: {} ret.records.size(): {}", from_id, to_id,
               ret->records.size());
     return ret;
   }
@@ -131,8 +122,7 @@ class PokecClient : public TestClient {
   VertexAndEdges RetrieveAndDeleteVertex(const std::string &label, int64_t id) {
     auto vertex_record = MatchVertex(label, id)->records;
 
-    MG_ASSERT(vertex_record.size() == 1U, "id: {} vertex_record.size(): {}", id,
-              vertex_record.size());
+    MG_ASSERT(vertex_record.size() == 1U, "id: {} vertex_record.size(): {}", id, vertex_record.size());
 
     auto records = MatchNeighbours(label, id)->records;
 
@@ -153,23 +143,17 @@ class PokecClient : public TestClient {
     return {vertex_record[0][0].ValueVertex(), edges, vertices};
   }
 
-  void ReturnVertexAndEdges(const VertexAndEdges &vertex_and_edges,
-                            const std::string &label) {
+  void ReturnVertexAndEdges(const VertexAndEdges &vertex_and_edges, const std::string &label) {
     int num_queries = 0;
     CreateVertex(vertex_and_edges.vertex);
     ++num_queries;
 
-    for (int i = 0; i < static_cast<int>(vertex_and_edges.vertices.size());
-         ++i) {
+    for (int i = 0; i < static_cast<int>(vertex_and_edges.vertices.size()); ++i) {
       auto records =
-          CreateEdge(
-              vertex_and_edges.vertex, label,
-              vertex_and_edges.vertex.properties.at("id").ValueInt(), label,
-              vertex_and_edges.vertices[i].properties.at("id").ValueInt(),
-              vertex_and_edges.edges[i])
+          CreateEdge(vertex_and_edges.vertex, label, vertex_and_edges.vertex.properties.at("id").ValueInt(), label,
+                     vertex_and_edges.vertices[i].properties.at("id").ValueInt(), vertex_and_edges.edges[i])
               ->records;
-      MG_ASSERT(records.size() == 1U, "Graph in invalid state {}",
-                vertex_and_edges.vertex.properties.at("id"));
+      MG_ASSERT(records.size() == 1U, "Graph in invalid state {}", vertex_and_edges.vertex.properties.at("id"));
       ++num_queries;
     }
   }
@@ -199,12 +183,10 @@ class PokecClient : public TestClient {
         v.pop_back();
         return ret;
       };
-      if (real_dist(rg_) < static_cast<double>(removed_.size()) /
-                               (removed_.size() + to_remove_.size())) {
+      if (real_dist(rg_) < static_cast<double>(removed_.size()) / (removed_.size() + to_remove_.size())) {
         auto vertices_and_edges = remove_random(removed_);
         ReturnVertexAndEdges(vertices_and_edges, INDEPENDENT_LABEL);
-        to_remove_.push_back(
-            vertices_and_edges.vertex.properties["id"].ValueInt());
+        to_remove_.push_back(vertices_and_edges.vertex.properties["id"].ValueInt());
       } else {
         auto node_id = remove_random(to_remove_);
         auto ret = RetrieveAndDeleteVertex(INDEPENDENT_LABEL, node_id);
@@ -215,19 +197,13 @@ class PokecClient : public TestClient {
 };
 
 int64_t NumNodes(Client &client, const std::string &label) {
-  auto result = ExecuteNTimesTillSuccess(
-      client, "MATCH (n :" + label + ") RETURN COUNT(n) as cnt", {},
-      MAX_RETRIES);
+  auto result = ExecuteNTimesTillSuccess(client, "MATCH (n :" + label + ") RETURN COUNT(n) as cnt", {}, MAX_RETRIES);
   return result.first.records[0][0].ValueInt();
 }
 
-std::vector<int64_t> Neighbours(Client &client, const std::string &label,
-                                int64_t id) {
-  auto result = ExecuteNTimesTillSuccess(client,
-                                         "MATCH (n :" + label +
-                                             " {id: " + std::to_string(id) +
-                                             "})-[e]-(m) RETURN m.id",
-                                         {}, MAX_RETRIES);
+std::vector<int64_t> Neighbours(Client &client, const std::string &label, int64_t id) {
+  auto result = ExecuteNTimesTillSuccess(
+      client, "MATCH (n :" + label + " {id: " + std::to_string(id) + "})-[e]-(m) RETURN m.id", {}, MAX_RETRIES);
   std::vector<int64_t> ret;
   for (const auto &record : result.first.records) {
     ret.push_back(record[0].ValueInt());
@@ -258,8 +234,7 @@ std::vector<int64_t> IndependentSet(Client &client, const std::string &label) {
       independent.erase(j);
     }
   }
-  spdlog::info("Number of nodes: {}\nNumber of independent nodes: {}",
-               num_nodes, independent_nodes_ids.size());
+  spdlog::info("Number of nodes: {}\nNumber of independent nodes: {}", num_nodes, independent_nodes_ids.size());
 
   return independent_nodes_ids;
 }
@@ -286,12 +261,10 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     int64_t size = independent_nodes_ids.size();
-    int64_t next_next_to_assign = next_to_assign + size / FLAGS_num_workers +
-                                  (i < size % FLAGS_num_workers);
+    int64_t next_next_to_assign = next_to_assign + size / FLAGS_num_workers + (i < size % FLAGS_num_workers);
 
-    std::vector<int64_t> to_remove(
-        independent_nodes_ids.begin() + next_to_assign,
-        independent_nodes_ids.begin() + next_next_to_assign);
+    std::vector<int64_t> to_remove(independent_nodes_ids.begin() + next_to_assign,
+                                   independent_nodes_ids.begin() + next_next_to_assign);
     spdlog::info("{} {}", next_to_assign, next_next_to_assign);
     next_to_assign = next_next_to_assign;
 

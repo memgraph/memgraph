@@ -7,8 +7,7 @@
 
 using testing::UnorderedElementsAre;
 
-size_t CountVertices(storage::Storage::Accessor *storage_accessor,
-                     storage::View view) {
+size_t CountVertices(storage::Storage::Accessor *storage_accessor, storage::View view) {
   auto vertices = storage_accessor->Vertices(view);
   size_t count = 0U;
   for (auto it = vertices.begin(); it != vertices.end(); ++it) ++count;
@@ -18,8 +17,7 @@ size_t CountVertices(storage::Storage::Accessor *storage_accessor,
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, Commit) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -67,8 +65,7 @@ TEST(StorageV2, Commit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, Abort) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -92,10 +89,8 @@ TEST(StorageV2, Abort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, AdvanceCommandCommit) {
   storage::Storage store;
-  storage::Gid gid1 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid2 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid1 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid2 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
 
@@ -135,10 +130,8 @@ TEST(StorageV2, AdvanceCommandCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, AdvanceCommandAbort) {
   storage::Storage store;
-  storage::Gid gid1 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid2 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid1 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid2 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
 
@@ -212,8 +205,7 @@ TEST(StorageV2, SnapshotIsolation) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, AccessorMove) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -246,8 +238,7 @@ TEST(StorageV2, AccessorMove) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteCommit) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store.Access();  // read transaction
   auto acc2 = store.Access();  // write transaction
@@ -321,8 +312,7 @@ TEST(StorageV2, VertexDeleteCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteAbort) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store.Access();  // read transaction
   auto acc2 = store.Access();  // write transaction
@@ -448,8 +438,7 @@ TEST(StorageV2, VertexDeleteAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSerializationError) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
@@ -524,10 +513,8 @@ TEST(StorageV2, VertexDeleteSerializationError) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSpecialCases) {
   storage::Storage store;
-  storage::Gid gid1 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  storage::Gid gid2 =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid1 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid2 = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex and delete it in the same transaction, but abort the
   // transaction
@@ -586,8 +573,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteLabel) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
@@ -631,11 +617,9 @@ TEST(StorageV2, VertexDeleteLabel) {
 
     // Check whether label 5 exists
     ASSERT_FALSE(vertex->HasLabel(label, storage::View::OLD).GetValue());
-    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     ASSERT_EQ(vertex->Labels(storage::View::OLD)->size(), 0);
-    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Try to add the label
     {
@@ -703,28 +687,22 @@ TEST(StorageV2, VertexDeleteLabel) {
 
     // Check whether label 5 exists
     ASSERT_TRUE(vertex->HasLabel(label, storage::View::OLD).GetValue());
-    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto labels = vertex->Labels(storage::View::OLD).GetValue();
       ASSERT_EQ(labels.size(), 1);
       ASSERT_EQ(labels[0], label);
     }
-    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Advance command
     acc.AdvanceCommand();
 
     // Check whether label 5 exists
-    ASSERT_EQ(vertex->HasLabel(label, storage::View::OLD).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Labels(storage::View::OLD).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label, storage::View::OLD).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(storage::View::OLD).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Try to add the label
     {
@@ -747,8 +725,7 @@ TEST(StorageV2, VertexDeleteLabel) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteProperty) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
@@ -775,13 +752,11 @@ TEST(StorageV2, VertexDeleteProperty) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     // Set property 5 to "nandare"
-    ASSERT_TRUE(vertex->SetProperty(property, storage::PropertyValue("nandare"))
-                    .GetValue());
+    ASSERT_TRUE(vertex->SetProperty(property, storage::PropertyValue("nandare")).GetValue());
 
     // Check whether property 5 exists
     ASSERT_TRUE(vertex->GetProperty(property, storage::View::OLD)->IsNull());
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     ASSERT_EQ(vertex->Properties(storage::View::OLD)->size(), 0);
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
@@ -794,16 +769,13 @@ TEST(StorageV2, VertexDeleteProperty) {
 
     // Check whether label 5 exists
     ASSERT_TRUE(vertex->GetProperty(property, storage::View::OLD)->IsNull());
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     ASSERT_EQ(vertex->Properties(storage::View::OLD)->size(), 0);
-    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Try to set the property
     {
-      auto ret =
-          vertex->SetProperty(property, storage::PropertyValue("haihai"));
+      auto ret = vertex->SetProperty(property, storage::PropertyValue("haihai"));
       ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::DELETED_OBJECT);
     }
@@ -827,13 +799,11 @@ TEST(StorageV2, VertexDeleteProperty) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     // Set property 5 to "nandare"
-    ASSERT_TRUE(vertex->SetProperty(property, storage::PropertyValue("nandare"))
-                    .GetValue());
+    ASSERT_TRUE(vertex->SetProperty(property, storage::PropertyValue("nandare")).GetValue());
 
     // Check whether property 5 exists
     ASSERT_TRUE(vertex->GetProperty(property, storage::View::OLD)->IsNull());
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     ASSERT_EQ(vertex->Properties(storage::View::OLD)->size(), 0);
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
@@ -845,10 +815,8 @@ TEST(StorageV2, VertexDeleteProperty) {
     acc.AdvanceCommand();
 
     // Check whether property 5 exists
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -864,35 +832,27 @@ TEST(StorageV2, VertexDeleteProperty) {
     ASSERT_TRUE(acc.DeleteVertex(&*vertex).GetValue());
 
     // Check whether property 5 exists
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
-    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Advance command
     acc.AdvanceCommand();
 
     // Check whether property 5 exists
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Properties(storage::View::OLD).GetError(),
-              storage::Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(),
-              storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(storage::View::OLD).GetError(), storage::Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(storage::View::NEW).GetError(), storage::Error::DELETED_OBJECT);
 
     // Try to set the property
     {
-      auto ret =
-          vertex->SetProperty(property, storage::PropertyValue("haihai"));
+      auto ret = vertex->SetProperty(property, storage::PropertyValue("haihai"));
       ASSERT_TRUE(ret.HasError());
       ASSERT_EQ(ret.GetError(), storage::Error::DELETED_OBJECT);
     }
@@ -904,8 +864,7 @@ TEST(StorageV2, VertexDeleteProperty) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelCommit) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -1020,8 +979,7 @@ TEST(StorageV2, VertexLabelCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelAbort) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
@@ -1269,8 +1227,7 @@ TEST(StorageV2, VertexLabelAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelSerializationError) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -1378,8 +1335,7 @@ TEST(StorageV2, VertexLabelSerializationError) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyCommit) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -1391,14 +1347,12 @@ TEST(StorageV2, VertexPropertyCommit) {
     ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          vertex.SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = vertex.SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = vertex.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1406,14 +1360,12 @@ TEST(StorageV2, VertexPropertyCommit) {
     }
 
     {
-      auto res =
-          vertex.SetProperty(property, storage::PropertyValue("nandare"));
+      auto res = vertex.SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex.Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1429,16 +1381,14 @@ TEST(StorageV2, VertexPropertyCommit) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1447,10 +1397,8 @@ TEST(StorageV2, VertexPropertyCommit) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1467,8 +1415,7 @@ TEST(StorageV2, VertexPropertyCommit) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1500,10 +1447,8 @@ TEST(StorageV2, VertexPropertyCommit) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1512,8 +1457,7 @@ TEST(StorageV2, VertexPropertyCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyAbort) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
@@ -1535,14 +1479,12 @@ TEST(StorageV2, VertexPropertyAbort) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          vertex->SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = vertex->SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1550,14 +1492,12 @@ TEST(StorageV2, VertexPropertyAbort) {
     }
 
     {
-      auto res =
-          vertex->SetProperty(property, storage::PropertyValue("nandare"));
+      auto res = vertex->SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1582,10 +1522,8 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1602,14 +1540,12 @@ TEST(StorageV2, VertexPropertyAbort) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          vertex->SetProperty(property, storage::PropertyValue("temporary"));
+      auto res = vertex->SetProperty(property, storage::PropertyValue("temporary"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "temporary");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "temporary");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1617,14 +1553,12 @@ TEST(StorageV2, VertexPropertyAbort) {
     }
 
     {
-      auto res =
-          vertex->SetProperty(property, storage::PropertyValue("nandare"));
+      auto res = vertex->SetProperty(property, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1642,16 +1576,14 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1660,10 +1592,8 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1676,16 +1606,14 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1698,8 +1626,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1720,16 +1647,14 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1738,10 +1663,8 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1754,16 +1677,14 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto property = acc.NameToProperty("property5");
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1776,8 +1697,7 @@ TEST(StorageV2, VertexPropertyAbort) {
       ASSERT_FALSE(res.GetValue());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(),
-              "nandare");
+    ASSERT_EQ(vertex->GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
@@ -1805,10 +1725,8 @@ TEST(StorageV2, VertexPropertyAbort) {
 
     auto other_property = acc.NameToProperty("other");
 
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
-    ASSERT_TRUE(
-        vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::OLD)->IsNull());
+    ASSERT_TRUE(vertex->GetProperty(other_property, storage::View::NEW)->IsNull());
 
     acc.Abort();
   }
@@ -1817,8 +1735,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertySerializationError) {
   storage::Storage store;
-  storage::Gid gid =
-      storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+  storage::Gid gid = storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
     auto vertex = acc.CreateVertex();
@@ -1851,8 +1768,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
     }
 
     ASSERT_TRUE(vertex->GetProperty(property1, storage::View::OLD)->IsNull());
-    ASSERT_EQ(vertex->GetProperty(property1, storage::View::NEW)->ValueInt(),
-              123);
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::NEW)->ValueInt(), 123);
     ASSERT_TRUE(vertex->GetProperty(property2, storage::View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(storage::View::OLD)->size(), 0);
@@ -1879,8 +1795,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
     ASSERT_EQ(vertex->Properties(storage::View::NEW)->size(), 0);
 
     {
-      auto res =
-          vertex->SetProperty(property2, storage::PropertyValue("nandare"));
+      auto res = vertex->SetProperty(property2, storage::PropertyValue("nandare"));
       ASSERT_TRUE(res.HasError());
       ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
     }
@@ -1899,8 +1814,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
     auto property1 = acc.NameToProperty("property1");
     auto property2 = acc.NameToProperty("property2");
 
-    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueInt(),
-              123);
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueInt(), 123);
     ASSERT_TRUE(vertex->GetProperty(property2, storage::View::OLD)->IsNull());
     {
       auto properties = vertex->Properties(storage::View::OLD).GetValue();
@@ -1908,8 +1822,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
       ASSERT_EQ(properties[property1].ValueInt(), 123);
     }
 
-    ASSERT_EQ(vertex->GetProperty(property1, storage::View::NEW)->ValueInt(),
-              123);
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::NEW)->ValueInt(), 123);
     ASSERT_TRUE(vertex->GetProperty(property2, storage::View::NEW)->IsNull());
     {
       auto properties = vertex->Properties(storage::View::NEW).GetValue();
@@ -1971,8 +1884,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
 
   // Set property 5 to "nandare"
-  ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue("nandare"))
-                  .GetValue());
+  ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue("nandare")).GetValue());
 
   // Check whether label 5 and property 5 exist
   ASSERT_TRUE(vertex.HasLabel(label, storage::View::OLD).GetValue());
@@ -1988,8 +1900,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
     ASSERT_EQ(labels[0], label);
   }
   ASSERT_TRUE(vertex.GetProperty(property, storage::View::OLD)->IsNull());
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
   ASSERT_EQ(vertex.Properties(storage::View::OLD)->size(), 0);
   {
     auto properties = vertex.Properties(storage::View::NEW).GetValue();
@@ -2013,10 +1924,8 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "nandare");
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "nandare");
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
@@ -2029,8 +1938,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   }
 
   // Set property 5 to "haihai"
-  ASSERT_FALSE(vertex.SetProperty(property, storage::PropertyValue("haihai"))
-                   .GetValue());
+  ASSERT_FALSE(vertex.SetProperty(property, storage::PropertyValue("haihai")).GetValue());
 
   // Check whether label 5 and property 5 exist
   ASSERT_TRUE(vertex.HasLabel(label, storage::View::OLD).GetValue());
@@ -2045,10 +1953,8 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "nandare");
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "haihai");
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
@@ -2076,10 +1982,8 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "haihai");
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "haihai");
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
@@ -2103,10 +2007,8 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
     ASSERT_EQ(labels[0], label);
   }
   ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "haihai");
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "haihai");
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
@@ -2126,10 +2028,8 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_FALSE(vertex.HasLabel(label, storage::View::NEW).GetValue());
   ASSERT_EQ(vertex.Labels(storage::View::OLD)->size(), 0);
   ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "haihai");
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(),
-            "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::NEW)->ValueString(), "haihai");
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
@@ -2142,16 +2042,14 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   }
 
   // Set property 5 to null
-  ASSERT_FALSE(
-      vertex.SetProperty(property, storage::PropertyValue()).GetValue());
+  ASSERT_FALSE(vertex.SetProperty(property, storage::PropertyValue()).GetValue());
 
   // Check whether label 5 and property 5 exist
   ASSERT_FALSE(vertex.HasLabel(label, storage::View::OLD).GetValue());
   ASSERT_FALSE(vertex.HasLabel(label, storage::View::NEW).GetValue());
   ASSERT_EQ(vertex.Labels(storage::View::OLD)->size(), 0);
   ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(),
-            "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD)->ValueString(), "haihai");
   ASSERT_TRUE(vertex.GetProperty(property, storage::View::NEW)->IsNull());
   {
     auto properties = vertex.Properties(storage::View::OLD).GetValue();
@@ -2197,12 +2095,10 @@ TEST(StorageV2, VertexPropertyClear) {
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
 
-    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(),
-              "value");
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(), "value");
     ASSERT_TRUE(vertex->GetProperty(property2, storage::View::OLD)->IsNull());
     ASSERT_THAT(vertex->Properties(storage::View::OLD).GetValue(),
-                UnorderedElementsAre(
-                    std::pair(property1, storage::PropertyValue("value"))));
+                UnorderedElementsAre(std::pair(property1, storage::PropertyValue("value"))));
 
     {
       auto ret = vertex->ClearProperties();
@@ -2242,14 +2138,11 @@ TEST(StorageV2, VertexPropertyClear) {
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
 
-    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(),
-              "value");
-    ASSERT_EQ(vertex->GetProperty(property2, storage::View::OLD)->ValueInt(),
-              42);
+    ASSERT_EQ(vertex->GetProperty(property1, storage::View::OLD)->ValueString(), "value");
+    ASSERT_EQ(vertex->GetProperty(property2, storage::View::OLD)->ValueInt(), 42);
     ASSERT_THAT(vertex->Properties(storage::View::OLD).GetValue(),
-                UnorderedElementsAre(
-                    std::pair(property1, storage::PropertyValue("value")),
-                    std::pair(property2, storage::PropertyValue(42))));
+                UnorderedElementsAre(std::pair(property1, storage::PropertyValue("value")),
+                                     std::pair(property2, storage::PropertyValue(42))));
 
     {
       auto ret = vertex->ClearProperties();
@@ -2296,29 +2189,20 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   auto vertex = acc.CreateVertex();
 
   // Check state before (OLD view).
-  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
 
   // Check state before (NEW view).
   ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 0);
   ASSERT_EQ(*vertex.HasLabel(label, storage::View::NEW), false);
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 0);
-  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
-            storage::PropertyValue());
+  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW), storage::PropertyValue());
   ASSERT_EQ(vertex.InEdges(storage::View::NEW)->size(), 0);
   ASSERT_EQ(vertex.OutEdges(storage::View::NEW)->size(), 0);
   ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 0);
@@ -2326,35 +2210,24 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
 
   // Modify vertex.
   ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-  ASSERT_TRUE(
-      vertex.SetProperty(property, storage::PropertyValue("value")).HasValue());
-  ASSERT_TRUE(
-      acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge")).HasValue());
+  ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue("value")).HasValue());
+  ASSERT_TRUE(acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge")).HasValue());
 
   // Check state after (OLD view).
-  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(),
-            storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Labels(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Properties(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(storage::View::OLD).GetError(), storage::Error::NONEXISTENT_OBJECT);
 
   // Check state after (NEW view).
   ASSERT_EQ(vertex.Labels(storage::View::NEW)->size(), 1);
   ASSERT_EQ(*vertex.HasLabel(label, storage::View::NEW), true);
   ASSERT_EQ(vertex.Properties(storage::View::NEW)->size(), 1);
-  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW),
-            storage::PropertyValue("value"));
+  ASSERT_EQ(*vertex.GetProperty(property, storage::View::NEW), storage::PropertyValue("value"));
   ASSERT_EQ(vertex.InEdges(storage::View::NEW)->size(), 1);
   ASSERT_EQ(vertex.OutEdges(storage::View::NEW)->size(), 1);
   ASSERT_EQ(*vertex.InDegree(storage::View::NEW), 1);
@@ -2384,10 +2257,7 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
   EXPECT_FALSE(acc2.FindVertex(gid, storage::View::OLD));
   EXPECT_FALSE(acc2.FindVertex(gid, storage::View::NEW));
 
-  ASSERT_TRUE(vertex
-                  .SetProperty(acc1.NameToProperty("meaning"),
-                               storage::PropertyValue(42))
-                  .HasValue());
+  ASSERT_TRUE(vertex.SetProperty(acc1.NameToProperty("meaning"), storage::PropertyValue(42)).HasValue());
 
   auto acc3 = store.Access();
 
@@ -2489,10 +2359,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
     EXPECT_TRUE(acc2.FindVertex(gid, storage::View::OLD));
     EXPECT_TRUE(acc2.FindVertex(gid, storage::View::NEW));
 
-    ASSERT_TRUE(vertex
-                    ->SetProperty(acc1.NameToProperty("meaning"),
-                                  storage::PropertyValue(42))
-                    .HasValue());
+    ASSERT_TRUE(vertex->SetProperty(acc1.NameToProperty("meaning"), storage::PropertyValue(42)).HasValue());
 
     auto acc3 = store.Access();
 

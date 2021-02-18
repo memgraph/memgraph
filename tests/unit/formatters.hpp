@@ -13,39 +13,33 @@
 /// be apropriate.
 
 template <class TAccessor>
-inline std::string ToString(const query::VertexAccessor &vertex,
-                            const TAccessor &acc) {
+inline std::string ToString(const query::VertexAccessor &vertex, const TAccessor &acc) {
   std::ostringstream os;
   os << "V(";
   auto maybe_labels = vertex.Labels(storage::View::NEW);
   MG_ASSERT(maybe_labels.HasValue());
-  utils::PrintIterable(os, *maybe_labels, ":", [&](auto &stream, auto label) {
-    stream << acc.LabelToName(label);
-  });
+  utils::PrintIterable(os, *maybe_labels, ":", [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
   auto maybe_properties = vertex.Properties(storage::View::NEW);
   MG_ASSERT(maybe_properties.HasValue());
-  utils::PrintIterable(
-      os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
-        stream << acc.PropertyToName(pair.first) << ": " << pair.second;
-      });
+  utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
+    stream << acc.PropertyToName(pair.first) << ": " << pair.second;
+  });
   os << "})";
   return os.str();
 }
 
 template <class TAccessor>
-inline std::string ToString(const query::EdgeAccessor &edge,
-                            const TAccessor &acc) {
+inline std::string ToString(const query::EdgeAccessor &edge, const TAccessor &acc) {
   std::ostringstream os;
   os << "E[" << acc.EdgeTypeToName(edge.EdgeType());
   os << " {";
   auto maybe_properties = edge.Properties(storage::View::NEW);
   MG_ASSERT(maybe_properties.HasValue());
-  utils::PrintIterable(
-      os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
-        stream << acc.PropertyToName(pair.first) << ": " << pair.second;
-      });
+  utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
+    stream << acc.PropertyToName(pair.first) << ": " << pair.second;
+  });
   os << "}]";
   return os.str();
 }
@@ -68,8 +62,7 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
 }
 
 template <class TAccessor>
-inline std::string ToString(const query::TypedValue &value,
-                            const TAccessor &acc) {
+inline std::string ToString(const query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
   switch (value.type()) {
     case query::TypedValue::Type::Null:
@@ -90,17 +83,14 @@ inline std::string ToString(const query::TypedValue &value,
     case query::TypedValue::Type::List:
       os << "[";
       utils::PrintIterable(os, value.ValueList(), ", ",
-                           [&](auto &stream, const auto &item) {
-                             stream << ToString(item, acc);
-                           });
+                           [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
       os << "]";
       break;
     case query::TypedValue::Type::Map:
       os << "{";
-      utils::PrintIterable(
-          os, value.ValueMap(), ", ", [&](auto &stream, const auto &pair) {
-            stream << pair.first << ": " << ToString(pair.second, acc);
-          });
+      utils::PrintIterable(os, value.ValueMap(), ", ", [&](auto &stream, const auto &pair) {
+        stream << pair.first << ": " << ToString(pair.second, acc);
+      });
       os << "}";
       break;
     case query::TypedValue::Type::Vertex:

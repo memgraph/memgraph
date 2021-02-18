@@ -28,10 +28,7 @@ void LockingFunction(int mode, int n, const char *file, int line) {
   }
 }
 
-unsigned long IdFunction() {
-  return (unsigned long)std::hash<std::thread::id>()(
-      std::this_thread::get_id());
-}
+unsigned long IdFunction() { return (unsigned long)std::hash<std::thread::id>()(std::this_thread::get_id()); }
 
 void SetupThreading() {
   crypto_locks.resize(CRYPTO_num_locks());
@@ -58,8 +55,7 @@ SSLInit::SSLInit() {
   ERR_load_crypto_strings();
 
   // Ignore SIGPIPE.
-  MG_ASSERT(utils::SignalIgnore(utils::Signal::Pipe),
-            "Couldn't ignore SIGPIPE!");
+  MG_ASSERT(utils::SignalIgnore(utils::Signal::Pipe), "Couldn't ignore SIGPIPE!");
 
   SetupThreading();
 }

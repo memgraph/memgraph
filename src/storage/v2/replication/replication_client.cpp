@@ -18,10 +18,9 @@ template <typename>
 }  // namespace
 
 ////// ReplicationClient //////
-Storage::ReplicationClient::ReplicationClient(
-    std::string name, Storage *storage, const io::network::Endpoint &endpoint,
-    const replication::ReplicationMode mode,
-    const replication::ReplicationClientConfig &config)
+Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage, const io::network::Endpoint &endpoint,
+                                              const replication::ReplicationMode mode,
+                                              const replication::ReplicationClientConfig &config)
     : name_(std::move(name)), storage_(storage), mode_(mode) {
   if (config.ssl) {
     rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
@@ -49,19 +48,15 @@ void Storage::ReplicationClient::InitializeClient() {
     epoch_id.emplace(storage_->epoch_id_);
   }
 
-  auto stream{rpc_client_->Stream<HeartbeatRpc>(
-      storage_->last_commit_timestamp_, std::move(*epoch_id))};
+  auto stream{rpc_client_->Stream<HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
 
   const auto response = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (response.epoch_id != storage_->epoch_id_ &&
-      response.current_commit_timestamp != kTimestampInitialId) {
+  if (response.epoch_id != storage_->epoch_id_ && response.current_commit_timestamp != kTimestampInitialId) {
     const auto &epoch_history = storage_->epoch_history_;
     const auto epoch_info_iter =
         std::find_if(epoch_history.crbegin(), epoch_history.crend(),
-                     [&](const auto &epoch_info) {
-                       return epoch_info.first == response.epoch_id;
-                     });
+                     [&](const auto &epoch_info) { return epoch_info.first == response.epoch_id; });
     if (epoch_info_iter == epoch_history.crend()) {
       branching_point = 0;
     } else if (epoch_info_iter->second != response.current_commit_timestamp) {
@@ -78,8 +73,7 @@ void Storage::ReplicationClient::InitializeClient() {
 
   current_commit_timestamp = response.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica: {}", current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}",
-                storage_->last_commit_timestamp_.load());
+  spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_.load());
   if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
@@ -90,8 +84,7 @@ void Storage::ReplicationClient::InitializeClient() {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::RECOVERY);
     }
-    thread_pool_.AddTask(
-        [=, this] { this->RecoverReplica(current_commit_timestamp); });
+    thread_pool_.AddTask([=, this] { this->RecoverReplica(current_commit_timestamp); });
   }
 }
 
@@ -101,8 +94,7 @@ void Storage::ReplicationClient::TryInitializeClient() {
   } catch (const rpc::RpcFailedException &) {
     std::unique_lock client_guarde{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
-    spdlog::error("Failed to connect to replica {} at {}", name_,
-                  rpc_client_->Endpoint());
+    spdlog::error("Failed to connect to replica {} at {}", name_, rpc_client_->Endpoint());
   }
 }
 
@@ -114,16 +106,14 @@ void Storage::ReplicationClient::HandleRpcFailure() {
   });
 }
 
-SnapshotRes Storage::ReplicationClient::TransferSnapshot(
-    const std::filesystem::path &path) {
+SnapshotRes Storage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
   auto stream{rpc_client_->Stream<SnapshotRpc>()};
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
 }
 
-WalFilesRes Storage::ReplicationClient::TransferWalFiles(
-    const std::vector<std::filesystem::path> &wal_files) {
+WalFilesRes Storage::ReplicationClient::TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
   auto stream{rpc_client_->Stream<WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
@@ -135,8 +125,7 @@ WalFilesRes Storage::ReplicationClient::TransferWalFiles(
   return stream.AwaitResponse();
 }
 
-void Storage::ReplicationClient::StartTransactionReplication(
-    const uint64_t current_wal_seq_num) {
+void Storage::ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num) {
   std::unique_lock guard(client_lock_);
   const auto status = replica_state_.load();
   switch (status) {
@@ -160,9 +149,7 @@ void Storage::ReplicationClient::StartTransactionReplication(
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(
-            ReplicaStream{this, storage_->last_commit_timestamp_.load(),
-                          current_wal_seq_num});
+        replica_stream_.emplace(ReplicaStream{this, storage_->last_commit_timestamp_.load(), current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -172,8 +159,7 @@ void Storage::ReplicationClient::StartTransactionReplication(
   }
 }
 
-void Storage::ReplicationClient::IfStreamingTransaction(
-    const std::function<void(ReplicaStream &handler)> &callback) {
+void Storage::ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -203,11 +189,9 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
   }
 
   if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask(
-        [this] { this->FinalizeTransactionReplicationInternal(); });
+    thread_pool_.AddTask([this] { this->FinalizeTransactionReplicationInternal(); });
   } else if (timeout_) {
-    MG_ASSERT(mode_ == replication::ReplicationMode::SYNC,
-              "Only SYNC replica can have a timeout.");
+    MG_ASSERT(mode_ == replication::ReplicationMode::SYNC, "Only SYNC replica can have a timeout.");
     MG_ASSERT(timeout_dispatcher_, "Timeout thread is missing");
     timeout_dispatcher_->WaitForTaskToFinish();
 
@@ -227,8 +211,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
     // Both threads should first set the active flag to false
     {
       std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      timeout_dispatcher_->main_cv.wait(
-          main_guard, [&] { return !timeout_dispatcher_->active.load(); });
+      timeout_dispatcher_->main_cv.wait(main_guard, [&] { return !timeout_dispatcher_->active.load(); });
     }
 
     // TODO (antonio2368): Document and/or polish SEMI-SYNC to ASYNC fallback.
@@ -253,12 +236,9 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
     auto response = replica_stream_->Finalize();
     replica_stream_.reset();
     std::unique_lock client_guard(client_lock_);
-    if (!response.success ||
-        replica_state_ == replication::ReplicaState::RECOVERY) {
+    if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
       replica_state_.store(replication::ReplicaState::RECOVERY);
-      thread_pool_.AddTask([&, this] {
-        this->RecoverReplica(response.current_commit_timestamp);
-      });
+      thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
     } else {
       replica_state_.store(replication::ReplicaState::READY);
     }
@@ -290,12 +270,9 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                 spdlog::debug("Sending the latest wal files");
                 auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
-              } else if constexpr (std::is_same_v<StepType,
-                                                  RecoveryCurrentWal>) {
+              } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
                 std::unique_lock transaction_guard(storage_->engine_lock_);
-                if (storage_->wal_file_ &&
-                    storage_->wal_file_->SequenceNumber() ==
-                        arg.current_wal_seq_num) {
+                if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == arg.current_wal_seq_num) {
                   storage_->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file");
@@ -303,8 +280,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                   storage_->wal_file_->EnableFlushing();
                 }
               } else {
-                static_assert(always_false_v<T>,
-                              "Missing type from variant visitor");
+                static_assert(always_false_v<T>, "Missing type from variant visitor");
               }
             },
             recovery_step);
@@ -343,8 +319,7 @@ uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
   auto stream = TransferCurrentWalFile();
   stream.AppendFilename(wal_file->Path().filename());
   utils::InputFile file;
-  MG_ASSERT(file.Open(storage_->wal_file_->Path()),
-            "Failed to open current WAL file!");
+  MG_ASSERT(file.Open(storage_->wal_file_->Path()), "Failed to open current WAL file!");
   const auto [buffer, buffer_size] = wal_file->CurrentFileBuffer();
   stream.AppendSize(file.GetSize() + buffer_size);
   stream.AppendFileData(&file);
@@ -373,28 +348,23 @@ uint64_t Storage::ReplicationClient::ReplicateCurrentWal() {
 /// recovery steps, so we can safely send it to the replica.
 /// We assume that the property of preserving at least 1 WAL before the snapshot
 /// is satisfied as we extract the timestamp information from it.
-std::vector<Storage::ReplicationClient::RecoveryStep>
-Storage::ReplicationClient::GetRecoverySteps(
-    const uint64_t replica_commit,
-    utils::FileRetainer::FileLocker *file_locker) {
+std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient::GetRecoverySteps(
+    const uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker) {
   // First check if we can recover using the current wal file only
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
-  if (std::unique_lock transtacion_guard(storage_->engine_lock_);
-      storage_->wal_file_) {
+  if (std::unique_lock transtacion_guard(storage_->engine_lock_); storage_->wal_file_) {
     current_wal_seq_num.emplace(storage_->wal_file_->SequenceNumber());
     current_wal_from_timestamp.emplace(storage_->wal_file_->FromTimestamp());
   }
 
   auto locker_acc = file_locker->Access();
-  auto wal_files = durability::GetWalFiles(
-      storage_->wal_directory_, storage_->uuid_, current_wal_seq_num);
+  auto wal_files = durability::GetWalFiles(storage_->wal_directory_, storage_->uuid_, current_wal_seq_num);
   MG_ASSERT(wal_files, "Wal files could not be loaded");
 
-  auto snapshot_files = durability::GetSnapshotFiles(
-      storage_->snapshot_directory_, storage_->uuid_);
+  auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot;
   if (!snapshot_files.empty()) {
     std::sort(snapshot_files.begin(), snapshot_files.end());
@@ -406,8 +376,7 @@ Storage::ReplicationClient::GetRecoverySteps(
   // No finalized WAL files were found. This means the difference is contained
   // inside the current WAL or the snapshot.
   if (wal_files->empty()) {
-    if (current_wal_from_timestamp &&
-        replica_commit >= *current_wal_from_timestamp) {
+    if (current_wal_from_timestamp && replica_commit >= *current_wal_from_timestamp) {
       MG_ASSERT(current_wal_seq_num);
       recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
       return recovery_steps;
@@ -418,8 +387,7 @@ Storage::ReplicationClient::GetRecoverySteps(
     // to send the snapshot.
     if (latest_snapshot) {
       locker_acc.AddPath(latest_snapshot->path);
-      recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{},
-                                  std::move(latest_snapshot->path));
+      recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
     }
     // if there are no finalized WAL files, snapshot left the current WAL
     // as the WAL file containing a transaction before snapshot creation
@@ -463,14 +431,13 @@ Storage::ReplicationClient::GetRecoverySteps(
       auto distance_from_first = std::distance(rwal_it, wal_files->rend() - 1);
       // We have managed to create WAL chain
       // We need to lock these files and add them to the chain
-      for (auto result_wal_it = wal_files->begin() + distance_from_first;
-           result_wal_it != wal_files->end(); ++result_wal_it) {
+      for (auto result_wal_it = wal_files->begin() + distance_from_first; result_wal_it != wal_files->end();
+           ++result_wal_it) {
         locker_acc.AddPath(result_wal_it->path);
         wal_chain.push_back(std::move(result_wal_it->path));
       }
 
-      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{},
-                                  std::move(wal_chain));
+      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(wal_chain));
 
       if (current_wal_seq_num) {
         recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
@@ -485,8 +452,7 @@ Storage::ReplicationClient::GetRecoverySteps(
   // We didn't manage to find a WAL chain, we need to send the latest snapshot
   // with its WALs
   locker_acc.AddPath(latest_snapshot->path);
-  recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{},
-                              std::move(latest_snapshot->path));
+  recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
 
   std::vector<std::filesystem::path> recovery_wal_files;
   auto wal_it = wal_files->begin();
@@ -496,8 +462,7 @@ Storage::ReplicationClient::GetRecoverySteps(
     // before its creation
     if (latest_snapshot->start_timestamp < wal_it->to_timestamp) {
       if (latest_snapshot->start_timestamp < wal_it->from_timestamp) {
-        MG_ASSERT(wal_it != wal_files->begin(),
-                  "Invalid durability files state");
+        MG_ASSERT(wal_it != wal_files->begin(), "Invalid durability files state");
         --wal_it;
       }
       break;
@@ -515,8 +480,7 @@ Storage::ReplicationClient::GetRecoverySteps(
     recovery_wal_files.push_back(std::move(wal_files->back().path));
   }
 
-  recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{},
-                              std::move(recovery_wal_files));
+  recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(recovery_wal_files));
 
   if (current_wal_seq_num) {
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
@@ -532,14 +496,12 @@ void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
   main_cv.wait(main_guard, [&] { return finished; });
 }
 
-void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
-    const double timeout) {
+void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(const double timeout) {
   timeout_pool.AddTask([timeout, this] {
     finished = false;
     using std::chrono::steady_clock;
     const auto timeout_duration =
-        std::chrono::duration_cast<steady_clock::duration>(
-            std::chrono::duration<double>(timeout));
+        std::chrono::duration_cast<steady_clock::duration>(std::chrono::duration<double>(timeout));
     const auto end_time = steady_clock::now() + timeout_duration;
     while (active && (steady_clock::now() < end_time)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -552,79 +514,64 @@ void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(
   });
 }
 ////// ReplicaStream //////
-Storage::ReplicationClient::ReplicaStream::ReplicaStream(
-    ReplicationClient *self, const uint64_t previous_commit_timestamp,
-    const uint64_t current_seq_num)
-    : self_(self),
-      stream_(self_->rpc_client_->Stream<AppendDeltasRpc>(
-          previous_commit_timestamp, current_seq_num)) {
+Storage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
+                                                         const uint64_t previous_commit_timestamp,
+                                                         const uint64_t current_seq_num)
+    : self_(self), stream_(self_->rpc_client_->Stream<AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->storage_->epoch_id_);
 }
 
-void Storage::ReplicationClient::ReplicaStream::AppendDelta(
-    const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
+void Storage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex,
+                                                            uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_,
-              self_->storage_->config_.items, delta, vertex,
+  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, self_->storage_->config_.items, delta, vertex,
               final_commit_timestamp);
 }
 
-void Storage::ReplicationClient::ReplicaStream::AppendDelta(
-    const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
+void Storage::ReplicationClient::ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge,
+                                                            uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, delta, edge,
-              final_commit_timestamp);
+  EncodeDelta(&encoder, &self_->storage_->name_id_mapper_, delta, edge, final_commit_timestamp);
 }
 
-void Storage::ReplicationClient::ReplicaStream::AppendTransactionEnd(
-    uint64_t final_commit_timestamp) {
+void Storage::ReplicationClient::ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-void Storage::ReplicationClient::ReplicaStream::AppendOperation(
-    durability::StorageGlobalOperation operation, LabelId label,
-    const std::set<PropertyId> &properties, uint64_t timestamp) {
+void Storage::ReplicationClient::ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation,
+                                                                LabelId label, const std::set<PropertyId> &properties,
+                                                                uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label,
-                  properties, timestamp);
+  EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label, properties, timestamp);
 }
 
-AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() {
-  return stream_.AwaitResponse();
-}
+AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
-Storage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(
-    ReplicationClient *self)
+Storage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
     : self_(self), stream_(self_->rpc_client_->Stream<CurrentWalRpc>()) {}
 
-void Storage::ReplicationClient::CurrentWalHandler::AppendFilename(
-    const std::string &filename) {
+void Storage::ReplicationClient::CurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteString(filename);
 }
 
-void Storage::ReplicationClient::CurrentWalHandler::AppendSize(
-    const size_t size) {
+void Storage::ReplicationClient::CurrentWalHandler::AppendSize(const size_t size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteUint(size);
 }
 
-void Storage::ReplicationClient::CurrentWalHandler::AppendFileData(
-    utils::InputFile *file) {
+void Storage::ReplicationClient::CurrentWalHandler::AppendFileData(utils::InputFile *file) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteFileData(file);
 }
 
-void Storage::ReplicationClient::CurrentWalHandler::AppendBufferData(
-    const uint8_t *buffer, const size_t buffer_size) {
+void Storage::ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-CurrentWalRes Storage::ReplicationClient::CurrentWalHandler::Finalize() {
-  return stream_.AwaitResponse();
-}
+CurrentWalRes Storage::ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 }  // namespace storage

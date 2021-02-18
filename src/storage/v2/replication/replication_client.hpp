@@ -28,35 +28,28 @@ namespace storage {
 
 class Storage::ReplicationClient {
  public:
-  ReplicationClient(std::string name, Storage *storage,
-                    const io::network::Endpoint &endpoint,
-                    replication::ReplicationMode mode,
-                    const replication::ReplicationClientConfig &config = {});
+  ReplicationClient(std::string name, Storage *storage, const io::network::Endpoint &endpoint,
+                    replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
 
   // Handler used for transfering the current transaction.
   class ReplicaStream {
    private:
     friend class ReplicationClient;
-    explicit ReplicaStream(ReplicationClient *self,
-                           uint64_t previous_commit_timestamp,
-                           uint64_t current_seq_num);
+    explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
 
    public:
     /// @throw rpc::RpcFailedException
-    void AppendDelta(const Delta &delta, const Vertex &vertex,
-                     uint64_t final_commit_timestamp);
+    void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
-    void AppendDelta(const Delta &delta, const Edge &edge,
-                     uint64_t final_commit_timestamp);
+    void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
     void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
     /// @throw rpc::RpcFailedException
-    void AppendOperation(durability::StorageGlobalOperation operation,
-                         LabelId label, const std::set<PropertyId> &properties,
-                         uint64_t timestamp);
+    void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
+                         const std::set<PropertyId> &properties, uint64_t timestamp);
 
    private:
     /// @throw rpc::RpcFailedException
@@ -97,8 +90,7 @@ class Storage::ReplicationClient {
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(
-      const std::function<void(ReplicaStream &handler)> &callback);
+  void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
 
   void FinalizeTransactionReplication();
 
@@ -109,8 +101,7 @@ class Storage::ReplicationClient {
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
-  WalFilesRes TransferWalFiles(
-      const std::vector<std::filesystem::path> &wal_files);
+  WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 
   const auto &Name() const { return name_; }
 
@@ -133,15 +124,12 @@ class Storage::ReplicationClient {
   struct RecoveryCurrentWal {
     uint64_t current_wal_seq_num;
 
-    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num)
-        : current_wal_seq_num(current_wal_seq_num) {}
+    explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
   };
   using RecoverySnapshot = std::filesystem::path;
-  using RecoveryStep =
-      std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
+  using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
 
-  std::vector<RecoveryStep> GetRecoverySteps(
-      uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
+  std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
 
   void InitializeClient();
 
@@ -198,8 +186,7 @@ class Storage::ReplicationClient {
   //    Not having mulitple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{
-      replication::ReplicaState::INVALID};
+  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
 };
 
 }  // namespace storage

@@ -72,8 +72,8 @@ class ServerContext final {
    * to check that the client certificate is valid, then you need to supply a
    * valid `ca_file` as well.
    */
-  ServerContext(const std::string &key_file, const std::string &cert_file,
-                const std::string &ca_file = "", bool verify_peer = false);
+  ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file = "",
+                bool verify_peer = false);
 
   // This object can't be copied because the underlying SSL implementation is
   // messy and ownership can't be handled correctly.

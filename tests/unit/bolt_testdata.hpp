@@ -21,14 +21,11 @@ const uint8_t int_encoded[][10] = {
     "\xCB\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF"};
 // clang-format on
 
-const uint32_t int_encoded_len[] = {1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3,
-                                    3, 3, 5, 5, 5, 5, 5, 5, 9, 9, 9, 9, 9, 9};
+const uint32_t int_encoded_len[] = {1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 5, 5, 5, 5, 5, 5, 9, 9, 9, 9, 9, 9};
 
 const double double_decoded[] = {5.834, 108.199, 43677.9882, 254524.5851};
-const uint8_t double_encoded[][10] = {"\xC1\x40\x17\x56\x04\x18\x93\x74\xBC",
-                                      "\xC1\x40\x5B\x0C\xBC\x6A\x7E\xF9\xDB",
-                                      "\xC1\x40\xE5\x53\xBF\x9F\x55\x9B\x3D",
-                                      "\xC1\x41\x0F\x11\xE4\xAE\x48\xE8\xA7"};
+const uint8_t double_encoded[][10] = {"\xC1\x40\x17\x56\x04\x18\x93\x74\xBC", "\xC1\x40\x5B\x0C\xBC\x6A\x7E\xF9\xDB",
+                                      "\xC1\x40\xE5\x53\xBF\x9F\x55\x9B\x3D", "\xC1\x41\x0F\x11\xE4\xAE\x48\xE8\xA7"};
 
 const uint8_t vertexedge_encoded[] =
     "\xB1\x71\x93\xB3\x4E\x00\x92\x86\x6C\x61\x62\x65\x6C\x31\x86\x6C\x61\x62"

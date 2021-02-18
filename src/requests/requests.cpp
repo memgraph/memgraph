@@ -12,16 +12,13 @@ namespace requests {
 
 namespace {
 
-size_t CurlWriteCallback(char *ptr, size_t size, size_t nmemb, void *userdata) {
-  return nmemb;
-}
+size_t CurlWriteCallback(char *ptr, size_t size, size_t nmemb, void *userdata) { return nmemb; }
 
 }  // namespace
 
 void Init() { curl_global_init(CURL_GLOBAL_ALL); }
 
-bool RequestPostJson(const std::string &url, const nlohmann::json &data,
-                     int timeout_in_seconds) {
+bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
@@ -58,16 +55,14 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data,
   }
 
   if (response_code != 200) {
-    SPDLOG_WARN("Request response code isn't 200 (received {})!",
-                response_code);
+    SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
     return false;
   }
 
   return true;
 }
 
-bool CreateAndDownloadFile(const std::string &url, const std::string &path,
-                           int timeout_in_seconds) {
+bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
@@ -100,8 +95,7 @@ bool CreateAndDownloadFile(const std::string &url, const std::string &path,
   }
 
   if (response_code != 200) {
-    SPDLOG_WARN("Request response code isn't 200 (received {})!",
-                response_code);
+    SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
     return false;
   }
 

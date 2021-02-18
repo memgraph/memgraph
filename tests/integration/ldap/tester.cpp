@@ -11,10 +11,8 @@ DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
-DEFINE_bool(auth_should_fail, false,
-            "Set to true to expect authentication failure.");
-DEFINE_bool(query_should_fail, false,
-            "Set to true to expect query execution failure.");
+DEFINE_bool(auth_should_fail, false, "Set to true to expect authentication failure.");
+DEFINE_bool(query_should_fail, false, "Set to true to expect query execution failure.");
 
 /**
  * Logs in to the server and executes the queries specified as arguments. On any
@@ -25,8 +23,7 @@ int main(int argc, char **argv) {
 
   communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);

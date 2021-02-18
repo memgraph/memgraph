@@ -95,9 +95,9 @@ class UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties,
-      utils::SkipList<Vertex>::Accessor vertices);
+  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(LabelId label,
+                                                                           const std::set<PropertyId> &properties,
+                                                                           utils::SkipList<Vertex>::Accessor vertices);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -105,8 +105,7 @@ class UniqueConstraints {
   /// empty, `DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED` if the given set
   /// of `properties` exceeds the maximum allowed number of properties, and
   /// `DeletionStatus::SUCCESS` on success.
-  DeletionStatus DropConstraint(LabelId label,
-                                const std::set<PropertyId> &properties);
+  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties);
 
   bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) {
     return constraints_.find({label, properties}) != constraints_.end();
@@ -116,8 +115,7 @@ class UniqueConstraints {
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex,
-                                              const Transaction &tx,
+  std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
                                               uint64_t commit_timestamp) const;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const;
@@ -128,8 +126,7 @@ class UniqueConstraints {
   void Clear() { constraints_.clear(); }
 
  private:
-  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>>
-      constraints_;
+  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
 };
 
 struct Constraints {
@@ -145,17 +142,13 @@ struct Constraints {
 /// @throw std::bad_alloc
 /// @throw std::length_error
 inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-    Constraints *constraints, LabelId label, PropertyId property,
-    utils::SkipList<Vertex>::Accessor vertices) {
-  if (utils::Contains(constraints->existence_constraints,
-                      std::make_pair(label, property))) {
+    Constraints *constraints, LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+  if (utils::Contains(constraints->existence_constraints, std::make_pair(label, property))) {
     return false;
   }
   for (const auto &vertex : vertices) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
-        !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
-                                 std::set<PropertyId>{property}};
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }
   constraints->existence_constraints.emplace_back(label, property);
@@ -164,10 +157,8 @@ inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
 
 /// Removes a unique constraint from `constraints`. Returns true if the
 /// constraint was removed, and false if it doesn't exist.
-inline bool DropExistenceConstraint(Constraints *constraints, LabelId label,
-                                    PropertyId property) {
-  auto it = std::find(constraints->existence_constraints.begin(),
-                      constraints->existence_constraints.end(),
+inline bool DropExistenceConstraint(Constraints *constraints, LabelId label, PropertyId property) {
+  auto it = std::find(constraints->existence_constraints.begin(), constraints->existence_constraints.end(),
                       std::make_pair(label, property));
   if (it == constraints->existence_constraints.end()) {
     return false;
@@ -179,22 +170,18 @@ inline bool DropExistenceConstraint(Constraints *constraints, LabelId label,
 /// Verifies that the given vertex satisfies all existence constraints. Returns
 /// `std::nullopt` if all checks pass, and `ConstraintViolation` describing the
 /// violated constraint otherwise.
-[[nodiscard]] inline std::optional<ConstraintViolation>
-ValidateExistenceConstraints(const Vertex &vertex,
-                             const Constraints &constraints) {
+[[nodiscard]] inline std::optional<ConstraintViolation> ValidateExistenceConstraints(const Vertex &vertex,
+                                                                                     const Constraints &constraints) {
   for (const auto &[label, property] : constraints.existence_constraints) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) &&
-        !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label,
-                                 std::set<PropertyId>{property}};
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }
   return std::nullopt;
 }
 
 /// Returns a list of all created existence constraints.
-inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(
-    const Constraints &constraints) {
+inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(const Constraints &constraints) {
   return constraints.existence_constraints;
 }
 

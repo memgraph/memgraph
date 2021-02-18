@@ -59,8 +59,7 @@ bool Socket::IsOpen() const { return socket_ != -1; }
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address.c_str(),
-                            std::to_string(endpoint.port).c_str());
+  auto info = AddrInfo::Get(endpoint.address.c_str(), std::to_string(endpoint.port).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -83,8 +82,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
 bool Socket::Bind(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address.c_str(),
-                            std::to_string(endpoint.port).c_str());
+  auto info = AddrInfo::Get(endpoint.address.c_str(), std::to_string(endpoint.port).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -130,38 +128,30 @@ void Socket::SetNonBlocking() {
   int flags = fcntl(socket_, F_GETFL, 0);
   MG_ASSERT(flags != -1, "Can't get socket mode");
   flags |= O_NONBLOCK;
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags) != -1,
-            "Can't set socket nonblocking");
+  MG_ASSERT(fcntl(socket_, F_SETFL, flags) != -1, "Can't set socket nonblocking");
 }
 
 void Socket::SetKeepAlive() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen),
-            "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen), "Can't set socket keep alive");
 
   optval = 20;  // wait 20s before sending keep-alive packets
-  MG_ASSERT(
-      !setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen),
-      "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen), "Can't set socket keep alive");
 
   optval = 4;  // 4 keep-alive packets must fail to close
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen),
-            "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen), "Can't set socket keep alive");
 
   optval = 15;  // send keep-alive packets every 15s
-  MG_ASSERT(
-      !setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen),
-      "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen), "Can't set socket keep alive");
 }
 
 void Socket::SetNoDelay() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen),
-            "Can't set socket no delay");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen), "Can't set socket no delay");
 }
 
 void Socket::SetTimeout(long sec, long usec) {
@@ -169,11 +159,9 @@ void Socket::SetTimeout(long sec, long usec) {
   tv.tv_sec = sec;
   tv.tv_usec = usec;
 
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)),
-            "Can't set socket timeout");
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
 
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)),
-            "Can't set socket timeout");
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
 }
 
 int Socket::ErrorStatus() const {
@@ -238,8 +226,7 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
 }
 
 bool Socket::Write(const std::string &s, bool have_more) {
-  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(),
-               have_more);
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
 ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {

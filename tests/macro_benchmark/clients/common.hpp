@@ -38,19 +38,17 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
       break;
     case Value::Type::List:
       os << "[";
-      utils::PrintIterable(
-          os, value.ValueList(), ", ",
-          [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
+      utils::PrintIterable(os, value.ValueList(), ", ",
+                           [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
       os << "]";
       break;
     case Value::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) {
-                             PrintJsonValue(stream, {pair.first});
-                             stream << ": ";
-                             PrintJsonValue(stream, pair.second);
-                           });
+      utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
+        PrintJsonValue(stream, {pair.first});
+        stream << ": ";
+        PrintJsonValue(stream, pair.second);
+      });
       os << "}";
       break;
     default:
@@ -59,8 +57,7 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
 }
 
 std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
-    Client &client, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params,
+    Client &client, const std::string &query, const std::map<std::string, communication::bolt::Value> &params,
     int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};

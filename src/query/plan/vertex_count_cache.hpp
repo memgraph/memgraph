@@ -19,12 +19,8 @@ class VertexCountCache {
   VertexCountCache(TDbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
-  auto NameToProperty(const std::string &name) {
-    return db_->NameToProperty(name);
-  }
-  auto NameToEdgeType(const std::string &name) {
-    return db_->NameToEdgeType(name);
-  }
+  auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
+  auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
 
   int64_t VerticesCount() {
     if (!vertices_count_) vertices_count_ = db_->VerticesCount();
@@ -39,14 +35,12 @@ class VertexCountCache {
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) {
     auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) ==
-        label_property_vertex_count_.end())
+    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end())
       label_property_vertex_count_[key] = db_->VerticesCount(label, property);
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const storage::PropertyValue &value) {
+  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
     // TODO: Why do we even need TypedValue in this whole file?
@@ -56,25 +50,20 @@ class VertexCountCache {
     return value_vertex_count.at(tv_value);
   }
 
-  int64_t VerticesCount(
-      storage::LabelId label, storage::PropertyId property,
-      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
+                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     auto label_prop = std::make_pair(label, property);
     auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
     if (bounds_vertex_count.find(bounds) == bounds_vertex_count.end())
-      bounds_vertex_count[bounds] =
-          db_->VerticesCount(label, property, lower, upper);
+      bounds_vertex_count[bounds] = db_->VerticesCount(label, property, lower, upper);
     return bounds_vertex_count.at(bounds);
   }
 
-  bool LabelIndexExists(storage::LabelId label) {
-    return db_->LabelIndexExists(label);
-  }
+  bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label,
-                                storage::PropertyId property) {
+  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) {
     return db_->LabelPropertyIndexExists(label, property);
   }
 
@@ -83,8 +72,7 @@ class VertexCountCache {
 
   struct LabelPropertyHash {
     size_t operator()(const LabelPropertyKey &key) const {
-      return utils::HashCombine<storage::LabelId, storage::PropertyId>{}(
-          key.first, key.second);
+      return utils::HashCombine<storage::LabelId, storage::PropertyId>{}(key.first, key.second);
     }
   };
 
@@ -107,11 +95,8 @@ class VertexCountCache {
 
   struct BoundsEqual {
     bool operator()(const BoundsKey &a, const BoundsKey &b) const {
-      auto bound_equal = [](const auto &maybe_bound_a,
-                            const auto &maybe_bound_b) {
-        if (maybe_bound_a && maybe_bound_b &&
-            maybe_bound_a->type() != maybe_bound_b->type())
-          return false;
+      auto bound_equal = [](const auto &maybe_bound_a, const auto &maybe_bound_b) {
+        if (maybe_bound_a && maybe_bound_b && maybe_bound_a->type() != maybe_bound_b->type()) return false;
         query::TypedValue bound_a;
         query::TypedValue bound_b;
         if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
@@ -125,18 +110,14 @@ class VertexCountCache {
   TDbAccessor *db_;
   std::optional<int64_t> vertices_count_;
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
-  std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash>
-      label_property_vertex_count_;
+  std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
   std::unordered_map<
       LabelPropertyKey,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
-                         query::TypedValue::BoolEqual>,
+      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
       LabelPropertyHash>
       property_value_vertex_count_;
-  std::unordered_map<
-      LabelPropertyKey,
-      std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
-      LabelPropertyHash>
+  std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
+                     LabelPropertyHash>
       property_bounds_vertex_count_;
 };
 

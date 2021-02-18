@@ -8,8 +8,7 @@
 #include "utils/spin_lock.hpp"
 
 TEST(RingBuffer, MultithreadedUsage) {
-  auto test_f = [](int producer_count, int elems_per_producer,
-                   int producer_sleep_ms, int consumer_count,
+  auto test_f = [](int producer_count, int elems_per_producer, int producer_sleep_ms, int consumer_count,
                    int consumer_sleep_ms) {
     std::unordered_set<int> consumed;
     utils::SpinLock consumed_lock;
@@ -17,23 +16,19 @@ TEST(RingBuffer, MultithreadedUsage) {
 
     std::vector<std::thread> producers;
     for (int i = 0; i < producer_count; i++)
-      producers.emplace_back(
-          [i, elems_per_producer, producer_sleep_ms, &buffer]() {
-            for (int j = 0; j < elems_per_producer; j++) {
-              std::this_thread::sleep_for(
-                  std::chrono::milliseconds(producer_sleep_ms));
-              buffer.emplace(j + i * elems_per_producer);
-            }
-          });
+      producers.emplace_back([i, elems_per_producer, producer_sleep_ms, &buffer]() {
+        for (int j = 0; j < elems_per_producer; j++) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(producer_sleep_ms));
+          buffer.emplace(j + i * elems_per_producer);
+        }
+      });
 
     std::vector<std::thread> consumers;
     size_t elem_total_count = producer_count * elems_per_producer;
     for (int i = 0; i < consumer_count; i++)
-      consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer,
-                              &consumed, &consumed_lock]() {
+      consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer, &consumed, &consumed_lock]() {
         while (true) {
-          std::this_thread::sleep_for(
-              std::chrono::milliseconds(consumer_sleep_ms));
+          std::this_thread::sleep_for(std::chrono::milliseconds(consumer_sleep_ms));
           std::lock_guard<utils::SpinLock> guard(consumed_lock);
           if (consumed.size() == elem_total_count) break;
           auto value = buffer.pop();

@@ -19,21 +19,16 @@ ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
   }
 }
 
-ClientContext::ClientContext(const std::string &key_file,
-                             const std::string &cert_file)
-    : ClientContext(true) {
+ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file) : ClientContext(true) {
   if (key_file != "" && cert_file != "") {
-    MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(),
-                                           SSL_FILETYPE_PEM) == 1,
+    MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
               "Couldn't load client certificate from file: {}", cert_file);
-    MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(),
-                                          SSL_FILETYPE_PEM) == 1,
+    MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
               "Couldn't load client private key from file: ", key_file);
   }
 }
 
-ClientContext::ClientContext(ClientContext &&other) noexcept
-    : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+ClientContext::ClientContext(ClientContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
   other.use_ssl_ = false;
   other.ctx_ = nullptr;
 }
@@ -69,9 +64,8 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 
 ServerContext::ServerContext() : use_ssl_(false), ctx_(nullptr) {}
 
-ServerContext::ServerContext(const std::string &key_file,
-                             const std::string &cert_file,
-                             const std::string &ca_file, bool verify_peer)
+ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
+                             bool verify_peer)
     : use_ssl_(true),
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
       ctx_(SSL_CTX_new(SSLv23_server_method()))
@@ -81,11 +75,9 @@ ServerContext::ServerContext(const std::string &key_file,
 {
   // TODO (mferencevic): add support for encrypted private keys
   // TODO (mferencevic): add certificate revocation list (CRL)
-  MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(),
-                                         SSL_FILETYPE_PEM) == 1,
+  MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
             "Couldn't load server certificate from file: {}", cert_file);
-  MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(),
-                                        SSL_FILETYPE_PEM) == 1,
+  MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
             "Couldn't load server private key from file: {}", key_file);
 
   // Disable legacy SSL support. Other options can be seen here:
@@ -94,29 +86,25 @@ ServerContext::ServerContext(const std::string &key_file,
 
   if (ca_file != "") {
     // Load the certificate authority file.
-    MG_ASSERT(
-        SSL_CTX_load_verify_locations(ctx_, ca_file.c_str(), nullptr) == 1,
-        "Couldn't load certificate authority from file: {}", ca_file);
+    MG_ASSERT(SSL_CTX_load_verify_locations(ctx_, ca_file.c_str(), nullptr) == 1,
+              "Couldn't load certificate authority from file: {}", ca_file);
 
     if (verify_peer) {
       // Add the CA to list of accepted CAs that is sent to the client.
       STACK_OF(X509_NAME) *ca_names = SSL_load_client_CA_file(ca_file.c_str());
-      MG_ASSERT(ca_names != nullptr,
-                "Couldn't load certificate authority from file: {}", ca_file);
+      MG_ASSERT(ca_names != nullptr, "Couldn't load certificate authority from file: {}", ca_file);
       // `ca_names` doesn' need to be free'd because we pass it to
       // `SSL_CTX_set_client_CA_list`:
       // https://mta.openssl.org/pipermail/openssl-users/2015-May/001363.html
       SSL_CTX_set_client_CA_list(ctx_, ca_names);
 
       // Enable verification of the client certificate.
-      SSL_CTX_set_verify(
-          ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+      SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     }
   }
 }
 
-ServerContext::ServerContext(ServerContext &&other) noexcept
-    : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
+ServerContext::ServerContext(ServerContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
   other.use_ssl_ = false;
   other.ctx_ = nullptr;
 }

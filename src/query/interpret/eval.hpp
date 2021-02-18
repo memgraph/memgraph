@@ -21,14 +21,9 @@ namespace query {
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
-                      const EvaluationContext &ctx, DbAccessor *dba,
+  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view)
-      : frame_(frame),
-        symbol_table_(&symbol_table),
-        ctx_(&ctx),
-        dba_(dba),
-        view_(view) {}
+      : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -45,27 +40,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
   }
 
-#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)              \
-  TypedValue Visit(OP_NODE &op) override {                               \
-    auto val1 = op.expression1_->Accept(*this);                          \
-    auto val2 = op.expression2_->Accept(*this);                          \
-    try {                                                                \
-      return val1 CPP_OP val2;                                           \
-    } catch (const TypedValueException &) {                              \
-      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.",  \
-                                  val1.type(), val2.type(), #CYPHER_OP); \
-    }                                                                    \
+#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                                    \
+  TypedValue Visit(OP_NODE &op) override {                                                                     \
+    auto val1 = op.expression1_->Accept(*this);                                                                \
+    auto val2 = op.expression2_->Accept(*this);                                                                \
+    try {                                                                                                      \
+      return val1 CPP_OP val2;                                                                                 \
+    } catch (const TypedValueException &) {                                                                    \
+      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
+    }                                                                                                          \
   }
 
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                 \
-  TypedValue Visit(OP_NODE &op) override {                                 \
-    auto val = op.expression_->Accept(*this);                              \
-    try {                                                                  \
-      return CPP_OP val;                                                   \
-    } catch (const TypedValueException &) {                                \
-      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), \
-                                  #CYPHER_OP);                             \
-    }                                                                      \
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
+  TypedValue Visit(OP_NODE &op) override {                                              \
+    auto val = op.expression_->Accept(*this);                                           \
+    try {                                                                               \
+      return CPP_OP val;                                                                \
+    } catch (const TypedValueException &) {                                             \
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
+    }                                                                                   \
   }
 
   BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
@@ -99,8 +92,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     try {
       return value1 && value2;
     } catch (const TypedValueException &) {
-      throw QueryRuntimeException("Invalid types: {} and {} for AND.",
-                                  value1.type(), value2.type());
+      throw QueryRuntimeException("Invalid types: {} and {} for AND.", value1.type(), value2.type());
     }
   }
 
@@ -111,8 +103,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     if (condition.type() != TypedValue::Type::Bool) {
       // At the moment IfOperator is used only in CASE construct.
-      throw QueryRuntimeException("CASE expected boolean expression, got {}.",
-                                  condition.type());
+      throw QueryRuntimeException("CASE expected boolean expression, got {}.", condition.type());
     }
     if (condition.ValueBool()) {
       return if_operator.then_expression_->Accept(*this);
@@ -158,17 +149,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(SubscriptOperator &list_indexing) override {
     auto lhs = list_indexing.expression1_->Accept(*this);
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() &&
-        !lhs.IsNull())
+    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() && !lhs.IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
           lhs.type());
     if (lhs.IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
     if (lhs.IsList()) {
-      if (!index.IsInt())
-        throw QueryRuntimeException(
-            "Expected an integer as a list index, got {}.", index.type());
+      if (!index.IsInt()) throw QueryRuntimeException("Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.ValueInt();
       // NOTE: Take non-const reference to list, so that we can move out the
       // indexed element as the result.
@@ -176,17 +164,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
-      if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0)
-        return TypedValue(ctx_->memory);
+      if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0) return TypedValue(ctx_->memory);
       // NOTE: Explicit move is needed, so that we return the move constructed
       // value and preserve the correct MemoryResource.
       return std::move(list[index_int]);
     }
 
     if (lhs.IsMap()) {
-      if (!index.IsString())
-        throw QueryRuntimeException("Expected a string as a map index, got {}.",
-                                    index.type());
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a map index, got {}.", index.type());
       // NOTE: Take non-const reference to map, so that we can move out the
       // looked-up element as the result.
       auto &map = lhs.ValueMap();
@@ -198,19 +183,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     if (lhs.IsVertex()) {
-      if (!index.IsString())
-        throw QueryRuntimeException(
-            "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueVertex(), index.ValueString()),
-                        ctx_->memory);
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
+      return TypedValue(GetProperty(lhs.ValueVertex(), index.ValueString()), ctx_->memory);
     }
 
     if (lhs.IsEdge()) {
-      if (!index.IsString())
-        throw QueryRuntimeException(
-            "Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueEdge(), index.ValueString()),
-                        ctx_->memory);
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
+      return TypedValue(GetProperty(lhs.ValueEdge(), index.ValueString()), ctx_->memory);
     }
 
     // lhs is Null
@@ -227,24 +206,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         if (bound.type() == TypedValue::Type::Null) {
           is_null = true;
         } else if (bound.type() != TypedValue::Type::Int) {
-          throw QueryRuntimeException(
-              "Expected an integer for a bound in list slicing, got {}.",
-              bound.type());
+          throw QueryRuntimeException("Expected an integer for a bound in list slicing, got {}.", bound.type());
         }
         return bound;
       }
       return TypedValue(default_value, ctx_->memory);
     };
-    auto _upper_bound =
-        get_bound(op.upper_bound_, std::numeric_limits<int64_t>::max());
+    auto _upper_bound = get_bound(op.upper_bound_, std::numeric_limits<int64_t>::max());
     auto _lower_bound = get_bound(op.lower_bound_, 0);
 
     auto _list = op.list_->Accept(*this);
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
     } else if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("Expected a list to slice, got {}.",
-                                  _list.type());
+      throw QueryRuntimeException("Expected a list to slice, got {}.", _list.type());
     }
 
     if (is_null) {
@@ -255,16 +230,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (bound < 0) {
         bound = static_cast<int64_t>(list.size()) + bound;
       }
-      return std::max(static_cast<int64_t>(0),
-                      std::min(bound, static_cast<int64_t>(list.size())));
+      return std::max(static_cast<int64_t>(0), std::min(bound, static_cast<int64_t>(list.size())));
     };
     auto lower_bound = normalise_bound(_lower_bound.ValueInt());
     auto upper_bound = normalise_bound(_upper_bound.ValueInt());
     if (upper_bound <= lower_bound) {
       return TypedValue(TypedValue::TVector(ctx_->memory), ctx_->memory);
     }
-    return TypedValue(TypedValue::TVector(
-        list.begin() + lower_bound, list.begin() + upper_bound, ctx_->memory));
+    return TypedValue(TypedValue::TVector(list.begin() + lower_bound, list.begin() + upper_bound, ctx_->memory));
   }
 
   TypedValue Visit(IsNullOperator &is_null) override {
@@ -278,13 +251,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(GetProperty(expression_result.ValueVertex(),
-                                      property_lookup.property_),
-                          ctx_->memory);
+        return TypedValue(GetProperty(expression_result.ValueVertex(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Edge:
-        return TypedValue(GetProperty(expression_result.ValueEdge(),
-                                      property_lookup.property_),
-                          ctx_->memory);
+        return TypedValue(GetProperty(expression_result.ValueEdge(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Map: {
         // NOTE: Take non-const reference to map, so that we can move out the
         // looked-up element as the result.
@@ -296,8 +265,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return std::move(found->second);
       }
       default:
-        throw QueryRuntimeException(
-            "Only nodes, edges and maps have properties to be looked-up.");
+        throw QueryRuntimeException("Only nodes, edges and maps have properties to be looked-up.");
     }
   }
 
@@ -310,8 +278,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label.HasError() &&
-              has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+          if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
@@ -324,16 +291,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           if (has_label.HasError()) {
             switch (has_label.GetError()) {
               case storage::Error::DELETED_OBJECT:
-                throw QueryRuntimeException(
-                    "Trying to access labels on a deleted node.");
+                throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException(
-                    "Trying to access labels from a node that doesn't exist.");
+                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
               case storage::Error::SERIALIZATION_ERROR:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
-                throw QueryRuntimeException(
-                    "Unexpected error when accessing labels.");
+                throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
           if (!*has_label) {
@@ -356,15 +320,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(ListLiteral &literal) override {
     TypedValue::TVector result(ctx_->memory);
     result.reserve(literal.elements_.size());
-    for (const auto &expression : literal.elements_)
-      result.emplace_back(expression->Accept(*this));
+    for (const auto &expression : literal.elements_) result.emplace_back(expression->Accept(*this));
     return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
-    for (const auto &pair : literal.elements_)
-      result.emplace(pair.first.name, pair.second->Accept(*this));
+    for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
     return TypedValue(result, ctx_->memory);
   }
 
@@ -390,20 +352,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp,
-                                 &ctx_->counters, view_};
+    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
-      TypedValue arguments[8] = {
-          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-          TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-          TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
+      TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
+                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
+                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      auto res = function.function_(arguments, function.arguments_.size(),
-                                    function_ctx);
+      auto res = function.function_(arguments, function.arguments_.size(), function_ctx);
       MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
       return res;
     } else {
@@ -412,8 +370,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      auto res =
-          function.function_(arguments.data(), arguments.size(), function_ctx);
+      auto res = function.function_(arguments.data(), arguments.size(), function_ctx);
       MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
       return res;
     }
@@ -425,8 +382,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("REDUCE expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("REDUCE expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*reduce.identifier_);
@@ -446,8 +402,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("EXTRACT expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("EXTRACT expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
@@ -470,8 +425,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("ALL expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("ALL expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*all.identifier_);
@@ -481,9 +435,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       frame_->at(symbol) = element;
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
-        throw QueryRuntimeException(
-            "Predicate of ALL must evaluate to boolean, got {}.",
-            result.type());
+        throw QueryRuntimeException("Predicate of ALL must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
         has_value = true;
@@ -510,8 +462,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("SINGLE expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("SINGLE expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*single.identifier_);
@@ -521,9 +472,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       frame_->at(symbol) = element;
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
-        throw QueryRuntimeException(
-            "Predicate of SINGLE must evaluate to boolean, got {}.",
-            result.type());
+        throw QueryRuntimeException("Predicate of SINGLE must evaluate to boolean, got {}.", result.type());
       }
       if (result.type() == TypedValue::Type::Bool) {
         has_value = true;
@@ -551,8 +500,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("ANY expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("ANY expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*any.identifier_);
@@ -561,9 +509,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       frame_->at(symbol) = element;
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
-        throw QueryRuntimeException(
-            "Predicate of ANY must evaluate to boolean, got {}.",
-            result.type());
+        throw QueryRuntimeException("Predicate of ANY must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
         has_value = true;
@@ -586,8 +532,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("NONE expected a list, got {}.",
-                                  list_value.type());
+      throw QueryRuntimeException("NONE expected a list, got {}.", list_value.type());
     }
     const auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*none.identifier_);
@@ -596,9 +541,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       frame_->at(symbol) = element;
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
-        throw QueryRuntimeException(
-            "Predicate of NONE must evaluate to boolean, got {}.",
-            result.type());
+        throw QueryRuntimeException("Predicate of NONE must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
         has_value = true;
@@ -616,9 +559,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(
-        ctx_->parameters.AtTokenPosition(param_lookup.token_position_),
-        ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override {
@@ -628,9 +569,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return TypedValue(ctx_->memory);
     }
     if (regex_value.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException(
-          "Regular expression must evaluate to a string, got {}.",
-          regex_value.type());
+      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_value.type());
     }
     if (target_string_value.type() != TypedValue::Type::String) {
       // Instead of error, we return Null which makes it compatible in case we
@@ -643,75 +582,60 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       std::regex regex(regex_value.ValueString());
       return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
     } catch (const std::regex_error &e) {
-      throw QueryRuntimeException("Regex error in '{}': {}",
-                                  regex_value.ValueString(), e.what());
+      throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
     }
   }
 
  private:
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor,
-                                     PropertyIx prop) {
-    auto maybe_prop =
-        record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() &&
-        maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW,
-                                               ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException(
-              "Trying to get a property from a deleted object.");
+          throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException(
-              "Trying to get a property from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException(
-              "Unexpected error when getting a property.");
+          throw QueryRuntimeException("Unexpected error when getting a property.");
       }
     }
     return *maybe_prop;
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor,
-                                     const std::string_view &name) {
-    auto maybe_prop =
-        record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() &&
-        maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view &name) {
+    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop =
-          record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
         case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException(
-              "Trying to get a property from a deleted object.");
+          throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException(
-              "Trying to get a property from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException(
-              "Unexpected error when getting a property.");
+          throw QueryRuntimeException("Unexpected error when getting a property.");
       }
     }
     return *maybe_prop;
@@ -732,8 +656,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-inline int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr,
-                           const std::string &what) {
+inline int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what) {
   TypedValue value = expr->Accept(*evaluator);
   try {
     return value.ValueInt();

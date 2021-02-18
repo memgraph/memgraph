@@ -6,9 +6,8 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 
-DEFINE_VALIDATED_HIDDEN_uint64(
-    query_max_plans, 1000U, "Maximum number of generated plans for a query.",
-    FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
+DEFINE_VALIDATED_HIDDEN_uint64(query_max_plans, 1000U, "Maximum number of generated plans for a query.",
+                               FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
 
 namespace query::plan::impl {
 
@@ -17,13 +16,10 @@ namespace {
 // Add applicable expansions for `node_symbol` to `next_expansions`. These
 // expansions are removed from `node_symbol_to_expansions`, while
 // `seen_expansions` and `expanded_symbols` are populated with new data.
-void AddNextExpansions(
-    const Symbol &node_symbol, const Matching &matching,
-    const SymbolTable &symbol_table,
-    std::unordered_set<Symbol> &expanded_symbols,
-    std::unordered_map<Symbol, std::set<size_t>> &node_symbol_to_expansions,
-    std::unordered_set<size_t> &seen_expansions,
-    std::queue<Expansion> &next_expansions) {
+void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, const SymbolTable &symbol_table,
+                       std::unordered_set<Symbol> &expanded_symbols,
+                       std::unordered_map<Symbol, std::set<size_t>> &node_symbol_to_expansions,
+                       std::unordered_set<size_t> &seen_expansions, std::queue<Expansion> &next_expansions) {
   auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
   if (node_to_expansions_it == node_symbol_to_expansions.end()) {
     return;
@@ -37,8 +33,7 @@ void AddNextExpansions(
       // therefore bound. If the symbols are not found in the whole expansion,
       // then the semantic analysis should guarantee that the symbols have been
       // bound long before we expand.
-      if (matching.expansion_symbols.find(range_symbol) !=
-              matching.expansion_symbols.end() &&
+      if (matching.expansion_symbols.find(range_symbol) != matching.expansion_symbols.end() &&
           expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
         return false;
       }
@@ -62,18 +57,15 @@ void AddNextExpansions(
     }
     if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
       // We are not expanding from node1, so flip the expansion.
-      DMG_ASSERT(
-          expansion.node2 &&
-              symbol_table.at(*expansion.node2->identifier_) == node_symbol,
-          "Expected node_symbol to be bound in node2");
+      DMG_ASSERT(expansion.node2 && symbol_table.at(*expansion.node2->identifier_) == node_symbol,
+                 "Expected node_symbol to be bound in node2");
       if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         std::swap(expansion.node1, expansion.node2);
         expansion.is_flipped = true;
         if (expansion.direction != EdgeAtom::Direction::BOTH) {
-          expansion.direction = expansion.direction == EdgeAtom::Direction::IN
-                                    ? EdgeAtom::Direction::OUT
-                                    : EdgeAtom::Direction::IN;
+          expansion.direction =
+              expansion.direction == EdgeAtom::Direction::IN ? EdgeAtom::Direction::OUT : EdgeAtom::Direction::IN;
         }
       }
     }
@@ -95,20 +87,17 @@ void AddNextExpansions(
 // the chain can no longer be continued, a different starting node is picked
 // among remaining expansions and the process continues. This is done until all
 // matching.expansions are used.
-std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node,
-                                      const Matching &matching,
+std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node, const Matching &matching,
                                       const SymbolTable &symbol_table) {
   // Make a copy of node_symbol_to_expansions, because we will modify it as
   // expansions are chained.
   auto node_symbol_to_expansions = matching.node_symbol_to_expansions;
   std::unordered_set<size_t> seen_expansions;
   std::queue<Expansion> next_expansions;
-  std::unordered_set<Symbol> expanded_symbols(
-      {symbol_table.at(*start_node->identifier_)});
+  std::unordered_set<Symbol> expanded_symbols({symbol_table.at(*start_node->identifier_)});
   auto add_next_expansions = [&](const auto *node) {
-    AddNextExpansions(symbol_table.at(*node->identifier_), matching,
-                      symbol_table, expanded_symbols, node_symbol_to_expansions,
-                      seen_expansions, next_expansions);
+    AddNextExpansions(symbol_table.at(*node->identifier_), matching, symbol_table, expanded_symbols,
+                      node_symbol_to_expansions, seen_expansions, next_expansions);
   };
   add_next_expansions(start_node);
   // Potential optimization: expansions and next_expansions could be merge into
@@ -141,11 +130,9 @@ std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node,
 
 // Collect all unique nodes from expansions. Uniqueness is determined by
 // symbol uniqueness.
-auto ExpansionNodes(const std::vector<Expansion> &expansions,
-                    const SymbolTable &symbol_table) {
-  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes(
-      expansions.size(), NodeSymbolHash(symbol_table),
-      NodeSymbolEqual(symbol_table));
+auto ExpansionNodes(const std::vector<Expansion> &expansions, const SymbolTable &symbol_table) {
+  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes(expansions.size(), NodeSymbolHash(symbol_table),
+                                                                        NodeSymbolEqual(symbol_table));
   for (const auto &expansion : expansions) {
     // TODO: Handle labels and properties from different node atoms.
     nodes.insert(expansion.node1);
@@ -158,11 +145,8 @@ auto ExpansionNodes(const std::vector<Expansion> &expansions,
 
 }  // namespace
 
-VaryMatchingStart::VaryMatchingStart(Matching matching,
-                                     const SymbolTable &symbol_table)
-    : matching_(matching),
-      symbol_table_(symbol_table),
-      nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
+VaryMatchingStart::VaryMatchingStart(Matching matching, const SymbolTable &symbol_table)
+    : matching_(matching), symbol_table_(symbol_table), nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
 
 VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
     : self_(self),
@@ -175,12 +159,10 @@ VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
     // Overwrite the original matching expansions with the new ones by
     // generating it from the first start node.
     start_nodes_it_ = self_->nodes_.begin();
-    current_matching_.expansions = ExpansionsFrom(
-        **start_nodes_it_, self_->matching_, self_->symbol_table_);
+    current_matching_.expansions = ExpansionsFrom(**start_nodes_it_, self_->matching_, self_->symbol_table_);
   }
-  DMG_ASSERT(
-      start_nodes_it_ || self_->nodes_.empty(),
-      "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
+  DMG_ASSERT(start_nodes_it_ || self_->nodes_.empty(),
+             "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
   if (is_done) {
     start_nodes_it_ = self_->nodes_.end();
   }
@@ -188,9 +170,7 @@ VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
 
 VaryMatchingStart::iterator &VaryMatchingStart::iterator::operator++() {
   if (!start_nodes_it_) {
-    DMG_ASSERT(
-        self_->nodes_.empty(),
-        "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
+    DMG_ASSERT(self_->nodes_.empty(), "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
     start_nodes_it_ = self_->nodes_.end();
   }
   if (*start_nodes_it_ == self_->nodes_.end()) {
@@ -203,13 +183,12 @@ VaryMatchingStart::iterator &VaryMatchingStart::iterator::operator++() {
     return *this;
   }
   const auto &start_node = **start_nodes_it_;
-  current_matching_.expansions =
-      ExpansionsFrom(start_node, self_->matching_, self_->symbol_table_);
+  current_matching_.expansions = ExpansionsFrom(start_node, self_->matching_, self_->symbol_table_);
   return *this;
 }
 
-CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
-    const std::vector<Matching> &matchings, const SymbolTable &symbol_table) {
+CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &matchings,
+                                                            const SymbolTable &symbol_table) {
   std::vector<VaryMatchingStart> variants;
   variants.reserve(matchings.size());
   for (const auto &matching : matchings) {
@@ -218,23 +197,19 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
   return MakeCartesianProduct(std::move(variants));
 }
 
-VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part,
-                                             const SymbolTable &symbol_table)
+VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part, const SymbolTable &symbol_table)
     : query_part_(std::move(query_part)),
       matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
-      optional_matchings_(
-          VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
-      merge_matchings_(
-          VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)) {}
+      optional_matchings_(VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
+      merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)) {}
 
-VaryQueryPartMatching::iterator::iterator(
-    const SingleQueryPart &query_part,
-    VaryMatchingStart::iterator matchings_begin,
-    VaryMatchingStart::iterator matchings_end,
-    CartesianProduct<VaryMatchingStart>::iterator optional_begin,
-    CartesianProduct<VaryMatchingStart>::iterator optional_end,
-    CartesianProduct<VaryMatchingStart>::iterator merge_begin,
-    CartesianProduct<VaryMatchingStart>::iterator merge_end)
+VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
+                                          VaryMatchingStart::iterator matchings_begin,
+                                          VaryMatchingStart::iterator matchings_end,
+                                          CartesianProduct<VaryMatchingStart>::iterator optional_begin,
+                                          CartesianProduct<VaryMatchingStart>::iterator optional_end,
+                                          CartesianProduct<VaryMatchingStart>::iterator merge_begin,
+                                          CartesianProduct<VaryMatchingStart>::iterator merge_end)
     : current_query_part_(query_part),
       matchings_it_(matchings_begin),
       matchings_end_(matchings_end),
@@ -304,8 +279,7 @@ bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
     // iterators can be at any position.
     return true;
   }
-  return matchings_it_ == other.matchings_it_ &&
-         optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_;
+  return matchings_it_ == other.matchings_it_ && optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_;
 }
 
 }  // namespace query::plan::impl

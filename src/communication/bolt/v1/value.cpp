@@ -198,8 +198,7 @@ Value &Value::operator=(Value &&other) noexcept {
         new (&edge_v) Edge(std::move(other.edge_v));
         break;
       case Type::UnboundedEdge:
-        new (&unbounded_edge_v)
-            UnboundedEdge(std::move(other.unbounded_edge_v));
+        new (&unbounded_edge_v) UnboundedEdge(std::move(other.unbounded_edge_v));
         break;
       case Type::Path:
         new (&path_v) Path(std::move(other.path_v));
@@ -258,17 +257,14 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
   if (vertex.labels.size() > 0) {
     os << ":";
   }
-  utils::PrintIterable(os, vertex.labels, ":",
-                       [&](auto &stream, auto label) { stream << label; });
+  utils::PrintIterable(os, vertex.labels, ":", [&](auto &stream, auto label) { stream << label; });
   if (vertex.labels.size() > 0 && vertex.properties.size() > 0) {
     os << " ";
   }
   if (vertex.properties.size() > 0) {
     os << "{";
     utils::PrintIterable(os, vertex.properties, ", ",
-                         [&](auto &stream, const auto &pair) {
-                           stream << pair.first << ": " << pair.second;
-                         });
+                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
     os << "}";
   }
   return os << ")";
@@ -279,9 +275,7 @@ std::ostream &operator<<(std::ostream &os, const Edge &edge) {
   if (edge.properties.size() > 0) {
     os << " {";
     utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) {
-                           stream << pair.first << ": " << pair.second;
-                         });
+                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
     os << "}";
   }
   return os << "]";
@@ -292,9 +286,7 @@ std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
   if (edge.properties.size() > 0) {
     os << " {";
     utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) {
-                           stream << pair.first << ": " << pair.second;
-                         });
+                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
     os << "}";
   }
   return os << "]";
@@ -339,9 +331,7 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
     case Value::Type::Map:
       os << "{";
       utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) {
-                             stream << pair.first << ": " << pair.second;
-                           });
+                           [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
       return os << "}";
     case Value::Type::Vertex:
       return os << value.ValueVertex();

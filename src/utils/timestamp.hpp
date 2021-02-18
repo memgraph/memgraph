@@ -23,8 +23,7 @@ class Timestamp final {
   Timestamp(std::time_t time, long nsec = 0) : unix_time(time), nsec(nsec) {
     auto result = gmtime_r(&time, &this->time);
 
-    if (result == nullptr)
-      throw TimestampError("Unable to construct from {}", time);
+    if (result == nullptr) throw TimestampError("Unable to construct from {}", time);
   }
 
   static Timestamp Now() {
@@ -36,9 +35,7 @@ class Timestamp final {
 
   auto SecSinceTheEpoch() const { return unix_time; }
 
-  double SecWithNsecSinceTheEpoch() const {
-    return (double)unix_time + (double)nsec / 1e9;
-  }
+  double SecWithNsecSinceTheEpoch() const { return (double)unix_time + (double)nsec / 1e9; }
 
   auto NanoSec() const { return nsec; }
 
@@ -57,18 +54,14 @@ class Timestamp final {
   long Usec() const { return nsec / 1000; }
 
   const std::string ToIso8601() const {
-    return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(),
-                       Usec());
+    return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
   }
 
   const std::string ToString(const std::string &format = fiso8601) const {
-    return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(),
-                       Usec());
+    return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
   }
 
-  friend std::ostream &operator<<(std::ostream &stream, const Timestamp &ts) {
-    return stream << ts.ToIso8601();
-  }
+  friend std::ostream &operator<<(std::ostream &stream, const Timestamp &ts) { return stream << ts.ToIso8601(); }
 
   operator std::string() const { return ToString(); }
 
@@ -77,25 +70,16 @@ class Timestamp final {
   }
 
   constexpr friend bool operator<(const Timestamp &a, const Timestamp &b) {
-    return a.unix_time < b.unix_time ||
-           (a.unix_time == b.unix_time && a.nsec < b.nsec);
+    return a.unix_time < b.unix_time || (a.unix_time == b.unix_time && a.nsec < b.nsec);
   }
 
-  constexpr friend bool operator!=(const Timestamp &a, const Timestamp &b) {
-    return !(a == b);
-  }
+  constexpr friend bool operator!=(const Timestamp &a, const Timestamp &b) { return !(a == b); }
 
-  constexpr friend bool operator<=(const Timestamp &a, const Timestamp &b) {
-    return a < b || a == b;
-  }
+  constexpr friend bool operator<=(const Timestamp &a, const Timestamp &b) { return a < b || a == b; }
 
-  constexpr friend bool operator>(const Timestamp &a, const Timestamp &b) {
-    return !(a <= b);
-  }
+  constexpr friend bool operator>(const Timestamp &a, const Timestamp &b) { return !(a <= b); }
 
-  constexpr friend bool operator>=(const Timestamp &a, const Timestamp &b) {
-    return !(a < b);
-  }
+  constexpr friend bool operator>=(const Timestamp &a, const Timestamp &b) { return !(a < b); }
 
  private:
   std::tm time;
@@ -104,8 +88,7 @@ class Timestamp final {
   std::time_t unix_time;
   long nsec;
 
-  static constexpr auto fiso8601 =
-      "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:06d}Z";
+  static constexpr auto fiso8601 = "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:06d}Z";
 };
 
 }  // namespace utils

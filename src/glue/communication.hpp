@@ -21,35 +21,32 @@ namespace glue {
 /// @param storage::View for deciding which vertex attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Vertex> ToBoltVertex(
-    const storage::VertexAccessor &vertex, const storage::Storage &db,
-    storage::View view);
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view);
 
 /// @param storage::EdgeAccessor for converting to communication::bolt::Edge.
 /// @param storage::Storage for getting edge type and property names.
 /// @param storage::View for deciding which edge attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Edge> ToBoltEdge(
-    const storage::EdgeAccessor &edge, const storage::Storage &db,
-    storage::View view);
+storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view);
 
 /// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Path> ToBoltPath(
-    const query::Path &path, const storage::Storage &db, storage::View view);
+storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
+                                                      storage::View view);
 
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Value> ToBoltValue(
-    const query::TypedValue &value, const storage::Storage &db,
-    storage::View view);
+storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db,
+                                                        storage::View view);
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
