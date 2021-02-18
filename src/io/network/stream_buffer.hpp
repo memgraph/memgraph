@@ -14,4 +14,4 @@ struct StreamBuffer {
   uint8_t *data;
   size_t len;
 };
-}
+}  // namespace io::network

@@ -104,34 +104,26 @@ class [[nodiscard]] Object final {
   /// This function always succeeds, meaning that exceptions that occur while
   /// calling __getattr__ and __getattribute__ will get suppressed. To get error
   /// reporting, use GetAttr instead.
-  bool HasAttr(const char *attr_name) const {
-    return PyObject_HasAttrString(ptr_, attr_name);
-  }
+  bool HasAttr(const char *attr_name) const { return PyObject_HasAttrString(ptr_, attr_name); }
 
   /// Equivalent to `hasattr(this, attr_name)` in Python.
   ///
   /// This function always succeeds, meaning that exceptions that occur while
   /// calling __getattr__ and __getattribute__ will get suppressed. To get error
   /// reporting, use GetAttr instead.
-  bool HasAttr(PyObject *attr_name) const {
-    return PyObject_HasAttr(ptr_, attr_name);
-  }
+  bool HasAttr(PyObject *attr_name) const { return PyObject_HasAttr(ptr_, attr_name); }
 
   /// Equivalent to `this.attr_name` in Python.
   ///
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
-  Object GetAttr(const char *attr_name) const {
-    return Object(PyObject_GetAttrString(ptr_, attr_name));
-  }
+  Object GetAttr(const char *attr_name) const { return Object(PyObject_GetAttrString(ptr_, attr_name)); }
 
   /// Equivalent to `this.attr_name` in Python.
   ///
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
-  Object GetAttr(PyObject *attr_name) const {
-    return Object(PyObject_GetAttr(ptr_, attr_name));
-  }
+  Object GetAttr(PyObject *attr_name) const { return Object(PyObject_GetAttr(ptr_, attr_name)); }
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
@@ -145,9 +137,7 @@ class [[nodiscard]] Object final {
   ///
   /// False is returned if an error occurred.
   /// @sa FetchError
-  [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) {
-    return PyObject_SetAttr(ptr_, attr_name, v) == 0;
-  }
+  [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) { return PyObject_SetAttr(ptr_, attr_name, v) == 0; }
 
   /// Equivalent to `callable()` in Python.
   ///
@@ -161,8 +151,7 @@ class [[nodiscard]] Object final {
   /// @sa FetchError
   template <class... TArgs>
   Object Call(const TArgs &...args) const {
-    return Object(PyObject_CallFunctionObjArgs(
-        ptr_, static_cast<PyObject *>(args)..., nullptr));
+    return Object(PyObject_CallFunctionObjArgs(ptr_, static_cast<PyObject *>(args)..., nullptr));
   }
 
   /// Equivalent to `obj.meth_name()` in Python.
@@ -170,8 +159,7 @@ class [[nodiscard]] Object final {
   /// Returned Object is nullptr if an error occurred.
   /// @sa FetchError
   Object CallMethod(std::string_view meth_name) const {
-    Object name(
-        PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
     return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), nullptr));
   }
 
@@ -181,10 +169,8 @@ class [[nodiscard]] Object final {
   /// @sa FetchError
   template <class... TArgs>
   Object CallMethod(std::string_view meth_name, const TArgs &...args) const {
-    Object name(
-        PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
-    return Object(PyObject_CallMethodObjArgs(
-        ptr_, name.Ptr(), static_cast<PyObject *>(args)..., nullptr));
+    Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), static_cast<PyObject *>(args)..., nullptr));
   }
 };
 
@@ -210,8 +196,7 @@ struct [[nodiscard]] ExceptionInfo final {
 /// argument `skip_first_line` allows the user to skip the first line of the
 /// traceback. It is useful if the first line in the traceback always prints
 /// some internal wrapper function.
-[[nodiscard]] inline std::string FormatException(const ExceptionInfo &exc_info,
-                                                 bool skip_first_line = false) {
+[[nodiscard]] inline std::string FormatException(const ExceptionInfo &exc_info, bool skip_first_line = false) {
   if (!exc_info.type) return "";
   Object traceback_mod(PyImport_ImportModule("traceback"));
   MG_ASSERT(traceback_mod);
@@ -221,9 +206,8 @@ struct [[nodiscard]] ExceptionInfo final {
   if (skip_first_line && traceback_root) {
     traceback_root = traceback_root.GetAttr("tb_next");
   }
-  auto list = format_exception_fn.Call(
-      exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
-      traceback_root ? traceback_root.Ptr() : Py_None);
+  auto list = format_exception_fn.Call(exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
+                                       traceback_root ? traceback_root.Ptr() : Py_None);
   MG_ASSERT(list);
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());
@@ -235,8 +219,7 @@ struct [[nodiscard]] ExceptionInfo final {
 }
 
 /// Write ExceptionInfo to stream just like the Python interpreter would.
-inline std::ostream &operator<<(std::ostream &os,
-                                const ExceptionInfo &exc_info) {
+inline std::ostream &operator<<(std::ostream &os, const ExceptionInfo &exc_info) {
   os << FormatException(exc_info);
   return os;
 }
@@ -259,16 +242,14 @@ inline std::ostream &operator<<(std::ostream &os,
 }
 
 inline void RestoreError(ExceptionInfo exc_info) {
-  PyErr_Restore(exc_info.type.Steal(), exc_info.value.Steal(),
-                exc_info.traceback.Steal());
+  PyErr_Restore(exc_info.type.Steal(), exc_info.value.Steal(), exc_info.traceback.Steal());
 }
 
 /// Append `dir` to Python's `sys.path`.
 ///
 /// The function does not check whether the directory exists, or is readable.
 /// ExceptionInfo is returned if an error occurred.
-[[nodiscard]] inline std::optional<ExceptionInfo> AppendToSysPath(
-    const char *dir) {
+[[nodiscard]] inline std::optional<ExceptionInfo> AppendToSysPath(const char *dir) {
   MG_ASSERT(dir);
   auto *py_path = PySys_GetObject("path");
   MG_ASSERT(py_path);

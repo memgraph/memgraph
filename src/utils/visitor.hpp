@@ -72,8 +72,7 @@ template <class... T>
 class CompositeVisitorBase;
 
 template <class Head, class... Tail>
-class CompositeVisitorBase<Head, Tail...>
-    : public CompositeVisitorBase<Tail...> {
+class CompositeVisitorBase<Head, Tail...> : public CompositeVisitorBase<Tail...> {
  public:
   virtual bool PreVisit(Head &) { return DefaultPreVisit(); }
   virtual bool PostVisit(Head &) { return DefaultPostVisit(); }
@@ -263,10 +262,8 @@ class Visitable {
 /// @c utils::CompositeVisitor.
 ///
 /// @sa utils::Visitable
-#define DEFVISITABLE(TVisitor)                              \
-  TVisitor::ReturnType Accept(TVisitor &visitor) override { \
-    return visitor.Visit(*this);                            \
-  }
+#define DEFVISITABLE(TVisitor) \
+  TVisitor::ReturnType Accept(TVisitor &visitor) override { return visitor.Visit(*this); }
 };
 
 }  // namespace utils

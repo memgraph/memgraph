@@ -32,8 +32,7 @@ class Auth final {
    * @return a user when the username and password match, nullopt otherwise
    * @throw AuthException if unable to authenticate for whatever reason.
    */
-  std::optional<User> Authenticate(const std::string &username,
-                                   const std::string &password);
+  std::optional<User> Authenticate(const std::string &username, const std::string &password);
 
   /**
    * Gets a user from the storage.
@@ -63,9 +62,7 @@ class Auth final {
    * @return a user when the user is created, nullopt if the user exists
    * @throw AuthException if unable to save the user.
    */
-  std::optional<User> AddUser(
-      const std::string &username,
-      const std::optional<std::string> &password = std::nullopt);
+  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt);
 
   /**
    * Removes a user from the storage.

@@ -40,9 +40,7 @@ enum class ChunkState : uint8_t {
 template <typename TBuffer>
 class ChunkedDecoderBuffer {
  public:
-  ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) {
-    data_.reserve(kChunkMaxDataSize);
-  }
+  ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) { data_.reserve(kChunkMaxDataSize); }
 
   /**
    * Reads data from the internal buffer.

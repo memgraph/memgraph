@@ -47,19 +47,15 @@ class EdgeAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view,
-                                             storage::PropertyId key) const {
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<bool> SetProperty(storage::PropertyId key,
-                                    const storage::PropertyValue &value) {
+  storage::Result<bool> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
-  }
+  storage::Result<bool> RemoveProperty(storage::PropertyId key) { return SetProperty(key, storage::PropertyValue()); }
 
   utils::BasicResult<storage::Error, void> ClearProperties() {
     auto ret = impl_.ClearProperties();
@@ -86,44 +82,32 @@ class VertexAccessor final {
  public:
   storage::VertexAccessor impl_;
 
-  static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) {
-    return EdgeAccessor(impl);
-  }
+  static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) { return EdgeAccessor(impl); }
 
  public:
-  explicit VertexAccessor(storage::VertexAccessor impl)
-      : impl_(std::move(impl)) {}
+  explicit VertexAccessor(storage::VertexAccessor impl) : impl_(std::move(impl)) {}
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label) {
-    return impl_.AddLabel(label);
-  }
+  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) {
-    return impl_.RemoveLabel(label);
-  }
+  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
 
-  storage::Result<bool> HasLabel(storage::View view,
-                                 storage::LabelId label) const {
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
   }
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view,
-                                             storage::PropertyId key) const {
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<bool> SetProperty(storage::PropertyId key,
-                                    const storage::PropertyValue &value) {
+  storage::Result<bool> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
-  }
+  storage::Result<bool> RemoveProperty(storage::PropertyId key) { return SetProperty(key, storage::PropertyValue()); }
 
   utils::BasicResult<storage::Error, void> ClearProperties() {
     auto ret = impl_.ClearProperties();
@@ -131,10 +115,8 @@ class VertexAccessor final {
     return {};
   }
 
-  auto InEdges(storage::View view,
-               const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor,
-                                             *impl_.InEdges(view)))> {
+  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
     auto maybe_edges = impl_.InEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -142,20 +124,15 @@ class VertexAccessor final {
 
   auto InEdges(storage::View view) const { return InEdges(view, {}); }
 
-  auto InEdges(storage::View view,
-               const std::vector<storage::EdgeTypeId> &edge_types,
-               const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor,
-                                             *impl_.InEdges(view)))> {
+  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest) const
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
     auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  auto OutEdges(storage::View view,
-                const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor,
-                                             *impl_.OutEdges(view)))> {
+  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     auto maybe_edges = impl_.OutEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -163,23 +140,17 @@ class VertexAccessor final {
 
   auto OutEdges(storage::View view) const { return OutEdges(view, {}); }
 
-  auto OutEdges(storage::View view,
-                const std::vector<storage::EdgeTypeId> &edge_types,
+  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor,
-                                             *impl_.OutEdges(view)))> {
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  storage::Result<size_t> InDegree(storage::View view) const {
-    return impl_.InDegree(view);
-  }
+  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
 
-  storage::Result<size_t> OutDegree(storage::View view) const {
-    return impl_.OutDegree(view);
-  }
+  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
@@ -190,13 +161,9 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const {
-  return VertexAccessor(impl_.ToVertex());
-}
+inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
 
-inline VertexAccessor EdgeAccessor::From() const {
-  return VertexAccessor(impl_.FromVertex());
-}
+inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -225,8 +192,7 @@ class DbAccessor final {
       bool operator!=(const Iterator &other) const { return !(other == *this); }
     };
 
-    explicit VerticesIterable(storage::VerticesIterable iterable)
-        : iterable_(std::move(iterable)) {}
+    explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
 
     Iterator begin() { return Iterator(iterable_.begin()); }
 
@@ -234,60 +200,45 @@ class DbAccessor final {
   };
 
  public:
-  explicit DbAccessor(storage::Storage::Accessor *accessor)
-      : accessor_(accessor) {}
+  explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  std::optional<VertexAccessor> FindVertex(storage::Gid gid,
-                                           storage::View view) {
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
 
-  VerticesIterable Vertices(storage::View view) {
-    return VerticesIterable(accessor_->Vertices(view));
-  }
+  VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
-  VerticesIterable Vertices(storage::View view, storage::LabelId label,
-                            storage::PropertyId property) {
+  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property) {
     return VerticesIterable(accessor_->Vertices(label, property, view));
   }
 
-  VerticesIterable Vertices(storage::View view, storage::LabelId label,
-                            storage::PropertyId property,
+  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
                             const storage::PropertyValue &value) {
     return VerticesIterable(accessor_->Vertices(label, property, value, view));
   }
 
-  VerticesIterable Vertices(
-      storage::View view, storage::LabelId label, storage::PropertyId property,
-      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return VerticesIterable(
-        accessor_->Vertices(label, property, lower, upper, view));
+  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
+                            const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                            const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  VertexAccessor InsertVertex() {
-    return VertexAccessor(accessor_->CreateVertex());
-  }
+  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
-  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from,
-                                           VertexAccessor *to,
+  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
-    auto maybe_edge =
-        accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
-    if (maybe_edge.HasError())
-      return storage::Result<EdgeAccessor>(maybe_edge.GetError());
+    auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
+    if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(std::move(*maybe_edge));
   }
 
-  storage::Result<bool> RemoveEdge(EdgeAccessor *edge) {
-    return accessor_->DeleteEdge(&edge->impl_);
-  }
+  storage::Result<bool> RemoveEdge(EdgeAccessor *edge) { return accessor_->DeleteEdge(&edge->impl_); }
 
   storage::Result<bool> DetachRemoveVertex(VertexAccessor *vertex_accessor) {
     return accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
@@ -297,55 +248,35 @@ class DbAccessor final {
     return accessor_->DeleteVertex(&vertex_accessor->impl_);
   }
 
-  storage::PropertyId NameToProperty(const std::string_view &name) {
-    return accessor_->NameToProperty(name);
-  }
+  storage::PropertyId NameToProperty(const std::string_view &name) { return accessor_->NameToProperty(name); }
 
-  storage::LabelId NameToLabel(const std::string_view &name) {
-    return accessor_->NameToLabel(name);
-  }
+  storage::LabelId NameToLabel(const std::string_view &name) { return accessor_->NameToLabel(name); }
 
-  storage::EdgeTypeId NameToEdgeType(const std::string_view &name) {
-    return accessor_->NameToEdgeType(name);
-  }
+  storage::EdgeTypeId NameToEdgeType(const std::string_view &name) { return accessor_->NameToEdgeType(name); }
 
-  const std::string &PropertyToName(storage::PropertyId prop) const {
-    return accessor_->PropertyToName(prop);
-  }
+  const std::string &PropertyToName(storage::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 
-  const std::string &LabelToName(storage::LabelId label) const {
-    return accessor_->LabelToName(label);
-  }
+  const std::string &LabelToName(storage::LabelId label) const { return accessor_->LabelToName(label); }
 
-  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const {
-    return accessor_->EdgeTypeToName(type);
-  }
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::ConstraintViolation, void> Commit() {
-    return accessor_->Commit();
-  }
+  utils::BasicResult<storage::ConstraintViolation, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 
-  bool LabelIndexExists(storage::LabelId label) const {
-    return accessor_->LabelIndexExists(label);
-  }
+  bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label,
-                                storage::PropertyId prop) const {
+  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
 
-  int64_t VerticesCount(storage::LabelId label) const {
-    return accessor_->ApproximateVertexCount(label);
-  }
+  int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::LabelId label,
-                        storage::PropertyId property) const {
+  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVertexCount(label, property);
   }
 
@@ -354,20 +285,15 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, value);
   }
 
-  int64_t VerticesCount(
-      storage::LabelId label, storage::PropertyId property,
-      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-      const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
+                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
-  storage::IndicesInfo ListAllIndices() const {
-    return accessor_->ListAllIndices();
-  }
+  storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
-  storage::ConstraintsInfo ListAllConstraints() const {
-    return accessor_->ListAllConstraints();
-  }
+  storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 };
 
 }  // namespace query
@@ -376,16 +302,12 @@ namespace std {
 
 template <>
 struct hash<query::VertexAccessor> {
-  size_t operator()(const query::VertexAccessor &v) const {
-    return std::hash<decltype(v.impl_)>{}(v.impl_);
-  }
+  size_t operator()(const query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
 };
 
 template <>
 struct hash<query::EdgeAccessor> {
-  size_t operator()(const query::EdgeAccessor &e) const {
-    return std::hash<decltype(e.impl_)>{}(e.impl_);
-  }
+  size_t operator()(const query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
 };
 
 }  // namespace std

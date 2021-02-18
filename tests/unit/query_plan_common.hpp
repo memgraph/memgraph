@@ -20,20 +20,16 @@ using namespace query::plan;
 
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
-ExecutionContext MakeContext(const AstStorage &storage,
-                             const SymbolTable &symbol_table,
-                             query::DbAccessor *dba) {
+ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table, query::DbAccessor *dba) {
   ExecutionContext context{dba};
   context.symbol_table = symbol_table;
-  context.evaluation_context.properties =
-      NamesToProperties(storage.properties_, dba);
+  context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   return context;
 }
 
 /** Helper function that collects all the results from the given Produce. */
-std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
-                                                    ExecutionContext *context) {
+std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
 
   // top level node in the operator tree is a produce (return)
@@ -65,10 +61,8 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
 }
 
 template <typename... TNamedExpressions>
-auto MakeProduce(std::shared_ptr<LogicalOperator> input,
-                 TNamedExpressions... named_expressions) {
-  return std::make_shared<Produce>(
-      input, std::vector<NamedExpression *>{named_expressions...});
+auto MakeProduce(std::shared_ptr<LogicalOperator> input, TNamedExpressions... named_expressions) {
+  return std::make_shared<Produce>(input, std::vector<NamedExpression *>{named_expressions...});
 }
 
 struct ScanAllTuple {
@@ -83,10 +77,8 @@ struct ScanAllTuple {
  *
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
-ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table,
-                         const std::string &identifier,
-                         std::shared_ptr<LogicalOperator> input = {nullptr},
-                         storage::View view = storage::View::OLD) {
+ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
+                         std::shared_ptr<LogicalOperator> input = {nullptr}, storage::View view = storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
@@ -100,16 +92,13 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table,
  *
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
-ScanAllTuple MakeScanAllByLabel(
-    AstStorage &storage, SymbolTable &symbol_table,
-    const std::string &identifier, storage::LabelId label,
-    std::shared_ptr<LogicalOperator> input = {nullptr},
-    storage::View view = storage::View::OLD) {
+ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
+                                storage::LabelId label, std::shared_ptr<LogicalOperator> input = {nullptr},
+                                storage::View view = storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op =
-      std::make_shared<ScanAllByLabel>(input, symbol, label, view);
+  auto logical_op = std::make_shared<ScanAllByLabel>(input, symbol, label, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -119,19 +108,17 @@ ScanAllTuple MakeScanAllByLabel(
  *
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
-ScanAllTuple MakeScanAllByLabelPropertyRange(
-    AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    storage::LabelId label, storage::PropertyId property,
-    const std::string &property_name, std::optional<Bound> lower_bound,
-    std::optional<Bound> upper_bound,
-    std::shared_ptr<LogicalOperator> input = {nullptr},
-    storage::View view = storage::View::OLD) {
+ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
+                                             storage::LabelId label, storage::PropertyId property,
+                                             const std::string &property_name, std::optional<Bound> lower_bound,
+                                             std::optional<Bound> upper_bound,
+                                             std::shared_ptr<LogicalOperator> input = {nullptr},
+                                             storage::View view = storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      input, symbol, label, property, property_name, lower_bound, upper_bound,
-      view);
+  auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, property_name,
+                                                                  lower_bound, upper_bound, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -141,17 +128,16 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  *
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
-ScanAllTuple MakeScanAllByLabelPropertyValue(
-    AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    storage::LabelId label, storage::PropertyId property,
-    const std::string &property_name, Expression *value,
-    std::shared_ptr<LogicalOperator> input = {nullptr},
-    storage::View view = storage::View::OLD) {
+ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
+                                             storage::LabelId label, storage::PropertyId property,
+                                             const std::string &property_name, Expression *value,
+                                             std::shared_ptr<LogicalOperator> input = {nullptr},
+                                             storage::View view = storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(
-      input, symbol, label, property, property_name, value, view);
+  auto logical_op =
+      std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, property_name, value, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -163,13 +149,10 @@ struct ExpandTuple {
   std::shared_ptr<LogicalOperator> op_;
 };
 
-ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
-                       std::shared_ptr<LogicalOperator> input,
-                       Symbol input_symbol, const std::string &edge_identifier,
-                       EdgeAtom::Direction direction,
-                       const std::vector<storage::EdgeTypeId> &edge_types,
-                       const std::string &node_identifier, bool existing_node,
-                       storage::View view) {
+ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shared_ptr<LogicalOperator> input,
+                       Symbol input_symbol, const std::string &edge_identifier, EdgeAtom::Direction direction,
+                       const std::vector<storage::EdgeTypeId> &edge_types, const std::string &node_identifier,
+                       bool existing_node, storage::View view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
   edge->identifier_->MapTo(edge_sym);
@@ -179,8 +162,7 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
   node->identifier_->MapTo(node_sym);
 
   auto op =
-      std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym,
-                               direction, edge_types, existing_node, view);
+      std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types, existing_node, view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
@@ -190,10 +172,8 @@ struct UnwindTuple {
   std::shared_ptr<LogicalOperator> op_;
 };
 
-UnwindTuple MakeUnwind(SymbolTable &symbol_table,
-                       const std::string &symbol_name,
-                       std::shared_ptr<LogicalOperator> input,
-                       Expression *input_expression) {
+UnwindTuple MakeUnwind(SymbolTable &symbol_table, const std::string &symbol_name,
+                       std::shared_ptr<LogicalOperator> input, Expression *input_expression) {
   auto sym = symbol_table.CreateSymbol(symbol_name, true);
   auto op = std::make_shared<query::plan::Unwind>(input, input_expression, sym);
   return UnwindTuple{sym, op};

@@ -39,18 +39,14 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(false)), "false");
 
   // [1 null "hello"]
-  std::vector<storage::PropertyValue> values{storage::PropertyValue(1),
-                                             storage::PropertyValue(),
+  std::vector<storage::PropertyValue> values{storage::PropertyValue(1), storage::PropertyValue(),
                                              storage::PropertyValue("hello")};
-  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(values))),
-            "[1, null, \"hello\"]");
+  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(values))), "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
-  std::map<std::string, storage::PropertyValue> map{
-      {"hello", storage::PropertyValue(1)},
-      {"there", storage::PropertyValue(2)}};
-  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(map))),
-            "{\"hello\": 1, \"there\": 2}");
+  std::map<std::string, storage::PropertyValue> map{{"hello", storage::PropertyValue(1)},
+                                                    {"there", storage::PropertyValue(2)}};
+  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(map))), "{\"hello\": 1, \"there\": 2}");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, Identifiers) {
@@ -70,12 +66,10 @@ TEST_F(ExpressionPrettyPrinterTest, Reducing) {
             "(Identifier \"x\") \"prop\") 42))");
 
   // reduce(accumulator = initial_value, variable IN list | expression)
-  EXPECT_EQ(
-      ToString(REDUCE("accumulator", IDENT("initial_value"), "variable",
-                      IDENT("list"), IDENT("expression"))),
-      "(Reduce (Identifier \"accumulator\") (Identifier \"initial_value\") "
-      "(Identifier \"variable\") (Identifier \"list\") (Identifier "
-      "\"expression\"))");
+  EXPECT_EQ(ToString(REDUCE("accumulator", IDENT("initial_value"), "variable", IDENT("list"), IDENT("expression"))),
+            "(Reduce (Identifier \"accumulator\") (Identifier \"initial_value\") "
+            "(Identifier \"variable\") (Identifier \"list\") (Identifier "
+            "\"expression\"))");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, UnaryOperators) {
@@ -97,17 +91,14 @@ TEST_F(ExpressionPrettyPrinterTest, BinaryOperators) {
   EXPECT_EQ(ToString(AND(LITERAL(TypedValue()), LITERAL(5))), "(And null 5)");
 
   // or(5, {hello: "there"}["hello"])
-  EXPECT_EQ(ToString(OR(LITERAL(5),
-                        PROPERTY_LOOKUP(
-                            MAP(std::make_pair(storage.GetPropertyIx("hello"),
-                                               LITERAL("there"))),
-                            "hello"))),
-            "(Or 5 (PropertyLookup {\"hello\": \"there\"} \"hello\"))");
+  EXPECT_EQ(
+      ToString(OR(LITERAL(5),
+                  PROPERTY_LOOKUP(MAP(std::make_pair(storage.GetPropertyIx("hello"), LITERAL("there"))), "hello"))),
+      "(Or 5 (PropertyLookup {\"hello\": \"there\"} \"hello\"))");
 
   // and(coalesce(null, 1), {hello: "there"})
   EXPECT_EQ(ToString(AND(COALESCE(LITERAL(TypedValue()), LITERAL(1)),
-                         MAP(std::make_pair(storage.GetPropertyIx("hello"),
-                                            LITERAL("there"))))),
+                         MAP(std::make_pair(storage.GetPropertyIx("hello"), LITERAL("there"))))),
             "(And (Coalesce [null, 1]) {\"hello\": \"there\"})");
 }
 
@@ -116,42 +107,33 @@ TEST_F(ExpressionPrettyPrinterTest, Coalesce) {
   EXPECT_EQ(ToString(COALESCE()), "(Coalesce [])");
 
   // coalesce(null, null)
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))),
-            "(Coalesce [null, null])");
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))), "(Coalesce [null, null])");
 
   // coalesce(null, 2, 3)
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))),
-            "(Coalesce [null, 2, 3])");
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))), "(Coalesce [null, 2, 3])");
 
   // coalesce(null, 2, assert(false), 3)
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2),
-                              FN("ASSERT", LITERAL(false)), LITERAL(3))),
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), LITERAL(2), FN("ASSERT", LITERAL(false)), LITERAL(3))),
             "(Coalesce [null, 2, (Function \"ASSERT\" [false]), 3])");
 
   // coalesce(null, assert(false))
-  EXPECT_EQ(
-      ToString(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))),
-      "(Coalesce [null, (Function \"ASSERT\" [false])])");
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))),
+            "(Coalesce [null, (Function \"ASSERT\" [false])])");
 
   // coalesce([null, null])
-  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue(
-                std::vector<TypedValue>{TypedValue(), TypedValue()})))),
+  EXPECT_EQ(ToString(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue()})))),
             "(Coalesce [[null, null]])");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, ParameterLookup) {
   // and($hello, $there)
-  EXPECT_EQ(ToString(AND(PARAMETER_LOOKUP(1), PARAMETER_LOOKUP(2))),
-            "(And (ParameterLookup 1) (ParameterLookup 2))");
+  EXPECT_EQ(ToString(AND(PARAMETER_LOOKUP(1), PARAMETER_LOOKUP(2))), "(And (ParameterLookup 1) (ParameterLookup 2))");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, PropertyLookup) {
   // {hello: "there"}["hello"]
-  EXPECT_EQ(
-      ToString(PROPERTY_LOOKUP(
-          MAP(std::make_pair(storage.GetPropertyIx("hello"), LITERAL("there"))),
-          "hello")),
-      "(PropertyLookup {\"hello\": \"there\"} \"hello\")");
+  EXPECT_EQ(ToString(PROPERTY_LOOKUP(MAP(std::make_pair(storage.GetPropertyIx("hello"), LITERAL("there"))), "hello")),
+            "(PropertyLookup {\"hello\": \"there\"} \"hello\")");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, NamedExpression) {

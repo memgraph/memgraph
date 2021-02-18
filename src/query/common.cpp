@@ -15,9 +15,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // comparisons are from this point legal only between values of
   // the  same type, or int+float combinations
   if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
-    throw QueryRuntimeException(
-        "Can't compare value of type {} to value of type {}.", a.type(),
-        b.type());
+    throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
@@ -39,8 +37,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
-      throw QueryRuntimeException(
-          "Comparison is not defined for values of type {}.", a.type());
+      throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     default:
       LOG_FATAL("Unhandled comparison for types");
   }

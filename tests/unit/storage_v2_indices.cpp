@@ -31,8 +31,7 @@ class IndexTest : public testing::Test {
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
-    MG_ASSERT(
-        !vertex.SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
+    MG_ASSERT(!vertex.SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
     return vertex;
   }
 
@@ -70,10 +69,8 @@ TEST_F(IndexTest, LabelIndexCreate) {
 
   {
     auto acc = storage.Access();
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   {
@@ -83,8 +80,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
@@ -105,8 +101,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
@@ -159,10 +154,8 @@ TEST_F(IndexTest, LabelIndexDrop) {
 
   {
     auto acc = storage.Access();
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   EXPECT_TRUE(storage.DropIndex(label1));
@@ -225,8 +218,7 @@ TEST_F(IndexTest, LabelIndexBasic) {
   EXPECT_TRUE(storage.CreateIndex(label2));
 
   auto acc = storage.Access();
-  EXPECT_THAT(storage.ListAllIndices().label,
-              UnorderedElementsAre(label1, label2));
+  EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1, label2));
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), IsEmpty());
@@ -239,20 +231,14 @@ TEST_F(IndexTest, LabelIndexBasic) {
 
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   acc.AdvanceCommand();
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc.Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
@@ -263,14 +249,10 @@ TEST_F(IndexTest, LabelIndexBasic) {
     }
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc.Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
@@ -279,10 +261,8 @@ TEST_F(IndexTest, LabelIndexBasic) {
     }
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::NEW), View::NEW), IsEmpty());
 
@@ -309,32 +289,27 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
       ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     ASSERT_NO_ERROR(acc.Commit());
   }
 
   {
     auto acc = storage.Access();
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.RemoveLabel(label1));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), IsEmpty());
 
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
-    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
   }
 }
 
@@ -353,23 +328,17 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(vertex.AddLabel(label1));
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 1, 2, 3, 4));
-  EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW),
-              IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW), IsEmpty());
 
   ASSERT_NO_ERROR(acc.Commit());
 
   auto acc_after_commit = storage.Access();
 
-  EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc_after_commit.Vertices(label1, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after_commit.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -395,15 +364,13 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = storage.Access();
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label1, prop_id));
   }
-  EXPECT_THAT(storage.ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(label1, prop_id)));
+  EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label1, prop_id)));
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
   EXPECT_FALSE(storage.CreateIndex(label1, prop_id));
-  EXPECT_THAT(storage.ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(label1, prop_id)));
+  EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label1, prop_id)));
 
   EXPECT_TRUE(storage.CreateIndex(label2, prop_id));
   {
@@ -411,16 +378,14 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(label1, prop_id),
-                                   std::make_pair(label2, prop_id)));
+              UnorderedElementsAre(std::make_pair(label1, prop_id), std::make_pair(label2, prop_id)));
 
   EXPECT_TRUE(storage.DropIndex(label1, prop_id));
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
   }
-  EXPECT_THAT(storage.ListAllIndices().label_property,
-              UnorderedElementsAre(std::make_pair(label2, prop_id)));
+  EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label2, prop_id)));
   EXPECT_FALSE(storage.DropIndex(label1, prop_id));
 
   EXPECT_TRUE(storage.DropIndex(label2, prop_id));
@@ -442,8 +407,7 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
   storage.CreateIndex(label2, prop_val);
 
   auto acc = storage.Access();
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = CreateVertex(&acc);
@@ -451,25 +415,17 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
     ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   acc.AdvanceCommand();
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc.Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
@@ -480,14 +436,10 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc.Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
@@ -496,25 +448,17 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(1, 3, 5, 7, 9));
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD),
-              UnorderedElementsAre(0, 2, 4, 6, 8));
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW),
-              IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW), IsEmpty());
 
   acc.AdvanceCommand();
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              IsEmpty());
-  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW),
-              IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label2, prop_val, View::NEW), View::NEW), IsEmpty());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -528,33 +472,27 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
       ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     ASSERT_NO_ERROR(acc.Commit());
   }
 
   {
     auto acc = storage.Access();
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue()));
     }
 
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-                IsEmpty());
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
 
     for (auto vertex : acc.Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(42)));
     }
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-                UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
   }
 }
 
@@ -572,28 +510,18 @@ TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW),
-              UnorderedElementsAre(0, 1, 2, 3, 4));
-  EXPECT_THAT(
-      GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW),
-      IsEmpty());
-  EXPECT_THAT(
-      GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW),
-      IsEmpty());
+  EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
 
   ASSERT_NO_ERROR(acc.Commit());
 
   auto acc_after_commit = storage.Access();
 
-  EXPECT_THAT(
-      GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW),
-      IsEmpty());
-  EXPECT_THAT(
-      GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW),
-      IsEmpty());
-  EXPECT_THAT(
-      GetIds(acc_after_commit.Vertices(label1, prop_val, View::NEW), View::NEW),
-      UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc_after_commit.Vertices(label1, prop_val, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -612,65 +540,51 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabel(label1));
-      ASSERT_NO_ERROR(vertex.SetProperty(
-          prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
     ASSERT_NO_ERROR(acc.Commit());
   }
   {
     auto acc = storage.Access();
     for (int i = 0; i < 5; ++i) {
-      EXPECT_THAT(
-          GetIds(acc.Vertices(label1, prop_val, PropertyValue(i), View::OLD)),
-          UnorderedElementsAre(2 * i, 2 * i + 1));
+      EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, PropertyValue(i), View::OLD)),
+                  UnorderedElementsAre(2 * i, 2 * i + 1));
     }
 
     // [1, +inf>
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val,
-                                    utils::MakeBoundInclusive(PropertyValue(1)),
-                                    std::nullopt, View::OLD)),
-                UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(
+        GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt, View::OLD)),
+        UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
     // <1, +inf>
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val,
-                                    utils::MakeBoundExclusive(PropertyValue(1)),
-                                    std::nullopt, View::OLD)),
-                UnorderedElementsAre(4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(
+        GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)), std::nullopt, View::OLD)),
+        UnorderedElementsAre(4, 5, 6, 7, 8, 9));
 
     // <-inf, 3]
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, std::nullopt,
-                                    utils::MakeBoundInclusive(PropertyValue(3)),
-                                    View::OLD)),
-                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
+    EXPECT_THAT(
+        GetIds(acc.Vertices(label1, prop_val, std::nullopt, utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+        UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
     // <-inf, 3>
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, std::nullopt,
-                                    utils::MakeBoundExclusive(PropertyValue(3)),
-                                    View::OLD)),
-                UnorderedElementsAre(0, 1, 2, 3, 4, 5));
+    EXPECT_THAT(
+        GetIds(acc.Vertices(label1, prop_val, std::nullopt, utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+        UnorderedElementsAre(0, 1, 2, 3, 4, 5));
 
     // [1, 3]
-    EXPECT_THAT(
-        GetIds(acc.Vertices(
-            label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
-            utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(2, 3, 4, 5, 6, 7));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
+                                    utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(2, 3, 4, 5, 6, 7));
     // <1, 3]
-    EXPECT_THAT(
-        GetIds(acc.Vertices(
-            label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
-            utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(4, 5, 6, 7));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
+                                    utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(4, 5, 6, 7));
     // [1, 3>
-    EXPECT_THAT(
-        GetIds(acc.Vertices(
-            label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
-            utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(2, 3, 4, 5));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
+                                    utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(2, 3, 4, 5));
     // <1, 3>
-    EXPECT_THAT(
-        GetIds(acc.Vertices(
-            label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
-            utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(4, 5));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
+                                    utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(4, 5));
   }
 }
 
@@ -689,13 +603,11 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
 
   EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val), 55);
   for (int i = 1; i <= 10; ++i) {
-    EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, PropertyValue(i)),
-              i);
+    EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, PropertyValue(i)), i);
   }
 
-  EXPECT_EQ(acc.ApproximateVertexCount(
-                label1, prop_val, utils::MakeBoundInclusive(PropertyValue(2)),
-                utils::MakeBoundInclusive(PropertyValue(6))),
+  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(2)),
+                                       utils::MakeBoundInclusive(PropertyValue(6))),
             2 + 3 + 4 + 5 + 6);
 }
 
@@ -724,10 +636,8 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
       PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
       PropertyValue(std::map<std::string, PropertyValue>()),
-      PropertyValue(
-          std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
-      PropertyValue(
-          std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}}),
+      PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+      PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}}),
   };
 
   // Create vertices, each with one of the values above.
@@ -758,8 +668,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
   }
 
   auto verify = [&](const std::optional<utils::Bound<PropertyValue>> &from,
-                    const std::optional<utils::Bound<PropertyValue>> &to,
-                    const std::vector<PropertyValue> &expected) {
+                    const std::optional<utils::Bound<PropertyValue>> &to, const std::vector<PropertyValue> &expected) {
     auto acc = storage.Access();
     auto iterable = acc.Vertices(label1, prop_val, from, to, View::OLD);
     size_t i = 0;
@@ -774,148 +683,93 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Range iteration with two specified bounds that have the same type should
   // yield the naturally expected items.
-  verify(utils::MakeBoundExclusive(PropertyValue(false)),
-         utils::MakeBoundExclusive(PropertyValue(true)), {});
-  verify(utils::MakeBoundExclusive(PropertyValue(false)),
-         utils::MakeBoundInclusive(PropertyValue(true)), {PropertyValue(true)});
-  verify(utils::MakeBoundInclusive(PropertyValue(false)),
-         utils::MakeBoundExclusive(PropertyValue(true)),
+  verify(utils::MakeBoundExclusive(PropertyValue(false)), utils::MakeBoundExclusive(PropertyValue(true)), {});
+  verify(utils::MakeBoundExclusive(PropertyValue(false)), utils::MakeBoundInclusive(PropertyValue(true)),
+         {PropertyValue(true)});
+  verify(utils::MakeBoundInclusive(PropertyValue(false)), utils::MakeBoundExclusive(PropertyValue(true)),
          {PropertyValue(false)});
-  verify(utils::MakeBoundInclusive(PropertyValue(false)),
-         utils::MakeBoundInclusive(PropertyValue(true)),
+  verify(utils::MakeBoundInclusive(PropertyValue(false)), utils::MakeBoundInclusive(PropertyValue(true)),
          {PropertyValue(false), PropertyValue(true)});
-  verify(utils::MakeBoundExclusive(PropertyValue(0)),
-         utils::MakeBoundExclusive(PropertyValue(1.8)),
+  verify(utils::MakeBoundExclusive(PropertyValue(0)), utils::MakeBoundExclusive(PropertyValue(1.8)),
          {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundExclusive(PropertyValue(0)),
-         utils::MakeBoundInclusive(PropertyValue(1.8)),
+  verify(utils::MakeBoundExclusive(PropertyValue(0)), utils::MakeBoundInclusive(PropertyValue(1.8)),
          {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue(0)),
-         utils::MakeBoundExclusive(PropertyValue(1.8)),
-         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1),
-          PropertyValue(1.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue(0)),
-         utils::MakeBoundInclusive(PropertyValue(1.8)),
-         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1),
-          PropertyValue(1.5)});
-  verify(utils::MakeBoundExclusive(PropertyValue("b")),
-         utils::MakeBoundExclusive(PropertyValue("memgraph")),
+  verify(utils::MakeBoundInclusive(PropertyValue(0)), utils::MakeBoundExclusive(PropertyValue(1.8)),
+         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
+  verify(utils::MakeBoundInclusive(PropertyValue(0)), utils::MakeBoundInclusive(PropertyValue(1.8)),
+         {PropertyValue(0), PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
+  verify(utils::MakeBoundExclusive(PropertyValue("b")), utils::MakeBoundExclusive(PropertyValue("memgraph")),
          {PropertyValue("c")});
-  verify(utils::MakeBoundExclusive(PropertyValue("b")),
-         utils::MakeBoundInclusive(PropertyValue("memgraph")),
+  verify(utils::MakeBoundExclusive(PropertyValue("b")), utils::MakeBoundInclusive(PropertyValue("memgraph")),
          {PropertyValue("c")});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")),
-         utils::MakeBoundExclusive(PropertyValue("memgraph")),
+  verify(utils::MakeBoundInclusive(PropertyValue("b")), utils::MakeBoundExclusive(PropertyValue("memgraph")),
          {PropertyValue("b"), PropertyValue("c")});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")),
-         utils::MakeBoundInclusive(PropertyValue("memgraph")),
+  verify(utils::MakeBoundInclusive(PropertyValue("b")), utils::MakeBoundInclusive(PropertyValue("memgraph")),
          {PropertyValue("b"), PropertyValue("c")});
-  verify(utils::MakeBoundExclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundExclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundExclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundInclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundInclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundExclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundInclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundInclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundExclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundExclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
-         {PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundExclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundInclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
-         {PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundInclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundExclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
-         {PropertyValue(
-              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
-          PropertyValue(std::map<std::string, PropertyValue>{
-              {"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundInclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundInclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
-         {PropertyValue(
-              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
-          PropertyValue(std::map<std::string, PropertyValue>{
-              {"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+          PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
+  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+         {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+          PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
 
   // Range iteration with one unspecified bound should only yield items that
   // have the same type as the specified bound.
-  verify(utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt,
-         {PropertyValue(false), PropertyValue(true)});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(true)),
-         {PropertyValue(false)});
+  verify(utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt, {PropertyValue(false), PropertyValue(true)});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(true)), {PropertyValue(false)});
   verify(utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt,
-         {PropertyValue(1), PropertyValue(1.5), PropertyValue(2),
-          PropertyValue(std::numeric_limits<int64_t>::max()),
+         {PropertyValue(1), PropertyValue(1.5), PropertyValue(2), PropertyValue(std::numeric_limits<int64_t>::max()),
           PropertyValue(std::numeric_limits<double>::infinity())});
   verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(0)),
-         {PropertyValue(-std::numeric_limits<double>::infinity()),
-          PropertyValue(std::numeric_limits<int64_t>::min()), PropertyValue(-1),
-          PropertyValue(-0.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")), std::nullopt,
-         {PropertyValue("b"), PropertyValue("c")});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue("b")),
-         {PropertyValue(""), PropertyValue("a")});
-  verify(utils::MakeBoundInclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(false)})),
-         std::nullopt,
+         {PropertyValue(-std::numeric_limits<double>::infinity()), PropertyValue(std::numeric_limits<int64_t>::min()),
+          PropertyValue(-1), PropertyValue(-0.5)});
+  verify(utils::MakeBoundInclusive(PropertyValue("b")), std::nullopt, {PropertyValue("b"), PropertyValue("c")});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue("b")), {PropertyValue(""), PropertyValue("a")});
+  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(false)})), std::nullopt,
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
+         {PropertyValue(std::vector<PropertyValue>()), PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
+  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(false)}})),
+         std::nullopt,
+         {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
+          PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
   verify(std::nullopt,
-         utils::MakeBoundExclusive(
-             PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
-         {PropertyValue(std::vector<PropertyValue>()),
-          PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
-  verify(
-      utils::MakeBoundInclusive(PropertyValue(
-          std::map<std::string, PropertyValue>{{"id", PropertyValue(false)}})),
-      std::nullopt,
-      {PropertyValue(
-           std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
-       PropertyValue(
-           std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(std::nullopt,
-         utils::MakeBoundExclusive(PropertyValue(
-             std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
+         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
          {PropertyValue(std::map<std::string, PropertyValue>()),
-          PropertyValue(
-              std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}})});
+          PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}})});
 
   // Range iteration with two specified bounds that don't have the same type
   // should yield no items.
   for (size_t i = 0; i < values.size(); ++i) {
     for (size_t j = i; j < values.size(); ++j) {
-      if (PropertyValue::AreComparableTypes(values[i].type(),
-                                            values[j].type())) {
-        verify(utils::MakeBoundInclusive(values[i]),
-               utils::MakeBoundInclusive(values[j]),
+      if (PropertyValue::AreComparableTypes(values[i].type(), values[j].type())) {
+        verify(utils::MakeBoundInclusive(values[i]), utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});
       } else {
-        verify(utils::MakeBoundInclusive(values[i]),
-               utils::MakeBoundInclusive(values[j]), {});
+        verify(utils::MakeBoundInclusive(values[i]), utils::MakeBoundInclusive(values[j]), {});
       }
     }
   }

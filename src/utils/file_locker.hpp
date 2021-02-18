@@ -89,8 +89,7 @@ class FileRetainer {
     FileLocker &operator=(FileLocker &&) = default;
 
    private:
-    explicit FileLocker(FileRetainer *retainer, size_t locker_id)
-        : file_retainer_{retainer}, locker_id_{locker_id} {}
+    explicit FileLocker(FileRetainer *retainer, size_t locker_id) : file_retainer_{retainer}, locker_id_{locker_id} {}
 
     FileRetainer *file_retainer_;
     size_t locker_id_;
@@ -181,10 +180,8 @@ class FileRetainer {
     std::set<std::filesystem::path> files_;
   };
 
-  utils::Synchronized<std::unordered_map<size_t, LockerEntry>, utils::SpinLock>
-      lockers_;
-  utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock>
-      files_for_deletion_;
+  utils::Synchronized<std::unordered_map<size_t, LockerEntry>, utils::SpinLock> lockers_;
+  utils::Synchronized<std::set<std::filesystem::path>, utils::SpinLock> files_for_deletion_;
 };
 
 }  // namespace utils

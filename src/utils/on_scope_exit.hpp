@@ -25,8 +25,7 @@ namespace utils {
  */
 class OnScopeExit {
  public:
-  explicit OnScopeExit(const std::function<void()> &function)
-      : function_(function) {}
+  explicit OnScopeExit(const std::function<void()> &function) : function_(function) {}
   ~OnScopeExit() { function_(); }
 
  private:

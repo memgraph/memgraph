@@ -42,30 +42,22 @@ bool ValidateIdTypeOptions(const char *flagname, const std::string &value) {
 // They are used to automatically load the same configuration as the main
 // Memgraph binary so that the flags don't need to be specified when importing a
 // CSV file on a correctly set-up Memgraph installation.
-DEFINE_string(data_directory, "mg_data",
-              "Path to directory in which to save all permanent data.");
-DEFINE_bool(storage_properties_on_edges, false,
-            "Controls whether relationships have properties.");
+DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+DEFINE_bool(storage_properties_on_edges, false, "Controls whether relationships have properties.");
 
 // CSV import flags.
-DEFINE_string(array_delimiter, ";",
-              "Delimiter between elements of array values.");
+DEFINE_string(array_delimiter, ";", "Delimiter between elements of array values.");
 DEFINE_validator(array_delimiter, &ValidateControlCharacter);
 DEFINE_string(delimiter, ",", "Delimiter between each field in the CSV.");
 DEFINE_validator(delimiter, &ValidateControlCharacter);
-DEFINE_string(quote, "\"",
-              "Quotation character for data in the CSV. Cannot contain '\n'");
+DEFINE_string(quote, "\"", "Quotation character for data in the CSV. Cannot contain '\n'");
 DEFINE_validator(quote, &ValidateControlCharacter);
-DEFINE_bool(skip_duplicate_nodes, false,
-            "Set to true to skip duplicate nodes instead of raising an error.");
+DEFINE_bool(skip_duplicate_nodes, false, "Set to true to skip duplicate nodes instead of raising an error.");
 DEFINE_bool(skip_bad_relationships, false,
             "Set to true to skip relationships that connect nodes that don't "
             "exist instead of raising an error.");
-DEFINE_bool(ignore_empty_strings, false,
-            "Set to true to treat empty strings as null values.");
-DEFINE_bool(
-    ignore_extra_columns, false,
-    "Set to true to ignore columns that aren't specified in the header.");
+DEFINE_bool(ignore_empty_strings, false, "Set to true to treat empty strings as null values.");
+DEFINE_bool(ignore_extra_columns, false, "Set to true to ignore columns that aren't specified in the header.");
 DEFINE_bool(trim_strings, false,
             "Set to true to trim leading/trailing whitespace from all fields "
             "that are loaded from the CSV file.");
@@ -75,25 +67,22 @@ DEFINE_string(id_type, "STRING",
 DEFINE_validator(id_type, &ValidateIdTypeOptions);
 // Arguments `--nodes` and `--relationships` can be input multiple times and are
 // handled with custom parsing.
-DEFINE_string(
-    nodes, "",
-    "Files that should be parsed for nodes. The CSV header will be loaded from "
-    "the first supplied file, all other files supplied in a single flag will "
-    "be treated as data files. Additional labels can be specified for the node "
-    "files. The flag can be specified multiple times (useful for differently "
-    "formatted node files). The format of this argument is: "
-    "[<label>[:<label>]...=]<file>[,<file>][,<file>]...");
-DEFINE_string(
-    relationships, "",
-    "Files that should be parsed for relationships. The CSV header will be "
-    "loaded from the first supplied file, all other files supplied in a single "
-    "flag will be treated as data files. The relationship type can be "
-    "specified for the relationship files. The flag can be specified multiple "
-    "times (useful for differently formatted relationship files). The format "
-    "of this argument is: [<type>=]<file>[,<file>][,<file>]...");
+DEFINE_string(nodes, "",
+              "Files that should be parsed for nodes. The CSV header will be loaded from "
+              "the first supplied file, all other files supplied in a single flag will "
+              "be treated as data files. Additional labels can be specified for the node "
+              "files. The flag can be specified multiple times (useful for differently "
+              "formatted node files). The format of this argument is: "
+              "[<label>[:<label>]...=]<file>[,<file>][,<file>]...");
+DEFINE_string(relationships, "",
+              "Files that should be parsed for relationships. The CSV header will be "
+              "loaded from the first supplied file, all other files supplied in a single "
+              "flag will be treated as data files. The relationship type can be "
+              "specified for the relationship files. The flag can be specified multiple "
+              "times (useful for differently formatted relationship files). The format "
+              "of this argument is: [<type>=]<file>[,<file>][,<file>]...");
 
-std::vector<std::string> ParseRepeatedFlag(const std::string &flagname,
-                                           int argc, char *argv[]) {
+std::vector<std::string> ParseRepeatedFlag(const std::string &flagname, int argc, char *argv[]) {
   std::vector<std::string> values;
   for (int i = 1; i < argc; ++i) {
     std::string flag(argv[i]);
@@ -132,9 +121,7 @@ struct NodeId {
   std::string id_space;
 };
 
-bool operator==(const NodeId &a, const NodeId &b) {
-  return a.id == b.id && a.id_space == b.id_space;
-}
+bool operator==(const NodeId &a, const NodeId &b) { return a.id == b.id && a.id_space == b.id_space; }
 
 std::ostream &operator<<(std::ostream &stream, const NodeId &node_id) {
   if (!node_id.id_space.empty()) {
@@ -171,8 +158,7 @@ enum class CsvParserState {
   EXPECT_DELIMITER,
 };
 
-bool SubstringStartsWith(const std::string_view &str, size_t pos,
-                         const std::string_view &what) {
+bool SubstringStartsWith(const std::string_view &str, size_t pos, const std::string_view &what) {
   return utils::StartsWith(utils::Substr(str, pos), what);
 }
 
@@ -262,8 +248,7 @@ std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
         }
         case CsvParserState::QUOTING: {
           auto quote_now = SubstringStartsWith(line, i, FLAGS_quote);
-          auto quote_next =
-              SubstringStartsWith(line, i + FLAGS_quote.size(), FLAGS_quote);
+          auto quote_next = SubstringStartsWith(line, i + FLAGS_quote.size(), FLAGS_quote);
           if (quote_now && quote_next) {
             // This is an escaped quote character.
             column += FLAGS_quote;
@@ -293,8 +278,7 @@ std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
             state = CsvParserState::NEXT_FIELD;
             i += FLAGS_delimiter.size() - 1;
           } else {
-            throw LoadException("Expected '{}' after '{}', but got '{}'",
-                                FLAGS_delimiter, FLAGS_quote, c);
+            throw LoadException("Expected '{}' after '{}', but got '{}'", FLAGS_delimiter, FLAGS_quote, c);
           }
           break;
         }
@@ -326,8 +310,7 @@ std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
   }
 
   if (FLAGS_trim_strings) {
-    std::transform(std::begin(row), std::end(row), std::begin(row),
-                   [](const auto &item) { return utils::Trim(item); });
+    std::transform(std::begin(row), std::end(row), std::begin(row), [](const auto &item) { return utils::Trim(item); });
   }
 
   return {std::move(row), lines_count};
@@ -373,13 +356,10 @@ double StringToDouble(const std::string &value) {
 }
 
 /// @throw LoadException
-storage::PropertyValue StringToValue(const std::string &str,
-                                     const std::string &type) {
-  if (FLAGS_ignore_empty_strings && str.empty())
-    return storage::PropertyValue();
+storage::PropertyValue StringToValue(const std::string &str, const std::string &type) {
+  if (FLAGS_ignore_empty_strings && str.empty()) return storage::PropertyValue();
   auto convert = [](const auto &str, const auto &type) {
-    if (type == "integer" || type == "int" || type == "long" ||
-        type == "byte" || type == "short") {
+    if (type == "integer" || type == "int" || type == "long" || type == "byte" || type == "short") {
       return storage::PropertyValue(StringToInt(str));
     } else if (type == "float" || type == "double") {
       return storage::PropertyValue(StringToDouble(str));
@@ -411,8 +391,7 @@ storage::PropertyValue StringToValue(const std::string &str,
 std::string GetIdSpace(const std::string &type) {
   // The format of this field is as follows:
   // [START_|END_]ID[(<id_space>)]
-  std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)",
-                    std::regex::extended);
+  std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)", std::regex::extended);
   std::smatch res;
   if (!std::regex_match(type, res, format))
     throw LoadException(
@@ -424,8 +403,7 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 /// @throw LoadException
-void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields,
-                    const std::vector<std::string> &row,
+void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, const std::vector<std::string> &row,
                     const std::vector<std::string> &additional_labels,
                     std::unordered_map<NodeId, storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
@@ -458,45 +436,32 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields,
         } else {
           pv_id = storage::PropertyValue(node_id.id);
         }
-        auto node_property =
-            node.SetProperty(acc.NameToProperty(field.name), pv_id);
-        if (!node_property.HasValue())
-          throw LoadException("Couldn't add property '{}' to the node",
-                              field.name);
-        if (!*node_property)
-          throw LoadException("The property '{}' already exists", field.name);
+        auto node_property = node.SetProperty(acc.NameToProperty(field.name), pv_id);
+        if (!node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
+        if (!*node_property) throw LoadException("The property '{}' already exists", field.name);
       }
       id = node_id;
     } else if (field.type == "LABEL") {
       for (const auto &label : utils::Split(value, FLAGS_array_delimiter)) {
         auto node_label = node.AddLabel(acc.NameToLabel(label));
-        if (!node_label.HasValue())
-          throw LoadException("Couldn't add label '{}' to the node", label);
-        if (!*node_label)
-          throw LoadException("The label '{}' already exists", label);
+        if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
+        if (!*node_label) throw LoadException("The label '{}' already exists", label);
       }
     } else if (field.type != "IGNORE") {
-      auto node_property = node.SetProperty(acc.NameToProperty(field.name),
-                                            StringToValue(value, field.type));
-      if (!node_property.HasValue())
-        throw LoadException("Couldn't add property '{}' to the node",
-                            field.name);
-      if (!*node_property)
-        throw LoadException("The property '{}' already exists", field.name);
+      auto node_property = node.SetProperty(acc.NameToProperty(field.name), StringToValue(value, field.type));
+      if (!node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
+      if (!*node_property) throw LoadException("The property '{}' already exists", field.name);
     }
   }
   for (const auto &label : additional_labels) {
     auto node_label = node.AddLabel(acc.NameToLabel(label));
-    if (!node_label.HasValue())
-      throw LoadException("Couldn't add label '{}' to the node", label);
-    if (!*node_label)
-      throw LoadException("The label '{}' already exists", label);
+    if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
+    if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }
   if (acc.Commit().HasError()) throw LoadException("Couldn't store the node");
 }
 
-void ProcessNodes(storage::Storage *store, const std::string &nodes_path,
-                  std::optional<std::vector<Field>> *header,
+void ProcessNodes(storage::Storage *store, const std::string &nodes_path, std::optional<std::vector<Field>> *header,
                   std::unordered_map<NodeId, storage::Gid> *node_id_map,
                   const std::vector<std::string> &additional_labels) {
   std::ifstream nodes_file(nodes_path);
@@ -524,17 +489,14 @@ void ProcessNodes(storage::Storage *store, const std::string &nodes_path,
       row_number += lines_count;
     }
   } catch (const LoadException &e) {
-    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number,
-              nodes_path, e.what());
+    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number, nodes_path, e.what());
   }
 }
 
 /// @throw LoadException
-void ProcessRelationshipsRow(
-    storage::Storage *store, const std::vector<Field> &fields,
-    const std::vector<std::string> &row,
-    std::optional<std::string> relationship_type,
-    const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
+void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &fields,
+                             const std::vector<std::string> &row, std::optional<std::string> relationship_type,
+                             const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
   std::optional<storage::Gid> start_id;
   std::optional<storage::Gid> end_id;
   std::map<std::string, storage::PropertyValue> properties;
@@ -576,14 +538,11 @@ void ProcessRelationshipsRow(
       }
       end_id = it->second;
     } else if (field.type == "TYPE") {
-      if (relationship_type)
-        throw LoadException("Only one relationship TYPE must be specified");
+      if (relationship_type) throw LoadException("Only one relationship TYPE must be specified");
       relationship_type = value;
     } else if (field.type != "IGNORE") {
-      auto [it, inserted] =
-          properties.emplace(field.name, StringToValue(value, field.type));
-      if (!inserted)
-        throw LoadException("The property '{}' already exists", field.name);
+      auto [it, inserted] = properties.emplace(field.name, StringToValue(value, field.type));
+      if (!inserted) throw LoadException("The property '{}' already exists", field.name);
     }
   }
   if (!start_id) throw LoadException("START_ID must be set");
@@ -596,18 +555,14 @@ void ProcessRelationshipsRow(
   auto to_node = acc.FindVertex(*end_id, storage::View::NEW);
   if (!to_node) throw LoadException("To node must be in the storage");
 
-  auto relationship = acc.CreateEdge(&*from_node, &*to_node,
-                                     acc.NameToEdgeType(*relationship_type));
-  if (!relationship.HasValue())
-    throw LoadException("Couldn't create the relationship");
+  auto relationship = acc.CreateEdge(&*from_node, &*to_node, acc.NameToEdgeType(*relationship_type));
+  if (!relationship.HasValue()) throw LoadException("Couldn't create the relationship");
 
   for (const auto &property : properties) {
-    auto ret = relationship->SetProperty(acc.NameToProperty(property.first),
-                                         property.second);
+    auto ret = relationship->SetProperty(acc.NameToProperty(property.first), property.second);
     if (!ret.HasValue()) {
       if (ret.GetError() != storage::Error::PROPERTIES_DISABLED) {
-        throw LoadException("Couldn't add property '{}' to the relationship",
-                            property.first);
+        throw LoadException("Couldn't add property '{}' to the relationship", property.first);
       } else {
         throw LoadException(
             "Couldn't add property '{}' to the relationship because properties "
@@ -617,15 +572,13 @@ void ProcessRelationshipsRow(
     }
   }
 
-  if (acc.Commit().HasError())
-    throw LoadException("Couldn't store the relationship");
+  if (acc.Commit().HasError()) throw LoadException("Couldn't store the relationship");
 }
 
-void ProcessRelationships(
-    storage::Storage *store, const std::string &relationships_path,
-    const std::optional<std::string> &relationship_type,
-    std::optional<std::vector<Field>> *header,
-    const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
+void ProcessRelationships(storage::Storage *store, const std::string &relationships_path,
+                          const std::optional<std::string> &relationship_type,
+                          std::optional<std::vector<Field>> *header,
+                          const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
   std::ifstream relationships_file(relationships_path);
   MG_ASSERT(relationships_file, "Unable to open '{}'", relationships_path);
   uint64_t row_number = 1;
@@ -647,13 +600,11 @@ void ProcessRelationships(
       if (row.size() > (*header)->size()) {
         row.resize((*header)->size());
       }
-      ProcessRelationshipsRow(store, **header, row, relationship_type,
-                              node_id_map);
+      ProcessRelationshipsRow(store, **header, row, relationship_type, node_id_map);
       row_number += lines_count;
     }
   } catch (const LoadException &e) {
-    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number,
-              relationships_path, e.what());
+    LOG_FATAL("Couldn't process row {} of '{}' because of: {}", row_number, relationships_path, e.what());
   }
 }
 
@@ -735,8 +686,7 @@ int main(int argc, char *argv[]) {
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
-                     .snapshot_wal_mode =
-                         storage::Config::Durability::SnapshotWalMode::DISABLED,
+                     .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
   }};
 
@@ -748,8 +698,7 @@ int main(int argc, char *argv[]) {
     std::optional<std::vector<Field>> header;
     for (const auto &nodes_file : files) {
       spdlog::info("Loading {}", nodes_file);
-      ProcessNodes(&store, nodes_file, &header, &node_id_map,
-                   additional_labels);
+      ProcessNodes(&store, nodes_file, &header, &node_id_map, additional_labels);
     }
   }
 
@@ -759,8 +708,7 @@ int main(int argc, char *argv[]) {
     std::optional<std::vector<Field>> header;
     for (const auto &relationships_file : files) {
       spdlog::info("Loading {}", relationships_file);
-      ProcessRelationships(&store, relationships_file, type, &header,
-                           node_id_map);
+      ProcessRelationships(&store, relationships_file, type, &header, node_id_map);
     }
   }
 

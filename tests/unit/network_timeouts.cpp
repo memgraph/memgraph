@@ -14,16 +14,13 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &,
-              communication::InputStream *input_stream,
+  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
-    spdlog::info(
-        "Received data: '{}'",
-        std::string(reinterpret_cast<const char *>(input_stream_->data()),
-                    input_stream_->size()));
+    spdlog::info("Received data: '{}'",
+                 std::string(reinterpret_cast<const char *>(input_stream_->data()), input_stream_->size()));
     if (input_stream_->data()[0] == 'e') {
       std::this_thread::sleep_for(std::chrono::seconds(5));
     }
@@ -57,8 +54,7 @@ TEST(NetworkTimeouts, InactiveSession) {
   // Instantiate the server and set the session timeout to 2 seconds.
   TestData test_data;
   communication::ServerContext context;
-  communication::Server<TestSession, TestData> server{
-      {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
   ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.
@@ -89,8 +85,7 @@ TEST(NetworkTimeouts, ActiveSession) {
   // Instantiate the server and set the session timeout to 2 seconds.
   TestData test_data;
   communication::ServerContext context;
-  communication::Server<TestSession, TestData> server{
-      {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
   ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.

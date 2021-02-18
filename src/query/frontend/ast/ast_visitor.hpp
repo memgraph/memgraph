@@ -76,23 +76,17 @@ class ReplicationQuery;
 class LockPathQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
-    AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
-    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
-    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, SubscriptOperator,
-    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
-    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-    CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind, RegexMatch>;
+    SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
+    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
+    PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
+    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch>;
 
-using TreeLeafVisitor =
-    ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
+using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
-class HierarchicalTreeVisitor : public TreeCompositeVisitor,
-                                public TreeLeafVisitor {
+class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisitor {
  public:
   using TreeCompositeVisitor::PostVisit;
   using TreeCompositeVisitor::PreVisit;
@@ -103,21 +97,15 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor,
 template <class TResult>
 class ExpressionVisitor
     : public ::utils::Visitor<
-          TResult, NamedExpression, OrOperator, XorOperator, AndOperator,
-          NotOperator, AdditionOperator, SubtractionOperator,
-          MultiplicationOperator, DivisionOperator, ModOperator,
-          NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
-          LessEqualOperator, GreaterEqualOperator, InListOperator,
-          SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
-          UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
-          PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
-          Extract, All, Single, Any, None, ParameterLookup, Identifier,
-          PrimitiveLiteral, RegexMatch> {};
+          TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
+          SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+          LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
+          ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
+          MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any,
+          None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch> {};
 
 template <class TResult>
-class QueryVisitor
-    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
-                              IndexQuery, AuthQuery, InfoQuery, ConstraintQuery,
-                              DumpQuery, ReplicationQuery, LockPathQuery> {};
+class QueryVisitor : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
+                                             InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery> {};
 
 }  // namespace query

@@ -195,8 +195,7 @@ bool Client::Write(const uint8_t *data, size_t len, bool have_more) {
 }
 
 bool Client::Write(const std::string &str, bool have_more) {
-  return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(),
-               have_more);
+  return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
 }
 
 const io::network::Endpoint &Client::endpoint() { return socket_.endpoint(); }
@@ -224,12 +223,9 @@ void ClientInputStream::Clear() { client_.ClearData(); }
 
 ClientOutputStream::ClientOutputStream(Client &client) : client_(client) {}
 
-bool ClientOutputStream::Write(const uint8_t *data, size_t len,
-                               bool have_more) {
+bool ClientOutputStream::Write(const uint8_t *data, size_t len, bool have_more) {
   return client_.Write(data, len, have_more);
 }
-bool ClientOutputStream::Write(const std::string &str, bool have_more) {
-  return client_.Write(str, have_more);
-}
+bool ClientOutputStream::Write(const std::string &str, bool have_more) { return client_.Write(str, have_more); }
 
 }  // namespace communication

@@ -23,14 +23,11 @@ namespace telemetry {
  */
 class Telemetry final {
  public:
-  Telemetry(const std::string &url,
-            const std::filesystem::path &storage_directory,
-            std::chrono::duration<long long> refresh_interval =
-                std::chrono::minutes(10),
+  Telemetry(const std::string &url, const std::filesystem::path &storage_directory,
+            std::chrono::duration<long long> refresh_interval = std::chrono::minutes(10),
             const uint64_t send_every_n = 10);
 
-  void AddCollector(const std::string &name,
-                    const std::function<const nlohmann::json(void)> &func);
+  void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
 
   ~Telemetry();
 
@@ -55,8 +52,7 @@ class Telemetry final {
   const uint64_t send_every_n_;
 
   std::mutex lock_;
-  std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>>
-      collectors_;
+  std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>> collectors_;
 
   kvstore::KVStore storage_;
 };

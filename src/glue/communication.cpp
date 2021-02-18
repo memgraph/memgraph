@@ -32,34 +32,28 @@ query::TypedValue ToTypedValue(const Value &value) {
     }
     case Value::Type::Map: {
       std::map<std::string, query::TypedValue> map;
-      for (const auto &kv : value.ValueMap())
-        map.emplace(kv.first, ToTypedValue(kv.second));
+      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToTypedValue(kv.second));
       return query::TypedValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
-      throw communication::bolt::ValueException(
-          "Unsupported conversion from Value to TypedValue");
+      throw communication::bolt::ValueException("Unsupported conversion from Value to TypedValue");
   }
 }
 
-storage::Result<communication::bolt::Vertex> ToBoltVertex(
-    const query::VertexAccessor &vertex, const storage::Storage &db,
-    storage::View view) {
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view) {
   return ToBoltVertex(vertex.impl_, db, view);
 }
 
-storage::Result<communication::bolt::Edge> ToBoltEdge(
-    const query::EdgeAccessor &edge, const storage::Storage &db,
-    storage::View view) {
+storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view) {
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-storage::Result<Value> ToBoltValue(const query::TypedValue &value,
-                                   const storage::Storage &db,
-                                   storage::View view) {
+storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db, storage::View view) {
   switch (value.type()) {
     case query::TypedValue::Type::Null:
       return Value();
@@ -90,20 +84,17 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value,
       }
       return Value(std::move(map));
     }
-    case query::TypedValue::Type::Vertex:
-    {
+    case query::TypedValue::Type::Vertex: {
       auto maybe_vertex = ToBoltVertex(value.ValueVertex(), db, view);
       if (maybe_vertex.HasError()) return maybe_vertex.GetError();
       return Value(std::move(*maybe_vertex));
     }
-    case query::TypedValue::Type::Edge:
-    {
+    case query::TypedValue::Type::Edge: {
       auto maybe_edge = ToBoltEdge(value.ValueEdge(), db, view);
       if (maybe_edge.HasError()) return maybe_edge.GetError();
       return Value(std::move(*maybe_edge));
     }
-    case query::TypedValue::Type::Path:
-    {
+    case query::TypedValue::Type::Path: {
       auto maybe_path = ToBoltPath(value.ValuePath(), db, view);
       if (maybe_path.HasError()) return maybe_path.GetError();
       return Value(std::move(*maybe_path));
@@ -111,9 +102,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value,
   }
 }
 
-storage::Result<communication::bolt::Vertex> ToBoltVertex(
-    const storage::VertexAccessor &vertex, const storage::Storage &db,
-    storage::View view) {
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
+                                                          const storage::Storage &db, storage::View view) {
   auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
   auto maybe_labels = vertex.Labels(view);
   if (maybe_labels.HasError()) return maybe_labels.GetError();
@@ -131,12 +121,10 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(
   return communication::bolt::Vertex{id, labels, properties};
 }
 
-storage::Result<communication::bolt::Edge> ToBoltEdge(
-    const storage::EdgeAccessor &edge, const storage::Storage &db,
-    storage::View view) {
+storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
+                                                      storage::View view) {
   auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
-  auto from =
-      communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
@@ -148,8 +136,8 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(
   return communication::bolt::Edge{id, from, to, type, properties};
 }
 
-storage::Result<communication::bolt::Path> ToBoltPath(
-    const query::Path &path, const storage::Storage &db, storage::View view) {
+storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
+                                                      storage::View view) {
   std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
@@ -182,22 +170,19 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::List: {
       std::vector<storage::PropertyValue> vec;
       vec.reserve(value.ValueList().size());
-      for (const auto &value : value.ValueList())
-        vec.emplace_back(ToPropertyValue(value));
+      for (const auto &value : value.ValueList()) vec.emplace_back(ToPropertyValue(value));
       return storage::PropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
       std::map<std::string, storage::PropertyValue> map;
-      for (const auto &kv : value.ValueMap())
-        map.emplace(kv.first, ToPropertyValue(kv.second));
+      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToPropertyValue(kv.second));
       return storage::PropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
-      throw communication::bolt::ValueException(
-          "Unsupported conversion from Value to PropertyValue");
+      throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
   }
 }
 

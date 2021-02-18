@@ -24,8 +24,7 @@ int main(int argc, char **argv) {
 
   communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
-                                 FLAGS_port);
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
@@ -38,8 +37,7 @@ int main(int argc, char **argv) {
       client.Execute(query, {});
     } catch (const communication::bolt::ClientQueryException &e) {
       if (!FLAGS_check_failure) {
-        if (!FLAGS_failure_message.empty() &&
-            e.what() == FLAGS_failure_message) {
+        if (!FLAGS_failure_message.empty() && e.what() == FLAGS_failure_message) {
           LOG_FATAL(
               "The query should have succeeded or failed with an error "
               "message that isn't equal to '{}' but it failed with that error "
@@ -49,8 +47,7 @@ int main(int argc, char **argv) {
         continue;
       }
       if (FLAGS_should_fail) {
-        if (!FLAGS_failure_message.empty() &&
-            e.what() != FLAGS_failure_message) {
+        if (!FLAGS_failure_message.empty() && e.what() != FLAGS_failure_message) {
           LOG_FATAL(
               "The query should have failed with an error message of '{}'' but "
               "instead it failed with '{}'",

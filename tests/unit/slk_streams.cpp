@@ -9,13 +9,11 @@
 
 class BinaryData {
  public:
-  BinaryData(const uint8_t *data, size_t size)
-      : data_(new uint8_t[size]), size_(size) {
+  BinaryData(const uint8_t *data, size_t size) : data_(new uint8_t[size]), size_(size) {
     memcpy(data_.get(), data, size);
   }
 
-  BinaryData(std::unique_ptr<uint8_t[]> data, size_t size)
-      : data_(std::move(data)), size_(size) {}
+  BinaryData(std::unique_ptr<uint8_t[]> data, size_t size) : data_(std::move(data)), size_(size) {}
 
   const uint8_t *data() const { return data_.get(); }
   size_t size() const { return size_; }
@@ -51,8 +49,7 @@ BinaryData GetRandomData(size_t size) {
   return BinaryData(std::move(ret), size);
 }
 
-std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size,
-                                           std::vector<size_t> sizes) {
+std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size, std::vector<size_t> sizes) {
   std::vector<BinaryData> ret;
   ret.reserve(sizes.size());
   size_t pos = 0;
@@ -65,16 +62,14 @@ std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size,
 }
 
 BinaryData SizeToBinaryData(slk::SegmentSize size) {
-  return BinaryData(reinterpret_cast<const uint8_t *>(&size),
-                    sizeof(slk::SegmentSize));
+  return BinaryData(reinterpret_cast<const uint8_t *>(&size), sizeof(slk::SegmentSize));
 }
 
 TEST(Builder, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -82,9 +77,8 @@ TEST(Builder, SingleSegment) {
 
   ASSERT_EQ(buffer.size(), input.size() + 2 * sizeof(slk::SegmentSize));
 
-  auto splits = BufferToBinaryData(
-      buffer.data(), buffer.size(),
-      {sizeof(slk::SegmentSize), input.size(), sizeof(slk::SegmentSize)});
+  auto splits = BufferToBinaryData(buffer.data(), buffer.size(),
+                                   {sizeof(slk::SegmentSize), input.size(), sizeof(slk::SegmentSize)});
 
   auto header_expected = SizeToBinaryData(input.size());
   ASSERT_EQ(splits[0], header_expected);
@@ -97,10 +91,9 @@ TEST(Builder, SingleSegment) {
 
 TEST(Builder, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -108,23 +101,19 @@ TEST(Builder, MultipleSegments) {
 
   ASSERT_EQ(buffer.size(), input.size() + 3 * sizeof(slk::SegmentSize));
 
-  auto splits = BufferToBinaryData(
-      buffer.data(), buffer.size(),
-      {sizeof(slk::SegmentSize), slk::kSegmentMaxDataSize,
-       sizeof(slk::SegmentSize), input.size() - slk::kSegmentMaxDataSize,
-       sizeof(slk::SegmentSize)});
+  auto splits = BufferToBinaryData(buffer.data(), buffer.size(),
+                                   {sizeof(slk::SegmentSize), slk::kSegmentMaxDataSize, sizeof(slk::SegmentSize),
+                                    input.size() - slk::kSegmentMaxDataSize, sizeof(slk::SegmentSize)});
 
-  auto datas = BufferToBinaryData(
-      input.data(), input.size(),
-      {slk::kSegmentMaxDataSize, input.size() - slk::kSegmentMaxDataSize});
+  auto datas = BufferToBinaryData(input.data(), input.size(),
+                                  {slk::kSegmentMaxDataSize, input.size() - slk::kSegmentMaxDataSize});
 
   auto header1_expected = SizeToBinaryData(slk::kSegmentMaxDataSize);
   ASSERT_EQ(splits[0], header1_expected);
 
   ASSERT_EQ(splits[1], datas[0]);
 
-  auto header2_expected =
-      SizeToBinaryData(input.size() - slk::kSegmentMaxDataSize);
+  auto header2_expected = SizeToBinaryData(input.size() - slk::kSegmentMaxDataSize);
   ASSERT_EQ(splits[2], header2_expected);
 
   ASSERT_EQ(splits[3], datas[1]);
@@ -135,10 +124,9 @@ TEST(Builder, MultipleSegments) {
 
 TEST(Reader, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -168,8 +156,7 @@ TEST(Reader, SingleSegment) {
 
   // test with leftover data
   {
-    auto extended_buffer =
-        BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
+    auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     slk::Reader reader(extended_buffer.data(), extended_buffer.size());
     uint8_t block[slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
@@ -182,8 +169,7 @@ TEST(Reader, SingleSegment) {
   {
     slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[slk::kSegmentMaxDataSize];
-    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize),
-                 slk::SlkReaderException);
+    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize), slk::SlkReaderException);
   }
 
   // don't consume all data from the stream
@@ -218,10 +204,9 @@ TEST(Reader, SingleSegment) {
 
 TEST(Reader, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -251,8 +236,7 @@ TEST(Reader, MultipleSegments) {
 
   // test with leftover data
   {
-    auto extended_buffer =
-        BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
+    auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     slk::Reader reader(extended_buffer.data(), extended_buffer.size());
     uint8_t block[slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
@@ -265,8 +249,7 @@ TEST(Reader, MultipleSegments) {
   {
     slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[slk::kSegmentMaxDataSize * 2];
-    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize * 2),
-                 slk::SlkReaderException);
+    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize * 2), slk::SlkReaderException);
   }
 
   // don't consume all data from the stream
@@ -301,10 +284,9 @@ TEST(Reader, MultipleSegments) {
 
 TEST(CheckStreamComplete, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -312,35 +294,27 @@ TEST(CheckStreamComplete, SingleSegment) {
 
   // test with missing data
   for (size_t i = 0; i < sizeof(slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize);
-       i < sizeof(slk::SegmentSize) + input.size(); ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+  for (size_t i = sizeof(slk::SegmentSize); i < sizeof(slk::SegmentSize) + input.size(); ++i) {
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size,
-              slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
+    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize) + input.size(); i < buffer.size();
-       ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+  for (size_t i = sizeof(slk::SegmentSize) + input.size(); i < buffer.size(); ++i) {
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize +
-                               sizeof(slk::SegmentSize) + input.size());
+    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize) + input.size());
     ASSERT_EQ(data_size, input.size());
   }
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), buffer.size());
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), buffer.size());
     ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -348,10 +322,8 @@ TEST(CheckStreamComplete, SingleSegment) {
 
   // test with leftover data
   {
-    auto extended_buffer =
-        BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(
-        extended_buffer.data(), extended_buffer.size());
+    auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
     ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -360,10 +332,9 @@ TEST(CheckStreamComplete, SingleSegment) {
 
 TEST(CheckStreamComplete, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder(
-      [&buffer](const uint8_t *data, size_t size, bool have_more) {
-        for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-      });
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
 
   auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -371,54 +342,41 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
   // test with missing data
   for (size_t i = 0; i < sizeof(slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize);
-       i < sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+  for (size_t i = sizeof(slk::SegmentSize); i < sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize; ++i) {
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size,
-              slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
+    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize;
        i < sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize +
-                               slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize + slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, slk::kSegmentMaxDataSize);
   }
   for (size_t i = sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize;
        i < sizeof(slk::SegmentSize) * 2 + input.size(); ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) * 2 +
-                               slk::kSegmentMaxDataSize +
-                               slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize + slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, slk::kSegmentMaxDataSize);
   }
-  for (size_t i = sizeof(slk::SegmentSize) * 2 + input.size();
-       i < buffer.size(); ++i) {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), i);
+  for (size_t i = sizeof(slk::SegmentSize) * 2 + input.size(); i < buffer.size(); ++i) {
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
     ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize +
-                               sizeof(slk::SegmentSize) * 2 + input.size());
+    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize) * 2 + input.size());
     ASSERT_EQ(data_size, input.size());
   }
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] =
-        slk::CheckStreamComplete(buffer.data(), buffer.size());
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), buffer.size());
     ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -426,10 +384,8 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
   // test with leftover data
   {
-    auto extended_buffer =
-        BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(
-        extended_buffer.data(), extended_buffer.size());
+    auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
+    auto [status, stream_size, data_size] = slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
     ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -438,8 +394,7 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
 TEST(CheckStreamComplete, InvalidSegment) {
   auto input = SizeToBinaryData(0);
-  auto [status, stream_size, data_size] =
-      slk::CheckStreamComplete(input.data(), input.size());
+  auto [status, stream_size, data_size] = slk::CheckStreamComplete(input.data(), input.size());
   ASSERT_EQ(status, slk::StreamStatus::INVALID);
   ASSERT_EQ(stream_size, 0);
   ASSERT_EQ(data_size, 0);

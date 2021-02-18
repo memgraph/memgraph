@@ -22,9 +22,8 @@ class EdgeAccessor final {
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
-               Vertex *to_vertex, Transaction *transaction, Indices *indices,
-               Constraints *constraints, Config::Items config)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
+               Indices *indices, Constraints *constraints, Config::Items config)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
@@ -87,8 +86,6 @@ class EdgeAccessor final {
 namespace std {
 template <>
 struct hash<storage::EdgeAccessor> {
-  size_t operator()(const storage::EdgeAccessor &e) const {
-    return e.Gid().AsUint();
-  }
+  size_t operator()(const storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
 };
 }  // namespace std

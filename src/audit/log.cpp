@@ -38,8 +38,7 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
     case storage::PropertyValue::Type::Map: {
       ret = nlohmann::json::object();
       for (const auto &item : pv.ValueMap()) {
-        ret.push_back(nlohmann::json::object_t::value_type(
-            item.first, PropertyValueToJson(item.second)));
+        ret.push_back(nlohmann::json::object_t::value_type(item.first, PropertyValueToJson(item.second)));
       }
       break;
     }
@@ -47,8 +46,7 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
   return ret;
 }
 
-Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size,
-         int32_t buffer_flush_interval_millis)
+Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
     : storage_directory_(storage_directory),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
@@ -63,9 +61,7 @@ void Log::Start() {
   started_ = true;
 
   ReopenLog();
-  scheduler_.Run("Audit",
-                 std::chrono::milliseconds(buffer_flush_interval_millis_),
-                 [&] { Flush(); });
+  scheduler_.Run("Audit", std::chrono::milliseconds(buffer_flush_interval_millis_), [&] { Flush(); });
 }
 
 Log::~Log() {
@@ -78,13 +74,12 @@ Log::~Log() {
   Flush();
 }
 
-void Log::Record(const std::string &address, const std::string &username,
-                 const std::string &query,
+void Log::Record(const std::string &address, const std::string &username, const std::string &query,
                  const storage::PropertyValue &params) {
   if (!started_.load(std::memory_order_relaxed)) return;
-  auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
+  auto timestamp =
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
   buffer_->emplace(Item{timestamp, address, username, query, params});
 }
 
@@ -92,8 +87,7 @@ void Log::ReopenLog() {
   if (!started_.load(std::memory_order_relaxed)) return;
   std::lock_guard<std::mutex> guard(lock_);
   if (log_.IsOpen()) log_.Close();
-  log_.Open(storage_directory_ / "audit.log",
-            utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
 }
 
 void Log::Flush() {
@@ -101,11 +95,9 @@ void Log::Flush() {
   for (uint64_t i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;
-    log_.Write(
-        fmt::format("{}.{:06d},{},{},{},{}\n", item->timestamp / 1000000,
-                    item->timestamp % 1000000, item->address, item->username,
-                    utils::Escape(item->query),
-                    utils::Escape(PropertyValueToJson(item->params).dump())));
+    log_.Write(fmt::format("{}.{:06d},{},{},{},{}\n", item->timestamp / 1000000, item->timestamp % 1000000,
+                           item->address, item->username, utils::Escape(item->query),
+                           utils::Escape(PropertyValueToJson(item->params).dump())));
   }
   log_.Sync();
 }

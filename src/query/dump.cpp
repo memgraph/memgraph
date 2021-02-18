@@ -50,8 +50,7 @@ void DumpPreciseDouble(std::ostream *os, double value) {
   // A temporary stream is used to keep precision of the original output
   // stream unchanged.
   std::ostringstream temp_oss;
-  temp_oss << std::setprecision(std::numeric_limits<double>::max_digits10)
-           << value;
+  temp_oss << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
   *os << temp_oss.str();
 }
 
@@ -75,9 +74,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::List: {
       *os << "[";
       const auto &list = value.ValueList();
-      utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) {
-        DumpPropertyValue(&os, item);
-      });
+      utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) { DumpPropertyValue(&os, item); });
       *os << "]";
       return;
     }
@@ -94,10 +91,9 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
   }
 }
 
-void DumpProperties(
-    std::ostream *os, query::DbAccessor *dba,
-    const std::map<storage::PropertyId, storage::PropertyValue> &store,
-    std::optional<int64_t> property_id = std::nullopt) {
+void DumpProperties(std::ostream *os, query::DbAccessor *dba,
+                    const std::map<storage::PropertyId, storage::PropertyValue> &store,
+                    std::optional<int64_t> property_id = std::nullopt) {
   *os << "{";
   if (property_id) {
     *os << kInternalPropertyId << ": " << *property_id;
@@ -110,24 +106,20 @@ void DumpProperties(
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba,
-                const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get labels from a deleted node.");
+        throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get labels from a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException(
-            "Unexpected error when getting labels.");
+        throw query::QueryRuntimeException("Unexpected error when getting labels.");
     }
   }
   for (const auto &label : *maybe_labels) {
@@ -138,24 +130,20 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba,
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get properties from a deleted object.");
+        throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get properties from a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get properties from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException(
-            "Unexpected error when getting properties.");
+        throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
-void DumpEdge(std::ostream *os, query::DbAccessor *dba,
-              const query::EdgeAccessor &edge) {
+void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge) {
   *os << "MATCH ";
   *os << "(u:" << kInternalVertexLabel << "), ";
   *os << "(v:" << kInternalVertexLabel << ")";
@@ -169,16 +157,13 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get properties from a deleted object.");
+        throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException(
-            "Trying to get properties from an edge that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get properties from an edge that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException(
-            "Unexpected error when getting properties.");
+        throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
   if (maybe_props->size() > 0) {
@@ -188,35 +173,28 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba,
   *os << "]->(v);";
 }
 
-void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba,
-                    const storage::LabelId label) {
+void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::LabelId label) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba,
-                            storage::LabelId label,
+void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                             storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "("
-      << EscapeName(dba->PropertyToName(property)) << ");";
-}
-
-void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba,
-                             storage::LabelId label,
-                             storage::PropertyId property) {
-  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label))
-      << ") ASSERT EXISTS (u." << EscapeName(dba->PropertyToName(property))
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
       << ");";
 }
 
-void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba,
-                          storage::LabelId label,
+void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+                             storage::PropertyId property) {
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
+      << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                           const std::set<storage::PropertyId> &properties) {
-  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label))
-      << ") ASSERT ";
-  utils::PrintIterable(
-      *os, properties, ", ", [&dba](auto &stream, const auto &property) {
-        stream << "u." << EscapeName(dba->PropertyToName(property));
-      });
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT ";
+  utils::PrintIterable(*os, properties, ", ", [&dba](auto &stream, const auto &property) {
+    stream << "u." << EscapeName(dba->PropertyToName(property));
+  });
   *os << " IS UNIQUE;";
 }
 
@@ -250,8 +228,7 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // finishes. If the function did not finish streaming all the results,
   // std::nullopt should be returned because n results have already been sent.
   while (current_chunk_index_ < pull_chunks_.size() && (!n || *n > 0)) {
-    const auto maybe_streamed_count =
-        pull_chunks_[current_chunk_index_](stream, n);
+    const auto maybe_streamed_count = pull_chunks_[current_chunk_index_](stream, n);
 
     if (!maybe_streamed_count) {
       // n wasn't large enough to stream all the results from the current chunk
@@ -273,9 +250,7 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
 
 PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
   // Dump all label indices
-  return [this, global_index = 0U](
-             AnyStream *stream,
-             std::optional<int> n) mutable -> std::optional<size_t> {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
@@ -301,9 +276,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
-  return [this, global_index = 0U](
-             AnyStream *stream,
-             std::optional<int> n) mutable -> std::optional<size_t> {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
@@ -314,8 +287,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &label_property_index = label_property[global_index];
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first,
-                             label_property_index.second);
+      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
@@ -331,9 +303,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateExistenceConstraintsPullChunk() {
-  return [this, global_index = 0U](
-             AnyStream *stream,
-             std::optional<int> n) mutable -> std::optional<size_t> {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of constraint vectors
     if (!constraints_info_) {
       constraints_info_.emplace(dba_->ListAllConstraints());
@@ -360,9 +330,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateExistenceConstraintsPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
-  return [this, global_index = 0U](
-             AnyStream *stream,
-             std::optional<int> n) mutable -> std::optional<size_t> {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of constraint vectors
     if (!constraints_info_) {
       constraints_info_.emplace(dba_->ListAllConstraints());
@@ -389,12 +357,10 @@ PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexPullChunk() {
-  return [this](AnyStream *stream,
-                std::optional<int>) mutable -> std::optional<size_t> {
+  return [this](AnyStream *stream, std::optional<int>) mutable -> std::optional<size_t> {
     if (vertices_iterable_.begin() != vertices_iterable_.end()) {
       std::ostringstream os;
-      os << "CREATE INDEX ON :" << kInternalVertexLabel << "("
-         << kInternalPropertyId << ");";
+      os << "CREATE INDEX ON :" << kInternalVertexLabel << "(" << kInternalPropertyId << ");";
       stream->Result({TypedValue(os.str())});
       internal_index_created_ = true;
       return 1;
@@ -404,10 +370,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
-  return [this,
-          maybe_current_iter = std::optional<VertexAccessorIterableIterator>{}](
-             AnyStream *stream,
-             std::optional<int> n) mutable -> std::optional<size_t> {
+  return [this, maybe_current_iter = std::optional<VertexAccessorIterableIterator>{}](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the call of begin() function
     // If multiple begins are called before an iteration,
     // one iteration will make the rest of iterators be in undefined
@@ -419,8 +383,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
     auto &current_iter{*maybe_current_iter};
 
     size_t local_counter = 0;
-    while (current_iter != vertices_iterable_.end() &&
-           (!n || local_counter < *n)) {
+    while (current_iter != vertices_iterable_.end() && (!n || local_counter < *n)) {
       std::ostringstream os;
       DumpVertex(&os, dba_, *current_iter);
       stream->Result({TypedValue(os.str())});
@@ -436,74 +399,62 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
-  return
-      [this,
-       maybe_current_vertex_iter =
-           std::optional<VertexAccessorIterableIterator>{},
-       // we need to save the iterable which contains list of accessor so
-       // our saved iterator is valid in the next run
-       maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},
-       maybe_current_edge_iter = std::optional<EdgeAccessorIterableIterator>{}](
-          AnyStream *stream,
-          std::optional<int> n) mutable -> std::optional<size_t> {
-        // Delay the call of begin() function
-        // If multiple begins are called before an iteration,
-        // one iteration will make the rest of iterators be in undefined
-        // states.
-        if (!maybe_current_vertex_iter) {
-          maybe_current_vertex_iter.emplace(vertices_iterable_.begin());
-        }
+  return [this, maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
+          // we need to save the iterable which contains list of accessor so
+          // our saved iterator is valid in the next run
+          maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},
+          maybe_current_edge_iter = std::optional<EdgeAccessorIterableIterator>{}](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the call of begin() function
+    // If multiple begins are called before an iteration,
+    // one iteration will make the rest of iterators be in undefined
+    // states.
+    if (!maybe_current_vertex_iter) {
+      maybe_current_vertex_iter.emplace(vertices_iterable_.begin());
+    }
 
-        auto &current_vertex_iter{*maybe_current_vertex_iter};
-        size_t local_counter = 0U;
-        for (; current_vertex_iter != vertices_iterable_.end() &&
-               (!n || local_counter < *n);
-             ++current_vertex_iter) {
-          const auto &vertex = *current_vertex_iter;
-          // If we have a saved iterable from a previous pull
-          // we need to use the same iterable
-          if (!maybe_edge_iterable) {
-            maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(
-                vertex.OutEdges(storage::View::OLD));
-          }
-          auto &maybe_edges = *maybe_edge_iterable;
-          MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
-          auto current_edge_iter = maybe_current_edge_iter
-                                       ? *maybe_current_edge_iter
-                                       : maybe_edges->begin();
-          for (; current_edge_iter != maybe_edges->end() &&
-                 (!n || local_counter < *n);
-               ++current_edge_iter) {
-            std::ostringstream os;
-            DumpEdge(&os, dba_, *current_edge_iter);
-            stream->Result({TypedValue(os.str())});
+    auto &current_vertex_iter{*maybe_current_vertex_iter};
+    size_t local_counter = 0U;
+    for (; current_vertex_iter != vertices_iterable_.end() && (!n || local_counter < *n); ++current_vertex_iter) {
+      const auto &vertex = *current_vertex_iter;
+      // If we have a saved iterable from a previous pull
+      // we need to use the same iterable
+      if (!maybe_edge_iterable) {
+        maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
+      }
+      auto &maybe_edges = *maybe_edge_iterable;
+      MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
+      auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->begin();
+      for (; current_edge_iter != maybe_edges->end() && (!n || local_counter < *n); ++current_edge_iter) {
+        std::ostringstream os;
+        DumpEdge(&os, dba_, *current_edge_iter);
+        stream->Result({TypedValue(os.str())});
 
-            ++local_counter;
-          }
+        ++local_counter;
+      }
 
-          if (current_edge_iter != maybe_edges->end()) {
-            maybe_current_edge_iter.emplace(current_edge_iter);
-            return std::nullopt;
-          }
-
-          maybe_current_edge_iter = std::nullopt;
-          maybe_edge_iterable = nullptr;
-        }
-
-        if (current_vertex_iter == vertices_iterable_.end()) {
-          return local_counter;
-        }
-
+      if (current_edge_iter != maybe_edges->end()) {
+        maybe_current_edge_iter.emplace(current_edge_iter);
         return std::nullopt;
-      };
+      }
+
+      maybe_current_edge_iter = std::nullopt;
+      maybe_edge_iterable = nullptr;
+    }
+
+    if (current_vertex_iter == vertices_iterable_.end()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateDropInternalIndexPullChunk() {
   return [this](AnyStream *stream, std::optional<int>) {
     if (internal_index_created_) {
       std::ostringstream os;
-      os << "DROP INDEX ON :" << kInternalVertexLabel << "("
-         << kInternalPropertyId << ");";
+      os << "DROP INDEX ON :" << kInternalVertexLabel << "(" << kInternalPropertyId << ");";
       stream->Result({TypedValue(os.str())});
       return 1;
     }
@@ -515,8 +466,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
   return [this](AnyStream *stream, std::optional<int>) {
     if (internal_index_created_) {
       std::ostringstream os;
-      os << "MATCH (u) REMOVE u:" << kInternalVertexLabel << ", u."
-         << kInternalPropertyId << ";";
+      os << "MATCH (u) REMOVE u:" << kInternalVertexLabel << ", u." << kInternalPropertyId << ";";
       stream->Result({TypedValue(os.str())});
       return 1;
     }
@@ -524,8 +474,6 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) {
-  PullPlanDump(dba).Pull(stream, {});
-}
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) { PullPlanDump(dba).Pull(stream, {}); }
 
 }  // namespace query

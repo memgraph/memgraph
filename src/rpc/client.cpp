@@ -2,8 +2,7 @@
 
 namespace rpc {
 
-Client::Client(const io::network::Endpoint &endpoint,
-               communication::ClientContext *context)
+Client::Client(const io::network::Endpoint &endpoint, communication::ClientContext *context)
     : endpoint_(endpoint), context_(context) {}
 
 void Client::Abort() {

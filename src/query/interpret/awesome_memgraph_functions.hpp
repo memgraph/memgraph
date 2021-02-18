@@ -34,8 +34,7 @@ struct FunctionContext {
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments,
-                         const FunctionContext &context)>
+std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>
 NameToFunction(const std::string &function_name);
 
 }  // namespace query

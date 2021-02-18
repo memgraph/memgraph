@@ -19,19 +19,16 @@ class LogicalOperator;
 /// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root,
-                 std::ostream *out);
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
 
 /// Overload of `PrettyPrint` which defaults the `std::ostream` to `std::cout`.
-inline void PrettyPrint(const DbAccessor &dba,
-                        const LogicalOperator *plan_root) {
+inline void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root) {
   PrettyPrint(dba, plan_root, &std::cout);
 }
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const DbAccessor &dba,
-                          const LogicalOperator *plan_root);
+nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
 
 class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
  public:
@@ -130,9 +127,8 @@ nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
 
 nlohmann::json ToJson(NamedExpression *nexpr);
 
-nlohmann::json ToJson(
-    const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
-    const DbAccessor &dba);
+nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
+                      const DbAccessor &dba);
 
 nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
 
@@ -141,7 +137,7 @@ nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
 nlohmann::json ToJson(const Aggregate::Element &elem);
 
 template <class T, class... Args>
-nlohmann::json ToJson(const std::vector<T> &items, Args &&... args) {
+nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
   nlohmann::json json;
   for (const auto &item : items) {
     json.emplace_back(ToJson(item, std::forward<Args>(args)...));

@@ -29,8 +29,7 @@ class Scheduler {
    * @throw std::bad_alloc
    */
   template <typename TRep, typename TPeriod>
-  void Run(const std::string &service_name,
-           const std::chrono::duration<TRep, TPeriod> &pause,
+  void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f) {
     DMG_ASSERT(is_working_ == false, "Thread already running.");
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
@@ -52,9 +51,7 @@ class Scheduler {
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
-          condition_variable_.wait_for(lk, start_time - now, [&] {
-            return is_working_.load() == false;
-          });
+          condition_variable_.wait_for(lk, start_time - now, [&] { return is_working_.load() == false; });
         } else {
           start_time = now;
         }

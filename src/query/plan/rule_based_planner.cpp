@@ -14,8 +14,7 @@ namespace query::plan {
 
 namespace {
 
-bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols,
-                           const FilterInfo &filter) {
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
   for (const auto &symbol : filter.used_symbols) {
     if (bound_symbols.find(symbol) == bound_symbols.end()) {
       return false;
@@ -37,14 +36,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols,
 // aggregations and expressions used for group by.
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
-  ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table,
-                    const std::unordered_set<Symbol> &bound_symbols,
+  ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
                     AstStorage &storage, Where *where = nullptr)
-      : body_(body),
-        symbol_table_(symbol_table),
-        bound_symbols_(bound_symbols),
-        storage_(storage),
-        where_(where) {
+      : body_(body), symbol_table_(symbol_table), bound_symbols_(bound_symbols), storage_(storage), where_(where) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
     if (body.all_identifiers) {
@@ -78,8 +72,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       if (where) {
         where->Accept(*this);
       }
-      MG_ASSERT(aggregations_.empty(),
-                "Unexpected aggregations in ORDER BY or WHERE");
+      MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
     }
   }
 
@@ -94,8 +87,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
  private:
   template <typename TLiteral, typename TIteratorToExpression>
-  void PostVisitCollectionLiteral(
-      TLiteral &literal, TIteratorToExpression iterator_to_expression) {
+  void PostVisitCollectionLiteral(TLiteral &literal, TIteratorToExpression iterator_to_expression) {
     // If there is an aggregation in the list, and there are group-bys, then we
     // need to add the group-bys manually. If there are no aggregations, the
     // whole list will be added as a group-by.
@@ -115,8 +107,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
     has_aggregation_.emplace_back(has_aggr);
     if (has_aggr) {
-      for (auto expression_ptr : literal_group_by)
-        group_by_.emplace_back(expression_ptr);
+      for (auto expression_ptr : literal_group_by) group_by_.emplace_back(expression_ptr);
     }
   }
 
@@ -130,9 +121,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(MapLiteral &map_literal) override {
-    MG_ASSERT(
-        map_literal.elements_.size() <= has_aggregation_.size(),
-        "Expected has_aggregation_ flags as much as there are map elements.");
+    MG_ASSERT(map_literal.elements_.size() <= has_aggregation_.size(),
+              "Expected has_aggregation_ flags as much as there are map elements.");
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
     return true;
   }
@@ -141,8 +131,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by all, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*all.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 3U,
-              "Expected 3 has_aggregation_ flags for ALL arguments");
+    MG_ASSERT(has_aggregation_.size() >= 3U, "Expected 3 has_aggregation_ flags for ALL arguments");
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -156,8 +145,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by single, because we are only
     // interested in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*single.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 3U,
-              "Expected 3 has_aggregation_ flags for SINGLE arguments");
+    MG_ASSERT(has_aggregation_.size() >= 3U, "Expected 3 has_aggregation_ flags for SINGLE arguments");
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -171,8 +159,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by any, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*any.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 3U,
-              "Expected 3 has_aggregation_ flags for ANY arguments");
+    MG_ASSERT(has_aggregation_.size() >= 3U, "Expected 3 has_aggregation_ flags for ANY arguments");
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -186,8 +173,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by none, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*none.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 3U,
-              "Expected 3 has_aggregation_ flags for NONE arguments");
+    MG_ASSERT(has_aggregation_.size() >= 3U, "Expected 3 has_aggregation_ flags for NONE arguments");
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -202,8 +188,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*reduce.accumulator_));
     used_symbols_.erase(symbol_table_.at(*reduce.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 5U,
-              "Expected 5 has_aggregation_ flags for REDUCE arguments");
+    MG_ASSERT(has_aggregation_.size() >= 5U, "Expected 5 has_aggregation_ flags for REDUCE arguments");
     bool has_aggr = false;
     for (int i = 0; i < 5; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -215,8 +200,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PostVisit(Coalesce &coalesce) override {
     MG_ASSERT(has_aggregation_.size() >= coalesce.expressions_.size(),
-              "Expected >= {} has_aggregation_ flags for COALESCE arguments",
-              has_aggregation_.size());
+              "Expected >= {} has_aggregation_ flags for COALESCE arguments", has_aggregation_.size());
     bool has_aggr = false;
     for (size_t i = 0; i < coalesce.expressions_.size(); ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -230,8 +214,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol bound by extract, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*extract.identifier_));
-    MG_ASSERT(has_aggregation_.size() >= 3U,
-              "Expected 3 has_aggregation_ flags for EXTRACT arguments");
+    MG_ASSERT(has_aggregation_.size() >= 3U, "Expected 3 has_aggregation_ flags for EXTRACT arguments");
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -308,25 +291,24 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-#define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
-  bool PostVisit(BinaryOperator &op) override {                            \
-    MG_ASSERT(has_aggregation_.size() >= 2U,                               \
-              "Expected at least 2 has_aggregation_ flags.");              \
-    /* has_aggregation_ stack is reversed, last result is from the 2nd */  \
-    /* expression. */                                                      \
-    bool aggr2 = has_aggregation_.back();                                  \
-    has_aggregation_.pop_back();                                           \
-    bool aggr1 = has_aggregation_.back();                                  \
-    has_aggregation_.pop_back();                                           \
-    bool has_aggr = aggr1 || aggr2;                                        \
-    if (has_aggr && !(aggr1 && aggr2)) {                                   \
-      /* Group by the expression which does not contain aggregation. */    \
-      /* Possible optimization is to ignore constant value expressions */  \
-      group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);   \
-    }                                                                      \
-    /* Propagate that this whole expression may contain an aggregation. */ \
-    has_aggregation_.emplace_back(has_aggr);                               \
-    return true;                                                           \
+#define VISIT_BINARY_OPERATOR(BinaryOperator)                                                \
+  bool PostVisit(BinaryOperator &op) override {                                              \
+    MG_ASSERT(has_aggregation_.size() >= 2U, "Expected at least 2 has_aggregation_ flags."); \
+    /* has_aggregation_ stack is reversed, last result is from the 2nd */                    \
+    /* expression. */                                                                        \
+    bool aggr2 = has_aggregation_.back();                                                    \
+    has_aggregation_.pop_back();                                                             \
+    bool aggr1 = has_aggregation_.back();                                                    \
+    has_aggregation_.pop_back();                                                             \
+    bool has_aggr = aggr1 || aggr2;                                                          \
+    if (has_aggr && !(aggr1 && aggr2)) {                                                     \
+      /* Group by the expression which does not contain aggregation. */                      \
+      /* Possible optimization is to ignore constant value expressions */                    \
+      group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);                     \
+    }                                                                                        \
+    /* Propagate that this whole expression may contain an aggregation. */                   \
+    has_aggregation_.emplace_back(has_aggr);                                                 \
+    return true;                                                                             \
   }
 
   VISIT_BINARY_OPERATOR(OrOperator)
@@ -351,8 +333,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
-    aggregations_.emplace_back(Aggregate::Element{
-        aggr.expression1_, aggr.expression2_, aggr.op_, symbol});
+    aggregations_.emplace_back(Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol});
     // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP uses
     // two expressions, so we can have 0, 1 or 2 elements on the
     // has_aggregation_stack for this Aggregation expression.
@@ -368,8 +349,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
-    MG_ASSERT(has_aggregation_.size() == 1U,
-              "Expected to reduce has_aggregation_ to single boolean.");
+    MG_ASSERT(has_aggregation_.size() == 1U, "Expected to reduce has_aggregation_ to single boolean.");
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
     }
@@ -383,8 +363,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(RegexMatch &regex_match) override {
-    MG_ASSERT(has_aggregation_.size() >= 2U,
-              "Expected 2 has_aggregation_ flags for RegexMatch arguments");
+    MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
     bool has_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     has_aggregation_.back() |= has_aggr;
@@ -395,17 +374,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // This should be used when body.all_identifiers is true, to generate
   // expressions for Produce operator.
   void ExpandUserSymbols() {
-    MG_ASSERT(named_expressions_.empty(),
-              "ExpandUserSymbols should be first to fill named_expressions_");
-    MG_ASSERT(output_symbols_.empty(),
-              "ExpandUserSymbols should be first to fill output_symbols_");
+    MG_ASSERT(named_expressions_.empty(), "ExpandUserSymbols should be first to fill named_expressions_");
+    MG_ASSERT(output_symbols_.empty(), "ExpandUserSymbols should be first to fill output_symbols_");
     for (const auto &symbol : bound_symbols_) {
       if (!symbol.user_declared()) {
         continue;
       }
       auto *ident = storage_.Create<Identifier>(symbol.name())->MapTo(symbol);
-      auto *named_expr =
-          storage_.Create<NamedExpression>(symbol.name(), ident)->MapTo(symbol);
+      auto *named_expr = storage_.Create<NamedExpression>(symbol.name(), ident)->MapTo(symbol);
       // Fill output expressions and symbols with expanded identifiers.
       named_expressions_.emplace_back(named_expr);
       output_symbols_.emplace_back(symbol);
@@ -471,38 +447,30 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::vector<NamedExpression *> named_expressions_;
 };
 
-std::unique_ptr<LogicalOperator> GenReturnBody(
-    std::unique_ptr<LogicalOperator> input_op, bool advance_command,
-    const ReturnBodyContext &body, bool accumulate = false) {
-  std::vector<Symbol> used_symbols(body.used_symbols().begin(),
-                                   body.used_symbols().end());
+std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
+                                               const ReturnBodyContext &body, bool accumulate = false) {
+  std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   auto last_op = std::move(input_op);
   if (accumulate) {
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
     // accumulation after updates, without advancing the command.
-    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols,
-                                           advance_command);
+    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
   }
   if (!body.aggregations().empty()) {
     // When we have aggregation, SKIP/LIMIT should always come after it.
-    std::vector<Symbol> remember(body.group_by_used_symbols().begin(),
-                                 body.group_by_used_symbols().end());
-    last_op = std::make_unique<Aggregate>(
-        std::move(last_op), body.aggregations(), body.group_by(), remember);
+    std::vector<Symbol> remember(body.group_by_used_symbols().begin(), body.group_by_used_symbols().end());
+    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
-  last_op =
-      std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
-    last_op =
-        std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
+    last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(),
-                                        body.output_symbols());
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), body.output_symbols());
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
@@ -515,8 +483,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op =
-        std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
+    last_op = std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
   }
   return last_op;
 }
@@ -525,13 +492,11 @@ std::unique_ptr<LogicalOperator> GenReturnBody(
 
 namespace impl {
 
-Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
-                           Filters &filters, AstStorage &storage) {
+Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr,
-                                                filters_it->expression);
+      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
@@ -540,10 +505,9 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
   return filter_expr;
 }
 
-std::unique_ptr<LogicalOperator> GenFilters(
-    std::unique_ptr<LogicalOperator> last_op,
-    const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-    AstStorage &storage) {
+std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
+                                            const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+                                            AstStorage &storage) {
   auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
   if (filter_expr) {
     last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
@@ -551,21 +515,18 @@ std::unique_ptr<LogicalOperator> GenFilters(
   return last_op;
 }
 
-std::unique_ptr<LogicalOperator> GenNamedPaths(
-    std::unique_ptr<LogicalOperator> last_op,
-    std::unordered_set<Symbol> &bound_symbols,
-    std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {
+std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,
+                                               std::unordered_set<Symbol> &bound_symbols,
+                                               std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {
   auto all_are_bound = [&bound_symbols](const std::vector<Symbol> &syms) {
     for (const auto &sym : syms)
       if (bound_symbols.find(sym) == bound_symbols.end()) return false;
     return true;
   };
-  for (auto named_path_it = named_paths.begin();
-       named_path_it != named_paths.end();) {
+  for (auto named_path_it = named_paths.begin(); named_path_it != named_paths.end();) {
     if (all_are_bound(named_path_it->second)) {
-      last_op = std::make_unique<ConstructNamedPath>(
-          std::move(last_op), named_path_it->first,
-          std::move(named_path_it->second));
+      last_op = std::make_unique<ConstructNamedPath>(std::move(last_op), named_path_it->first,
+                                                     std::move(named_path_it->second));
       bound_symbols.insert(named_path_it->first);
       named_path_it = named_paths.erase(named_path_it);
     } else {
@@ -576,10 +537,9 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(
   return last_op;
 }
 
-std::unique_ptr<LogicalOperator> GenReturn(
-    Return &ret, std::unique_ptr<LogicalOperator> input_op,
-    SymbolTable &symbol_table, bool is_write,
-    const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
+std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
+                                           SymbolTable &symbol_table, bool is_write,
+                                           const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -592,10 +552,9 @@ std::unique_ptr<LogicalOperator> GenReturn(
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate);
 }
 
-std::unique_ptr<LogicalOperator> GenWith(
-    With &with, std::unique_ptr<LogicalOperator> input_op,
-    SymbolTable &symbol_table, bool is_write,
-    std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
+std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
+                                         SymbolTable &symbol_table, bool is_write,
+                                         std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -603,10 +562,8 @@ std::unique_ptr<LogicalOperator> GenWith(
   bool accumulate = is_write;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
-  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage,
-                         with.where_);
-  auto last_op =
-      GenReturnBody(std::move(input_op), advance_command, body, accumulate);
+  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, with.where_);
+  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate);
   // Reset bound symbols, so that only those in WITH are exposed.
   bound_symbols.clear();
   for (const auto &symbol : body.output_symbols()) {
@@ -615,11 +572,9 @@ std::unique_ptr<LogicalOperator> GenWith(
   return last_op;
 }
 
-std::unique_ptr<LogicalOperator> GenUnion(
-    const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
-    std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
-  return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_,
-                                 left_op->OutputSymbols(symbol_table),
+std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
+                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
+  return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_, left_op->OutputSymbols(symbol_table),
                                  right_op->OutputSymbols(symbol_table));
 }
 

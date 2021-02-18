@@ -21,19 +21,12 @@ class VertexAccessor final {
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices,
-                 Constraints *constraints, Config::Items config)
-      : vertex_(vertex),
-        transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+                 Config::Items config)
+      : vertex_(vertex), transaction_(transaction), indices_(indices), constraints_(constraints), config_(config) {}
 
-  static std::optional<VertexAccessor> Create(Vertex *vertex,
-                                              Transaction *transaction,
-                                              Indices *indices,
-                                              Constraints *constraints,
-                                              Config::Items config, View view);
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+                                              Constraints *constraints, Config::Items config, View view);
 
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
@@ -71,16 +64,14 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(
-      View view, const std::vector<EdgeTypeId> &edge_types = {},
-      const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                            const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(
-      View view, const std::vector<EdgeTypeId> &edge_types = {},
-      const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                             const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 
@@ -91,9 +82,7 @@ class VertexAccessor final {
   bool operator==(const VertexAccessor &other) const {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const VertexAccessor &other) const {
-    return !(*this == other);
-  }
+  bool operator!=(const VertexAccessor &other) const { return !(*this == other); }
 
  private:
   Vertex *vertex_;
@@ -108,8 +97,6 @@ class VertexAccessor final {
 namespace std {
 template <>
 struct hash<storage::VertexAccessor> {
-  size_t operator()(const storage::VertexAccessor &v) const noexcept {
-    return v.Gid().AsUint();
-  }
+  size_t operator()(const storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
 };
 }  // namespace std

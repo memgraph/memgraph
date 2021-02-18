@@ -23,8 +23,7 @@ const int OP_CONTAINS = 1;
 const int OP_REMOVE = 2;
 const int OP_FIND = 3;
 
-inline void RunConcurrentTest(
-    std::function<void(std::atomic<bool> *, Stats *)> test_func) {
+inline void RunConcurrentTest(std::function<void(std::atomic<bool> *, Stats *)> test_func) {
   std::atomic<bool> run{true};
 
   std::unique_ptr<Stats[]> stats(new Stats[FLAGS_num_threads]);
@@ -55,14 +54,10 @@ inline void RunConcurrentTest(
       agg[i] += stats.get()[j].succ[i];
     }
   }
-  std::cout << "Successful insert: " << agg[0] << " ("
-            << agg[0] / FLAGS_duration << " calls/s)" << std::endl;
-  std::cout << "Successful contains: " << agg[1] << " ("
-            << agg[1] / FLAGS_duration << " calls/s)" << std::endl;
-  std::cout << "Successful remove: " << agg[2] << " ("
-            << agg[2] / FLAGS_duration << " calls/s)" << std::endl;
-  std::cout << "Successful find: " << agg[3] << " (" << agg[3] / FLAGS_duration
-            << " calls/s)" << std::endl;
+  std::cout << "Successful insert: " << agg[0] << " (" << agg[0] / FLAGS_duration << " calls/s)" << std::endl;
+  std::cout << "Successful contains: " << agg[1] << " (" << agg[1] / FLAGS_duration << " calls/s)" << std::endl;
+  std::cout << "Successful remove: " << agg[2] << " (" << agg[2] / FLAGS_duration << " calls/s)" << std::endl;
+  std::cout << "Successful find: " << agg[3] << " (" << agg[3] / FLAGS_duration << " calls/s)" << std::endl;
 
   std::cout << std::endl;
   uint64_t tot = 0, tops = 0;
@@ -72,8 +67,6 @@ inline void RunConcurrentTest(
   for (int i = 0; i < FLAGS_num_threads; ++i) {
     tops += stats.get()[i].total;
   }
-  std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration
-            << " calls/s)" << std::endl;
-  std::cout << "Total ops: " << tops << " (" << tops / FLAGS_duration
-            << " calls/s)" << std::endl;
+  std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration << " calls/s)" << std::endl;
+  std::cout << "Total ops: " << tops << " (" << tops / FLAGS_duration << " calls/s)" << std::endl;
 }

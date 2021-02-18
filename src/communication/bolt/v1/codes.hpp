@@ -78,12 +78,8 @@ enum class Marker : uint8_t {
 };
 
 static constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
-static constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList,
-                                         Marker::TinyMap};
-static constexpr Marker Marker8[3] = {Marker::String8, Marker::List8,
-                                      Marker::Map8};
-static constexpr Marker Marker16[3] = {Marker::String16, Marker::List16,
-                                       Marker::Map16};
-static constexpr Marker Marker32[3] = {Marker::String32, Marker::List32,
-                                       Marker::Map32};
+static constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
+static constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};
+static constexpr Marker Marker16[3] = {Marker::String16, Marker::List16, Marker::Map16};
+static constexpr Marker Marker32[3] = {Marker::String32, Marker::List32, Marker::Map32};
 }  // namespace communication::bolt

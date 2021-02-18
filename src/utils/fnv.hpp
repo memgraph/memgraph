@@ -33,8 +33,7 @@ inline uint64_t Fnv(const std::string_view &s) {
  * @param element_hash Function for hashing a single element.
  * @return The hash of the whole collection.
  */
-template <typename TIterable, typename TElement,
-          typename THash = std::hash<TElement>>
+template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
 struct FnvCollection {
   size_t operator()(const TIterable &iterable) const {
     uint64_t hash = 14695981039346656037u;
@@ -54,8 +53,7 @@ struct FnvCollection {
  * Like FNV hashing for a collection, just specialized for two elements to avoid
  * iteration overhead.
  */
-template <typename TA, typename TB, typename TAHash = std::hash<TA>,
-          typename TBHash = std::hash<TB>>
+template <typename TA, typename TB, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>>
 struct HashCombine {
   size_t operator()(const TA &a, const TB &b) const {
     constexpr size_t fnv_prime = 1099511628211UL;

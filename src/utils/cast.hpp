@@ -24,12 +24,9 @@ constexpr typename std::underlying_type<T>::type UnderlyingCast(T e) {
 template <typename TDest, typename TSrc>
 TDest MemcpyCast(TSrc src) {
   TDest dest;
-  static_assert(sizeof(dest) == sizeof(src),
-                "MemcpyCast expects source and destination to be of same size");
-  static_assert(std::is_arithmetic<TSrc>::value,
-                "MemcpyCast expects source is an arithmetic type");
-  static_assert(std::is_arithmetic<TDest>::value,
-                "MemcypCast expects destination is an arithmetic type");
+  static_assert(sizeof(dest) == sizeof(src), "MemcpyCast expects source and destination to be of same size");
+  static_assert(std::is_arithmetic<TSrc>::value, "MemcpyCast expects source is an arithmetic type");
+  static_assert(std::is_arithmetic<TDest>::value, "MemcypCast expects destination is an arithmetic type");
   std::memcpy(&dest, &src, sizeof(src));
   return dest;
 }

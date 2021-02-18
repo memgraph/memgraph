@@ -16,24 +16,19 @@
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
-storage::durability::WalDeltaData::Type
-StorageGlobalOperationToWalDeltaDataType(
+storage::durability::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
     storage::durability::StorageGlobalOperation operation) {
   switch (operation) {
     case storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
       return storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
     case storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
       return storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
-    case storage::durability::StorageGlobalOperation::
-        LABEL_PROPERTY_INDEX_CREATE:
-      return storage::durability::WalDeltaData::Type::
-          LABEL_PROPERTY_INDEX_CREATE;
+    case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+      return storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
       return storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case storage::durability::StorageGlobalOperation::
-        EXISTENCE_CONSTRAINT_CREATE:
-      return storage::durability::WalDeltaData::Type::
-          EXISTENCE_CONSTRAINT_CREATE;
+    case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+      return storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
       return storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
     case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
@@ -50,8 +45,7 @@ class DeltaGenerator final {
    private:
     friend class DeltaGenerator;
 
-    explicit Transaction(DeltaGenerator *gen)
-        : gen_(gen), transaction_(gen->transaction_id_++, gen->timestamp_++) {}
+    explicit Transaction(DeltaGenerator *gen) : gen_(gen), transaction_(gen->transaction_id_++, gen->timestamp_++) {}
 
    public:
     storage::Vertex *CreateVertex() {
@@ -69,8 +63,7 @@ class DeltaGenerator final {
     }
 
     void DeleteVertex(storage::Vertex *vertex) {
-      storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                  storage::Delta::RecreateObjectTag());
+      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::RecreateObjectTag());
       {
         storage::durability::WalDeltaData data;
         data.type = storage::durability::WalDeltaData::Type::VERTEX_DELETE;
@@ -82,8 +75,7 @@ class DeltaGenerator final {
     void AddLabel(storage::Vertex *vertex, const std::string &label) {
       auto label_id = storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
       vertex->labels.push_back(label_id);
-      storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                  storage::Delta::RemoveLabelTag(), label_id);
+      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::RemoveLabelTag(), label_id);
       {
         storage::durability::WalDeltaData data;
         data.type = storage::durability::WalDeltaData::Type::VERTEX_ADD_LABEL;
@@ -95,34 +87,26 @@ class DeltaGenerator final {
 
     void RemoveLabel(storage::Vertex *vertex, const std::string &label) {
       auto label_id = storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
-      vertex->labels.erase(
-          std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
-      storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                  storage::Delta::AddLabelTag(), label_id);
+      vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
+      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::AddLabelTag(), label_id);
       {
         storage::durability::WalDeltaData data;
-        data.type =
-            storage::durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
+        data.type = storage::durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
         data.vertex_add_remove_label.gid = vertex->gid;
         data.vertex_add_remove_label.label = label;
         data_.push_back(data);
       }
     }
 
-    void SetProperty(storage::Vertex *vertex, const std::string &property,
-                     const storage::PropertyValue &value) {
-      auto property_id =
-          storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
+    void SetProperty(storage::Vertex *vertex, const std::string &property, const storage::PropertyValue &value) {
+      auto property_id = storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
       auto &props = vertex->properties;
       auto old_value = props.GetProperty(property_id);
-      storage::CreateAndLinkDelta(&transaction_, &*vertex,
-                                  storage::Delta::SetPropertyTag(), property_id,
-                                  old_value);
+      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::SetPropertyTag(), property_id, old_value);
       props.SetProperty(property_id, value);
       {
         storage::durability::WalDeltaData data;
-        data.type =
-            storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY;
+        data.type = storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY;
         data.vertex_edge_set_property.gid = vertex->gid;
         data.vertex_edge_set_property.property = property;
         // We don't store the property value here. That is because the storage
@@ -153,24 +137,19 @@ class DeltaGenerator final {
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
           for (auto &data : data_) {
-            if (data.type ==
-                storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
+            if (data.type == storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
               // We need to put the final property value into the SET_PROPERTY
               // delta.
               auto vertex =
-                  std::find(gen_->vertices_.begin(), gen_->vertices_.end(),
-                            data.vertex_edge_set_property.gid);
+                  std::find(gen_->vertices_.begin(), gen_->vertices_.end(), data.vertex_edge_set_property.gid);
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id =
-                  storage::PropertyId::FromUint(gen_->mapper_.NameToId(
-                      data.vertex_edge_set_property.property));
-              data.vertex_edge_set_property.value =
-                  vertex->properties.GetProperty(property_id);
+                  storage::PropertyId::FromUint(gen_->mapper_.NameToId(data.vertex_edge_set_property.property));
+              data.vertex_edge_set_property.value = vertex->properties.GetProperty(property_id);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
-          storage::durability::WalDeltaData data{
-              .type = storage::durability::WalDeltaData::Type::TRANSACTION_END};
+          storage::durability::WalDeltaData data{.type = storage::durability::WalDeltaData::Type::TRANSACTION_END};
           gen_->data_.emplace_back(commit_timestamp, data);
         }
       } else {
@@ -184,17 +163,14 @@ class DeltaGenerator final {
     std::vector<storage::durability::WalDeltaData> data_;
   };
 
-  using DataT =
-      std::vector<std::pair<uint64_t, storage::durability::WalDeltaData>>;
+  using DataT = std::vector<std::pair<uint64_t, storage::durability::WalDeltaData>>;
 
-  DeltaGenerator(const std::filesystem::path &data_directory,
-                 bool properties_on_edges, uint64_t seq_num)
+  DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num)
       : uuid_(utils::GenerateUUID()),
         epoch_id_(utils::GenerateUUID()),
         seq_num_(seq_num),
-        wal_file_(data_directory, uuid_, epoch_id_,
-                  {.properties_on_edges = properties_on_edges}, &mapper_,
-                  seq_num, &file_retainer_) {}
+        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
+                  &file_retainer_) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
 
@@ -204,14 +180,12 @@ class DeltaGenerator final {
     valid_ = false;
   }
 
-  void AppendOperation(storage::durability::StorageGlobalOperation operation,
-                       const std::string &label,
+  void AppendOperation(storage::durability::StorageGlobalOperation operation, const std::string &label,
                        const std::set<std::string> properties = {}) {
     auto label_id = storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<storage::PropertyId> property_ids;
     for (const auto &property : properties) {
-      property_ids.insert(
-          storage::PropertyId::FromUint(mapper_.NameToId(property)));
+      property_ids.insert(storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
     wal_file_.AppendOperation(operation, label_id, property_ids, timestamp_);
     if (valid_) {
@@ -223,20 +197,14 @@ class DeltaGenerator final {
         case storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
           data.operation_label.label = label;
           break;
-        case storage::durability::StorageGlobalOperation::
-            LABEL_PROPERTY_INDEX_CREATE:
-        case storage::durability::StorageGlobalOperation::
-            LABEL_PROPERTY_INDEX_DROP:
-        case storage::durability::StorageGlobalOperation::
-            EXISTENCE_CONSTRAINT_CREATE:
-        case storage::durability::StorageGlobalOperation::
-            EXISTENCE_CONSTRAINT_DROP:
+        case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+        case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+        case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+        case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
-        case storage::durability::StorageGlobalOperation::
-            UNIQUE_CONSTRAINT_CREATE:
-        case storage::durability::StorageGlobalOperation::
-            UNIQUE_CONSTRAINT_DROP:
+        case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+        case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
       }
@@ -299,12 +267,9 @@ class DeltaGenerator final {
   }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define OPERATION(op, ...)                                             \
-  gen.AppendOperation(storage::durability::StorageGlobalOperation::op, \
-                      __VA_ARGS__)
+#define OPERATION(op, ...) gen.AppendOperation(storage::durability::StorageGlobalOperation::op, __VA_ARGS__)
 
-void AssertWalInfoEqual(const storage::durability::WalInfo &a,
-                        const storage::durability::WalInfo &b) {
+void AssertWalInfoEqual(const storage::durability::WalInfo &a, const storage::durability::WalInfo &b) {
   ASSERT_EQ(a.uuid, b.uuid);
   ASSERT_EQ(a.epoch_id, b.epoch_id);
   ASSERT_EQ(a.seq_num, b.seq_num);
@@ -313,8 +278,7 @@ void AssertWalInfoEqual(const storage::durability::WalInfo &a,
   ASSERT_EQ(a.num_deltas, b.num_deltas);
 }
 
-void AssertWalDataEqual(const DeltaGenerator::DataT &data,
-                        const std::filesystem::path &path) {
+void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem::path &path) {
   auto info = storage::durability::ReadWalInfo(path);
   storage::durability::Decoder wal;
   wal.Initialize(path, storage::durability::kWalMagic);
@@ -322,8 +286,7 @@ void AssertWalDataEqual(const DeltaGenerator::DataT &data,
   DeltaGenerator::DataT current;
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     auto timestamp = storage::durability::ReadWalDeltaHeader(&wal);
-    current.emplace_back(timestamp,
-                         storage::durability::ReadWalDeltaData(&wal));
+    current.emplace_back(timestamp, storage::durability::ReadWalDeltaData(&wal));
   }
   ASSERT_EQ(data.size(), current.size());
   ASSERT_EQ(data, current);
@@ -347,9 +310,7 @@ class WalFileTest : public ::testing::TestWithParam<bool> {
     return ret;
   }
 
-  std::filesystem::path storage_directory{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_storage_v2_wal_file"};
+  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_wal_file"};
 
  private:
   void Clear() {
@@ -358,10 +319,8 @@ class WalFileTest : public ::testing::TestWithParam<bool> {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(EdgesWithProperties, WalFileTest,
-                        ::testing::Values(true));
-INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, WalFileTest,
-                        ::testing::Values(false));
+INSTANTIATE_TEST_CASE_P(EdgesWithProperties, WalFileTest, ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, WalFileTest, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, EmptyFile) {
@@ -371,40 +330,35 @@ TEST_P(WalFileTest, EmptyFile) {
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_SIMPLE_TEST(name, ops)                                        \
-  TEST_P(WalFileTest, name) {                                                  \
-    storage::durability::WalInfo info;                                         \
-    DeltaGenerator::DataT data;                                                \
-                                                                               \
-    {                                                                          \
-      DeltaGenerator gen(storage_directory, GetParam(), 5);                    \
-      ops;                                                                     \
-      info = gen.GetInfo();                                                    \
-      data = gen.GetData();                                                    \
-    }                                                                          \
-                                                                               \
-    auto wal_files = GetFilesList();                                           \
-    ASSERT_EQ(wal_files.size(), 1);                                            \
-                                                                               \
-    if (info.num_deltas == 0) {                                                \
-      ASSERT_THROW(storage::durability::ReadWalInfo(wal_files.front()),        \
-                   storage::durability::RecoveryFailure);                      \
-    } else {                                                                   \
-      AssertWalInfoEqual(info,                                                 \
-                         storage::durability::ReadWalInfo(wal_files.front())); \
-      AssertWalDataEqual(data, wal_files.front());                             \
-    }                                                                          \
+#define GENERATE_SIMPLE_TEST(name, ops)                                                                        \
+  TEST_P(WalFileTest, name) {                                                                                  \
+    storage::durability::WalInfo info;                                                                         \
+    DeltaGenerator::DataT data;                                                                                \
+                                                                                                               \
+    {                                                                                                          \
+      DeltaGenerator gen(storage_directory, GetParam(), 5);                                                    \
+      ops;                                                                                                     \
+      info = gen.GetInfo();                                                                                    \
+      data = gen.GetData();                                                                                    \
+    }                                                                                                          \
+                                                                                                               \
+    auto wal_files = GetFilesList();                                                                           \
+    ASSERT_EQ(wal_files.size(), 1);                                                                            \
+                                                                                                               \
+    if (info.num_deltas == 0) {                                                                                \
+      ASSERT_THROW(storage::durability::ReadWalInfo(wal_files.front()), storage::durability::RecoveryFailure); \
+    } else {                                                                                                   \
+      AssertWalInfoEqual(info, storage::durability::ReadWalInfo(wal_files.front()));                           \
+      AssertWalDataEqual(data, wal_files.front());                                                             \
+    }                                                                                                          \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SIMPLE_TEST(TransactionWithEnd,
-                     { TRANSACTION(true, { tx.CreateVertex(); }); });
+GENERATE_SIMPLE_TEST(TransactionWithEnd, { TRANSACTION(true, { tx.CreateVertex(); }); });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SIMPLE_TEST(TransactionWithoutEnd,
-                     { TRANSACTION(false, { tx.CreateVertex(); }); });
+GENERATE_SIMPLE_TEST(TransactionWithoutEnd, { TRANSACTION(false, { tx.CreateVertex(); }); });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SIMPLE_TEST(OperationSingle,
-                     { OPERATION(LABEL_INDEX_CREATE, "hello"); });
+GENERATE_SIMPLE_TEST(OperationSingle, { OPERATION(LABEL_INDEX_CREATE, "hello"); });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsEnd00, {
@@ -575,14 +529,12 @@ TEST_P(WalFileTest, InvalidMarker) {
     ASSERT_TRUE(std::filesystem::copy_file(wal_file, current_file));
     utils::OutputFile file;
     file.Open(current_file, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    file.SetPosition(utils::OutputFile::Position::SET,
-                     final_info.offset_deltas);
+    file.SetPosition(utils::OutputFile::Position::SET, final_info.offset_deltas);
     auto value = static_cast<uint8_t>(marker);
     file.Write(&value, sizeof(value));
     file.Sync();
     file.Close();
-    ASSERT_THROW(storage::durability::ReadWalInfo(current_file),
-                 storage::durability::RecoveryFailure);
+    ASSERT_THROW(storage::durability::ReadWalInfo(current_file), storage::durability::RecoveryFailure);
     ++i;
   }
 }
@@ -620,8 +572,7 @@ TEST_P(WalFileTest, PartialData) {
   ASSERT_EQ(wal_files.size(), 1);
   const auto &wal_file = wal_files.front();
 
-  AssertWalInfoEqual(infos.back().second,
-                     storage::durability::ReadWalInfo(wal_file));
+  AssertWalInfoEqual(infos.back().second, storage::durability::ReadWalInfo(wal_file));
 
   auto current_file = storage_directory / "temporary";
   utils::InputFile infile;
@@ -630,12 +581,10 @@ TEST_P(WalFileTest, PartialData) {
   uint64_t pos = 0;
   for (size_t i = 0; i < infile.GetSize(); ++i) {
     if (i < infos.front().first) {
-      ASSERT_THROW(storage::durability::ReadWalInfo(current_file),
-                   storage::durability::RecoveryFailure);
+      ASSERT_THROW(storage::durability::ReadWalInfo(current_file), storage::durability::RecoveryFailure);
     } else {
       if (i >= infos[pos + 1].first) ++pos;
-      AssertWalInfoEqual(infos[pos].second,
-                         storage::durability::ReadWalInfo(current_file));
+      AssertWalInfoEqual(infos[pos].second, storage::durability::ReadWalInfo(current_file));
     }
     {
       utils::OutputFile outfile;
@@ -648,6 +597,5 @@ TEST_P(WalFileTest, PartialData) {
     }
   }
   ASSERT_EQ(pos, infos.size() - 2);
-  AssertWalInfoEqual(infos[infos.size() - 1].second,
-                     storage::durability::ReadWalInfo(current_file));
+  AssertWalInfoEqual(infos[infos.size() - 1].second, storage::durability::ReadWalInfo(current_file));
 }

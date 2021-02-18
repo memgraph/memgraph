@@ -163,43 +163,34 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
 WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
-                 Config::Items items, const Delta &delta, const Vertex &vertex,
-                 uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Items items, const Delta &delta,
+                 const Vertex &vertex, uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
-                 const Delta &delta, const Edge &edge, uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
+                 uint64_t timestamp);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper,
-                     StorageGlobalOperation operation, LabelId label,
-                     const std::set<PropertyId> &properties,
-                     uint64_t timestamp);
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
+                     LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
-RecoveryInfo LoadWal(const std::filesystem::path &path,
-                     RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> last_loaded_timestamp,
-                     utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                     std::atomic<uint64_t> *edge_count, Config::Items items);
+RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
+                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                     Config::Items items);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
-  WalFile(const std::filesystem::path &wal_directory, std::string_view uuid,
-          std::string_view epoch_id, Config::Items items,
-          NameIdMapper *name_id_mapper, uint64_t seq_num,
-          utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, Config::Items items,
-          NameIdMapper *name_id_mapper, uint64_t seq_num,
-          uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer);
+  WalFile(const std::filesystem::path &wal_directory, std::string_view uuid, std::string_view epoch_id,
+          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num, utils::FileRetainer *file_retainer);
+  WalFile(std::filesystem::path current_wal_path, Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+          uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count, utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -208,14 +199,12 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, const Vertex &vertex,
-                   uint64_t timestamp);
+  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   void AppendTransactionEnd(uint64_t timestamp);
 
-  void AppendOperation(StorageGlobalOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties,
+  void AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                        uint64_t timestamp);
 
   void Sync();

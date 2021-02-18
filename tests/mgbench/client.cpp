@@ -29,29 +29,25 @@ DEFINE_uint64(num_workers, 1,
               "Number of workers that should be used to concurrently execute "
               "the supplied queries.");
 DEFINE_uint64(max_retries, 50, "Maximum number of retries for each query.");
-DEFINE_bool(
-    queries_json, false,
-    "Set to true to load all queries as as single JSON encoded list. Each item "
-    "in the list should contain another list whose first element is the query "
-    "that should be executed and the second element should be a dictionary of "
-    "query parameters for that query.");
+DEFINE_bool(queries_json, false,
+            "Set to true to load all queries as as single JSON encoded list. Each item "
+            "in the list should contain another list whose first element is the query "
+            "that should be executed and the second element should be a dictionary of "
+            "query parameters for that query.");
 
 DEFINE_string(input, "", "Input file. By default stdin is used.");
 DEFINE_string(output, "", "Output file. By default stdout is used.");
 
-std::pair<std::map<std::string, communication::bolt::Value>, uint64_t>
-ExecuteNTimesTillSuccess(
+std::pair<std::map<std::string, communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
     communication::bolt::Client *client, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params,
-    int max_attempts) {
+    const std::map<std::string, communication::bolt::Value> &params, int max_attempts) {
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
       return {std::move(ret.metadata), i};
     } catch (const utils::BasicException &e) {
       if (i == max_attempts - 1) {
-        LOG_FATAL("Could not execute query '{}' {} times! Error message: {}",
-                  query, max_attempts, e.what());
+        LOG_FATAL("Could not execute query '{}' {} times! Error message: {}", query, max_attempts, e.what());
       } else {
         continue;
       }
@@ -151,11 +147,8 @@ class Metadata final {
   std::map<std::string, Record> storage_;
 };
 
-void Execute(
-    const std::vector<std::pair<
-        std::string, std::map<std::string, communication::bolt::Value>>>
-        &queries,
-    std::ostream *stream) {
+void Execute(const std::vector<std::pair<std::string, std::map<std::string, communication::bolt::Value>>> &queries,
+             std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -187,8 +180,7 @@ void Execute(
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) break;
         const auto &query = queries[pos];
-        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second,
-                                            FLAGS_max_retries);
+        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
         retries += ret.second;
         metadata.Append(ret.first);
       }
@@ -233,8 +225,7 @@ int main(int argc, char **argv) {
   std::ifstream ifile;
   std::istream *istream{&std::cin};
   if (FLAGS_input != "") {
-    MG_ASSERT(std::filesystem::is_regular_file(FLAGS_input),
-              "Input file isn't a regular file or it doesn't exist!");
+    MG_ASSERT(std::filesystem::is_regular_file(FLAGS_input), "Input file isn't a regular file or it doesn't exist!");
     ifile.open(FLAGS_input);
     MG_ASSERT(ifile, "Couldn't open input file!");
     istream = &ifile;
@@ -248,9 +239,7 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
-  std::vector<
-      std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
-      queries;
+  std::vector<std::pair<std::string, std::map<std::string, communication::bolt::Value>>> queries;
   if (!FLAGS_queries_json) {
     // Load simple queries.
     std::string query;
@@ -261,8 +250,7 @@ int main(int argc, char **argv) {
         queries.clear();
         continue;
       }
-      queries.emplace_back(query,
-                           std::map<std::string, communication::bolt::Value>{});
+      queries.emplace_back(query, std::map<std::string, communication::bolt::Value>{});
     }
   } else {
     // Load advanced queries.
@@ -272,8 +260,7 @@ int main(int argc, char **argv) {
       MG_ASSERT(data.is_array() && data.size() > 0,
                 "The root item of the loaded JSON queries must be a non-empty "
                 "array!");
-      MG_ASSERT(data.is_array() && data.size() == 2,
-                "Each item of the loaded JSON queries must be an array!");
+      MG_ASSERT(data.is_array() && data.size() == 2, "Each item of the loaded JSON queries must be an array!");
       if (data.size() == 0) {
         Execute(queries, ostream);
         queries.clear();

@@ -15,23 +15,16 @@ namespace telemetry {
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(const std::string &url,
-                     const std::filesystem::path &storage_directory,
-                     std::chrono::duration<long long> refresh_interval,
-                     const uint64_t send_every_n)
-    : url_(url),
-      uuid_(utils::GenerateUUID()),
-      send_every_n_(send_every_n),
-      storage_(storage_directory) {
+Telemetry::Telemetry(const std::string &url, const std::filesystem::path &storage_directory,
+                     std::chrono::duration<long long> refresh_interval, const uint64_t send_every_n)
+    : url_(url), uuid_(utils::GenerateUUID()), send_every_n_(send_every_n), storage_(storage_directory) {
   StoreData("startup", GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
   scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });
 }
 
-void Telemetry::AddCollector(
-    const std::string &name,
-    const std::function<const nlohmann::json(void)> &func) {
+void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
   std::lock_guard<std::mutex> guard(lock_);
   collectors_.push_back({name, func});
 }
@@ -41,13 +34,11 @@ Telemetry::~Telemetry() {
   CollectData("shutdown");
 }
 
-void Telemetry::StoreData(const nlohmann::json &event,
-                          const nlohmann::json &data) {
-  nlohmann::json payload = {
-      {"id", uuid_},
-      {"event", event},
-      {"data", data},
-      {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
+void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
+  nlohmann::json payload = {{"id", uuid_},
+                            {"event", event},
+                            {"data", data},
+                            {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
@@ -56,8 +47,7 @@ void Telemetry::SendData() {
   nlohmann::json payload = nlohmann::json::array();
 
   int count = 0;
-  for (auto it = storage_.begin();
-       it != storage_.end() && count < kMaxBatchSize; ++it, ++count) {
+  for (auto it = storage_.begin(); it != storage_.end() && count < kMaxBatchSize; ++it, ++count) {
     keys.push_back(it->first);
     try {
       payload.push_back(nlohmann::json::parse(it->second));

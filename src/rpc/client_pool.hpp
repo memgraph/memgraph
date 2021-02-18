@@ -14,23 +14,19 @@ namespace rpc {
  */
 class ClientPool {
  public:
-  ClientPool(const io::network::Endpoint &endpoint,
-             communication::ClientContext *context)
+  ClientPool(const io::network::Endpoint &endpoint, communication::ClientContext *context)
       : endpoint_(endpoint), context_(context) {}
 
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&... args) {
-    return WithUnusedClient([&](const auto &client) {
-      return client->template Call<TRequestResponse>(
-          std::forward<Args>(args)...);
-    });
+  typename TRequestResponse::Response Call(Args &&...args) {
+    return WithUnusedClient(
+        [&](const auto &client) { return client->template Call<TRequestResponse>(std::forward<Args>(args)...); });
   }
 
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response CallWithLoad(Args &&... args) {
+  typename TRequestResponse::Response CallWithLoad(Args &&...args) {
     return WithUnusedClient([&](const auto &client) {
-      return client->template CallWithLoad<TRequestResponse>(
-          std::forward<Args>(args)...);
+      return client->template CallWithLoad<TRequestResponse>(std::forward<Args>(args)...);
     });
   }
 

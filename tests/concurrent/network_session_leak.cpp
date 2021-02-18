@@ -33,8 +33,7 @@ TEST(Network, SessionLeak) {
   const auto &ep = server.endpoint();
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
-    clients.push_back(
-        std::thread(client_run, i, interface, ep.port, data, testlen, testlen));
+    clients.push_back(std::thread(client_run, i, interface, ep.port, data, testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }
 

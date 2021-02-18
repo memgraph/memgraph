@@ -60,8 +60,7 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
   auto Exec = [this](bool desc, const std::string &edge_pattern) {
     // this test depends on left-to-right query planning
     FLAGS_query_cost_planner = false;
-    return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") +
-                   (desc ? "DESC " : "") +
+    return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") + (desc ? "DESC " : "") +
                    "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
                    "MATCH (d)" +
                    edge_pattern +

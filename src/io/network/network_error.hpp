@@ -8,4 +8,4 @@ class NetworkError : public utils::StacktraceException {
  public:
   using utils::StacktraceException::StacktraceException;
 };
-}
+}  // namespace io::network

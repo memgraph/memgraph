@@ -27,26 +27,20 @@ using communication::bolt::Value;
 
 const int MAX_RETRIES = 50;
 
-void PrintJsonMetadata(
-    std::ostream &os,
-    const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintJsonMetadata(std::ostream &os, const std::vector<std::map<std::string, Value>> &metadata) {
   os << "[";
-  utils::PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) {
-    PrintJsonValue(stream, item);
-  });
+  utils::PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
   os << "]";
 }
 
-void PrintSummary(std::ostream &os, double duration,
-                  const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintSummary(std::ostream &os, double duration, const std::vector<std::map<std::string, Value>> &metadata) {
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
   os << "}\n";
 }
 
-void ExecuteQueries(const std::vector<std::string> &queries,
-                    std::ostream &ostream) {
+void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostream) {
   std::vector<std::thread> threads;
 
   utils::SpinLock spinlock;
@@ -76,11 +70,9 @@ void ExecuteQueries(const std::vector<std::string> &queries,
           str = queries[pos];
         }
         try {
-          metadata[pos] = ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES)
-                              .first.metadata;
+          metadata[pos] = ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES).first.metadata;
         } catch (const utils::BasicException &e) {
-          LOG_FATAL("Could not execute query '{}' {} times! Error message: {}",
-                    str, MAX_RETRIES, e.what());
+          LOG_FATAL("Could not execute query '{}' {} times! Error message: {}", str, MAX_RETRIES, e.what());
         }
       }
       client.Close();
@@ -121,8 +113,7 @@ int main(int argc, char **argv) {
   while (!istream->eof()) {
     std::vector<std::string> queries;
     std::string query;
-    while (std::getline(*istream, query) && utils::Trim(query) != "" &&
-           utils::Trim(query) != ";") {
+    while (std::getline(*istream, query) && utils::Trim(query) != "" && utils::Trim(query) != ";") {
       queries.push_back(query);
     }
     ExecuteQueries(queries, *ostream);

@@ -25,10 +25,8 @@ Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &ip_address) {
   }
 }
 
-std::optional<std::pair<std::string, uint16_t>>
-Endpoint::ParseSocketOrIpAddress(
-    const std::string &address,
-    const std::optional<uint16_t> default_port = {}) {
+std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
+    const std::string &address, const std::optional<uint16_t> default_port = {}) {
   /// expected address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
@@ -80,8 +78,7 @@ std::string Endpoint::SocketAddress() const {
 }
 
 Endpoint::Endpoint() {}
-Endpoint::Endpoint(std::string ip_address, uint16_t port)
-    : address(std::move(ip_address)), port(port) {
+Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
   IpFamily ip_family = GetIpFamily(address);
   if (ip_family == IpFamily::NONE) {
     throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);

@@ -30,8 +30,7 @@ class BuiltinModule final : public Module {
 
   bool Close() override;
 
-  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
-      const override;
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
   void AddProcedure(std::string_view name, mgp_proc proc);
 
@@ -46,19 +45,13 @@ BuiltinModule::~BuiltinModule() {}
 
 bool BuiltinModule::Close() { return true; }
 
-const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures()
-    const {
-  return &procedures_;
-}
+const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() const { return &procedures_; }
 
-void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) {
-  procedures_.emplace(name, std::move(proc));
-}
+void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
 
 namespace {
 
-void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock,
-                    BuiltinModule *module) {
+void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
   // Loading relies on the fact that regular procedure invocation through
   // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
   // load modules we have to upgrade our READ access to WRITE access,
@@ -83,27 +76,19 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock,
     }
     lock->lock_shared();
   };
-  auto load_all_cb = [module_registry, with_unlock_shared](
-                         const mgp_list *, const mgp_graph *, mgp_result *,
-                         mgp_memory *) {
-    with_unlock_shared(
-        [&]() { module_registry->UnloadAndLoadModulesFromDirectory(); });
+  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
+                                                           mgp_memory *) {
+    with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectory(); });
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](
-                     const mgp_list *args, const mgp_graph *, mgp_result *res,
-                     mgp_memory *) {
-    MG_ASSERT(mgp_list_size(args) == 1U,
-              "Should have been type checked already");
+  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph *, mgp_result *res,
+                                                       mgp_memory *) {
+    MG_ASSERT(mgp_list_size(args) == 1U, "Should have been type checked already");
     const mgp_value *arg = mgp_list_at(args, 0);
-    MG_ASSERT(mgp_value_is_string(arg),
-              "Should have been type checked already");
+    MG_ASSERT(mgp_value_is_string(arg), "Should have been type checked already");
     bool succ = false;
-    with_unlock_shared([&]() {
-      succ = module_registry->LoadOrReloadModuleFromName(
-          mgp_value_get_string(arg));
-    });
+    with_unlock_shared([&]() { succ = module_registry->LoadOrReloadModuleFromName(mgp_value_get_string(arg)); });
     if (!succ) mgp_result_set_error_msg(res, "Failed to (re)load the module.");
   };
   mgp_proc load("load", load_cb, utils::NewDeleteResource());
@@ -113,11 +98,8 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock,
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>>
-        *all_modules,
-    BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *,
-                                     mgp_result *result, mgp_memory *memory) {
+    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
+  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
     // For details on how the invocation is done, take a look at the
@@ -125,8 +107,7 @@ void RegisterMgProcedures(
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
-          std::is_same_v<decltype(module->Procedures()),
-                         const std::map<std::string, mgp_proc, std::less<>> *>,
+          std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
           "Expected module procedures to be sorted by name");
       for (const auto &[proc_name, proc] : *module->Procedures()) {
         auto *record = mgp_result_new_record(result);
@@ -146,16 +127,14 @@ void RegisterMgProcedures(
         ss << module_name << ".";
         PrintProcSignature(proc, &ss);
         const auto signature = ss.str();
-        auto *signature_value =
-            mgp_value_make_string(signature.c_str(), memory);
+        auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
         if (!signature_value) {
           mgp_value_destroy(name_value);
           mgp_result_set_error_msg(result, "Not enough memory!");
           return;
         }
         int succ1 = mgp_result_record_insert(record, "name", name_value);
-        int succ2 =
-            mgp_result_record_insert(record, "signature", signature_value);
+        int succ2 = mgp_result_record_insert(record, "signature", signature_value);
         mgp_value_destroy(name_value);
         mgp_value_destroy(signature_value);
         if (!succ1 || !succ2) {
@@ -206,8 +185,7 @@ class SharedLibraryModule final : public Module {
 
   bool Close() override;
 
-  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
-      const override;
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
  private:
   /// Path as requested for loading the module from a library.
@@ -239,8 +217,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   // Get required mgp_init_module
-  init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(
-      dlsym(handle_, "mgp_init_module"));
+  init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
   const char *error = dlerror();
   if (!init_fn_ || error) {
     spdlog::error("Unable to load module {}; {}", file_path, error);
@@ -248,13 +225,11 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     handle_ = nullptr;
     return false;
   }
-  if (!WithModuleRegistration(&procedures_, [&](auto *module_def,
-                                                auto *memory) {
+  if (!WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
         // Run mgp_init_module which must succeed.
         int init_res = init_fn_(module_def, memory);
         if (init_res != 0) {
-          spdlog::error("Unable to load module {}; mgp_init_module_returned {}",
-                        file_path, init_res);
+          spdlog::error("Unable to load module {}; mgp_init_module_returned {}", file_path, init_res);
           dlclose(handle_);
           handle_ = nullptr;
           return false;
@@ -264,8 +239,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   // Get optional mgp_shutdown_module
-  shutdown_fn_ =
-      reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
+  shutdown_fn_ = reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
   error = dlerror();
   if (error) spdlog::warn("When loading module {}; {}", file_path, error);
   spdlog::info("Loaded module {}", file_path);
@@ -273,16 +247,14 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
 }
 
 bool SharedLibraryModule::Close() {
-  MG_ASSERT(handle_,
-            "Attempting to close a module that has not been loaded...");
+  MG_ASSERT(handle_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
   // non-existent shutdown function is semantically the same as a shutdown
   // function that does nothing.
   int shutdown_res = 0;
   if (shutdown_fn_) shutdown_res = shutdown_fn_();
   if (shutdown_res != 0) {
-    spdlog::warn("When closing module {}; mgp_shutdown_module returned {}",
-                 file_path_, shutdown_res);
+    spdlog::warn("When closing module {}; mgp_shutdown_module returned {}", file_path_, shutdown_res);
   }
   if (dlclose(handle_) != 0) {
     spdlog::error("Failed to close module {}; {}", file_path_, dlerror());
@@ -294,8 +266,7 @@ bool SharedLibraryModule::Close() {
   return true;
 }
 
-const std::map<std::string, mgp_proc, std::less<>>
-    *SharedLibraryModule::Procedures() const {
+const std::map<std::string, mgp_proc, std::less<>> *SharedLibraryModule::Procedures() const {
   MG_ASSERT(handle_,
             "Attempting to access procedures of a module that has not "
             "been loaded...");
@@ -315,8 +286,7 @@ class PythonModule final : public Module {
 
   bool Close() override;
 
-  const std::map<std::string, mgp_proc, std::less<>> *Procedures()
-      const override;
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
  private:
   std::filesystem::path file_path_;
@@ -340,10 +310,9 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
     return false;
   }
-  py_module_ =
-      WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
-        return ImportPyModule(file_path.stem().c_str(), module_def);
-      });
+  py_module_ = WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
+    return ImportPyModule(file_path.stem().c_str(), module_def);
+  });
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);
     return true;
@@ -354,8 +323,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
 }
 
 bool PythonModule::Close() {
-  MG_ASSERT(py_module_,
-            "Attempting to close a module that has not been loaded...");
+  MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
   // The procedures are closures which hold references to the Python callbacks.
   // Releasing these references might result in deallocations so we need to take
@@ -365,8 +333,7 @@ bool PythonModule::Close() {
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));
-  if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(),
-                           file_path_.stem().c_str()) != 0) {
+  if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(), file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module from sys.modules");
     py_module_ = py::Object(nullptr);
     return false;
@@ -376,8 +343,7 @@ bool PythonModule::Close() {
   return true;
 }
 
-const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures()
-    const {
+const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() const {
   MG_ASSERT(py_module_,
             "Attempting to access procedures of a module that has "
             "not been loaded...");
@@ -407,8 +373,7 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 
 }  // namespace
 
-bool ModuleRegistry::RegisterModule(const std::string_view &name,
-                                    std::unique_ptr<Module> module) {
+bool ModuleRegistry::RegisterModule(const std::string_view &name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
   if (modules_.find(name) != modules_.end()) {
@@ -420,8 +385,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view &name,
 }
 
 void ModuleRegistry::DoUnloadAllModules() {
-  MG_ASSERT(modules_.find("mg") != modules_.end(),
-            "Expected the builtin \"mg\" module to be present.");
+  MG_ASSERT(modules_.find("mg") != modules_.end(), "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
   auto module = std::move(modules_["mg"]);
@@ -436,10 +400,7 @@ ModuleRegistry::ModuleRegistry() {
   modules_.emplace("mg", std::move(module));
 }
 
-void ModuleRegistry::SetModulesDirectory(
-    const std::filesystem::path &modules_dir) {
-  modules_dir_ = modules_dir;
-}
+void ModuleRegistry::SetModulesDirectory(const std::filesystem::path &modules_dir) { modules_dir_ = modules_dir; }
 
 bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
   if (modules_dir_.empty()) return false;
@@ -500,16 +461,14 @@ void ModuleRegistry::UnloadAllModules() {
 }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry,
-    const std::string_view &fully_qualified_procedure_name,
+    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
     utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
   utils::Split(&name_parts, fully_qualified_procedure_name, ".");
   if (name_parts.size() == 1U) return std::nullopt;
   auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
-  const auto &module_name =
-      fully_qualified_procedure_name.substr(0, last_dot_pos);
+  const auto &module_name = fully_qualified_procedure_name.substr(0, last_dot_pos);
   const auto &proc_name = name_parts.back();
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) return std::nullopt;

@@ -24,6 +24,6 @@ int main(int argc, const char **a) {
   clock_t end = clock();
 
   double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
-  std::cout << "Performed " << REPEATS << " strip ops, each took "
-            << elapsed_secs / REPEATS * 1000 << "ms" << std::endl;
+  std::cout << "Performed " << REPEATS << " strip ops, each took " << elapsed_secs / REPEATS * 1000 << "ms"
+            << std::endl;
 }

@@ -24,8 +24,7 @@ class Path {
    * Create the path starting with the given vertex.
    * Allocations are done using the given MemoryResource.
    */
-  explicit Path(const VertexAccessor &vertex,
-                utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit Path(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
       : vertices_(memory), edges_(memory) {
     Expand(vertex);
   }
@@ -37,8 +36,7 @@ class Path {
    */
   template <typename... TOthers>
   explicit Path(const VertexAccessor &vertex, const TOthers &...others)
-      : vertices_(utils::NewDeleteResource()),
-        edges_(utils::NewDeleteResource()) {
+      : vertices_(utils::NewDeleteResource()), edges_(utils::NewDeleteResource()) {
     Expand(vertex);
     Expand(others...);
   }
@@ -49,8 +47,7 @@ class Path {
    * Allocations are done using the given MemoryResource.
    */
   template <typename... TOthers>
-  Path(std::allocator_arg_t, utils::MemoryResource *memory,
-       const VertexAccessor &vertex, const TOthers &...others)
+  Path(std::allocator_arg_t, utils::MemoryResource *memory, const VertexAccessor &vertex, const TOthers &...others)
       : vertices_(memory), edges_(memory) {
     Expand(vertex);
     Expand(others...);
@@ -65,10 +62,9 @@ class Path {
    * will default to utils::NewDeleteResource().
    */
   Path(const Path &other)
-      : Path(other, std::allocator_traits<allocator_type>::
-                        select_on_container_copy_construction(
-                            other.GetMemoryResource())
-                            .GetMemoryResource()) {}
+      : Path(other,
+             std::allocator_traits<allocator_type>::select_on_container_copy_construction(other.GetMemoryResource())
+                 .GetMemoryResource()) {}
 
   /** Construct a copy using the given utils::MemoryResource */
   Path(const Path &other, utils::MemoryResource *memory)
@@ -79,8 +75,7 @@ class Path {
    * utils::MemoryResource is obtained from other. After the move, other will be
    * empty.
    */
-  Path(Path &&other) noexcept
-      : Path(std::move(other), other.GetMemoryResource()) {}
+  Path(Path &&other) noexcept : Path(std::move(other), other.GetMemoryResource()) {}
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
@@ -89,8 +84,7 @@ class Path {
    * performed.
    */
   Path(Path &&other, utils::MemoryResource *memory)
-      : vertices_(std::move(other.vertices_), memory),
-        edges_(std::move(other.edges_), memory) {}
+      : vertices_(std::move(other.vertices_), memory), edges_(std::move(other.edges_), memory) {}
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   Path &operator=(const Path &) = default;
@@ -102,15 +96,13 @@ class Path {
 
   /** Expands the path with the given vertex. */
   void Expand(const VertexAccessor &vertex) {
-    DMG_ASSERT(vertices_.size() == edges_.size(),
-               "Illegal path construction order");
+    DMG_ASSERT(vertices_.size() == edges_.size(), "Illegal path construction order");
     vertices_.emplace_back(vertex);
   }
 
   /** Expands the path with the given edge. */
   void Expand(const EdgeAccessor &edge) {
-    DMG_ASSERT(vertices_.size() - 1 == edges_.size(),
-               "Illegal path construction order");
+    DMG_ASSERT(vertices_.size() - 1 == edges_.size(), "Illegal path construction order");
     edges_.emplace_back(edge);
   }
 
@@ -129,13 +121,9 @@ class Path {
   const auto &vertices() const { return vertices_; }
   const auto &edges() const { return edges_; }
 
-  utils::MemoryResource *GetMemoryResource() const {
-    return vertices_.get_allocator().GetMemoryResource();
-  }
+  utils::MemoryResource *GetMemoryResource() const { return vertices_.get_allocator().GetMemoryResource(); }
 
-  bool operator==(const Path &other) const {
-    return vertices_ == other.vertices_ && edges_ == other.edges_;
-  }
+  bool operator==(const Path &other) const { return vertices_ == other.vertices_ && edges_ == other.edges_; }
 
  private:
   // Contains all the vertices in the path.

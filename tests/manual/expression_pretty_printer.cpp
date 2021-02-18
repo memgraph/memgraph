@@ -11,8 +11,7 @@ std::string AssembleQueryString(const std::string &expression_string) {
   return "return " + expression_string + " as expr";
 }
 
-query::Query *ParseQuery(const std::string &query_string,
-                         query::AstStorage *ast_storage) {
+query::Query *ParseQuery(const std::string &query_string, query::AstStorage *ast_storage) {
   query::frontend::ParsingContext context;
   query::frontend::opencypher::Parser parser(query_string);
   query::frontend::CypherMainVisitor visitor(context, ast_storage);
@@ -23,8 +22,7 @@ query::Query *ParseQuery(const std::string &query_string,
 
 query::Expression *GetExpression(query::Query *query) {
   auto cypher_query = dynamic_cast<query::CypherQuery *>(query);
-  auto ret =
-      dynamic_cast<query::Return *>(cypher_query->single_query_->clauses_[0]);
+  auto ret = dynamic_cast<query::Return *>(cypher_query->single_query_->clauses_[0]);
   auto expr = ret->body_.named_expressions[0]->expression_;
 
   return expr;

@@ -10,7 +10,6 @@ namespace utils::pmr {
 // example, it's possible to use `find` with C-style (null terminated) strings
 // without actually constructing (and allocating) a key.
 template <class Key, class T, class Compare = std::less<void>>
-using map =
-    std::map<Key, T, Compare, utils::Allocator<std::pair<const Key, T>>>;
+using map = std::map<Key, T, Compare, utils::Allocator<std::pair<const Key, T>>>;
 
 }  // namespace utils::pmr

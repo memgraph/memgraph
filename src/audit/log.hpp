@@ -27,8 +27,7 @@ class Log {
   };
 
  public:
-  Log(const std::filesystem::path &storage_directory, int32_t buffer_size,
-      int32_t buffer_flush_interval_millis);
+  Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
 
   ~Log();
 
@@ -43,8 +42,8 @@ class Log {
   void Start();
 
   /// Adds an entry to the audit log. Thread-safe.
-  void Record(const std::string &address, const std::string &username,
-              const std::string &query, const storage::PropertyValue &params);
+  void Record(const std::string &address, const std::string &username, const std::string &query,
+              const storage::PropertyValue &params);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   void ReopenLog();

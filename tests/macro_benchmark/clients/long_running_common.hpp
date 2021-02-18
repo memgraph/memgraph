@@ -71,15 +71,14 @@ class TestClient {
  protected:
   virtual void Step() = 0;
 
-  std::optional<communication::bolt::QueryData> Execute(
-      const std::string &query, const std::map<std::string, Value> &params,
-      const std::string &query_name = "") {
+  std::optional<communication::bolt::QueryData> Execute(const std::string &query,
+                                                        const std::map<std::string, Value> &params,
+                                                        const std::string &query_name = "") {
     communication::bolt::QueryData result;
     int retries;
     utils::Timer timer;
     try {
-      std::tie(result, retries) =
-          ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
+      std::tie(result, retries) = ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
     } catch (const utils::BasicException &e) {
       serialization_errors += MAX_RETRIES;
       return std::nullopt;
@@ -101,8 +100,7 @@ class TestClient {
   }
 
   utils::SpinLock lock_;
-  std::unordered_map<std::string, std::vector<std::map<std::string, Value>>>
-      stats_;
+  std::unordered_map<std::string, std::vector<std::map<std::string, Value>>> stats_;
 
   std::atomic<bool> keep_running_{true};
   std::thread runner_thread_;
@@ -132,18 +130,15 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
   }
   spdlog::info("Starting test with {} workers", clients.size());
   while (timer.Elapsed().count() < FLAGS_duration) {
-    std::unordered_map<std::string, std::map<std::string, Value>>
-        aggregated_stats;
+    std::unordered_map<std::string, std::map<std::string, Value>> aggregated_stats;
 
     using namespace std::chrono_literals;
-    std::unordered_map<std::string, std::vector<std::map<std::string, Value>>>
-        stats;
+    std::unordered_map<std::string, std::vector<std::map<std::string, Value>>> stats;
     for (const auto &client : clients) {
       auto client_stats = client->ConsumeStats();
       for (const auto &client_query_stats : client_stats) {
         auto &query_stats = stats[client_query_stats.first];
-        query_stats.insert(query_stats.end(), client_query_stats.second.begin(),
-                           client_query_stats.second.end());
+        query_stats.insert(query_stats.end(), client_query_stats.second.begin(), client_query_stats.second.end());
       }
     }
 
@@ -174,22 +169,18 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
       aggregated_query_stats["count"].ValueInt() += new_count;
       for (const auto &stat : new_aggregated_query_stats) {
         auto it = aggregated_query_stats.insert({stat.first, Value(0.0)}).first;
-        it->second = (it->second.ValueDouble() * old_count + stat.second) /
-                     (old_count + new_count);
+        it->second = (it->second.ValueDouble() * old_count + stat.second) / (old_count + new_count);
       }
     }
 
     out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"num_executed_steps\": " << executed_steps << ", "
-        << "\"elapsed_time\": " << timer.Elapsed().count()
-        << ", \"queries\": [";
-    utils::PrintIterable(out, aggregated_stats, ", ",
-                         [](auto &stream, const auto &x) {
-                           stream << "{\"query\": " << nlohmann::json(x.first)
-                                  << ", \"stats\": ";
-                           PrintJsonValue(stream, Value(x.second));
-                           stream << "}";
-                         });
+        << "\"elapsed_time\": " << timer.Elapsed().count() << ", \"queries\": [";
+    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
+      stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
+      PrintJsonValue(stream, Value(x.second));
+      stream << "}";
+    });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);

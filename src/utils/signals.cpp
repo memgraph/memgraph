@@ -23,8 +23,7 @@ bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func) {
   return RegisterHandler(signal, func, signal_mask);
 }
 
-bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func,
-                                    sigset_t signal_mask) {
+bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func, sigset_t signal_mask) {
   int signal_number = static_cast<int>(signal);
   handlers_[signal_number] = func;
   struct sigaction action;

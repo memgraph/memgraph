@@ -14,23 +14,18 @@ namespace query::plan {
 namespace {
 
 unsigned long long IndividualCycles(const ProfilingStats &cumulative_stats) {
-  return cumulative_stats.num_cycles -
-         std::accumulate(
-             cumulative_stats.children.begin(), cumulative_stats.children.end(),
-             0ULL,
-             [](auto acc, auto &stats) { return acc + stats.num_cycles; });
+  return cumulative_stats.num_cycles - std::accumulate(cumulative_stats.children.begin(),
+                                                       cumulative_stats.children.end(), 0ULL,
+                                                       [](auto acc, auto &stats) { return acc + stats.num_cycles; });
 }
 
-double RelativeTime(unsigned long long num_cycles,
-                    unsigned long long total_cycles) {
+double RelativeTime(unsigned long long num_cycles, unsigned long long total_cycles) {
   return static_cast<double>(num_cycles) / total_cycles;
 }
 
-double AbsoluteTime(unsigned long long num_cycles,
-                    unsigned long long total_cycles,
+double AbsoluteTime(unsigned long long num_cycles, unsigned long long total_cycles,
                     std::chrono::duration<double> total_time) {
-  return (RelativeTime(num_cycles, total_cycles) *
-          static_cast<std::chrono::duration<double, std::milli>>(total_time))
+  return (RelativeTime(num_cycles, total_cycles) * static_cast<std::chrono::duration<double, std::milli>>(total_time))
       .count();
 }
 
@@ -44,18 +39,15 @@ namespace {
 
 class ProfilingStatsToTableHelper {
  public:
-  ProfilingStatsToTableHelper(unsigned long long total_cycles,
-                              std::chrono::duration<double> total_time)
+  ProfilingStatsToTableHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
       : total_cycles_(total_cycles), total_time_(total_time) {}
 
   void Output(const ProfilingStats &cumulative_stats) {
     auto cycles = IndividualCycles(cumulative_stats);
 
     rows_.emplace_back(std::vector<TypedValue>{
-        TypedValue(FormatOperator(cumulative_stats.name)),
-        TypedValue(cumulative_stats.actual_hits),
-        TypedValue(FormatRelativeTime(cycles)),
-        TypedValue(FormatAbsoluteTime(cycles))});
+        TypedValue(FormatOperator(cumulative_stats.name)), TypedValue(cumulative_stats.actual_hits),
+        TypedValue(FormatRelativeTime(cycles)), TypedValue(FormatAbsoluteTime(cycles))});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
       Branch(cumulative_stats.children[i]);
@@ -70,8 +62,7 @@ class ProfilingStatsToTableHelper {
 
  private:
   void Branch(const ProfilingStats &cumulative_stats) {
-    rows_.emplace_back(std::vector<TypedValue>{
-        TypedValue("|\\"), TypedValue(""), TypedValue(""), TypedValue("")});
+    rows_.emplace_back(std::vector<TypedValue>{TypedValue("|\\"), TypedValue(""), TypedValue(""), TypedValue("")});
 
     ++depth_;
     Output(cumulative_stats);
@@ -89,18 +80,14 @@ class ProfilingStatsToTableHelper {
 
   std::string Format(const std::string &str) { return Format(str.c_str()); }
 
-  std::string FormatOperator(const char *str) {
-    return Format(std::string("* ") + str);
-  }
+  std::string FormatOperator(const char *str) { return Format(std::string("* ") + str); }
 
   std::string FormatRelativeTime(unsigned long long num_cycles) {
-    return fmt::format("{: 10.6f} %",
-                       RelativeTime(num_cycles, total_cycles_) * 100);
+    return fmt::format("{: 10.6f} %", RelativeTime(num_cycles, total_cycles_) * 100);
   }
 
   std::string FormatAbsoluteTime(unsigned long long num_cycles) {
-    return fmt::format("{: 10.6f} ms",
-                       AbsoluteTime(num_cycles, total_cycles_, total_time_));
+    return fmt::format("{: 10.6f} ms", AbsoluteTime(num_cycles, total_cycles_, total_time_));
   }
 
   int64_t depth_{0};
@@ -111,9 +98,8 @@ class ProfilingStatsToTableHelper {
 
 }  // namespace
 
-std::vector<std::vector<TypedValue>> ProfilingStatsToTable(
-    const ProfilingStats &cumulative_stats,
-    std::chrono::duration<double> total_time) {
+std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStats &cumulative_stats,
+                                                           std::chrono::duration<double> total_time) {
   ProfilingStatsToTableHelper helper{cumulative_stats.num_cycles, total_time};
   helper.Output(cumulative_stats);
   return helper.rows();
@@ -130,13 +116,10 @@ class ProfilingStatsToJsonHelper {
   using json = nlohmann::json;
 
  public:
-  ProfilingStatsToJsonHelper(unsigned long long total_cycles,
-                             std::chrono::duration<double> total_time)
+  ProfilingStatsToJsonHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
       : total_cycles_(total_cycles), total_time_(total_time) {}
 
-  void Output(const ProfilingStats &cumulative_stats) {
-    return Output(cumulative_stats, &json_);
-  }
+  void Output(const ProfilingStats &cumulative_stats) { return Output(cumulative_stats, &json_); }
 
   json ToJson() { return json_; }
 
@@ -147,8 +130,7 @@ class ProfilingStatsToJsonHelper {
     obj->emplace("name", cumulative_stats.name);
     obj->emplace("actual_hits", cumulative_stats.actual_hits);
     obj->emplace("relative_time", RelativeTime(cycles, total_cycles_));
-    obj->emplace("absolute_time",
-                 AbsoluteTime(cycles, total_cycles_, total_time_));
+    obj->emplace("absolute_time", AbsoluteTime(cycles, total_cycles_, total_time_));
     obj->emplace("children", json::array());
 
     for (size_t i = 0; i < cumulative_stats.children.size(); ++i) {
@@ -165,8 +147,7 @@ class ProfilingStatsToJsonHelper {
 
 }  // namespace
 
-nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats,
-                                    std::chrono::duration<double> total_time) {
+nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats, std::chrono::duration<double> total_time) {
   ProfilingStatsToJsonHelper helper{cumulative_stats.num_cycles, total_time};
   helper.Output(cumulative_stats);
   return helper.ToJson();

@@ -6,9 +6,7 @@
 
 namespace slk {
 
-void Save(const storage::Gid &gid, slk::Builder *builder) {
-  slk::Save(gid.AsUint(), builder);
-}
+void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
 void Load(storage::Gid *gid, slk::Reader *reader) {
   uint64_t value;
@@ -21,8 +19,7 @@ void Save(const storage::PropertyValue::Type &type, slk::Builder *builder) {
 }
 
 void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType =
-      std::underlying_type_t<storage::PropertyValue::Type>;
+  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
   PVTypeUnderlyingType value;
   slk::Load(&value, reader);
   bool valid;
@@ -40,9 +37,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
       valid = false;
       break;
   }
-  if (!valid)
-    throw slk::SlkDecodeException(
-        "Trying to load unknown storage::PropertyValue!");
+  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::PropertyValue!");
   *type = static_cast<storage::PropertyValue::Type>(value);
 }
 
@@ -151,8 +146,7 @@ void Save(const storage::durability::Marker &marker, slk::Builder *builder) {
 }
 
 void Load(storage::durability::Marker *marker, slk::Reader *reader) {
-  using PVTypeUnderlyingType =
-      std::underlying_type_t<storage::PropertyValue::Type>;
+  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
   PVTypeUnderlyingType value;
   slk::Load(&value, reader);
   *marker = static_cast<storage::durability::Marker>(value);

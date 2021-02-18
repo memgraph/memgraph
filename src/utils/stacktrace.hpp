@@ -16,8 +16,7 @@ class Stacktrace {
     // cppcheck-suppress noExplicitConstructor
     Line(const std::string &original) : original(original) {}
 
-    Line(const std::string &original, const std::string &function,
-         const std::string &location)
+    Line(const std::string &original, const std::string &function, const std::string &location)
         : original(original), function(function), location(location) {}
 
     std::string original, function, location;
@@ -59,8 +58,7 @@ class Stacktrace {
   std::string dump() {
     std::string message;
     for (size_t i = 0; i < size(); i++) {
-      message.append(
-          fmt::format("at {} ({}) \n", lines[i].function, lines[i].location));
+      message.append(fmt::format("at {} ({}) \n", lines[i].function, lines[i].location));
     }
     return message;
   }
@@ -75,21 +73,17 @@ class Stacktrace {
     auto begin = line.find('(');
     auto end = line.find('+');
 
-    if (begin == std::string::npos || end == std::string::npos)
-      return {original};
+    if (begin == std::string::npos || end == std::string::npos) return {original};
 
     line[end] = '\0';
 
     int s;
-    auto demangled =
-        __cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
+    auto demangled = __cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
 
     auto location = line.substr(0, begin);
 
     auto function =
-        demangled
-            ? std::string(demangled)
-            : fmt::format("{}()", original.substr(begin + 1, end - begin - 1));
+        demangled ? std::string(demangled) : fmt::format("{}()", original.substr(begin + 1, end - begin - 1));
 
     return {original, function, location};
   }

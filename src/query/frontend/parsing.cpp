@@ -26,8 +26,7 @@ std::string ParseStringLiteral(const std::string &s) {
   auto EncodeEscapedUnicodeCodepointUtf32 = [](const std::string &s, int &i) {
     const int kLongUnicodeLength = 8;
     int j = i + 1;
-    while (j < static_cast<int>(s.size()) - 1 &&
-           j < i + kLongUnicodeLength + 1 && isxdigit(s[j])) {
+    while (j < static_cast<int>(s.size()) - 1 && j < i + kLongUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
     }
     if (j - i == kLongUnicodeLength + 1) {
@@ -43,8 +42,7 @@ std::string ParseStringLiteral(const std::string &s) {
   auto EncodeEscapedUnicodeCodepointUtf16 = [](const std::string &s, int &i) {
     const int kShortUnicodeLength = 4;
     int j = i + 1;
-    while (j < static_cast<int>(s.size()) - 1 &&
-           j < i + kShortUnicodeLength + 1 && isxdigit(s[j])) {
+    while (j < static_cast<int>(s.size()) - 1 && j < i + kShortUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
     }
     if (j - i >= kShortUnicodeLength + 1) {
@@ -56,31 +54,24 @@ std::string ParseStringLiteral(const std::string &s) {
           throw SemanticException("Invalid UTF codepoint.");
         }
         ++j;
-        if (j >= static_cast<int>(s.size()) - 1 ||
-            (s[j] != 'u' && s[j] != 'U')) {
+        if (j >= static_cast<int>(s.size()) - 1 || (s[j] != 'u' && s[j] != 'U')) {
           throw SemanticException("Invalid UTF codepoint.");
         }
         ++j;
         int k = j;
-        while (k < static_cast<int>(s.size()) - 1 &&
-               k < j + kShortUnicodeLength && isxdigit(s[k])) {
+        while (k < static_cast<int>(s.size()) - 1 && k < j + kShortUnicodeLength && isxdigit(s[k])) {
           ++k;
         }
         if (k != j + kShortUnicodeLength) {
           throw SemanticException("Invalid UTF codepoint.");
         }
-        char16_t surrogates[3] = {t,
-                                  static_cast<char16_t>(stoi(
-                                      s.substr(j, kShortUnicodeLength), 0, 16)),
-                                  0};
+        char16_t surrogates[3] = {t, static_cast<char16_t>(stoi(s.substr(j, kShortUnicodeLength), 0, 16)), 0};
         i += kShortUnicodeLength + 2 + kShortUnicodeLength;
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
-            converter;
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
         return converter.to_bytes(surrogates);
       } else {
         i += kShortUnicodeLength;
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
-            converter;
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
         return converter.to_bytes(t);
       }
     }
@@ -168,8 +159,7 @@ std::string ParseParameter(const std::string &s) {
   if (s[1] != '`') return s.substr(1);
   // If parameter name is escaped symbolic name then symbolic name should be
   // unescaped and leading and trailing backquote should be removed.
-  DMG_ASSERT(s.size() > 3U && s.back() == '`',
-             "Invalid string passed as parameter name");
+  DMG_ASSERT(s.size() > 3U && s.back() == '`', "Invalid string passed as parameter name");
   std::string out;
   for (int i = 2; i < static_cast<int>(s.size()) - 1; ++i) {
     if (s[i] == '`') {

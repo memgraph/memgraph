@@ -27,9 +27,7 @@ class ResultStreamFaker {
 
   void Header(const std::vector<std::string> &fields) { header_ = fields; }
 
-  void Result(const std::vector<communication::bolt::Value> &values) {
-    results_.push_back(values);
-  }
+  void Result(const std::vector<communication::bolt::Value> &values) { results_.push_back(values); }
 
   void Result(const std::vector<query::TypedValue> &values) {
     std::vector<communication::bolt::Value> bvalues;
@@ -42,16 +40,12 @@ class ResultStreamFaker {
     results_.push_back(std::move(bvalues));
   }
 
-  void Summary(
-      const std::map<std::string, communication::bolt::Value> &summary) {
-    summary_ = summary;
-  }
+  void Summary(const std::map<std::string, communication::bolt::Value> &summary) { summary_ = summary; }
 
   void Summary(const std::map<std::string, query::TypedValue> &summary) {
     std::map<std::string, communication::bolt::Value> bsummary;
     for (const auto &item : summary) {
-      auto maybe_value =
-          glue::ToBoltValue(item.second, *store_, storage::View::NEW);
+      auto maybe_value = glue::ToBoltValue(item.second, *store_, storage::View::NEW);
       MG_ASSERT(maybe_value.HasValue());
       bsummary.insert({item.first, std::move(*maybe_value)});
     }
@@ -64,8 +58,7 @@ class ResultStreamFaker {
 
   const auto &GetSummary() const { return summary_; }
 
-  friend std::ostream &operator<<(std::ostream &os,
-                                  const ResultStreamFaker &results) {
+  friend std::ostream &operator<<(std::ostream &os, const ResultStreamFaker &results) {
     auto decoded_value_to_string = [](const auto &value) {
       std::stringstream ss;
       ss << value;
@@ -73,21 +66,16 @@ class ResultStreamFaker {
     };
     const std::vector<std::string> &header = results.GetHeader();
     std::vector<int> column_widths(header.size());
-    std::transform(header.begin(), header.end(), column_widths.begin(),
-                   [](const auto &s) { return s.size(); });
+    std::transform(header.begin(), header.end(), column_widths.begin(), [](const auto &s) { return s.size(); });
 
     // convert all the results into strings, and track max column width
     auto &results_data = results.GetResults();
-    std::vector<std::vector<std::string>> result_strings(
-        results_data.size(), std::vector<std::string>(column_widths.size()));
-    for (int row_ind = 0; row_ind < static_cast<int>(results_data.size());
-         ++row_ind) {
-      for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
-           ++col_ind) {
-        std::string string_val =
-            decoded_value_to_string(results_data[row_ind][col_ind]);
-        column_widths[col_ind] =
-            std::max(column_widths[col_ind], (int)string_val.size());
+    std::vector<std::vector<std::string>> result_strings(results_data.size(),
+                                                         std::vector<std::string>(column_widths.size()));
+    for (int row_ind = 0; row_ind < static_cast<int>(results_data.size()); ++row_ind) {
+      for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size()); ++col_ind) {
+        std::string string_val = decoded_value_to_string(results_data[row_ind][col_ind]);
+        column_widths[col_ind] = std::max(column_widths[col_ind], (int)string_val.size());
         result_strings[row_ind][col_ind] = string_val;
       }
     }
@@ -96,15 +84,13 @@ class ResultStreamFaker {
     // first define some helper functions
     auto emit_horizontal_line = [&]() {
       os << "+";
-      for (auto col_width : column_widths)
-        os << std::string((unsigned long)col_width + 2, '-') << "+";
+      for (auto col_width : column_widths) os << std::string((unsigned long)col_width + 2, '-') << "+";
       os << std::endl;
     };
 
     auto emit_result_vec = [&](const std::vector<std::string> result_vec) {
       os << "| ";
-      for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
-           ++col_ind) {
+      for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size()); ++col_ind) {
         const std::string &res = result_vec[col_ind];
         os << res << std::string(column_widths[col_ind] - res.size(), ' ');
         os << " | ";
@@ -123,9 +109,7 @@ class ResultStreamFaker {
     // output the summary
     os << "Query summary: {";
     utils::PrintIterable(os, results.GetSummary(), ", ",
-                         [&](auto &stream, const auto &kv) {
-                           stream << kv.first << ": " << kv.second;
-                         });
+                         [&](auto &stream, const auto &kv) { stream << kv.first << ": " << kv.second; });
     os << "}" << std::endl;
 
     return os;

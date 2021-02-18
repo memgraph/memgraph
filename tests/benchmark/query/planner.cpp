@@ -9,8 +9,7 @@
 #include "storage/v2/storage.hpp"
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
-static query::CypherQuery *AddChainedMatches(int num_matches,
-                                             query::AstStorage &storage) {
+static query::CypherQuery *AddChainedMatches(int num_matches, query::AstStorage &storage) {
   auto *query = storage.Create<query::CypherQuery>();
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
@@ -19,13 +18,12 @@ static query::CypherQuery *AddChainedMatches(int num_matches,
     pattern->identifier_ = storage.Create<query::Identifier>("path");
     match->patterns_.emplace_back(pattern);
     std::string node1_name = "node" + std::to_string(i - 1);
-    pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(
-        storage.Create<query::Identifier>(node1_name)));
-    pattern->atoms_.emplace_back(storage.Create<query::EdgeAtom>(
-        storage.Create<query::Identifier>("edge" + std::to_string(i)),
-        query::EdgeAtom::Type::SINGLE, query::EdgeAtom::Direction::BOTH));
-    pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(
-        storage.Create<query::Identifier>("node" + std::to_string(i))));
+    pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(storage.Create<query::Identifier>(node1_name)));
+    pattern->atoms_.emplace_back(
+        storage.Create<query::EdgeAtom>(storage.Create<query::Identifier>("edge" + std::to_string(i)),
+                                        query::EdgeAtom::Type::SINGLE, query::EdgeAtom::Direction::BOTH));
+    pattern->atoms_.emplace_back(
+        storage.Create<query::NodeAtom>(storage.Create<query::Identifier>("node" + std::to_string(i))));
     single_query->clauses_.emplace_back(match);
     query->single_query_ = single_query;
   }
@@ -42,17 +40,15 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     int num_matches = state.range(0);
     auto *query = AddChainedMatches(num_matches, storage);
     auto symbol_table = query::MakeSymbolTable(query);
-    auto ctx =
-        query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
+    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
     state.ResumeTiming();
-    auto query_parts =
-        query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
     auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
-        query::plan::VariableStartPlanner>(single_query_parts, &ctx);
+    auto plans =
+        query::plan::MakeLogicalPlanForSingleQuery<query::plan::VariableStartPlanner>(single_query_parts, &ctx);
     for (const auto &plan : plans) {
       // Exhaust through all generated plans, since they are lazily generated.
       benchmark::DoNotOptimize(plan.get());
@@ -60,14 +56,9 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
   }
 }
 
-BENCHMARK(BM_PlanChainedMatches)
-    ->RangeMultiplier(2)
-    ->Range(50, 400)
-    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_PlanChainedMatches)->RangeMultiplier(2)->Range(50, 400)->Unit(benchmark::kMillisecond);
 
-static query::CypherQuery *AddIndexedMatches(int num_matches,
-                                             const std::string &label,
-                                             const std::string &property,
+static query::CypherQuery *AddIndexedMatches(int num_matches, const std::string &label, const std::string &property,
                                              query::AstStorage &storage) {
   auto *query = storage.Create<query::CypherQuery>();
   for (int i = 0; i < num_matches; ++i) {
@@ -77,11 +68,9 @@ static query::CypherQuery *AddIndexedMatches(int num_matches,
     pattern->identifier_ = storage.Create<query::Identifier>("path");
     match->patterns_.emplace_back(pattern);
     std::string node1_name = "node" + std::to_string(i - 1);
-    auto *node = storage.Create<query::NodeAtom>(
-        storage.Create<query::Identifier>(node1_name));
+    auto *node = storage.Create<query::NodeAtom>(storage.Create<query::Identifier>(node1_name));
     node->labels_.emplace_back(storage.GetLabelIx(label));
-    node->properties_[storage.GetPropertyIx(property)] =
-        storage.Create<query::PrimitiveLiteral>(i);
+    node->properties_[storage.GetPropertyIx(property)] = storage.Create<query::PrimitiveLiteral>(i);
     pattern->atoms_.emplace_back(node);
     single_query->clauses_.emplace_back(match);
     query->single_query_ = single_query;
@@ -89,8 +78,7 @@ static query::CypherQuery *AddIndexedMatches(int num_matches,
   return query;
 }
 
-static auto CreateIndexedVertices(int index_count, int vertex_count,
-                                  storage::Storage *db) {
+static auto CreateIndexedVertices(int index_count, int vertex_count, storage::Storage *db) {
   auto label = db->NameToLabel("label");
   auto prop = db->NameToProperty("prop");
   db->CreateIndex(label, prop);
@@ -99,8 +87,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba.CreateVertex();
       MG_ASSERT(vertex.AddLabel(label).HasValue());
-      MG_ASSERT(
-          vertex.SetProperty(prop, storage::PropertyValue(index)).HasValue());
+      MG_ASSERT(vertex.SetProperty(prop, storage::PropertyValue(index)).HasValue());
     }
   }
   MG_ASSERT(!dba.Commit().HasError());
@@ -123,24 +110,21 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
-    auto ctx =
-        query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
-    auto query_parts =
-        query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
     auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
-        query::plan::VariableStartPlanner>(single_query_parts, &ctx);
+    auto plans =
+        query::plan::MakeLogicalPlanForSingleQuery<query::plan::VariableStartPlanner>(single_query_parts, &ctx);
     for (auto plan : plans) {
       query::plan::EstimatePlanCost(&dba, parameters, *plan);
     }
   }
 }
 
-static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
-    benchmark::State &state) {
+static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &state) {
   storage::Storage db;
   std::string label;
   std::string prop;
@@ -157,16 +141,14 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
-    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query,
-                                                &vertex_counts);
-    auto query_parts =
-        query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto ctx = query::plan::MakePlanningContext(&storage, &symbol_table, query, &vertex_counts);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
     auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
-        query::plan::VariableStartPlanner>(single_query_parts, &ctx);
+    auto plans =
+        query::plan::MakeLogicalPlanForSingleQuery<query::plan::VariableStartPlanner>(single_query_parts, &ctx);
     for (auto plan : plans) {
       query::plan::EstimatePlanCost(&vertex_counts, parameters, *plan);
     }

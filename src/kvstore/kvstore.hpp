@@ -114,8 +114,7 @@ class KVStore final {
    * @return true if the items have been successfully stored and deleted.
    *         In case of any error false is going to be returned.
    */
-  bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
-                            const std::vector<std::string> &keys);
+  bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items, const std::vector<std::string> &keys);
 
   /**
    * Returns total number of stored (key, value) pairs. The function takes an
@@ -140,8 +139,7 @@ class KVStore final {
    *
    * @return - true if the compaction finished successfully, false otherwise.
    */
-  bool CompactRange(const std::string &begin_prefix,
-                    const std::string &end_prefix);
+  bool CompactRange(const std::string &begin_prefix, const std::string &end_prefix);
 
   /**
    * Custom prefix-based iterator over kvstore.
@@ -150,17 +148,14 @@ class KVStore final {
    * and behaves as if all of those pairs are stored in a single iterable
    * collection of std::pair<std::string, std::string>.
    */
-  class iterator final
-      : public std::iterator<
-            std::input_iterator_tag,                      // iterator_category
-            std::pair<std::string, std::string>,          // value_type
-            long,                                         // difference_type
-            const std::pair<std::string, std::string> *,  // pointer
-            const std::pair<std::string, std::string> &   // reference
-            > {
+  class iterator final : public std::iterator<std::input_iterator_tag,                      // iterator_category
+                                              std::pair<std::string, std::string>,          // value_type
+                                              long,                                         // difference_type
+                                              const std::pair<std::string, std::string> *,  // pointer
+                                              const std::pair<std::string, std::string> &   // reference
+                                              > {
    public:
-    explicit iterator(const KVStore *kvstore, const std::string &prefix = "",
-                      bool at_end = false);
+    explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false);
 
     iterator(const iterator &other) = delete;
 
@@ -191,13 +186,9 @@ class KVStore final {
     std::unique_ptr<impl> pimpl_;
   };
 
-  iterator begin(const std::string &prefix = "") {
-    return iterator(this, prefix);
-  }
+  iterator begin(const std::string &prefix = "") { return iterator(this, prefix); }
 
-  iterator end(const std::string &prefix = "") {
-    return iterator(this, prefix, true);
-  }
+  iterator end(const std::string &prefix = "") { return iterator(this, prefix, true); }
 
  private:
   struct impl;

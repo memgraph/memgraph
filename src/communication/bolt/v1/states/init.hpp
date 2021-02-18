@@ -15,8 +15,7 @@ namespace detail {
 template <typename TSession>
 std::optional<Value> StateInitRunV1(TSession &session, const Marker marker) {
   if (UNLIKELY(marker != Marker::TinyStruct2)) {
-    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!",
-                  utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -45,8 +44,7 @@ std::optional<Value> StateInitRunV1(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> StateInitRunV4(TSession &session, const Marker marker) {
   if (UNLIKELY(marker != Marker::TinyStruct1)) {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!",
-                  utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -80,8 +78,7 @@ std::optional<Value> StateInitRunV4(TSession &session, const Marker marker) {
  */
 template <typename Session>
 State StateInitRun(Session &session) {
-  DMG_ASSERT(!session.encoder_buffer_.HasData(),
-             "There should be no data to write in this state");
+  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   Marker marker;
   Signature signature;
@@ -90,21 +87,18 @@ State StateInitRun(Session &session) {
     return State::Close;
   }
 
-  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 &&
-               session.version_.minor == 1)) {
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 && session.version_.minor == 1)) {
     SPDLOG_DEBUG("Received NOOP message");
     return State::Init;
   }
 
   if (UNLIKELY(signature != Signature::Init)) {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!",
-                  utils::UnderlyingCast(signature));
+    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
     return State::Close;
   }
 
-  auto maybeMetadata = session.version_.major == 1
-                           ? detail::StateInitRunV1(session, marker)
-                           : detail::StateInitRunV4(session, marker);
+  auto maybeMetadata =
+      session.version_.major == 1 ? detail::StateInitRunV1(session, marker) : detail::StateInitRunV4(session, marker);
 
   if (!maybeMetadata) {
     return State::Close;
@@ -126,16 +120,14 @@ State StateInitRun(Session &session) {
     username = data["principal"].ValueString();
     password = data["credentials"].ValueString();
   } else if (data["scheme"].ValueString() != "none") {
-    spdlog::warn("Unsupported authentication scheme: {}",
-                 data["scheme"].ValueString());
+    spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
     return State::Close;
   }
 
   // Authenticate the user.
   if (!session.Authenticate(username, password)) {
     if (!session.encoder_.MessageFailure(
-            {{"code", "Memgraph.ClientError.Security.Unauthenticated"},
-             {"message", "Authentication failure"}})) {
+            {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
       spdlog::trace("Couldn't send failure message to the client!");
     }
     // Throw an exception to indicate to the network stack that the session

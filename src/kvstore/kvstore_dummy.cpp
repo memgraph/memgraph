@@ -26,8 +26,7 @@ std::optional<std::string> KVStore::Get(const std::string &key) const noexcept {
 }
 
 bool KVStore::Delete(const std::string &key) {
-  LOG_FATAL(
-      "Unsupported operation (KVStore::Delete) -- this is a dummy kvstore");
+  LOG_FATAL("Unsupported operation (KVStore::Delete) -- this is a dummy kvstore");
 }
 
 bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
@@ -42,9 +41,8 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
       "dummy kvstore");
 }
 
-bool KVStore::PutAndDeleteMultiple(
-    const std::map<std::string, std::string> &items,
-    const std::vector<std::string> &keys) {
+bool KVStore::PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
+                                   const std::vector<std::string> &keys) {
   LOG_FATAL(
       "Unsupported operation (KVStore::PutAndDeleteMultiple) -- this is a "
       "dummy kvstore");
@@ -54,13 +52,9 @@ bool KVStore::PutAndDeleteMultiple(
 
 struct KVStore::iterator::impl {};
 
-KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix,
-                            bool at_end)
-    : pimpl_(new impl()) {}
+KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix, bool at_end) : pimpl_(new impl()) {}
 
-KVStore::iterator::iterator(KVStore::iterator &&other) {
-  pimpl_ = std::move(other.pimpl_);
-}
+KVStore::iterator::iterator(KVStore::iterator &&other) { pimpl_ = std::move(other.pimpl_); }
 
 KVStore::iterator::~iterator() {}
 
@@ -77,9 +71,7 @@ KVStore::iterator &KVStore::iterator::operator++() {
 
 bool KVStore::iterator::operator==(const iterator &other) const { return true; }
 
-bool KVStore::iterator::operator!=(const iterator &other) const {
-  return false;
-}
+bool KVStore::iterator::operator!=(const iterator &other) const { return false; }
 
 KVStore::iterator::reference KVStore::iterator::operator*() {
   LOG_FATAL(
@@ -99,8 +91,7 @@ bool KVStore::iterator::IsValid() { return false; }
 
 size_t KVStore::Size(const std::string &prefix) { return 0; }
 
-bool KVStore::CompactRange(const std::string &begin_prefix,
-                           const std::string &end_prefix) {
+bool KVStore::CompactRange(const std::string &begin_prefix, const std::string &end_prefix) {
   LOG_FATAL(
       "Unsupported operation (KVStore::Compact) -- this is a "
       "dummy kvstore");

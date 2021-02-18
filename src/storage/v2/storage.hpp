@@ -67,16 +67,13 @@ class AllVerticesIterable final {
 
     Iterator &operator++();
 
-    bool operator==(const Iterator &other) const {
-      return self_ == other.self_ && it_ == other.it_;
-    }
+    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
 
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor,
-                      Transaction *transaction, View view, Indices *indices,
-                      Constraints *constraints, Config::Items config)
+  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
+                      Indices *indices, Constraints *constraints, Config::Items config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
@@ -207,30 +204,24 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(
-          AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                              &storage_->indices_, &storage_->constraints_,
-                              storage_->config_.items));
+      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                                                  &storage_->indices_, &storage_->constraints_,
+                                                  storage_->config_.items));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view);
 
-    VerticesIterable Vertices(LabelId label, PropertyId property,
-                              const PropertyValue &value, View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
 
-    VerticesIterable Vertices(
-        LabelId label, PropertyId property,
-        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-        View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property,
+                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view);
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const {
-      return storage_->vertices_.size();
-    }
+    int64_t ApproximateVertexCount() const { return storage_->vertices_.size(); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
@@ -241,28 +232,23 @@ class Storage final {
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(
-          label, property);
+      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                   const PropertyValue &value) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(
-          label, property, value);
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
+      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
     /// the given property in the range defined by provided upper and lower
     /// bounds.
-    int64_t ApproximateVertexCount(
-        LabelId label, PropertyId property,
-        const std::optional<utils::Bound<PropertyValue>> &lower,
-        const std::optional<utils::Bound<PropertyValue>> &upper) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(
-          label, property, lower, upper);
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                   const std::optional<utils::Bound<PropertyValue>> &lower,
+                                   const std::optional<utils::Bound<PropertyValue>> &upper) const {
+      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
     /// @throw std::bad_alloc
@@ -272,8 +258,7 @@ class Storage final {
     Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                    EdgeTypeId edge_type);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
 
     /// @throw std::bad_alloc
     Result<bool> DeleteEdge(EdgeAccessor *edge);
@@ -291,18 +276,14 @@ class Storage final {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(const std::string_view &name);
 
-    bool LabelIndexExists(LabelId label) const {
-      return storage_->indices_.label_index.IndexExists(label);
-    }
+    bool LabelIndexExists(LabelId label) const { return storage_->indices_.label_index.IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
-      return storage_->indices_.label_property_index.IndexExists(label,
-                                                                 property);
+      return storage_->indices_.label_property_index.IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const {
-      return {storage_->indices_.label_index.ListIndices(),
-              storage_->indices_.label_property_index.ListIndices()};
+      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const {
@@ -316,8 +297,7 @@ class Storage final {
     /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -328,8 +308,7 @@ class Storage final {
     VertexAccessor CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                    EdgeTypeId edge_type, storage::Gid gid);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 #endif
 
     Storage *storage_;
@@ -355,18 +334,14 @@ class Storage final {
   EdgeTypeId NameToEdgeType(const std::string_view &name);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label,
-                   std::optional<uint64_t> desired_commit_timestamp = {});
+  bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property,
-                   std::optional<uint64_t> desired_commit_timestamp = {});
+  bool CreateIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label,
-                 std::optional<uint64_t> desired_commit_timestamp = {});
+  bool DropIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, PropertyId property,
-                 std::optional<uint64_t> desired_commit_timestamp = {});
+  bool DropIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 
@@ -377,14 +352,12 @@ class Storage final {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-      LabelId label, PropertyId property,
-      std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes an existence constraint. Returns true if the constraint was
   /// removed, and false if it doesn't exist.
-  bool DropExistenceConstraint(
-      LabelId label, PropertyId property,
-      std::optional<uint64_t> desired_commit_timestamp = {});
+  bool DropExistenceConstraint(LabelId label, PropertyId property,
+                               std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Creates a unique constraint. In the case of two vertices violating the
   /// constraint, it returns `ConstraintViolation`. Otherwise returns a
@@ -396,9 +369,8 @@ class Storage final {
   //        limit of maximum number of properties.
   ///
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
-  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                         std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
   /// enum with the following possibilities:
@@ -407,9 +379,8 @@ class Storage final {
   ///     * `EMPTY_PROPERTIES` if the property set is empty, or
   ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
   //        limit of maximum number of properties.
-  UniqueConstraints::DeletionStatus DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties,
-      std::optional<uint64_t> desired_commit_timestamp = {});
+  UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                         std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
 
@@ -419,8 +390,7 @@ class Storage final {
   bool UnlockPath();
 
 #if MG_ENTERPRISE
-  bool SetReplicaRole(io::network::Endpoint endpoint,
-                      const replication::ReplicationServerConfig &config = {});
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
 
   bool SetMainReplicationRole();
 
@@ -429,14 +399,12 @@ class Storage final {
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
   utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint,
-      replication::ReplicationMode replication_mode,
+      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
       const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(std::string_view name);
 
-  std::optional<replication::ReplicaState> GetReplicaState(
-      std::string_view name);
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
   ReplicationRole GetReplicationRole() const;
 
@@ -461,16 +429,13 @@ class Storage final {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
-  void AppendToWal(const Transaction &transaction,
-                   uint64_t final_commit_timestamp);
-  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
-                   const std::set<PropertyId> &properties,
+  void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
+  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
 
   void CreateSnapshot();
 
-  uint64_t CommitTimestamp(
-      std::optional<uint64_t> desired_commit_timestamp = {});
+  uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
 #ifdef MG_ENTERPRISE
 #endif
@@ -508,17 +473,14 @@ class Storage final {
   // whatever.
   CommitLog commit_log_;
 
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock>
-      committed_transactions_;
+  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
 
   Config config_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
   // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>,
-                      utils::SpinLock>
-      garbage_undo_buffers_;
+  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
@@ -592,9 +554,7 @@ class Storage final {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientList =
-      utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
-                          utils::SpinLock>;
+  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};

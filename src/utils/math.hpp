@@ -7,9 +7,8 @@
 
 namespace utils {
 
-static_assert(
-    std::is_same_v<uint64_t, unsigned long>,
-    "utils::Log requires uint64_t to be implemented as unsigned long.");
+static_assert(std::is_same_v<uint64_t, unsigned long>,
+              "utils::Log requires uint64_t to be implemented as unsigned long.");
 
 /// This function computes the log2 function on integer types. It is faster than
 /// the cmath `log2` function because it doesn't use floating point values for
@@ -25,9 +24,7 @@ constexpr inline uint64_t Log2(uint64_t val) {
 }
 
 /// Return `true` if `val` is a power of 2.
-constexpr inline bool IsPow2(uint64_t val) noexcept {
-  return val != 0ULL && (val & (val - 1ULL)) == 0ULL;
-}
+constexpr inline bool IsPow2(uint64_t val) noexcept { return val != 0ULL && (val & (val - 1ULL)) == 0ULL; }
 
 /// Return `val` if it is power of 2, otherwise get the next power of 2 value.
 /// If `val` is sufficiently large, the next power of 2 value may not fit into
@@ -45,8 +42,7 @@ constexpr inline uint64_t Ceil2(uint64_t val) noexcept {
 ///     RoundUint64ToMultiple(5, 8) == 8
 ///     RoundUint64ToMultiple(8, 8) == 8
 ///     RoundUint64ToMultiple(9, 8) == 16
-constexpr inline std::optional<uint64_t> RoundUint64ToMultiple(
-    uint64_t val, uint64_t multiple) noexcept {
+constexpr inline std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uint64_t multiple) noexcept {
   if (multiple == 0) return std::nullopt;
   uint64_t numerator = val + multiple - 1;
   // Check for overflow.

@@ -37,8 +37,7 @@ namespace communication::bolt {
 template <class TOutputStream>
 class ChunkedEncoderBuffer {
  public:
-  ChunkedEncoderBuffer(TOutputStream &output_stream)
-      : output_stream_(output_stream) {}
+  ChunkedEncoderBuffer(TOutputStream &output_stream) : output_stream_(output_stream) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size
@@ -53,12 +52,10 @@ class ChunkedEncoderBuffer {
     while (n > 0) {
       // Define the number of bytes which will be copied into the chunk because
       // the internal storage is a fixed length array.
-      size_t size =
-          n < kChunkMaxDataSize - have_ ? n : kChunkMaxDataSize - have_;
+      size_t size = n < kChunkMaxDataSize - have_ ? n : kChunkMaxDataSize - have_;
 
       // Copy `size` values to the chunk array.
-      std::memcpy(chunk_.data() + kChunkHeaderSize + have_, values + written,
-                  size);
+      std::memcpy(chunk_.data() + kChunkHeaderSize + have_, values + written, size);
 
       // Update positions. The position pointer and incoming size have to be
       // updated because all incoming values have to be processed.
@@ -87,8 +84,7 @@ class ChunkedEncoderBuffer {
     chunk_[1] = have_ & 0xFF;
 
     // Write the data to the stream.
-    auto ret = output_stream_.Write(chunk_.data(), kChunkHeaderSize + have_,
-                                    have_more);
+    auto ret = output_stream_.Write(chunk_.data(), kChunkHeaderSize + have_, have_more);
 
     // Cleanup.
     Clear();

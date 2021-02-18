@@ -14,13 +14,11 @@ class DecoderEncoderTest : public ::testing::Test {
 
   void TearDown() override { Clear(); }
 
-  std::filesystem::path storage_file{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_storage_v2_decoder_encoder.bin"};
+  std::filesystem::path storage_file{std::filesystem::temp_directory_path() /
+                                     "MG_test_unit_storage_v2_decoder_encoder.bin"};
 
-  std::filesystem::path alternate_file{
-      std::filesystem::temp_directory_path() /
-      "MG_test_unit_storage_v2_decoder_encoder_alternate.bin"};
+  std::filesystem::path alternate_file{std::filesystem::temp_directory_path() /
+                                       "MG_test_unit_storage_v2_decoder_encoder_alternate.bin"};
 
  private:
   void Clear() {
@@ -103,28 +101,24 @@ TEST_F(DecoderEncoderTest, ReadMarker) {
 GENERATE_READ_TEST(Bool, bool, false, true);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(Uint, uint64_t, 0, 1, 1000, 123123123,
-                   std::numeric_limits<uint64_t>::max());
+GENERATE_READ_TEST(Uint, uint64_t, 0, 1, 1000, 123123123, std::numeric_limits<uint64_t>::max());
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(Double, double, 1.123, 3.1415926535, 0, -505.505,
-                   std::numeric_limits<double>::infinity(),
+GENERATE_READ_TEST(Double, double, 1.123, 3.1415926535, 0, -505.505, std::numeric_limits<double>::infinity(),
                    -std::numeric_limits<double>::infinity());
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(String, std::string, "hello", "world", "nandare",
-                   "haihaihai", std::string(), std::string(100000, 'a'));
+GENERATE_READ_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(),
+                   std::string(100000, 'a'));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(
-    PropertyValue, storage::PropertyValue, storage::PropertyValue(),
-    storage::PropertyValue(false), storage::PropertyValue(true),
-    storage::PropertyValue(123L), storage::PropertyValue(123.5),
-    storage::PropertyValue("nandare"),
-    storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue("nandare"), storage::PropertyValue(123L)}),
-    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-        {"nandare", storage::PropertyValue(123)}}));
+GENERATE_READ_TEST(PropertyValue, storage::PropertyValue, storage::PropertyValue(), storage::PropertyValue(false),
+                   storage::PropertyValue(true), storage::PropertyValue(123L), storage::PropertyValue(123.5),
+                   storage::PropertyValue("nandare"),
+                   storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("nandare"),
+                                                                              storage::PropertyValue(123L)}),
+                   storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                       {"nandare", storage::PropertyValue(123)}}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                        \
@@ -159,19 +153,16 @@ GENERATE_READ_TEST(
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare",
-                   "haihaihai", std::string(500000, 'a'));
+GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500000, 'a'));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SKIP_TEST(
-    PropertyValue, storage::PropertyValue, storage::PropertyValue(),
-    storage::PropertyValue(false), storage::PropertyValue(true),
-    storage::PropertyValue(123L), storage::PropertyValue(123.5),
-    storage::PropertyValue("nandare"),
-    storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue("nandare"), storage::PropertyValue(123L)}),
-    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-        {"nandare", storage::PropertyValue(123)}}));
+GENERATE_SKIP_TEST(PropertyValue, storage::PropertyValue, storage::PropertyValue(), storage::PropertyValue(false),
+                   storage::PropertyValue(true), storage::PropertyValue(123L), storage::PropertyValue(123.5),
+                   storage::PropertyValue("nandare"),
+                   storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("nandare"),
+                                                                              storage::PropertyValue(123L)}),
+                   storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
+                       {"nandare", storage::PropertyValue(123)}}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                \
@@ -230,14 +221,12 @@ GENERATE_PARTIAL_READ_TEST(Double, 3.1415926535);
 GENERATE_PARTIAL_READ_TEST(String, "nandare");
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_READ_TEST(
-    PropertyValue,
-    storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(), storage::PropertyValue(true),
-        storage::PropertyValue(123L), storage::PropertyValue(123.5),
-        storage::PropertyValue("nandare"),
-        storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
-            {"haihai", storage::PropertyValue()}}}}));
+GENERATE_PARTIAL_READ_TEST(PropertyValue,
+                           storage::PropertyValue(std::vector<storage::PropertyValue>{
+                               storage::PropertyValue(), storage::PropertyValue(true), storage::PropertyValue(123L),
+                               storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
+                               storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
+                                   {"haihai", storage::PropertyValue()}}}}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                \
@@ -282,14 +271,12 @@ GENERATE_PARTIAL_READ_TEST(
 GENERATE_PARTIAL_SKIP_TEST(String, "nandare");
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_SKIP_TEST(
-    PropertyValue,
-    storage::PropertyValue(std::vector<storage::PropertyValue>{
-        storage::PropertyValue(), storage::PropertyValue(true),
-        storage::PropertyValue(123L), storage::PropertyValue(123.5),
-        storage::PropertyValue("nandare"),
-        storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
-            {"haihai", storage::PropertyValue()}}}}));
+GENERATE_PARTIAL_SKIP_TEST(PropertyValue,
+                           storage::PropertyValue(std::vector<storage::PropertyValue>{
+                               storage::PropertyValue(), storage::PropertyValue(true), storage::PropertyValue(123L),
+                               storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
+                               storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
+                                   {"haihai", storage::PropertyValue()}}}}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
@@ -350,9 +337,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
       // We only run this test with invalid markers.
       if (valid_marker) continue;
       {
-        file.SetPosition(
-            utils::OutputFile::Position::RELATIVE_TO_END,
-            -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
+        file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END,
+                         -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
         auto byte = static_cast<uint8_t>(marker);
         file.Write(&byte, sizeof(byte));
         file.Sync();
@@ -374,9 +360,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
     }
     {
       {
-        file.SetPosition(
-            utils::OutputFile::Position::RELATIVE_TO_END,
-            -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
+        file.SetPosition(utils::OutputFile::Position::RELATIVE_TO_END,
+                         -(sizeof(uint64_t) + sizeof(storage::durability::Marker)));
         uint8_t byte = 1;
         file.Write(&byte, sizeof(byte));
         file.Sync();
@@ -413,8 +398,7 @@ TEST_F(DecoderEncoderTest, DecoderPosition) {
     ASSERT_TRUE(version);
     ASSERT_EQ(*version, kTestVersion);
     for (int i = 0; i < 10; ++i) {
-      ASSERT_TRUE(
-          decoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion)));
+      ASSERT_TRUE(decoder.SetPosition(kTestMagic.size() + sizeof(kTestVersion)));
       auto decoded = decoder.ReadBool();
       ASSERT_TRUE(decoded);
       ASSERT_TRUE(*decoded);

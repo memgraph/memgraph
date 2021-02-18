@@ -21,11 +21,7 @@ struct Config {
   } items;
 
   struct Durability {
-    enum class SnapshotWalMode {
-      DISABLED,
-      PERIODIC_SNAPSHOT,
-      PERIODIC_SNAPSHOT_WITH_WAL
-    };
+    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
     std::filesystem::path storage_directory{"storage"};
 

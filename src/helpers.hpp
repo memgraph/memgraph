@@ -17,17 +17,13 @@
 inline void LoadConfig(const std::string &product_name) {
   namespace fs = std::filesystem;
   std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
-  if (getenv("HOME") != nullptr)
-    configs.emplace_back(fs::path(getenv("HOME")) /
-                         fs::path(".memgraph/config"));
+  if (getenv("HOME") != nullptr) configs.emplace_back(fs::path(getenv("HOME")) / fs::path(".memgraph/config"));
   {
     auto memgraph_config = getenv("MEMGRAPH_CONFIG");
     if (memgraph_config != nullptr) {
       auto path = fs::path(memgraph_config);
-      MG_ASSERT(
-          fs::exists(path),
-          "MEMGRAPH_CONFIG environment variable set to nonexisting path: {}",
-          path.generic_string());
+      MG_ASSERT(fs::exists(path), "MEMGRAPH_CONFIG environment variable set to nonexisting path: {}",
+                path.generic_string());
       configs.emplace_back(path);
     }
   }
@@ -35,8 +31,7 @@ inline void LoadConfig(const std::string &product_name) {
   std::vector<std::string> flagfile_arguments;
   for (const auto &config : configs)
     if (fs::exists(config)) {
-      flagfile_arguments.emplace_back(
-          std::string("--flag-file=" + config.generic_string()));
+      flagfile_arguments.emplace_back(std::string("--flag-file=" + config.generic_string()));
     }
 
   int custom_argc = static_cast<int>(flagfile_arguments.size()) + 1;

@@ -14,8 +14,7 @@ namespace storage {
 /// should be applied passed as a parameter to the callback. It is up to the
 /// caller to apply the deltas.
 template <typename TCallback>
-inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta,
-                               View view, const TCallback &callback) {
+inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
@@ -27,15 +26,13 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta,
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
-    if (view == View::NEW && ts == transaction->transaction_id &&
-        cid <= transaction->command_id) {
+    if (view == View::NEW && ts == transaction->transaction_id && cid <= transaction->command_id) {
       break;
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == transaction->transaction_id &&
-        cid < transaction->command_id) {
+    if (view == View::OLD && ts == transaction->transaction_id && cid < transaction->command_id) {
       break;
     }
 
@@ -72,8 +69,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(),
-                                           transaction->commit_timestamp.get(),
+  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
 }
 
@@ -81,12 +77,10 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// the delta into the object's delta list.
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
-inline void CreateAndLinkDelta(Transaction *transaction, TObj *object,
-                               Args &&... args) {
+inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(
-      std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-      transaction->command_id);
+  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+                                                 transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

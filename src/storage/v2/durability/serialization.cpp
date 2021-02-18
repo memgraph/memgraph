@@ -15,13 +15,11 @@ void WriteSize(Encoder *encoder, uint64_t size) {
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path,
-                         const std::string_view &magic, uint64_t version) {
+void Encoder::Initialize(const std::filesystem::path &path, const std::string_view &magic, uint64_t version) {
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
-  Write(reinterpret_cast<const uint8_t *>(&version_encoded),
-        sizeof(version_encoded));
+  Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
 }
 
 void Encoder::OpenExisting(const std::filesystem::path &path) {
@@ -34,9 +32,7 @@ void Encoder::Close() {
   }
 }
 
-void Encoder::Write(const uint8_t *data, uint64_t size) {
-  file_.Write(data, size);
-}
+void Encoder::Write(const uint8_t *data, uint64_t size) { file_.Write(data, size); }
 
 void Encoder::WriteMarker(Marker marker) {
   auto value = static_cast<uint8_t>(marker);
@@ -118,9 +114,7 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
 
 uint64_t Encoder::GetPosition() { return file_.GetPosition(); }
 
-void Encoder::SetPosition(uint64_t position) {
-  file_.SetPosition(utils::OutputFile::Position::SET, position);
-}
+void Encoder::SetPosition(uint64_t position) { file_.SetPosition(utils::OutputFile::Position::SET, position); }
 
 void Encoder::Sync() { file_.Sync(); }
 
@@ -135,9 +129,7 @@ void Encoder::EnableFlushing() { file_.EnableFlushing(); }
 
 void Encoder::TryFlushing() { file_.TryFlushing(); }
 
-std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const {
-  return file_.CurrentBuffer();
-}
+std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const { return file_.CurrentBuffer(); }
 
 size_t Encoder::GetSize() { return file_.GetSize(); }
 
@@ -157,34 +149,25 @@ std::optional<Marker> CastToMarker(uint8_t value) {
 
 std::optional<uint64_t> ReadSize(Decoder *decoder) {
   uint64_t size;
-  if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size)))
-    return std::nullopt;
+  if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size))) return std::nullopt;
   size = utils::LittleEndianToHost(size);
   return size;
 }
 }  // namespace
 
-std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path,
-                                            const std::string &magic) {
+std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path, const std::string &magic) {
   if (!file_.Open(path)) return std::nullopt;
   std::string file_magic(magic.size(), '\0');
-  if (!Read(reinterpret_cast<uint8_t *>(file_magic.data()), file_magic.size()))
-    return std::nullopt;
+  if (!Read(reinterpret_cast<uint8_t *>(file_magic.data()), file_magic.size())) return std::nullopt;
   if (file_magic != magic) return std::nullopt;
   uint64_t version_encoded;
-  if (!Read(reinterpret_cast<uint8_t *>(&version_encoded),
-            sizeof(version_encoded)))
-    return std::nullopt;
+  if (!Read(reinterpret_cast<uint8_t *>(&version_encoded), sizeof(version_encoded))) return std::nullopt;
   return utils::LittleEndianToHost(version_encoded);
 }
 
-bool Decoder::Read(uint8_t *data, size_t size) {
-  return file_.Read(data, size);
-}
+bool Decoder::Read(uint8_t *data, size_t size) { return file_.Read(data, size); }
 
-bool Decoder::Peek(uint8_t *data, size_t size) {
-  return file_.Peek(data, size);
-}
+bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); }
 
 std::optional<Marker> Decoder::PeekMarker() {
   uint8_t value;
@@ -206,8 +189,7 @@ std::optional<bool> Decoder::ReadBool() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_BOOL) return std::nullopt;
   auto value = ReadMarker();
-  if (!value || (*value != Marker::VALUE_FALSE && *value != Marker::VALUE_TRUE))
-    return std::nullopt;
+  if (!value || (*value != Marker::VALUE_FALSE && *value != Marker::VALUE_TRUE)) return std::nullopt;
   return *value == Marker::VALUE_TRUE;
 }
 
@@ -215,8 +197,7 @@ std::optional<uint64_t> Decoder::ReadUint() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
-  if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value)))
-    return std::nullopt;
+  if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
   value = utils::LittleEndianToHost(value);
   return value;
 }
@@ -225,8 +206,7 @@ std::optional<double> Decoder::ReadDouble() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_DOUBLE) return std::nullopt;
   uint64_t value_int;
-  if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int)))
-    return std::nullopt;
+  if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
   auto value = utils::MemcpyCast<double>(value_int);
   return value;
@@ -238,23 +218,20 @@ std::optional<std::string> Decoder::ReadString() {
   auto size = ReadSize(this);
   if (!size) return std::nullopt;
   std::string value(*size, '\0');
-  if (!Read(reinterpret_cast<uint8_t *>(value.data()), *size))
-    return std::nullopt;
+  if (!Read(reinterpret_cast<uint8_t *>(value.data()), *size)) return std::nullopt;
   return value;
 }
 
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {
   auto pv_marker = ReadMarker();
-  if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE)
-    return std::nullopt;
+  if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return std::nullopt;
 
   auto marker = PeekMarker();
   if (!marker) return std::nullopt;
   switch (*marker) {
     case Marker::TYPE_NULL: {
       auto inner_marker = ReadMarker();
-      if (!inner_marker || *inner_marker != Marker::TYPE_NULL)
-        return std::nullopt;
+      if (!inner_marker || *inner_marker != Marker::TYPE_NULL) return std::nullopt;
       return PropertyValue();
     }
     case Marker::TYPE_BOOL: {
@@ -279,8 +256,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     }
     case Marker::TYPE_LIST: {
       auto inner_marker = ReadMarker();
-      if (!inner_marker || *inner_marker != Marker::TYPE_LIST)
-        return std::nullopt;
+      if (!inner_marker || *inner_marker != Marker::TYPE_LIST) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
       std::vector<PropertyValue> value;
@@ -294,8 +270,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     }
     case Marker::TYPE_MAP: {
       auto inner_marker = ReadMarker();
-      if (!inner_marker || *inner_marker != Marker::TYPE_MAP)
-        return std::nullopt;
+      if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
       std::map<std::string, PropertyValue> value;
@@ -442,8 +417,6 @@ std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
 
 std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
-bool Decoder::SetPosition(uint64_t position) {
-  return !!file_.SetPosition(utils::InputFile::Position::SET, position);
-}
+bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 
 }  // namespace storage::durability

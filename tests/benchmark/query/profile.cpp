@@ -38,8 +38,7 @@ struct NAryTree {
   std::vector<std::unique_ptr<NAryTree>> children;
 };
 
-std::unique_ptr<NAryTree> LiftTreeHelper(const std::vector<int64_t> &flattened,
-                                         size_t *index) {
+std::unique_ptr<NAryTree> LiftTreeHelper(const std::vector<int64_t> &flattened, size_t *index) {
   int64_t id = flattened[(*index)++];
   size_t num_children = flattened[(*index)++];
   auto node = std::make_unique<NAryTree>(id);
@@ -170,9 +169,7 @@ struct ProfilingStats {
   ProfilingStats() : ProfilingStats(-1, 0) {}
 
   ProfilingStats(int64_t actual_hits, unsigned long long elapsed_time)
-      : actual_hits(actual_hits),
-        elapsed_time(elapsed_time),
-        key(reinterpret_cast<std::uintptr_t>(nullptr)) {
+      : actual_hits(actual_hits), elapsed_time(elapsed_time), key(reinterpret_cast<std::uintptr_t>(nullptr)) {
     // The logical operator with the most children has at most 3 children (but
     // most of the logical operators have just 1 child)
     children.reserve(3);
@@ -467,13 +464,9 @@ const ProfilingStats *ProfilingStatsStorage::at(int64_t index) const {
   return &storage[index];
 }
 
-ProfilingStats *ProfilingStatsStorage::operator[](int64_t index) {
-  return at(index);
-}
+ProfilingStats *ProfilingStatsStorage::operator[](int64_t index) { return at(index); }
 
-const ProfilingStats *ProfilingStatsStorage::operator[](int64_t index) const {
-  return at(index);
-}
+const ProfilingStats *ProfilingStatsStorage::operator[](int64_t index) const { return at(index); }
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -481,19 +474,14 @@ const ProfilingStats *ProfilingStatsStorage::operator[](int64_t index) const {
 
 ProfilingStats::ProfilingStats() : ProfilingStats(-1, 0) {}
 
-ProfilingStats::ProfilingStats(int64_t actual_hits,
-                               unsigned long long elapsed_time)
-    : actual_hits(actual_hits),
-      elapsed_time(elapsed_time),
-      key(reinterpret_cast<std::uintptr_t>(nullptr)),
-      children{} {
+ProfilingStats::ProfilingStats(int64_t actual_hits, unsigned long long elapsed_time)
+    : actual_hits(actual_hits), elapsed_time(elapsed_time), key(reinterpret_cast<std::uintptr_t>(nullptr)), children{} {
   for (auto &child : children) {
     child = -1;
   }
 }
 
-size_t ProfilingStats::EnsureChild(const ProfilingStatsStorage &storage,
-                                   std::uintptr_t key) {
+size_t ProfilingStats::EnsureChild(const ProfilingStatsStorage &storage, std::uintptr_t key) {
   size_t size = children.size();
   size_t slot = size;
 
@@ -538,8 +526,7 @@ class Context {
 // ScopedProfile
 
 struct ScopedProfile {
-  ScopedProfile(std::uintptr_t key, Context *context)
-      : context(context), old_root_id(-1), stats_id(-1) {
+  ScopedProfile(std::uintptr_t key, Context *context) : context(context), old_root_id(-1), stats_id(-1) {
     if (context->evaluation_context_.is_profile_query) {
       stats_id = EnsureStats(context->evaluation_context_.stats_root, key);
 
@@ -627,8 +614,7 @@ std::vector<std::unique_ptr<NAryTree>> GetTrees() {
   std::vector<std::vector<int64_t>> flat_trees = {
       // {-1, 1, -2, 1, -3, 1, -4, 0},
       // {-1, 1, -2, 1, -3, 3, -4, 1, -5, 1, -6, 0, -7, 1, -8, 1, -6, 0, -6, 0},
-      {-1, 1,  -2, 2,  -3, 2,  -4, 2,  -5, 1,  -6, 1,  -7, 0,  -7,
-       0,  -7, 0,  -3, 1,  -4, 2,  -5, 1,  -6, 1,  -7, 0,  -7, 0}};
+      {-1, 1, -2, 2, -3, 2, -4, 2, -5, 1, -6, 1, -7, 0, -7, 0, -7, 0, -3, 1, -4, 2, -5, 1, -6, 1, -7, 0, -7, 0}};
 
   std::vector<std::unique_ptr<NAryTree>> trees;
   for (auto &flattened : flat_trees) {

@@ -21,8 +21,7 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &,
-              communication::InputStream *input_stream,
+  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
               communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
@@ -35,8 +34,7 @@ class TestSession {
     input_stream_->Resize(size + 2);
     if (input_stream_->size() < size + 2) return;
 
-    for (int i = 0; i < REPLY; ++i)
-      ASSERT_TRUE(output_stream_->Write(data + 2, size));
+    for (int i = 0; i < REPLY; ++i) ASSERT_TRUE(output_stream_->Write(data + 2, size));
 
     input_stream_->Shift(size + 2);
   }
@@ -48,8 +46,7 @@ class TestSession {
 using ContextT = communication::ServerContext;
 using ServerT = communication::Server<TestSession, TestData>;
 
-void client_run(int num, const char *interface, uint16_t port,
-                const unsigned char *data, int lo, int hi) {
+void client_run(int num, const char *interface, uint16_t port, const unsigned char *data, int lo, int hi) {
   std::stringstream name;
   name << "Client " << num;
   unsigned char buffer[SIZE * REPLY], head[2];

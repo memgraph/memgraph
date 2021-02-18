@@ -14,8 +14,7 @@ namespace rpc {
 
 class Server {
  public:
-  Server(const io::network::Endpoint &endpoint,
-         communication::ServerContext *context,
+  Server(const io::network::Endpoint &endpoint, communication::ServerContext *context,
          size_t workers_count = std::thread::hardware_concurrency());
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -31,41 +30,33 @@ class Server {
   template <class TRequestResponse>
   void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    MG_ASSERT(!server_.IsRunning(),
-              "You can't register RPCs when the server is running!");
+    MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
     rpc.callback = callback;
 
-    if (extended_callbacks_.find(TRequestResponse::Request::kType.id) !=
-        extended_callbacks_.end()) {
+    if (extended_callbacks_.find(TRequestResponse::Request::kType.id) != extended_callbacks_.end()) {
       LOG_FATAL("Callback for that message type already registered!");
     }
 
     auto got = callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name,
-                 rpc.res_type.name);
+    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
   }
 
   template <class TRequestResponse>
-  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *,
-                                   slk::Builder *)>
-                    callback) {
+  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
-    MG_ASSERT(!server_.IsRunning(),
-              "You can't register RPCs when the server is running!");
+    MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
     rpc.callback = callback;
 
-    auto got =
-        extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
+    auto got = extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name,
-                 rpc.res_type.name);
+    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
   }
 
  private:
@@ -79,9 +70,7 @@ class Server {
 
   struct RpcExtendedCallback {
     utils::TypeInfo req_type;
-    std::function<void(const io::network::Endpoint &, slk::Reader *,
-                       slk::Builder *)>
-        callback;
+    std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 

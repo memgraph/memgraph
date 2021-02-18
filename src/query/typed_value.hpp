@@ -56,18 +56,7 @@ class TypedValue {
   };
 
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned {
-    Null,
-    Bool,
-    Int,
-    Double,
-    String,
-    List,
-    Map,
-    Vertex,
-    Edge,
-    Path
-  };
+  enum class Type : unsigned { Null, Bool, Int, Double, String, List, Map, Vertex, Edge, Path };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
@@ -86,8 +75,7 @@ class TypedValue {
   TypedValue() : type_(Type::Null) {}
 
   /** Construct a Null value with given utils::MemoryResource. */
-  explicit TypedValue(utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Null) {}
+  explicit TypedValue(utils::MemoryResource *memory) : memory_(memory), type_(Type::Null) {}
 
   /**
    * Construct a copy of other.
@@ -116,26 +104,22 @@ class TypedValue {
    */
   TypedValue(TypedValue &&other, utils::MemoryResource *memory);
 
-  explicit TypedValue(
-      bool value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(bool value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Bool) {
     bool_v = value;
   }
 
-  explicit TypedValue(
-      int value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(int value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Int) {
     int_v = value;
   }
 
-  explicit TypedValue(
-      int64_t value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(int64_t value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Int) {
     int_v = value;
   }
 
-  explicit TypedValue(
-      double value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;
   }
@@ -144,21 +128,17 @@ class TypedValue {
   explicit operator storage::PropertyValue() const;
 
   // copy constructors for non-primitive types
-  explicit TypedValue(const std::string &value, utils::MemoryResource *memory =
-                                                    utils::NewDeleteResource())
+  explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }
 
-  explicit TypedValue(const char *value, utils::MemoryResource *memory =
-                                             utils::NewDeleteResource())
+  explicit TypedValue(const char *value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }
 
-  explicit TypedValue(
-      const std::string_view &value,
-      utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const std::string_view &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }
@@ -172,21 +152,17 @@ class TypedValue {
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TString &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
-                              select_on_container_copy_construction(
-                                  other.get_allocator())
-                                  .GetMemoryResource()) {}
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
+                              other.get_allocator())
+                              .GetMemoryResource()) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TString &other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::String) {
+  TypedValue(const TString &other, utils::MemoryResource *memory) : memory_(memory), type_(Type::String) {
     new (&string_v) TString(other, memory_);
   }
 
   /** Construct a copy using the given utils::MemoryResource */
-  explicit TypedValue(
-      const std::vector<TypedValue> &value,
-      utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const std::vector<TypedValue> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(memory_);
     list_v.reserve(value.size());
@@ -202,21 +178,18 @@ class TypedValue {
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TVector &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
-                              select_on_container_copy_construction(
-                                  other.get_allocator())
-                                  .GetMemoryResource()) {}
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
+                              other.get_allocator())
+                              .GetMemoryResource()) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TVector &value, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::List) {
+  TypedValue(const TVector &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(value, memory_);
   }
 
   /** Construct a copy using the given utils::MemoryResource */
-  explicit TypedValue(
-      const std::map<std::string, TypedValue> &value,
-      utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const std::map<std::string, TypedValue> &value,
+                      utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
     new (&map_v) TMap(memory_);
     for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
@@ -231,32 +204,26 @@ class TypedValue {
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TMap &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::
-                              select_on_container_copy_construction(
-                                  other.get_allocator())
-                                  .GetMemoryResource()) {}
+      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
+                              other.get_allocator())
+                              .GetMemoryResource()) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TMap &value, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Map) {
+  TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
     new (&map_v) TMap(value, memory_);
   }
 
-  explicit TypedValue(
-      const VertexAccessor &vertex,
-      utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(vertex);
   }
 
-  explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory =
-                                                    utils::NewDeleteResource())
+  explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(edge);
   }
 
-  explicit TypedValue(const Path &path, utils::MemoryResource *memory =
-                                            utils::NewDeleteResource())
+  explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
     new (&path_v) Path(path, memory_);
   }
@@ -265,8 +232,7 @@ class TypedValue {
   explicit TypedValue(const storage::PropertyValue &value);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value,
-             utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -276,15 +242,13 @@ class TypedValue {
    * left in unspecified state.
    */
   explicit TypedValue(TString &&other) noexcept
-      : TypedValue(std::move(other),
-                   other.get_allocator().GetMemoryResource()) {}
+      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
 
   /**
    * Construct with the value of other and use the given MemoryResource
    * After the move, other will be left in unspecified state.
    */
-  TypedValue(TString &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::String) {
+  TypedValue(TString &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::String) {
     new (&string_v) TString(std::move(other), memory_);
   }
 
@@ -292,15 +256,13 @@ class TypedValue {
    * Perform an element-wise move using default utils::NewDeleteResource().
    * Other will be not be empty, though elements may be Null.
    */
-  explicit TypedValue(std::vector<TypedValue> &&other)
-      : TypedValue(std::move(other), utils::NewDeleteResource()) {}
+  explicit TypedValue(std::vector<TypedValue> &&other) : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
   /**
    * Perform an element-wise move of the other and use the given MemoryResource.
    * Other will be not be left empty, though elements may be Null.
    */
-  TypedValue(std::vector<TypedValue> &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::List) {
+  TypedValue(std::vector<TypedValue> &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(memory_);
     list_v.reserve(other.size());
     // std::vector<TypedValue> has std::allocator and there's no move
@@ -309,8 +271,7 @@ class TypedValue {
     // TypedValue elements have a MemoryResource that is the same as the one we
     // are given. In such a case we would like to move those TypedValue
     // instances, so we use move_iterator.
-    list_v.assign(std::make_move_iterator(other.begin()),
-                  std::make_move_iterator(other.end()));
+    list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
   }
 
   /**
@@ -319,16 +280,14 @@ class TypedValue {
    * left empty.
    */
   explicit TypedValue(TVector &&other) noexcept
-      : TypedValue(std::move(other),
-                   other.get_allocator().GetMemoryResource()) {}
+      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
 
   /**
    * Construct with the value of other and use the given MemoryResource.
    * If `other.get_allocator() != *memory`, this call will perform an
    * element-wise move and other is not guaranteed to be empty.
    */
-  TypedValue(TVector &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::List) {
+  TypedValue(TVector &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(std::move(other), memory_);
   }
 
@@ -345,8 +304,7 @@ class TypedValue {
    * Other will not be left empty, i.e. keys will exist but their values may
    * be Null.
    */
-  TypedValue(std::map<std::string, TypedValue> &&other,
-             utils::MemoryResource *memory)
+  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
       : memory_(memory), type_(Type::Map) {
     new (&map_v) TMap(memory_);
     for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
@@ -358,8 +316,7 @@ class TypedValue {
    * left empty.
    */
   explicit TypedValue(TMap &&other) noexcept
-      : TypedValue(std::move(other),
-                   other.get_allocator().GetMemoryResource()) {}
+      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
 
   /**
    * Construct with the value of other and use the given MemoryResource.
@@ -367,21 +324,16 @@ class TypedValue {
    * element-wise move and other is not guaranteed to be empty, i.e. keys may
    * exist but their values may be Null.
    */
-  TypedValue(TMap &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Map) {
+  TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
     new (&map_v) TMap(std::move(other), memory_);
   }
 
-  explicit TypedValue(
-      VertexAccessor &&vertex,
-      utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
+  explicit TypedValue(VertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
 
-  explicit TypedValue(
-      EdgeAccessor &&edge,
-      utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
+  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(std::move(edge));
   }
@@ -391,16 +343,14 @@ class TypedValue {
    * utils::MemoryResource is obtained from path. After the move, path will be
    * left empty.
    */
-  explicit TypedValue(Path &&path) noexcept
-      : TypedValue(std::move(path), path.GetMemoryResource()) {}
+  explicit TypedValue(Path &&path) noexcept : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
   /**
    * Construct with the value of path and use the given MemoryResource.
    * If `*path.GetMemoryResource() != *memory`, this call will perform an
    * element-wise move and path is not guaranteed to be empty.
    */
-  TypedValue(Path &&path, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Path) {
+  TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
     new (&path_v) Path(std::move(path), memory_);
   }
 
@@ -595,9 +545,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b);
  * the results is allocated using MemoryResource obtained from the left hand
  * side.
  */
-inline TypedValue operator!=(const TypedValue &a, const TypedValue &b) {
-  return !(a == b);
-}
+inline TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
 
 /**
  * Compare TypedValues and return true, false or Null.
@@ -621,9 +569,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b);
  * @throw TypedValueException if the values cannot be compared, i.e. they are
  *        not either Null, numeric or a character string type.
  */
-inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
-  return a < b || a == b;
-}
+inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
 
 /**
  * Compare TypedValues and return true, false or Null.
@@ -635,9 +581,7 @@ inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) {
  * @throw TypedValueException if the values cannot be compared, i.e. they are
  *        not either Null, numeric or a character string type.
  */
-inline TypedValue operator>(const TypedValue &a, const TypedValue &b) {
-  return !(a <= b);
-}
+inline TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
 
 /**
  * Compare TypedValues and return true, false or Null.
@@ -649,9 +593,7 @@ inline TypedValue operator>(const TypedValue &a, const TypedValue &b) {
  * @throw TypedValueException if the values cannot be compared, i.e. they are
  *        not either Null, numeric or a character string type.
  */
-inline TypedValue operator>=(const TypedValue &a, const TypedValue &b) {
-  return !(a < b);
-}
+inline TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
 
 // arithmetic operators
 

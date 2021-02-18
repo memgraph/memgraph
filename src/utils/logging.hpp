@@ -19,8 +19,7 @@ namespace logging {
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
 template <typename... Args>
-void AssertFailed(const char *file_name, int line_num, const char *expr,
-                  const Args &...msg_args) {
+void AssertFailed(const char *file_name, int line_num, const char *expr, const Args &...msg_args) {
   std::optional<std::string> message;
   if constexpr (sizeof...(msg_args) > 0) {
     message.emplace(fmt::format(msg_args...));
@@ -30,8 +29,7 @@ void AssertFailed(const char *file_name, int line_num, const char *expr,
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
       "{}",
-      file_name, line_num, expr,
-      message ? fmt::format("\n\tMessage: '{}'", *message) : "");
+      file_name, line_num, expr, message ? fmt::format("\n\tMessage: '{}'", *message) : "");
   std::terminate();
 }
 
@@ -45,16 +43,14 @@ void AssertFailed(const char *file_name, int line_num, const char *expr,
 template <typename... Args>
 void AssertFailed(const Args &...msg_args) {
   if constexpr (sizeof...(msg_args) > 0) {
-    spdlog::critical("Assertion failed with message: '{}'",
-                     fmt::format(msg_args...).c_str());
+    spdlog::critical("Assertion failed with message: '{}'", fmt::format(msg_args...).c_str());
   } else {
     spdlog::critical("Assertion failed");
   }
   std::terminate();
 }
 
-#define MG_ASSERT(expr, ...) \
-  LIKELY(!!(expr)) ? (void)0 : ::logging::AssertFailed(__VA_ARGS__)
+#define MG_ASSERT(expr, ...) LIKELY(!!(expr)) ? (void)0 : ::logging::AssertFailed(__VA_ARGS__)
 #define DMG_ASSERT(...)
 #endif
 
@@ -76,7 +72,5 @@ void Fatal(const char *msg, const Args &...msg_args) {
 #define DLOG_FATAL(...)
 #endif
 
-inline void RedirectToStderr() {
-  spdlog::set_default_logger(spdlog::stderr_color_mt("stderr"));
-}
+inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
 }  // namespace logging
