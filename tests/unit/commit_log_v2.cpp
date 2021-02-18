@@ -63,7 +63,7 @@ TEST(CommitLog, TrackAfterInitialId) {
     ASSERT_EQ(log->OldestActive(), current_oldest_active);
   };
 
-  for (uint64_t i = ids_per_block - 1; i < 2 * ids_per_block; ++i) {
+  for (uint64_t i = 0; i < 2 * ids_per_block; ++i) {
     storage::CommitLog log{i};
     check_marking_ids(&log, i);
   }
