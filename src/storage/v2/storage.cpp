@@ -1269,7 +1269,6 @@ void Storage::CollectGarbage() {
   }
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
-  SPDLOG_DEBUG("OLDEST ACTIVE TIMESTAMP {}", oldest_active_start_timestamp);
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
