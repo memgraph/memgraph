@@ -41,15 +41,31 @@ class MemoryTracker final {
   void SetHardLimit(int64_t limit);
   void SetOrRaiseHardLimit(int64_t limit);
 
-  class BlockerInThread final {
+  class OutOfMemoryExceptionEnabler final {
    public:
-    BlockerInThread(const BlockerInThread &) = delete;
-    BlockerInThread &operator=(const BlockerInThread &) = delete;
-    BlockerInThread(BlockerInThread &&) = delete;
-    BlockerInThread &operator=(BlockerInThread &&) = delete;
+    OutOfMemoryExceptionEnabler(const OutOfMemoryExceptionEnabler &) = delete;
+    OutOfMemoryExceptionEnabler &operator=(const OutOfMemoryExceptionEnabler &) = delete;
+    OutOfMemoryExceptionEnabler(OutOfMemoryExceptionEnabler &&) = delete;
+    OutOfMemoryExceptionEnabler &operator=(OutOfMemoryExceptionEnabler &&) = delete;
 
-    BlockerInThread();
-    ~BlockerInThread();
+    OutOfMemoryExceptionEnabler();
+    ~OutOfMemoryExceptionEnabler();
+
+    static bool CanThrow();
+
+   private:
+    static thread_local uint64_t counter_;
+  };
+
+  class OutOfMemoryExceptionBlocker final {
+   public:
+    OutOfMemoryExceptionBlocker(const OutOfMemoryExceptionBlocker &) = delete;
+    OutOfMemoryExceptionBlocker &operator=(const OutOfMemoryExceptionBlocker &) = delete;
+    OutOfMemoryExceptionBlocker(OutOfMemoryExceptionBlocker &&) = delete;
+    OutOfMemoryExceptionBlocker &operator=(OutOfMemoryExceptionBlocker &&) = delete;
+
+    OutOfMemoryExceptionBlocker();
+    ~OutOfMemoryExceptionBlocker();
 
     static bool IsBlocked();
 

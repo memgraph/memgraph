@@ -6,11 +6,17 @@
 
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
+
+namespace utils {
 
 namespace {
 
 // Prevent memory tracker for throwing during the stack unwinding
-bool MemoryTrackerCanThrow() { return !std::uncaught_exceptions(); }
+bool MemoryTrackerCanThrow() {
+  return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
+         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
+}
 
 std::string GetReadableSize(double size) {
   // TODO (antonio2368): Add support for base 1000 (KB, GB, TB...)
@@ -32,21 +38,20 @@ std::string GetReadableSize(double size) {
 
 }  // namespace
 
-namespace utils {
+thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_ = 0;
+MemoryTracker::OutOfMemoryExceptionEnabler::OutOfMemoryExceptionEnabler() { ++counter_; }
+MemoryTracker::OutOfMemoryExceptionEnabler::~OutOfMemoryExceptionEnabler() { --counter_; }
+bool MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() { return counter_ > 0; }
 
-thread_local uint64_t MemoryTracker::BlockerInThread::counter_ = 0;
-
-MemoryTracker::BlockerInThread::BlockerInThread() { ++counter_; }
-
-MemoryTracker::BlockerInThread::~BlockerInThread() { --counter_; }
-
-bool MemoryTracker::BlockerInThread::IsBlocked() { return counter_ > 0; }
+thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_ = 0;
+MemoryTracker::OutOfMemoryExceptionBlocker::OutOfMemoryExceptionBlocker() { ++counter_; }
+MemoryTracker::OutOfMemoryExceptionBlocker::~OutOfMemoryExceptionBlocker() { --counter_; }
+bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ > 0; }
 
 MemoryTracker total_memory_tracker;
 
 MemoryTracker::~MemoryTracker() {
   try {
-    BlockerInThread log_blocker;
     // LogPeakMemoryUsage();
   } catch (...) {
     // Catch Exception in Logger
@@ -70,7 +75,6 @@ void MemoryTracker::UpdatePeak(const int64_t will_be) {
   if (will_be > peak_old) {
     peak_.store(will_be, std::memory_order_relaxed);
 
-    BlockerInThread log_blocker;
     // LogPeakMemoryUsage();
   }
 }
@@ -90,10 +94,8 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow() &&
-               !BlockerInThread::IsBlocked())) {
-    // Prevent recursion. Exception::ctor -> std::string -> new[] -> MemoryTracker::alloc
-    BlockerInThread untrack_lock;
+  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+    MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
 
