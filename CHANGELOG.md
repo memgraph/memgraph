@@ -3,6 +3,10 @@
 ## Future
 
 TODO: Don't forget to add items on the fly.
+### Bug Fixes
+
+* Fixed garbage collector by correctly marking the oldest current timestamp
+  after the database was recovered using the durability files.
 
 ## v1.3.0
 
