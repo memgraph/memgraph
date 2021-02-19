@@ -16,6 +16,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
@@ -361,6 +362,12 @@ Storage::Storage(Config config)
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage(); });
+  }
+
+  if (timestamp_ == kTimestampInitialId) {
+    commit_log_.emplace();
+  } else {
+    commit_log_.emplace(timestamp_);
   }
 }
 
@@ -763,7 +770,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-    storage_->commit_log_.MarkFinished(transaction_.start_timestamp);
+    storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
@@ -863,14 +870,14 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           committed_transactions.emplace_back(std::move(transaction_));
         });
 
-        storage_->commit_log_.MarkFinished(start_timestamp);
-        storage_->commit_log_.MarkFinished(commit_timestamp);
+        storage_->commit_log_->MarkFinished(start_timestamp);
+        storage_->commit_log_->MarkFinished(commit_timestamp);
       }
     }
 
     if (unique_constraint_violation) {
       Abort();
-      storage_->commit_log_.MarkFinished(commit_timestamp);
+      storage_->commit_log_->MarkFinished(commit_timestamp);
       return *unique_constraint_violation;
     }
   }
@@ -1039,7 +1046,7 @@ void Storage::Accessor::Abort() {
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
 
-  storage_->commit_log_.MarkFinished(transaction_.start_timestamp);
+  storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
 }
 
@@ -1068,7 +1075,7 @@ bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_c
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1080,7 +1087,7 @@ bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optiona
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1092,7 +1099,7 @@ bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_com
   if (!indices_.label_index.DropIndex(label)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1106,7 +1113,7 @@ bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<
   // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1125,7 +1132,7 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
   if (ret.HasError() || !ret.GetValue()) return ret;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1138,7 +1145,7 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
   if (!::storage::DropExistenceConstraint(&constraints_, label, property)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1154,7 +1161,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Stora
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1170,7 +1177,7 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
-  commit_log_.MarkFinished(commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
 #ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
 #endif
@@ -1261,7 +1268,7 @@ void Storage::CollectGarbage() {
     return;
   }
 
-  uint64_t oldest_active_start_timestamp = commit_log_.OldestActive();
+  uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -1712,7 +1719,7 @@ void Storage::CreateSnapshot() {
                              &file_retainer_);
 
   // Finalize snapshot transaction.
-  commit_log_.MarkFinished(transaction.start_timestamp);
+  commit_log_->MarkFinished(transaction.start_timestamp);
 }
 
 bool Storage::LockPath() {

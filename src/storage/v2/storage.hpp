@@ -471,7 +471,7 @@ class Storage final {
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
-  CommitLog commit_log_;
+  std::optional<CommitLog> commit_log_;
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
 
