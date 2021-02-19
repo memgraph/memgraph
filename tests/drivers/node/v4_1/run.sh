@@ -10,7 +10,7 @@ fi
 
 if [ ! -d node_modules ]; then
     # Driver generated with: `npm install neo4j-driver`
-    npm install neo4j-driver
+    npm install --no-package-lock --no-save neo4j-driver @babel/runtime
 fi
 
 node docs_how_to_query.js

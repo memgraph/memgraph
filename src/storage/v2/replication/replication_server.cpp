@@ -389,36 +389,38 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
-  // Clear the database
-  storage_->vertices_.clear();
-  storage_->edges_.clear();
+  {
+    std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+    // Clear the database
+    storage_->vertices_.clear();
+    storage_->edges_.clear();
 
-  storage_->constraints_ = Constraints();
-  storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
-  storage_->indices_.label_property_index =
-      LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
-  try {
-    spdlog::debug("Loading snapshot");
-    auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-                                                       &storage_->epoch_history_, &storage_->name_id_mapper_,
-                                                       &storage_->edge_count_, storage_->config_.items);
-    spdlog::debug("Snapshot loaded successfully");
-    // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snasphost
-    storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
-    storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
-    const auto &recovery_info = recovered_snapshot.recovery_info;
-    storage_->vertex_id_ = recovery_info.next_vertex_id;
-    storage_->edge_id_ = recovery_info.next_edge_id;
-    storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
+    storage_->constraints_ = Constraints();
+    storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
+    storage_->indices_.label_property_index =
+        LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
+    try {
+      spdlog::debug("Loading snapshot");
+      auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
+                                                         &storage_->epoch_history_, &storage_->name_id_mapper_,
+                                                         &storage_->edge_count_, storage_->config_.items);
+      spdlog::debug("Snapshot loaded successfully");
+      // If this step is present it should always be the first step of
+      // the recovery so we use the UUID we read from snasphost
+      storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
+      storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
+      const auto &recovery_info = recovered_snapshot.recovery_info;
+      storage_->vertex_id_ = recovery_info.next_vertex_id;
+      storage_->edge_id_ = recovery_info.next_edge_id;
+      storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
+      storage_->commit_log_.emplace(storage_->timestamp_);
 
-    durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
-                                             &storage_->constraints_, &storage_->vertices_);
-  } catch (const durability::RecoveryFailure &e) {
-    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
+      durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
+                                               &storage_->constraints_, &storage_->vertices_);
+    } catch (const durability::RecoveryFailure &e) {
+      LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
+    }
   }
-  storage_guard.unlock();
 
   SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -452,29 +454,30 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
-  durability::RecoveredIndicesAndConstraints indices_constraints;
-  auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
-  if (wal_info.seq_num == 0) {
-    storage_->uuid_ = wal_info.uuid;
-  }
-
-  // Check the seq number of the first wal file to see if it's the
-  // finalized form of the current wal on replica
-  if (storage_->wal_file_) {
-    if (storage_->wal_file_->SequenceNumber() == wal_info.seq_num && storage_->wal_file_->Path() != path) {
-      storage_->wal_file_->DeleteWal();
+  {
+    std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+    durability::RecoveredIndicesAndConstraints indices_constraints;
+    auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
+    if (wal_info.seq_num == 0) {
+      storage_->uuid_ = wal_info.uuid;
     }
-    storage_->wal_file_.reset();
-  }
 
-  for (auto i = 1; i < wal_file_number; ++i) {
-    LoadWal(&decoder, &indices_constraints);
-  }
+    // Check the seq number of the first wal file to see if it's the
+    // finalized form of the current wal on replica
+    if (storage_->wal_file_) {
+      if (storage_->wal_file_->SequenceNumber() == wal_info.seq_num && storage_->wal_file_->Path() != path) {
+        storage_->wal_file_->DeleteWal();
+      }
+      storage_->wal_file_.reset();
+    }
 
-  durability::RecoverIndicesAndConstraints(indices_constraints, &storage_->indices_, &storage_->constraints_,
-                                           &storage_->vertices_);
-  storage_guard.unlock();
+    for (auto i = 1; i < wal_file_number; ++i) {
+      LoadWal(&decoder, &indices_constraints);
+    }
+
+    durability::RecoverIndicesAndConstraints(indices_constraints, &storage_->indices_, &storage_->constraints_,
+                                             &storage_->vertices_);
+  }
 
   WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -488,26 +491,27 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
-  durability::RecoveredIndicesAndConstraints indices_constraints;
-  auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
-  if (wal_info.seq_num == 0) {
-    storage_->uuid_ = wal_info.uuid;
-  }
+  {
+    std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
+    durability::RecoveredIndicesAndConstraints indices_constraints;
+    auto [wal_info, path] = LoadWal(&decoder, &indices_constraints);
+    if (wal_info.seq_num == 0) {
+      storage_->uuid_ = wal_info.uuid;
+    }
 
-  if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == wal_info.seq_num &&
-      storage_->wal_file_->Path() != path) {
-    // Delete the old wal file
-    storage_->file_retainer_.DeleteFile(storage_->wal_file_->Path());
+    if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == wal_info.seq_num &&
+        storage_->wal_file_->Path() != path) {
+      // Delete the old wal file
+      storage_->file_retainer_.DeleteFile(storage_->wal_file_->Path());
+    }
+    MG_ASSERT(storage_->config_.durability.snapshot_wal_mode ==
+              Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
+    storage_->wal_file_.emplace(std::move(path), storage_->config_.items, &storage_->name_id_mapper_, wal_info.seq_num,
+                                wal_info.from_timestamp, wal_info.to_timestamp, wal_info.num_deltas,
+                                &storage_->file_retainer_);
+    durability::RecoverIndicesAndConstraints(indices_constraints, &storage_->indices_, &storage_->constraints_,
+                                             &storage_->vertices_);
   }
-  MG_ASSERT(storage_->config_.durability.snapshot_wal_mode ==
-            Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL);
-  storage_->wal_file_.emplace(std::move(path), storage_->config_.items, &storage_->name_id_mapper_, wal_info.seq_num,
-                              wal_info.from_timestamp, wal_info.to_timestamp, wal_info.num_deltas,
-                              &storage_->file_retainer_);
-  durability::RecoverIndicesAndConstraints(indices_constraints, &storage_->indices_, &storage_->constraints_,
-                                           &storage_->vertices_);
-  storage_guard.unlock();
 
   CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
@@ -532,6 +536,7 @@ std::pair<durability::WalInfo, std::filesystem::path> Storage::ReplicationServer
     storage_->vertex_id_ = std::max(storage_->vertex_id_.load(), info.next_vertex_id);
     storage_->edge_id_ = std::max(storage_->edge_id_.load(), info.next_edge_id);
     storage_->timestamp_ = std::max(storage_->timestamp_, info.next_timestamp);
+    storage_->commit_log_.emplace(storage_->timestamp_);
     if (info.last_commit_timestamp) {
       storage_->last_commit_timestamp_ = *info.last_commit_timestamp;
     }
