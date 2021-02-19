@@ -50,23 +50,15 @@ bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ >
 
 MemoryTracker total_memory_tracker;
 
-MemoryTracker::~MemoryTracker() {
-  try {
-    // LogPeakMemoryUsage();
-  } catch (...) {
-    // Catch Exception in Logger
-  }
-}
+// TODO (antonio2368): Define how should the peak memory be logged.
+// Logging every time the peak changes is too much so some kind of distribution
+// should be used.
+void MemoryTracker::LogPeakMemoryUsage() const { spdlog::info("Peak memory usage: {}", GetReadableSize(peak_)); }
 
-void MemoryTracker::LogPeakMemoryUsage() const {
-  // TODO (antonio2368): Make the size more readable
-  if (hard_limit_.load(std::memory_order_relaxed)) {
-    spdlog::info("Peak memory usage: {}", GetReadableSize(peak_));
-  }
-}
-
+// TODO (antonio2368): Define how should the memory be logged.
+// Logging on each allocation is too much so some kind of distribution
+// should be used.
 void MemoryTracker::LogMemoryUsage(const int64_t current) {
-  // TODO (antonio2368): Make the size more readable
   spdlog::info("Current memory usage: {}", GetReadableSize(current));
 }
 
@@ -74,8 +66,6 @@ void MemoryTracker::UpdatePeak(const int64_t will_be) {
   auto peak_old = peak_.load(std::memory_order_relaxed);
   if (will_be > peak_old) {
     peak_.store(will_be, std::memory_order_relaxed);
-
-    // LogPeakMemoryUsage();
   }
 }
 

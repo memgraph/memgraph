@@ -20,11 +20,12 @@ class MemoryTracker final {
   void UpdatePeak(int64_t will_be);
 
   static void LogMemoryUsage(int64_t current);
-  void LogPeakMemoryUsage() const;
 
  public:
+  void LogPeakMemoryUsage() const;
+
   MemoryTracker() = default;
-  ~MemoryTracker();
+  ~MemoryTracker() = default;
 
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
@@ -41,6 +42,8 @@ class MemoryTracker final {
   void SetHardLimit(int64_t limit);
   void SetOrRaiseHardLimit(int64_t limit);
 
+  // By creating an object of this class, every allocation in its scope that goes over
+  // the set hard limit produces an OutOfMemoryException.
   class OutOfMemoryExceptionEnabler final {
    public:
     OutOfMemoryExceptionEnabler(const OutOfMemoryExceptionEnabler &) = delete;
@@ -57,6 +60,9 @@ class MemoryTracker final {
     static thread_local uint64_t counter_;
   };
 
+  // By creating an object of this class, we negate the effect of every OutOfMemoryExceptionEnabler
+  // object. We need this object so we can guard only the smaller parts of code from exceptions while
+  // allowing the exception in the other parts if the OutOfMemoryExceptionEnabler is defined.
   class OutOfMemoryExceptionBlocker final {
    public:
     OutOfMemoryExceptionBlocker(const OutOfMemoryExceptionBlocker &) = delete;
@@ -74,5 +80,6 @@ class MemoryTracker final {
   };
 };
 
+// Global memory tracker which tracks every allocation in the application.
 extern MemoryTracker total_memory_tracker;
 }  // namespace utils
