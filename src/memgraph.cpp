@@ -35,6 +35,7 @@
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -1024,5 +1025,7 @@ int main(int argc, char **argv) {
   // Shutdown Python
   Py_Finalize();
   PyMem_RawFree(program_name);
+
+  utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;
 }
