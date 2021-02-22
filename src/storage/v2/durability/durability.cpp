@@ -17,6 +17,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace storage::durability {
 
@@ -135,6 +136,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                         Indices *indices, Constraints *constraints, Config::Items items,
                                         uint64_t *wal_seq_num) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) return std::nullopt;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
