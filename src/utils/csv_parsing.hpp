@@ -9,8 +9,8 @@
 
 #include <cstdint>
 #include <fstream>
-#include <map>
 #include <optional>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -28,7 +28,7 @@ class Reader {
   struct Config {
     Config(){};
     Config(std::string delimiter, std::string quote, bool with_header, bool skip_bad)
-        : delimiter(delimiter), quote(quote), with_header(with_header), skip_bad(skip_bad) {}
+        : delimiter(std::move(delimiter)), quote(std::move(quote)), with_header(with_header), skip_bad(skip_bad) {}
 
     std::string delimiter{","};
     std::string quote{"\""};
@@ -38,8 +38,15 @@ class Reader {
 
   struct Header {
     Header() = default;
-    explicit Header(std::optional<std::vector<std::string>> fs) : fields(std::move(fs)) {}
-    std::optional<std::vector<std::string>> fields;
+    explicit Header(std::vector<std::string> fs) : fields(std::move(fs)) {}
+
+    Header(const Header &other) = default;
+    Header &operator=(const Header &other) = default;
+
+    Header(Header &&other) = default;
+    Header &operator=(Header &&other) = default;
+
+    std::vector<std::string> fields;
   };
 
   struct Row {
@@ -48,10 +55,10 @@ class Reader {
     std::vector<std::string> columns;
   };
 
-  explicit Reader(const std::string &path, Config cfg = {}) : path_(path), read_config_(cfg) {
+  explicit Reader(const std::filesystem::path &path, Config cfg = {}) : path_(path), read_config_(cfg) {
     InitializeStream();
     if (read_config_.with_header) {
-      ParseHeader();
+      header_ = ParseHeader();
     }
   }
 
@@ -61,31 +68,37 @@ class Reader {
   Reader(Reader &&) = delete;
   Reader &operator=(Reader &&) = delete;
 
-  ~Reader() { csv_stream_.close(); }
+  ~Reader() {
+    if (csv_stream_.is_open()) csv_stream_.close();
+  }
 
-  struct ParseError {
-    explicit ParseError(std::string msg) : message(std::move(msg)) {}
+  class ParseError {
+   public:
+    enum class ErrorCode : uint8_t { BAD_HEADER, NO_CLOSING_QUOTE, UNEXPECTED_TOKEN, BAD_NUM_OF_COLUMNS, NULL_BYTE };
+    ParseError(ErrorCode code, std::string message) : code(code), message(std::move(message)) {}
+
+    ErrorCode code;
     std::string message;
   };
-
-  void InitializeStream();
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
   std::optional<Row> GetNextRow();
 
  private:
-  std::string path_;
+  std::filesystem::path path_;
   std::ifstream csv_stream_;
   Config read_config_;
   uint64_t line_count_{1};
 
-  Header header_;
+  std::optional<Header> header_{};
 
-  std::optional<std::string> GetNextLine(std::ifstream &stream);
+  void InitializeStream();
 
-  void ParseHeader();
+  std::optional<std::string> GetNextLine();
 
-  ParsingResult ParseRow(std::ifstream &stream);
+  std::optional<Header> ParseHeader();
+
+  ParsingResult ParseRow();
 };
 
 }  // namespace csv

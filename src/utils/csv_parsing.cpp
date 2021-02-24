@@ -1,7 +1,5 @@
 #include "csv_parsing.hpp"
 
-#include <spdlog/spdlog.h>
-#include <filesystem>
 #include <string_view>
 
 #include "utils/file.hpp"
@@ -9,35 +7,40 @@
 
 namespace csv {
 
+using ParseError = Reader::ParseError;
+
 void Reader::InitializeStream() {
-  if (!std::filesystem::exists(std::filesystem::path(path_))) {
-    throw CsvReadException("CSV file not found: {}", path_);
+  if (!std::filesystem::exists(path_)) {
+    throw CsvReadException("CSV file not found: {}", path_.string());
   }
   csv_stream_.open(path_);
 }
 
-std::optional<std::string> Reader::GetNextLine(std::ifstream &stream) {
+std::optional<std::string> Reader::GetNextLine() {
   std::string line;
-  if (!std::getline(stream, line)) {
+  if (!std::getline(csv_stream_, line)) {
     // reached end of file
+    if (csv_stream_.eof()) {
+      csv_stream_.close();
+    }
     return std::nullopt;
   }
   ++line_count_;
   return line;
 }
 
-void Reader::ParseHeader() {
-  if (line_count_ > 1) {
-    return;
-  }  // header must be the very first line in the file
-  auto maybe_line = GetNextLine(csv_stream_);
+std::optional<Reader::Header> Reader::ParseHeader() {
+  // header must be the very first line in the file
+  MG_ASSERT(line_count_ == 1, fmt::format("Invalid use of {}", __func__));
+  const auto maybe_line = GetNextLine();
   if (!maybe_line) {
     throw CsvReadException("CSV file {} empty!", path_);
   }
-  header_.fields = std::nullopt;
+  return std::nullopt;
 }
 
-enum class CsvParserState {
+namespace {
+enum class CsvParserState : uint8_t {
   INITIAL_FIELD,
   NEXT_FIELD,
   QUOTING,
@@ -45,18 +48,19 @@ enum class CsvParserState {
   EXPECT_DELIMITER,
 };
 
-bool SubstringStartsWith(const std::string_view &str, size_t pos, const std::string_view &what) {
+bool SubstringStartsWith(const std::string_view str, size_t pos, const std::string_view what) {
   return utils::StartsWith(utils::Substr(str, pos), what);
 }
+} // namespace
 
-Reader::ParsingResult Reader::ParseRow(std::ifstream &stream) {
+Reader::ParsingResult Reader::ParseRow() {
   std::vector<std::string> row;
   std::string column;
 
   auto state = CsvParserState::INITIAL_FIELD;
 
   do {
-    auto maybe_line = GetNextLine(stream);
+    auto maybe_line = GetNextLine();
     if (!maybe_line) {
       // The whole file was processed.
       break;
@@ -69,7 +73,8 @@ Reader::ParsingResult Reader::ParseRow(std::ifstream &stream) {
       if (c == '\n' || c == '\r') continue;
       // Null bytes aren't allowed in CSVs.
       if (c == '\0') {
-        return ParseError(fmt::format("Line {0:d} contains NULL byte", line_count_));
+        return ParseError(ParseError::ErrorCode::NULL_BYTE,
+                          fmt::format("CSV: Line {0:d} contains NULL byte", line_count_));
       }
 
       switch (state) {
@@ -123,8 +128,9 @@ Reader::ParsingResult Reader::ParseRow(std::ifstream &stream) {
             state = CsvParserState::NEXT_FIELD;
             i += read_config_.delimiter.size() - 1;
           } else {
-            ParseError(
-                fmt::format("Expected '{}' after '{}', but got '{}'", read_config_.delimiter, read_config_.quote, c));
+            return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
+                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}'", read_config_.delimiter,
+                                          read_config_.quote, c));
           }
           break;
         }
@@ -141,9 +147,9 @@ Reader::ParsingResult Reader::ParseRow(std::ifstream &stream) {
       break;
     }
     case CsvParserState::QUOTING: {
-      ParseError(
-          "There is no more data left to load while inside a quoted string. "
-          "Did you forget to close the quote?");
+      return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
+                        "There is no more data left to load while inside a quoted string. "
+                        "Did you forget to close the quote?");
       break;
     }
     case CsvParserState::NOT_QUOTING: {
@@ -163,19 +169,23 @@ Reader::ParsingResult Reader::ParseRow(std::ifstream &stream) {
 // @throws CsvReadException if a bad row is encountered, and the skip_bad is set
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow() {
-  auto row = ParseRow(csv_stream_);
+  auto row = ParseRow();
   if (row.HasError()) {
     if (!read_config_.skip_bad) {
       throw CsvReadException("Bad row at line {0:d}: {}", line_count_, row.GetError().message);
-    } else {
-      // try to parse as many times as necessary to reach a valid row
-      while (true) {
-        row = ParseRow(csv_stream_);
-        if (row.HasValue()) {
-          break;
-        }
+    }
+    // try to parse as many times as necessary to reach a valid row
+    while (true) {
+      row = ParseRow();
+      if (!csv_stream_.is_open()) {
+        return std::nullopt;
+      }
+      if (row.HasValue()) {
+        break;
       }
     }
   }
   return row.GetValue();
+}
+
 }  // namespace csv
