@@ -895,6 +895,8 @@ class SkipList final {
     gc_.Clear();
   }
 
+  void run_gc() { gc_.Run(); }
+
  private:
   template <typename TKey>
   int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {

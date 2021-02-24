@@ -43,6 +43,8 @@ std::string PermissionToString(Permission permission) {
       return "REPLICATION";
     case Permission::LOCK_PATH:
       return "LOCK_PATH";
+    case Permission::FREE_MEMORY:
+      return "FREE_MEMORY";
     case Permission::AUTH:
       return "AUTH";
   }

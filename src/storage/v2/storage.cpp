@@ -1748,6 +1748,17 @@ bool Storage::UnlockPath() {
   return true;
 }
 
+void Storage::FreeMemory() {
+  // Create the transaction used to create the snapshot.
+  auto transaction = CreateTransaction();
+
+  CollectGarbage();
+
+  std::unique_lock main_guard{main_lock_};
+  vertices_.run_gc();
+  edges_.run_gc();
+}
+
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
 #ifdef MG_ENTERPRISE
   if (!desired_commit_timestamp) {

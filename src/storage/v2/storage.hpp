@@ -419,6 +419,8 @@ class Storage final {
   std::vector<ReplicaInfo> ReplicasInfo();
 #endif
 
+  void FreeMemory();
+
  private:
   Transaction CreateTransaction();
 
