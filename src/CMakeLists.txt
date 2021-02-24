@@ -37,17 +37,17 @@ if (MG_ENTERPRISE)
       glue/auth.cpp)
 endif()
 
-set(MG_SINGLE_NODE_V2_LIBS stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication mg-new-delete)
+set(mg_single_node_v2_libs stdc++fs Threads::Threads
+    telemetry_lib mg-query mg-communication mg-new-delete mg-utils)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
-  set(MG_SINGLE_NODE_V2_LIBS ${MG_SINGLE_NODE_V2_LIBS} mg-auth mg-audit)
+  set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-auth mg-audit)
 endif()
 
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(memgraph ${MG_SINGLE_NODE_V2_LIBS})
+target_link_libraries(memgraph ${mg_single_node_v2_libs})
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
 # symbols in custom procedure module libraries.

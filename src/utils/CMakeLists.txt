@@ -4,6 +4,7 @@ set(utils_src_files
     memory.cpp
     memory_tracker.cpp
     signals.cpp
+    sysinfo/memory.cpp
     thread.cpp
     thread_pool.cpp
     uuid.cpp)
