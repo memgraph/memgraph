@@ -14,13 +14,16 @@ void Reader::InitializeStream() {
     throw CsvReadException("CSV file not found: {}", path_.string());
   }
   csv_stream_.open(path_);
+  if (!csv_stream_.good()) {
+    throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
+  }
 }
 
 std::optional<std::string> Reader::GetNextLine() {
   std::string line;
   if (!std::getline(csv_stream_, line)) {
     // reached end of file
-    if (csv_stream_.eof()) {
+    if (!csv_stream_.good()) {
       csv_stream_.close();
     }
     return std::nullopt;
@@ -60,21 +63,21 @@ Reader::ParsingResult Reader::ParseRow() {
   auto state = CsvParserState::INITIAL_FIELD;
 
   do {
-    auto maybe_line = GetNextLine();
+    const auto &maybe_line = GetNextLine();
     if (!maybe_line) {
       // The whole file was processed.
       break;
     }
 
-    for (size_t i = 0; i < (*maybe_line).size(); ++i) {
-      auto c = (*maybe_line)[i];
+    for (size_t i = 0; i < maybe_line->size(); ++i) {
+      const auto c = (*maybe_line)[i];
 
       // Line feeds and carriage returns are ignored in CSVs.
       if (c == '\n' || c == '\r') continue;
       // Null bytes aren't allowed in CSVs.
       if (c == '\0') {
         return ParseError(ParseError::ErrorCode::NULL_BYTE,
-                          fmt::format("CSV: Line {0:d} contains NULL byte", line_count_));
+                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_));
       }
 
       switch (state) {
@@ -161,7 +164,7 @@ Reader::ParsingResult Reader::ParseRow() {
     }
   }
 
-  return Reader::ParsingResult(Row(row));
+  return Row(row);
 }
 
 // Returns Reader::Row if the read row if valid;
@@ -172,7 +175,7 @@ std::optional<Reader::Row> Reader::GetNextRow() {
   auto row = ParseRow();
   if (row.HasError()) {
     if (!read_config_.skip_bad) {
-      throw CsvReadException("Bad row at line {0:d}: {}", line_count_, row.GetError().message);
+      throw CsvReadException("Bad row at line {:d}: {}", line_count_, row.GetError().message);
     }
     // try to parse as many times as necessary to reach a valid row
     while (true) {
