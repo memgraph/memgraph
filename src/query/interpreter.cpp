@@ -22,6 +22,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -632,7 +633,12 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
-    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
+    // We can throw on every query because a simple queries for deleting will use only
+    // the stack allocated buffer.
+    // Also, we want to throw only when the query engine requests more memory and not the storage
+    // so we add the exception to the allocator.
+    utils::ResourceWithOutOfMemoryException resource_with_exception;
+    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
     // TODO (mferencevic): Tune the parameters accordingly.
     utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
     ctx_.evaluation_context.memory = &pool_memory;

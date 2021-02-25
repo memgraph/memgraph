@@ -264,6 +264,10 @@ class SkipListGc final {
   }
 
   void Run() {
+    // This method can be called after any skip list method, including the add method
+    // which could have OOMException enabled in its thread so to ensure no exception
+    // is thrown while cleaning the skip list, we add the blocker.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     if (!lock_.try_lock()) return;
     OnScopeExit cleanup([&] { lock_.unlock(); });
     Block *tail = tail_.load(std::memory_order_acquire);
