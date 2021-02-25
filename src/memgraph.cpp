@@ -224,13 +224,15 @@ void ConfigureLogging() {
 
 int64_t GetMemoryLimit() {
   if (FLAGS_memory_limit == 0) {
-    const auto maybe_total_memory = utils::sysinfo::TotalMemory();
+    auto maybe_total_memory = utils::sysinfo::TotalMemory();
     MG_ASSERT(maybe_total_memory, "Failed to fetch the total physical memory");
     const auto maybe_swap_memory = utils::sysinfo::SwapTotalMemory();
     MG_ASSERT(maybe_swap_memory, "Failed to fetch the total swap memory");
 
     if (*maybe_swap_memory == 0) {
-      return *maybe_total_memory * 9 / 10;
+      // take only 90% of the total memory
+      *maybe_total_memory *= 9;
+      *maybe_total_memory /= 10;
     }
     return *maybe_total_memory * 1024;
   }
