@@ -6,7 +6,7 @@ TODO: Don't forget to add items on the fly.
 ### Major Featuires and Improvements
 
 * Added a new flag `--memory-limit` which enables the user to set the maximum total amount of memory
-  memgraph can allocate during its runtime.  ### Bug Fixes
+  memgraph can allocate during its runtime.
 
 ### Bug Fixes
 

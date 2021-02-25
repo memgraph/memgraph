@@ -1531,9 +1531,11 @@ bool Storage::UnlockPath() {
 void Storage::FreeMemory() {
   CollectGarbage<true>();
 
-  std::unique_lock main_guard{main_lock_};
+  // SkipList is already threadsafe
   vertices_.run_gc();
   edges_.run_gc();
+  indices_.label_index.RunGC();
+  indices_.label_property_index.RunGC();
 }
 
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
