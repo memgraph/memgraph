@@ -259,7 +259,7 @@ class SkipListGc final {
   }
 
   void Collect(TNode *node) {
-    std::lock_guard<SpinLock> guard(lock_);
+    std::unique_lock guard(lock_);
     deleted_.Push({accessor_id_.load(std::memory_order_acquire), node});
   }
 
