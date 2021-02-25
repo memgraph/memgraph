@@ -4,6 +4,7 @@
 
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace storage {
 
@@ -16,6 +17,7 @@ VertexAccessor EdgeAccessor::ToVertex() const {
 }
 
 Result<bool> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
