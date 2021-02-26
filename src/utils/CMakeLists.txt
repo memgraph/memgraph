@@ -3,6 +3,7 @@ set(utils_src_files
     file_locker.cpp
     memory.cpp
     memory_tracker.cpp
+    readable_size.cpp
     signals.cpp
     sysinfo/memory.cpp
     thread.cpp
