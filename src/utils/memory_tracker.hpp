@@ -39,6 +39,8 @@ class MemoryTracker final {
 
   auto Peak() const { return peak_.load(std::memory_order_relaxed); }
 
+  auto HardLimit() const { return hard_limit_.load(std::memory_order_relaxed); }
+
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);
 
