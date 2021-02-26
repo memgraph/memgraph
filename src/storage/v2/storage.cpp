@@ -1472,21 +1472,17 @@ void Storage::CollectGarbage() {
     }
   }
 
-  while (true) {
-    auto garbage_undo_buffers_ptr = garbage_undo_buffers_.Lock();
-    // if force is set to true, then we have unique_lock and no transactions are active
-    // so we can clean all of the old deltas
-    bool should_break = garbage_undo_buffers_ptr->empty();
-    if constexpr (!force) {
-      should_break |= garbage_undo_buffers_ptr->front().first > oldest_active_start_timestamp;
+  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
+    // if force is set to true we can simply delete all the leftover undos because
+    // no transaction is active
+    if constexpr (force) {
+      undo_buffers.clear();
+    } else {
+      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
+        undo_buffers.pop_front();
+      }
     }
-
-    if (should_break) {
-      break;
-    }
-
-    garbage_undo_buffers_ptr->pop_front();
-  }
+  });
 
   {
     auto vertex_acc = vertices_.access();
