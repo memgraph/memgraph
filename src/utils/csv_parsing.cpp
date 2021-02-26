@@ -39,6 +39,8 @@ std::optional<Reader::Header> Reader::ParseHeader() {
   if (!maybe_line) {
     throw CsvReadException("CSV file {} empty!", path_);
   }
+  Header header;
+  // set the 'number_of_fields_' once this method is implemented fully
   return std::nullopt;
 }
 
@@ -61,6 +63,9 @@ Reader::ParsingResult Reader::ParseRow() {
   std::string column;
 
   auto state = CsvParserState::INITIAL_FIELD;
+
+  // must capture line_count_ here because each call of GetNextLine advances it
+  auto current_line = line_count_;
 
   do {
     const auto &maybe_line = GetNextLine();
@@ -162,6 +167,18 @@ Reader::ParsingResult Reader::ParseRow() {
     case CsvParserState::EXPECT_DELIMITER: {
       break;
     }
+  }
+
+  // if there's no header, then the very first row will determine the allowed
+  // number of columns in all subsequent rows
+  if (!read_config_.with_header && current_line == 1) {
+    number_of_columns_ = row.size();
+  }
+
+  if (row.size() != number_of_columns_) {
+    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+                      fmt::format("CSV Reader: Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
+                                  current_line, row.size()));
   }
 
   return Row(row);

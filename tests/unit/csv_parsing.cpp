@@ -81,8 +81,7 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row->columns, columns1);
 
-  parsed_row = reader.GetNextRow();
-  ASSERT_NE(parsed_row->columns, columns2);
+  EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
 }
 
 TEST_F(CsvReaderTest, SemicolonDelimiter) {
@@ -104,8 +103,7 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row->columns, columns1);
 
-  parsed_row = reader.GetNextRow();
-  ASSERT_NE(parsed_row->columns, columns2);
+  EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
 }
 
 TEST_F(CsvReaderTest, SkipBad) {

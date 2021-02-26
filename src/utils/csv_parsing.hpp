@@ -76,6 +76,7 @@ class Reader {
   std::ifstream csv_stream_;
   Config read_config_;
   uint64_t line_count_{1};
+  uint16_t number_of_columns_;
 
   struct Header {
     Header() = default;
@@ -86,6 +87,8 @@ class Reader {
 
     Header(Header &&other) = default;
     Header &operator=(Header &&other) = default;
+
+    ~Header() = default;
 
     std::vector<std::string> fields;
   };
