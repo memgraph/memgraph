@@ -169,10 +169,22 @@ Reader::ParsingResult Reader::ParseRow() {
     }
   }
 
-  // if there's no header, then the very first row will determine the allowed
-  // number of columns in all subsequent rows
-  if (!read_config_.with_header && current_line == 1) {
-    number_of_columns_ = row.size();
+  // if there's no header, then:
+  //    - if we skip bad rows, then the very first __valid__ row will
+  //      determine the allowed number of columns
+  //    - if we don't skip bad rows, the very first row will determine the allowed
+  //      number of columns in all subsequent rows
+  if (!read_config_.with_header) {
+    if (read_config_.skip_bad) {
+      // if number of columns hasn't been set already('number_of_columns_ == 0'), set it
+      if (number_of_columns_ == 0) {
+        number_of_columns_ = row.size();
+      }
+    } else {
+      if (current_line == 1) {
+        number_of_columns_ = row.size();
+      }
+    }
   }
 
   if (row.size() != number_of_columns_) {
