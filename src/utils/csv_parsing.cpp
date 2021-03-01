@@ -1,4 +1,4 @@
-#include "csv_parsing.hpp"
+#include "utils/csv_parsing.hpp"
 
 #include <string_view>
 
@@ -22,7 +22,7 @@ void Reader::InitializeStream() {
 std::optional<std::string> Reader::GetNextLine() {
   std::string line;
   if (!std::getline(csv_stream_, line)) {
-    // reached end of file
+    // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
       csv_stream_.close();
     }
@@ -64,11 +64,8 @@ Reader::ParsingResult Reader::ParseRow() {
 
   auto state = CsvParserState::INITIAL_FIELD;
 
-  // must capture line_count_ here because each call of GetNextLine advances it
-  auto current_line = line_count_;
-
   do {
-    const auto &maybe_line = GetNextLine();
+    const auto maybe_line = GetNextLine();
     if (!maybe_line) {
       // The whole file was processed.
       break;
@@ -169,55 +166,61 @@ Reader::ParsingResult Reader::ParseRow() {
     }
   }
 
+  // reached the end of file - return empty row
+  if (row.empty()) {
+    return Row(row);
+  }
+
   // if there's no header, then:
   //    - if we skip bad rows, then the very first __valid__ row will
   //      determine the allowed number of columns
   //    - if we don't skip bad rows, the very first row will determine the allowed
   //      number of columns in all subsequent rows
-  if (!read_config_.with_header) {
-    if (read_config_.skip_bad) {
-      // if number of columns hasn't been set already('number_of_columns_ == 0'), set it
-      if (number_of_columns_ == 0) {
-        number_of_columns_ = row.size();
-      }
-    } else {
-      if (current_line == 1) {
-        number_of_columns_ = row.size();
-      }
-    }
+  if (!read_config_.with_header && number_of_columns_ == 0) {
+    MG_ASSERT(!row.empty());
+    number_of_columns_ = row.size();
   }
 
   if (row.size() != number_of_columns_) {
-    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-                      fmt::format("CSV Reader: Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
-                                  current_line, row.size()));
+    return ParseError(
+        ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+        // ToDo(the-joksim):
+        //    - 'line_count_ - 1' is the last line of a row (as a
+        //      row may span several lines) ==> should have a row
+        //      counter
+        fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_, line_count_, row.size()));
   }
 
   return Row(row);
 }
 
 // Returns Reader::Row if the read row if valid;
-// Returns std::nullopt if end of file is reached;
+// Returns std::nullopt if end of file is reached or an error occurred
+// making it unreadable;
 // @throws CsvReadException if a bad row is encountered, and the skip_bad is set
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow() {
   auto row = ParseRow();
+
   if (row.HasError()) {
     if (!read_config_.skip_bad) {
-      throw CsvReadException("Bad row at line {:d}: {}", line_count_, row.GetError().message);
+      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_, row.GetError().message);
     }
     // try to parse as many times as necessary to reach a valid row
-    while (true) {
-      row = ParseRow();
-      if (!csv_stream_.is_open()) {
+    do {
+      if (!csv_stream_.good()) {
         return std::nullopt;
       }
-      if (row.HasValue()) {
-        break;
-      }
-    }
+      row = ParseRow();
+    } while (row.HasError());
   }
-  return row.GetValue();
+
+  auto ret = row.GetValue();
+  if (ret.columns.empty()) {
+    // reached end of file
+    return std::nullopt;
+  }
+  return ret;
 }
 
 }  // namespace csv

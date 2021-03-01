@@ -146,6 +146,30 @@ TEST_F(CsvReaderTest, SkipBad) {
   }
 }
 
+TEST_F(CsvReaderTest, AllRowsValid) {
+  // create a file with all rows valid;
+  // parser should return 'std::nullopt'
+  const auto filepath = csv_directory / "bla.csv";
+  auto writer = FileWriter(filepath);
+
+  const std::string delimiter = ",";
+
+  const std::vector<std::string> columns{"A", "B", "C"};
+  writer.WriteLine(CreateRow(columns, delimiter));
+  writer.WriteLine(CreateRow(columns, delimiter));
+  writer.WriteLine(CreateRow(columns, delimiter));
+
+  writer.Close();
+
+  const bool skip_bad = false;
+  const csv::Reader::Config cfg(delimiter, "\"", false, skip_bad);
+  auto reader = csv::Reader(filepath, cfg);
+
+  while (auto parsed_row = reader.GetNextRow()) {
+    ASSERT_EQ(parsed_row->columns, columns);
+  }
+}
+
 TEST_F(CsvReaderTest, SkipAllRows) {
   // create a file with all rows invalid (containing a string with a missing closing quote);
   // parser should return 'std::nullopt'

@@ -80,7 +80,7 @@ class Reader {
 
   struct Header {
     Header() = default;
-    explicit Header(std::vector<std::string> fs) : fields(std::move(fs)) {}
+    explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
 
     Header(const Header &other) = default;
     Header &operator=(const Header &other) = default;
@@ -90,7 +90,7 @@ class Reader {
 
     ~Header() = default;
 
-    std::vector<std::string> fields;
+    std::vector<std::string> columns;
   };
 
   std::optional<Header> header_{};
