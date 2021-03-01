@@ -59,8 +59,7 @@ class Reader {
     if (csv_stream_.is_open()) csv_stream_.close();
   }
 
-  class ParseError {
-   public:
+  struct ParseError {
     enum class ErrorCode : uint8_t { BAD_HEADER, NO_CLOSING_QUOTE, UNEXPECTED_TOKEN, BAD_NUM_OF_COLUMNS, NULL_BYTE };
     ParseError(ErrorCode code, std::string message) : code(code), message(std::move(message)) {}
 
@@ -81,15 +80,6 @@ class Reader {
   struct Header {
     Header() = default;
     explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
-
-    Header(const Header &other) = default;
-    Header &operator=(const Header &other) = default;
-
-    Header(Header &&other) = default;
-    Header &operator=(Header &&other) = default;
-
-    ~Header() = default;
-
     std::vector<std::string> columns;
   };
 
