@@ -226,6 +226,9 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
+add_unit_test(csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
+target_link_libraries(${test_prefix}csv_parsing mg-utils fmt)
+
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
