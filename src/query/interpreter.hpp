@@ -13,6 +13,7 @@
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
@@ -22,6 +23,10 @@
 
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
+
+namespace EventCounter {
+extern const Event FailedQuery;
+}  // namespace EventCounter
 
 namespace query {
 
@@ -428,6 +433,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
+    EventCounter::IncrementCounter(EventCounter::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }

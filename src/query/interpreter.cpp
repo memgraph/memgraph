@@ -31,11 +31,13 @@ DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query plan
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
-namespace utils {
-extern Event ReadQueries;
-extern Event WriteQueries;
-extern Event ReadWriteQueries;
-}  // namespace utils
+namespace EventCounter {
+extern Event ReadQuery;
+extern Event WriteQuery;
+extern Event ReadWriteQuery;
+
+extern const Event FailedQuery;
+}  // namespace EventCounter
 
 namespace query {
 
@@ -43,13 +45,13 @@ namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
-      utils::IncrementEventCounter(utils::ReadQueries);
+      EventCounter::IncrementCounter(EventCounter::ReadQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::W:
-      utils::IncrementEventCounter(utils::WriteQueries);
+      EventCounter::IncrementCounter(EventCounter::WriteQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::RW:
-      utils::IncrementEventCounter(utils::ReadWriteQueries);
+      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
       break;
     default:
       break;
@@ -1500,6 +1502,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
+    EventCounter::IncrementCounter(EventCounter::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }

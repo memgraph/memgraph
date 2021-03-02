@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <memory>
 
-namespace utils {
+namespace EventCounter {
 using Event = uint64_t;
 using Count = uint64_t;
 using Counter = std::atomic<Count>;
@@ -26,10 +26,11 @@ class EventCounters {
 
 extern EventCounters global_counters;
 
-void IncrementEventCounter(Event event, Count amount = 1);
+void IncrementCounter(Event event, Count amount = 1);
 
-const char *GetEventName(Event event);
-const char *GetEventDocumentation(Event event);
+const char *GetName(Event event);
+const char *GetDocumentation(Event event);
 
-Event EventCount();
-}  // namespace utils
+Event End();
+
+}  // namespace EventCounter
