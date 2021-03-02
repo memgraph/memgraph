@@ -1476,8 +1476,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->prepared_query.emplace(std::move(prepared_query));
 
     const auto rw_type = query_execution->prepared_query->rw_type;
-    query_execution->summary["type"] =
-        query_execution->prepared_query ? plan::ReadWriteTypeChecker::TypeToString(rw_type) : "rw";
+    query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
 
     if (auto &telemetry_data = interpreter_context_->telemetry_data; telemetry_data) {
       telemetry_data->UpdateTypeCount(rw_type);
