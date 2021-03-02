@@ -19,6 +19,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -30,7 +31,31 @@ DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query plan
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
+namespace utils {
+extern Event ReadQueries;
+extern Event WriteQueries;
+extern Event ReadWriteQueries;
+}  // namespace utils
+
 namespace query {
+
+namespace {
+void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    case plan::ReadWriteTypeChecker::RWType::R:
+      utils::IncrementEventCounter(utils::ReadQueries);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::W:
+      utils::IncrementEventCounter(utils::WriteQueries);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::RW:
+      utils::IncrementEventCounter(utils::ReadWriteQueries);
+      break;
+    default:
+      break;
+  }
+}
+}  // namespace
 
 /**
  * A container for data related to the parsing of a query.
@@ -142,22 +167,6 @@ struct Callback {
 
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
-}
-
-void TelemetryData::UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
-  switch (type) {
-    case plan::ReadWriteTypeChecker::RWType::R:
-      r_count.fetch_add(1, std::memory_order_relaxed);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::W:
-      w_count.fetch_add(1, std::memory_order_relaxed);
-      break;
-    case plan::ReadWriteTypeChecker::RWType::RW:
-      rw_count.fetch_add(1, std::memory_order_relaxed);
-      break;
-    default:
-      break;
-  }
 }
 
 #ifdef MG_ENTERPRISE
@@ -1478,9 +1487,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
 
-    if (auto &telemetry_data = interpreter_context_->telemetry_data; telemetry_data) {
-      telemetry_data->UpdateTypeCount(rw_type);
-    }
+    UpdateTypeCount(rw_type);
 
 #ifdef MG_ENTERPRISE
     if (const auto query_type = query_execution->prepared_query->rw_type;

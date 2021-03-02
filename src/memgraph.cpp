@@ -30,6 +30,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -934,7 +935,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_telemetry_enabled};
+  query::InterpreterContext interpreter_context{&db};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
@@ -969,23 +970,18 @@ int main(int argc, char **argv) {
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
+    telemetry.emplace("http://localhost:3000", data_directory / "telemetry", std::chrono::seconds(3), 2);
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
-    telemetry->AddCollector(
-        "query", [&interpreter_context]() -> nlohmann::json {
-          const auto &telemetry_data = interpreter_context.telemetry_data;
-          MG_ASSERT(telemetry_data);
-          return {{"r_count",
-                   telemetry_data->r_count.load(std::memory_order_relaxed)},
-                  {"w_count",
-                   telemetry_data->w_count.load(std::memory_order_relaxed)},
-                  {"rw_count",
-                   telemetry_data->rw_count.load(std::memory_order_relaxed)}};
-        });
+    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
+      nlohmann::json ret;
+      for (size_t i = 0; i < utils::EventCount(); ++i) {
+        ret[utils::GetEventName(i)] = utils::global_counters[i].load(std::memory_order_relaxed);
+      }
+      return ret;
+    });
   }
 
   // Handler for regular termination signals

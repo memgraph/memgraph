@@ -1,4 +1,5 @@
 set(utils_src_files
+    event_counter.cpp
     file.cpp
     file_locker.cpp
     memory.cpp
