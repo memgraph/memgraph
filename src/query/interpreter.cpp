@@ -36,7 +36,8 @@ extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
 
-extern const Event FailedQuery;
+extern const Event LabelIndexCreated;
+extern const Event LabelPropertyIndexCreated;
 }  // namespace EventCounter
 
 namespace query {
@@ -1026,9 +1027,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
           interpreter_context->db->CreateIndex(label);
+          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         } else {
           MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->CreateIndex(label, properties[0]);
+          EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
         }
         invalidate_plan_cache();
       };

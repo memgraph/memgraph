@@ -39,7 +39,9 @@
   M(CartesianOperator, "Number of times Cartesian operator was used.")                                     \
   M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                             \
                                                                                                            \
-  M(FailedQuery, "Number of times executing a query failed.")
+  M(FailedQuery, "Number of times executing a query failed.")                                              \
+  M(LabelIndexCreated, "Number of times a label index was created.")                                       \
+  M(LabelPropertyIndexCreated, "Number of times a label property index was created.")
 
 namespace EventCounter {
 
