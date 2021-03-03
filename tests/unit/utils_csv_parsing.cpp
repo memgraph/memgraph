@@ -1,20 +1,21 @@
-#include "utils/csv_parsing.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "utils/csv_parsing.hpp"
 
 #include "utils/string.hpp"
-
 
 class CsvReaderTest : public ::testing::Test {
  protected:
   const std::filesystem::path csv_directory{std::filesystem::temp_directory_path() / "csv_testing"};
 
-  void SetUp() override { Clear(); CreateCsvDir(); }
+  void SetUp() override {
+    Clear();
+    CreateCsvDir();
+  }
 
   void TearDown() override { Clear(); }
-    
- private:
 
+ private:
   void CreateCsvDir() {
     if (!std::filesystem::exists(csv_directory)) {
       std::filesystem::create_directory(csv_directory);
@@ -97,7 +98,9 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
 
   writer.Close();
 
-  const csv::Reader::Config cfg(delimiter, "\"", false, false);
+  const bool with_header = false;
+  const bool ignore_bad = false;
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();
@@ -125,10 +128,11 @@ TEST_F(CsvReaderTest, SkipBad) {
   writer.Close();
 
   {
-    // we set the 'skip_bad' flag in the read configuration to 'true';
+    // we set the 'ignore_bad' flag in the read configuration to 'true';
     // parser's output should be solely the valid row;
-    const bool skip_bad = true;
-    const csv::Reader::Config cfg(delimiter, "\"", false, skip_bad);
+    const bool with_header = false;
+    const bool ignore_bad = true;
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
     auto reader = csv::Reader(filepath, cfg);
 
     auto parsed_row = reader.GetNextRow();
@@ -136,10 +140,11 @@ TEST_F(CsvReaderTest, SkipBad) {
   }
 
   {
-    // we set the 'skip_bad' flag in the read configuration to 'false';
+    // we set the 'ignore_bad' flag in the read configuration to 'false';
     // an exception must be thrown;
-    const bool skip_bad = false;
-    const csv::Reader::Config cfg(delimiter, "\"", false, skip_bad);
+    const bool with_header = false;
+    const bool ignore_bad = false;
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
     auto reader = csv::Reader(filepath, cfg);
 
     EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
@@ -161,8 +166,9 @@ TEST_F(CsvReaderTest, AllRowsValid) {
 
   writer.Close();
 
-  const bool skip_bad = false;
-  const csv::Reader::Config cfg(delimiter, "\"", false, skip_bad);
+  const bool with_header = false;
+  const bool ignore_bad = false;
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
   auto reader = csv::Reader(filepath, cfg);
 
   while (auto parsed_row = reader.GetNextRow()) {
@@ -185,8 +191,9 @@ TEST_F(CsvReaderTest, SkipAllRows) {
 
   writer.Close();
 
-  const bool skip_bad = true;
-  const csv::Reader::Config cfg(delimiter, "\"", false, skip_bad);
+  const bool with_header = false;
+  const bool ignore_bad = true;
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();

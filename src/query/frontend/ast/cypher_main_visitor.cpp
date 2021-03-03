@@ -299,6 +299,42 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
   return lock_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitLoadCsvQuery(MemgraphCypher::LoadCsvQueryContext *ctx) {
+  auto *load_csv_query = storage_->Create<LoadCsvQuery>();
+  // handle file name
+  if (ctx->csvFile()->literal()->StringLiteral()) {
+    load_csv_query->file_ = ctx->csvFile()->accept(this).as<std::string>();
+  }
+
+  // handle header options
+  load_csv_query->with_header_ = (ctx->WITH()) != nullptr;
+
+  // handle skip bad row option
+  load_csv_query->ignore_bad_ = (ctx->IGNORE() && ctx->BAD()) != 0;
+
+  // handle delimiter
+  if (ctx->DELIMITER()) {
+    if (ctx->delimiter()->literal()->StringLiteral()) {
+      load_csv_query->delimiter_ = ctx->delimiter()->accept(this);
+    } else {
+      throw SyntaxException("Delimiter should be a string literal");
+    }
+  }
+
+  // handle quote
+  if (ctx->QUOTE()) {
+    if (ctx->quote()->literal()->StringLiteral()) {
+      load_csv_query->quote_ = ctx->quote()->accept(this);
+    } else {
+      throw SyntaxException("Quote should be a string literal");
+    }
+  }
+
+  // handle row variable
+  load_csv_query->row_var_ = ctx->rowVar()->accept(this);
+  return load_csv_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
     MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();

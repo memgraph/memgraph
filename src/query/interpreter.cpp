@@ -18,6 +18,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -331,24 +332,28 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
 };
 #endif
 
-Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth,
-                         const Parameters &parameters,
-                         DbAccessor *db_accessor) {
-  // Empty frame for evaluation of password expression. This is OK since
-  // password should be either null or string literal and it's evaluation
-  // should not depend on frame.
-  Frame frame(0);
+namespace {
+ExpressionEvaluator MakeExpressionEvaluator(Frame &frame, DbAccessor *db_accessor, const Parameters &parameters) {
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                db_accessor, storage::View::OLD);
+  return ExpressionEvaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+}
+
+}  // namespace
+
+Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
+                         DbAccessor *db_accessor) {
+  // Empty frame for evaluation of password expression. This is OK since
+  // password should be either null or string literal and it's evaluation
+  // should not depend on frame.
+  Frame frame(0);
+  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -497,15 +502,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
                                 const Parameters &parameters,
                                 DbAccessor *db_accessor) {
   Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                db_accessor, storage::View::OLD);
+  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
 
   Callback callback;
   switch (repl_query->action_) {
@@ -601,6 +598,28 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
     }
       return callback;
   }
+}
+
+Callback HandleLoadCsvQuery(const LoadCsvQuery *load_csv_query, const Parameters &parameters, DbAccessor *db_accessor) {
+  Frame frame(0);
+  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
+
+  auto to_optional_string = [&evaluator](Expression *expression) -> std::optional<std::string> {
+    const auto evaluated_expr = EvaluateOptionalExpression(expression, &evaluator);
+    if (evaluated_expr.IsString()) {
+      return std::string(evaluated_expr.ValueString());
+    }
+    return std::nullopt;
+  };
+
+  const auto maybe_delimiter = to_optional_string(load_csv_query->delimiter_);
+  const auto maybe_quote = to_optional_string(load_csv_query->quote_);
+
+  const auto read_cfg =
+      csv::Reader::Config(load_csv_query->with_header_, load_csv_query->ignore_bad_, maybe_delimiter, maybe_quote);
+  csv::Reader(load_csv_query->file_, read_cfg);
+
+  return Callback();
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
@@ -756,6 +775,7 @@ std::optional<ExecutionContext> PullPlan::Pull(
   ctx_.profile_execution_time = execution_time_;
   return ctx_;
 }
+
 }  // namespace
 
 /**
@@ -1193,10 +1213,8 @@ PreparedQuery PrepareAuthQuery(
       RWType::NONE};
 }
 
-PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query,
-                                      bool in_explicit_transaction,
-                                      InterpreterContext *interpreter_context,
-                                      DbAccessor *dba) {
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
@@ -1230,18 +1248,6 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
 
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
 
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  evaluation_context.parameters = parsed_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba,
-                                storage::View::OLD);
-
-  Callback callback;
   switch (lock_path_query->action_) {
     case LockPathQuery::Action::LOCK_PATH:
       if (!interpreter_context->db->LockPath()) {
@@ -1255,13 +1261,22 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
       break;
   }
 
-  return PreparedQuery{
-      callback.header, std::move(parsed_query.required_privileges),
-      [](AnyStream *stream,
-         std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareLoadCsvQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                  InterpreterContext *interpreter_context, Parameters parameters, DbAccessor *dba) {
+  Frame frame(0);
+  auto evaluator = MakeExpressionEvaluator(frame, dba, parameters);
+
+  auto *load_csv_query = utils::Downcast<LoadCsvQuery>(parsed_query.query);
+
+  return PreparedQuery{};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -1647,6 +1662,9 @@ Interpreter::PrepareResult Interpreter::Prepare(
       prepared_query = PrepareLockPathQuery(
           std::move(parsed_query), in_explicit_transaction_,
           interpreter_context_, &*execution_db_accessor_);
+    } else if (utils::Downcast<LoadCsvQuery>(parsed_query.query)) {
+      prepared_query = PrepareLoadCsvQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                           parsed_query.parameters, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

@@ -27,13 +27,17 @@ class Reader {
  public:
   struct Config {
     Config(){};
-    Config(std::string delimiter, std::string quote, const bool with_header, const bool skip_bad)
-        : delimiter(std::move(delimiter)), quote(std::move(quote)), with_header(with_header), skip_bad(skip_bad) {}
+    Config(const bool with_header, const bool ignore_bad, const std::optional<std::string> delim,
+           const std::optional<std::string> qt)
+        : with_header(with_header), ignore_bad(ignore_bad) {
+      delimiter = (delim) ? *delim : ",";
+      quote = (qt) ? *qt : "\"";
+    }
 
+    bool with_header{false};
+    bool ignore_bad{false};
     std::string delimiter{","};
     std::string quote{"\""};
-    bool with_header{false};
-    bool skip_bad{false};
   };
 
   struct Row {

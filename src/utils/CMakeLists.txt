@@ -1,4 +1,5 @@
 set(utils_src_files
+    csv_parsing.cpp
     file.cpp
     file_locker.cpp
     memory.cpp

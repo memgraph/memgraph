@@ -2191,7 +2191,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path)
+         dump replication lock_path read_file)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2343,6 +2343,27 @@ cpp<#
       (:serialize))
     #>cpp
     LockPathQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class load-csv-query (query)
+  ((file "std::string" :scope :public)
+   (with_header "bool" :scope :public)
+   (ignore_bad "bool" :scope :public)
+   (delimiter "Expression *" :initval "nullptr" :scope :public)
+   (quote "Expression *" :initval "nullptr" :scope :public)
+   (row_var "Expression *" :initval "nullptr" :scope :public))
+
+  (:public
+    #>cpp
+    LoadCsvQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)

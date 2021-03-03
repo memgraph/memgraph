@@ -197,13 +197,13 @@ Reader::ParsingResult Reader::ParseRow() {
 // Returns Reader::Row if the read row if valid;
 // Returns std::nullopt if end of file is reached or an error occurred
 // making it unreadable;
-// @throws CsvReadException if a bad row is encountered, and the skip_bad is set
+// @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow() {
   auto row = ParseRow();
 
   if (row.HasError()) {
-    if (!read_config_.skip_bad) {
+    if (!read_config_.ignore_bad) {
       throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_, row.GetError().message);
     }
     // try to parse as many times as necessary to reach a valid row
