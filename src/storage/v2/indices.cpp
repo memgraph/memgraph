@@ -349,6 +349,12 @@ LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, 
       constraints_(constraints),
       config_(config) {}
 
+void LabelIndex::RunGC() {
+  for (auto &index_entry : index_) {
+    index_entry.second.run_gc();
+  }
+}
+
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (value < rhs.value) {
     return true;
@@ -659,6 +665,12 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+}
+
+void LabelPropertyIndex::RunGC() {
+  for (auto &index_entry : index_) {
+    index_entry.second.run_gc();
+  }
 }
 
 void RemoveObsoleteEntries(Indices *indices, uint64_t oldest_active_start_timestamp) {

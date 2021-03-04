@@ -21,6 +21,7 @@ DIRECTORY      : D I R E C T O R Y ;
 DROP           : D R O P ;
 DUMP           : D U M P ;
 FOR            : F O R ;
+FREE           : F R E E ;
 FROM           : F R O M ;
 GRANT          : G R A N T ;
 GRANTS         : G R A N T S ;

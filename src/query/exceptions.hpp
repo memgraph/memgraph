@@ -164,4 +164,9 @@ class LockPathModificationInMulticommandTxException : public QueryException {
       : QueryException("Lock path clause not allowed in multicommand transactions.") {}
 };
 
+class FreeMemoryModificationInMulticommandTxException : public QueryException {
+ public:
+  FreeMemoryModificationInMulticommandTxException()
+      : QueryException("Lock path clause not allowed in multicommand transactions.") {}
+};
 }  // namespace query

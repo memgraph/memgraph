@@ -2191,7 +2191,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path)
+         dump replication lock_path free_memory)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2228,7 +2228,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::AUTH,
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::LOCK_PATH};
+    AuthQuery::Privilege::LOCK_PATH,
+    AuthQuery::Privilege::FREE_MEMORY};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2349,6 +2350,14 @@ cpp<#
   (:private
     #>cpp
     friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class free-memory-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
   (:serialize (:slk))
   (:clone))
