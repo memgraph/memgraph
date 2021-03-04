@@ -167,6 +167,10 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
 DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
+DEFINE_uint64(
+    memory_limit, 0,
+    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
+    "is enabled and 90\% of the physical memory otherwise.");
 namespace {
 constexpr std::array log_level_mappings{
     std::pair{"TRACE", spdlog::level::trace}, std::pair{"DEBUG", spdlog::level::debug},
@@ -235,6 +239,25 @@ void ConfigureLogging() {
 
   spdlog::flush_on(spdlog::level::trace);
   ParseLogLevel();
+}
+
+int64_t GetMemoryLimit() {
+  if (FLAGS_memory_limit == 0) {
+    auto maybe_total_memory = utils::sysinfo::TotalMemory();
+    MG_ASSERT(maybe_total_memory, "Failed to fetch the total physical memory");
+    const auto maybe_swap_memory = utils::sysinfo::SwapTotalMemory();
+    MG_ASSERT(maybe_swap_memory, "Failed to fetch the total swap memory");
+
+    if (*maybe_swap_memory == 0) {
+      // take only 90% of the total memory
+      *maybe_total_memory *= 9;
+      *maybe_total_memory /= 10;
+    }
+    return *maybe_total_memory * 1024;
+  }
+
+  // We parse the memory as MiB every time
+  return FLAGS_memory_limit * 1024 * 1024;
 }
 }  // namespace
 
@@ -876,10 +899,10 @@ int main(int argc, char **argv) {
   // Start memory warning logger.
   utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
-    auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+    auto free_ram = utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
-        auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+        auto free_ram = utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn("Running out of available RAM, only {} MB left", *free_ram / 1024);
       });
@@ -925,8 +948,9 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
-  // Main storage and execution engines initialization
+  utils::total_memory_tracker.SetHardLimit(GetMemoryLimit());
 
+  // Main storage and execution engines initialization
   storage::Config db_config{
       .gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
