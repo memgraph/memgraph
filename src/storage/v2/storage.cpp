@@ -361,7 +361,7 @@ Storage::Storage(Config config)
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] { this->CreateSnapshot(); });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage(); });
+    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
   }
 
   if (timestamp_ == kTimestampInitialId) {
@@ -1221,11 +1221,29 @@ Transaction Storage::CreateTransaction() {
   return {transaction_id, start_timestamp};
 }
 
+template <bool force>
 void Storage::CollectGarbage() {
-  // Because the garbage collector iterates through the indices and constraints
-  // to clean them up, it must take the main lock for reading to make sure that
-  // the indices and constraints aren't concurrently being modified.
-  std::shared_lock<utils::RWLock> main_guard(main_lock_);
+  if constexpr (force) {
+    // We take the unique lock on the main storage lock so we can forcefully clean
+    // everything we can
+    if (!main_lock_.try_lock()) {
+      CollectGarbage<false>();
+      return;
+    }
+  } else {
+    // Because the garbage collector iterates through the indices and constraints
+    // to clean them up, it must take the main lock for reading to make sure that
+    // the indices and constraints aren't concurrently being modified.
+    main_lock_.lock_shared();
+  }
+
+  utils::OnScopeExit lock_releaser{[&] {
+    if constexpr (force) {
+      main_lock_.unlock();
+    } else {
+      main_lock_.unlock_shared();
+    }
+  }};
 
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
@@ -1418,19 +1436,32 @@ void Storage::CollectGarbage() {
     }
   }
 
-  while (true) {
-    auto garbage_undo_buffers_ptr = garbage_undo_buffers_.Lock();
-    if (garbage_undo_buffers_ptr->empty() || garbage_undo_buffers_ptr->front().first > oldest_active_start_timestamp) {
-      break;
+  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
+    // if force is set to true we can simply delete all the leftover undos because
+    // no transaction is active
+    if constexpr (force) {
+      undo_buffers.clear();
+    } else {
+      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
+        undo_buffers.pop_front();
+      }
     }
-    garbage_undo_buffers_ptr->pop_front();
-  }
+  });
 
   {
     auto vertex_acc = vertices_.access();
-    while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-      MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-      garbage_vertices_.pop_front();
+    if constexpr (force) {
+      // if force is set to true, then we have unique_lock and no transactions are active
+      // so we can clean all of the deleted vertices
+      while (!garbage_vertices_.empty()) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
+      }
+    } else {
+      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
+      }
     }
   }
   {
@@ -1440,6 +1471,10 @@ void Storage::CollectGarbage() {
     }
   }
 }
+
+// tell the linker he can find the CollectGarbage definitions here
+template void Storage::CollectGarbage<true>();
+template void Storage::CollectGarbage<false>();
 
 bool Storage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
@@ -1700,6 +1735,16 @@ bool Storage::UnlockPath() {
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
+}
+
+void Storage::FreeMemory() {
+  CollectGarbage<true>();
+
+  // SkipList is already threadsafe
+  vertices_.run_gc();
+  edges_.run_gc();
+  indices_.label_index.RunGC();
+  indices_.label_property_index.RunGC();
 }
 
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {

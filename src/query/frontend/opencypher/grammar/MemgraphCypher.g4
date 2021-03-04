@@ -20,6 +20,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DROP
                       | DUMP
                       | FOR
+                      | FREE
                       | FROM
                       | GRANT
                       | HEADER
@@ -64,6 +65,7 @@ query : cypherQuery
       | dumpQuery
       | replicationQuery
       | lockPathQuery
+      | freeMemoryQuery
       ;
 
 authQuery : createRole
@@ -176,4 +178,4 @@ showReplicas  : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 
-
+freeMemoryQuery : FREE MEMORY ;

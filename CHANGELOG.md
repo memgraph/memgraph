@@ -11,6 +11,8 @@
 * Added support for programatically reading in data from CSV files through the
   `LOAD CSV` clause. We support CSV files with and without a header, the
   supported dialect being Excel.
+* Added a new flag `--memory-limit` which enables the user to set the maximum total amount of memory
+  memgraph can allocate during its runtime.
 
 ### Bug Fixes
 
