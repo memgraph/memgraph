@@ -110,6 +110,8 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
+  void RunGC();
+
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
@@ -225,6 +227,8 @@ class LabelPropertyIndex {
 
   void Clear() { index_.clear(); }
 
+  void RunGC();
+
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   Indices *indices_;
@@ -263,5 +267,4 @@ void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Tra
 /// @throw std::bad_alloc
 void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);
-
 }  // namespace storage
