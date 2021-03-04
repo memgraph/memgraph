@@ -970,7 +970,8 @@ int main(int argc, char **argv) {
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace("http://localhost:3000", data_directory / "telemetry", std::chrono::seconds(3), 2);
+    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
+                      data_directory / "telemetry", std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
