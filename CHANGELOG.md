@@ -8,6 +8,8 @@
 * Add support for multiple query modules directories at the same time.
   You can now define multiple, comma-separated paths to directories from
   which the modules will be loaded using the `--query-modules-directory` flag.
+* Added a new flag `--memory-limit` which enables the user to set the maximum total amount of memory
+  memgraph can allocate during its runtime.
 
 ### Bug Fixes
 
