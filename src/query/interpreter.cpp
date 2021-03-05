@@ -172,7 +172,6 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
-#ifdef MG_ENTERPRISE
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
@@ -290,37 +289,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
-#else
-
-class NoReplicationInCommunity : public query::QueryRuntimeException {
- public:
-  NoReplicationInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException("Replication is not supported in Memgraph Community!") {}
-};
-
-class ReplQueryHandler : public query::ReplicationQueryHandler {
- public:
-  // Dummy ctor - just there to make the replication query handler work
-  // in both community and enterprise versions.
-  explicit ReplQueryHandler(storage::Storage *db) {}
-  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
-    throw NoReplicationInCommunity();
-  }
-
-  ReplicationQuery::ReplicationRole ShowReplicationRole() const override { throw NoReplicationInCommunity(); }
-
-  void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) {
-    throw NoReplicationInCommunity();
-  }
-
-  void DropReplica(const std::string &replica_name) override { throw NoReplicationInCommunity(); }
-
-  using Replica = ReplicationQueryHandler::Replica;
-
-  std::vector<Replica> ShowReplicas() const override { throw NoReplicationInCommunity(); }
-};
-#endif
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
                          DbAccessor *db_accessor) {
@@ -1494,14 +1462,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-#ifdef MG_ENTERPRISE
     if (const auto query_type = query_execution->prepared_query->rw_type;
         interpreter_context_->db->GetReplicationRole() == storage::ReplicationRole::REPLICA &&
         (query_type == RWType::W || query_type == RWType::RW)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }
-#endif
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {

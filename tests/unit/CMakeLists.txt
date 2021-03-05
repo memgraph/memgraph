@@ -264,10 +264,8 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
-if (MG_ENTERPRISE)
 add_unit_test(storage_v2_replication.cpp)
 target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
-endif()
 
 # Test mg-auth
 

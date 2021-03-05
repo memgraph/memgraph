@@ -11,26 +11,26 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp)
 
-if(MG_ENTERPRISE)
-    define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
+##### Replication #####
 
-    add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
+define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
 
-    add_custom_target(generate_lcp_storage DEPENDS ${generated_lcp_storage_files})
+add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
 
-    set(storage_v2_src_files
-        ${storage_v2_src_files}
-        replication/replication_client.cpp
-        replication/replication_server.cpp
-        replication/serialization.cpp
-        replication/slk.cpp
-        ${lcp_storage_cpp_files})
-endif()
+add_custom_target(generate_lcp_storage DEPENDS ${generated_lcp_storage_files})
+
+set(storage_v2_src_files
+    ${storage_v2_src_files}
+    replication/replication_client.cpp
+    replication/replication_server.cpp
+    replication/serialization.cpp
+    replication/slk.cpp
+    ${lcp_storage_cpp_files})
+
+#######################
 
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
 target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
 
-if(MG_ENTERPRISE)
-    add_dependencies(mg-storage-v2 generate_lcp_storage)
-    target_link_libraries(mg-storage-v2 mg-rpc mg-slk)
-endif()
+add_dependencies(mg-storage-v2 generate_lcp_storage)
+target_link_libraries(mg-storage-v2 mg-rpc mg-slk)

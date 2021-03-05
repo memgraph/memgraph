@@ -27,13 +27,12 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
-#ifdef MG_ENTERPRISE
+/// REPLICATION ///
 #include "rpc/server.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-#endif
 
 namespace storage {
 
@@ -169,9 +168,7 @@ struct StorageInfo {
   uint64_t disk_usage;
 };
 
-#ifdef MG_ENTERPRISE
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-#endif
 
 class Storage final {
  public:
@@ -303,13 +300,11 @@ class Storage final {
     void Abort();
 
    private:
-#ifdef MG_ENTERPRISE
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
-#endif
 
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
@@ -389,7 +384,6 @@ class Storage final {
   bool LockPath();
   bool UnlockPath();
 
-#if MG_ENTERPRISE
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
 
   bool SetMainReplicationRole();
@@ -417,7 +411,6 @@ class Storage final {
   };
 
   std::vector<ReplicaInfo> ReplicasInfo();
-#endif
 
  private:
   Transaction CreateTransaction();
@@ -436,9 +429,6 @@ class Storage final {
   void CreateSnapshot();
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-#ifdef MG_ENTERPRISE
-#endif
 
   // Main storage lock.
   //
@@ -535,8 +525,6 @@ class Storage final {
   // Global locker that is used for clients file locking
   utils::FileRetainer::FileLocker global_locker_;
 
-  // Replication
-#ifdef MG_ENTERPRISE
   // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
@@ -558,7 +546,6 @@ class Storage final {
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
-#endif
 };
 
 }  // namespace storage
