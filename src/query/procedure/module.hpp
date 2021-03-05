@@ -61,6 +61,8 @@ class ModuleRegistry final {
   /// @return Whether the module was loaded
   bool LoadModuleIfFound(const std::filesystem::path &modules_dir, std::string_view name);
 
+  void LoadModulesFromDirectory(const std::filesystem::path &modules_dir);
+
  public:
   ModuleRegistry();
 
@@ -81,10 +83,9 @@ class ModuleRegistry final {
   bool LoadOrReloadModuleFromName(const std::string_view name);
 
   /// Atomically unload all modules and then load all possible modules from the
-  /// given directory.
+  /// set directories.
   ///
   /// Takes a write lock.
-  void UnloadAndLoadModulesFromDirectory(const std::filesystem::path &modules_dir);
   void UnloadAndLoadModulesFromDirectories();
 
   /// Find a module with given name or return nullptr.

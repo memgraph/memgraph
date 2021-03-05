@@ -440,7 +440,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   return false;
 }
 
-void ModuleRegistry::UnloadAndLoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
+void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
     spdlog::error("Module directory {} doesn't exist", modules_dir);
@@ -462,7 +462,7 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
   std::unique_lock<utils::RWLock> guard(lock_);
   DoUnloadAllModules();
   for (const auto &module_dir : modules_dirs_) {
-    UnloadAndLoadModulesFromDirectory(module_dir);
+    LoadModulesFromDirectory(module_dir);
   }
 }
 

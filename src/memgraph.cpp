@@ -138,9 +138,11 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
               "limit will be aborted. Value of 0 means no limit.");
 
 namespace {
-std::vector<std::filesystem::path> query_module_directories;
+std::vector<std::filesystem::path> query_modules_directories;
 }  // namespace
-DEFINE_VALIDATED_string(query_modules_directory, "", "Directory where modules with custom query procedures are stored.",
+DEFINE_VALIDATED_string(query_modules_directory, "",
+                        "Directory where modules with custom query procedures are stored. Multiple comma separated "
+                        "directories can be defined.",
                         {
                           if (value.empty()) return true;
                           const auto directories = utils::Split(value, ",");
@@ -151,10 +153,10 @@ DEFINE_VALIDATED_string(query_modules_directory, "", "Directory where modules wi
                               return false;
                             }
                           }
-                          query_module_directories.clear();
-                          query_module_directories.reserve(directories.size());
+                          query_modules_directories.clear();
+                          query_modules_directories.reserve(directories.size());
                           std::transform(directories.begin(), directories.end(),
-                                         std::back_inserter(query_module_directories),
+                                         std::back_inserter(query_modules_directories),
                                          [](const auto &dir) { return dir; });
                           return true;
                         });
@@ -958,7 +960,7 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(query_module_directories);
+  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
 #ifdef MG_ENTERPRISE
