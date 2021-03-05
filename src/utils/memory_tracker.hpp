@@ -39,8 +39,10 @@ class MemoryTracker final {
 
   auto Peak() const { return peak_.load(std::memory_order_relaxed); }
 
+  auto HardLimit() const { return hard_limit_.load(std::memory_order_relaxed); }
+
   void SetHardLimit(int64_t limit);
-  void SetOrRaiseHardLimit(int64_t limit);
+  void TryRaiseHardLimit(int64_t limit);
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.
