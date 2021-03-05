@@ -7,6 +7,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 
 namespace utils {
 
@@ -16,24 +17,6 @@ namespace {
 bool MemoryTrackerCanThrow() {
   return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
          !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
-}
-
-std::string GetReadableSize(double size) {
-  // TODO (antonio2368): Add support for base 1000 (KB, GB, TB...)
-  constexpr std::array units = {"B", "KiB", "MiB", "GiB", "TiB"};
-  constexpr double delimiter = 1024;
-
-  size_t i = 0;
-  for (; i + 1 < units.size() && size >= delimiter; ++i) {
-    size /= delimiter;
-  }
-
-  // bytes don't need decimals
-  if (i == 0) {
-    return fmt::format("{:.0f}{}", size, units[i]);
-  }
-
-  return fmt::format("{:.2f}{}", size, units[i]);
 }
 
 }  // namespace
@@ -71,7 +54,7 @@ void MemoryTracker::UpdatePeak(const int64_t will_be) {
 
 void MemoryTracker::SetHardLimit(const int64_t limit) { hard_limit_.store(limit, std::memory_order_relaxed); }
 
-void MemoryTracker::SetOrRaiseHardLimit(const int64_t limit) {
+void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
   int64_t old_limit = hard_limit_.load(std::memory_order_relaxed);
   while (old_limit < limit && !hard_limit_.compare_exchange_weak(old_limit, limit))
     ;
