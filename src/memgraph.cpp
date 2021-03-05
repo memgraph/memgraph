@@ -958,9 +958,8 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(query_module_directories.empty() ? ""
-                                                                                         : query_module_directories[0]);
-  query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectory();
+  query::procedure::gModuleRegistry.SetModulesDirectory(query_module_directories);
+  query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
