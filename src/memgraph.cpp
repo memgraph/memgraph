@@ -35,6 +35,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -947,7 +948,9 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
-  utils::total_memory_tracker.SetHardLimit(GetMemoryLimit());
+  const auto memory_limit = GetMemoryLimit();
+  spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   // Main storage and execution engines initialization
   storage::Config db_config{
