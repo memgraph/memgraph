@@ -7,17 +7,36 @@
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "telemetry/system_info.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace telemetry {
+namespace {
+std::string GetMachineId() {
+#ifdef DOCKER_BUILD
+  return "DOCKER";
+#else
+  // We assume we're on linux and we need to read the machine id from /etc/machine-id
+  const auto machine_id_lines = utils::ReadLines("/etc/machine-id");
+  if (machine_id_lines.size() != 1) {
+    return "UNKNOWN";
+  }
+  return machine_id_lines[0];
+#endif
+}
+}  // namespace
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(const std::string &url, const std::filesystem::path &storage_directory,
-                     std::chrono::duration<long long> refresh_interval, const uint64_t send_every_n)
-    : url_(url), uuid_(utils::GenerateUUID()), send_every_n_(send_every_n), storage_(storage_directory) {
+Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
+                     std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
+    : url_(std::move(url)),
+      uuid_(utils::GenerateUUID()),
+      machine_id_(GetMachineId()),
+      send_every_n_(send_every_n),
+      storage_(std::move(storage_directory)) {
   StoreData("startup", GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
@@ -35,7 +54,8 @@ Telemetry::~Telemetry() {
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
-  nlohmann::json payload = {{"id", uuid_},
+  nlohmann::json payload = {{"run_id", uuid_},
+                            {"machine_id", machine_id_},
                             {"event", event},
                             {"data", data},
                             {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};

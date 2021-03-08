@@ -23,9 +23,8 @@ namespace telemetry {
  */
 class Telemetry final {
  public:
-  Telemetry(const std::string &url, const std::filesystem::path &storage_directory,
-            std::chrono::duration<long long> refresh_interval = std::chrono::minutes(10),
-            const uint64_t send_every_n = 10);
+  Telemetry(std::string url, std::filesystem::path storage_directory,
+            std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
 
@@ -45,6 +44,7 @@ class Telemetry final {
 
   const std::string url_;
   const std::string uuid_;
+  const std::string machine_id_;
   uint64_t num_{0};
   utils::Scheduler scheduler_;
   utils::Timer timer_;
