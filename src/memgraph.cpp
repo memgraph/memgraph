@@ -141,9 +141,10 @@ namespace {
 std::vector<std::filesystem::path> query_modules_directories;
 }  // namespace
 DEFINE_VALIDATED_string(query_modules_directory, "",
-                        "Directory where modules with custom query procedures are stored. Multiple comma separated "
-                        "directories can be defined.",
+                        "Directory where modules with custom query procedures are stored. "
+                        "NOTE: Multiple comma-separated directories can be defined.",
                         {
+                          query_modules_directories.clear();
                           if (value.empty()) return true;
                           const auto directories = utils::Split(value, ",");
                           for (const auto &dir : directories) {
@@ -153,7 +154,6 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                               return false;
                             }
                           }
-                          query_modules_directories.clear();
                           query_modules_directories.reserve(directories.size());
                           std::transform(directories.begin(), directories.end(),
                                          std::back_inserter(query_modules_directories),
