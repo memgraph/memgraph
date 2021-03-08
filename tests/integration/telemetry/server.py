@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import time
+import itertools
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -56,7 +57,8 @@ def build_handler(storage, args):
             for item in data:
                 assert type(item) == dict
                 assert "event" in item
-                assert "id" in item
+                assert "run_id" in item
+                assert "machine_id" in item
                 assert "data" in item
                 assert "timestamp" in item
                 storage.append(item)
@@ -94,10 +96,10 @@ def item_sort_key(obj):
 
 
 def verify_storage(storage, args):
-    rid = storage[0]["id"]
+    rid = storage[0]["run_id"]
     timestamp = 0
     for i, item in enumerate(storage):
-        assert item["id"] == rid
+        assert item["run_id"] == rid
 
         assert item["timestamp"] >= timestamp
         timestamp = item["timestamp"]
@@ -169,7 +171,7 @@ if __name__ == "__main__":
     # Split the data into individual startups.
     startups = [[storage[0]]]
     for item in storage[1:]:
-        if item["id"] != startups[-1][-1]["id"]:
+        if item["run_id"] != startups[-1][-1]["run_id"]:
             startups.append([])
         startups[-1].append(item)
 
@@ -179,3 +181,6 @@ if __name__ == "__main__":
     # Verify each startup.
     for startup in startups:
         verify_storage(startup, args)
+
+    # machine id has to be same for every run on the same machine
+    assert len(set(map(lambda x: x['machine_id'], itertools.chain(*startups)))) == 1
