@@ -5,6 +5,9 @@
 ### Major Feature and Improvements
 
 * Added replication to community version.
+* Add support for multiple query modules directories at the same time.
+  You can now define multiple, comma-separated paths to directories from
+  which the modules will be loaded using the `--query-modules-directory` flag.
 
 ### Bug Fixes
 
