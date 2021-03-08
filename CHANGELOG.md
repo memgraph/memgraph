@@ -2,7 +2,6 @@
 
 ## Future
 
-TODO: Don't forget to add items on the fly.
 ### Major Feature and Improvements
 
 * Added replication to community version.
