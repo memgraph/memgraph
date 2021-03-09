@@ -24,6 +24,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
@@ -50,6 +51,42 @@
   void class_name::set_input(std::shared_ptr<LogicalOperator>) { \
     LOG_FATAL("Operator " #class_name " has no single input!");  \
   }
+
+namespace EventCounter {
+extern const Event OnceOperator;
+extern const Event CreateNodeOperator;
+extern const Event CreateExpandOperator;
+extern const Event ScanAllOperator;
+extern const Event ScanAllByLabelOperator;
+extern const Event ScanAllByLabelPropertyRangeOperator;
+extern const Event ScanAllByLabelPropertyValueOperator;
+extern const Event ScanAllByLabelPropertyOperator;
+extern const Event ScanAllByIdOperator;
+extern const Event ExpandOperator;
+extern const Event ExpandVariableOperator;
+extern const Event ConstructNamedPathOperator;
+extern const Event FilterOperator;
+extern const Event ProduceOperator;
+extern const Event DeleteOperator;
+extern const Event SetPropertyOperator;
+extern const Event SetPropertiesOperator;
+extern const Event SetLabelsOperator;
+extern const Event RemovePropertyOperator;
+extern const Event RemoveLabelsOperator;
+extern const Event EdgeUniquenessFilterOperator;
+extern const Event AccumulateOperator;
+extern const Event AggregateOperator;
+extern const Event SkipOperator;
+extern const Event LimitOperator;
+extern const Event OrderByOperator;
+extern const Event MergeOperator;
+extern const Event OptionalOperator;
+extern const Event UnwindOperator;
+extern const Event DistinctOperator;
+extern const Event UnionOperator;
+extern const Event CartesianOperator;
+extern const Event CallProcedureOperator;
+}  // namespace EventCounter
 
 namespace query::plan {
 
@@ -99,7 +136,11 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const { return MakeUniqueCursorPtr<OnceCursor>(mem); }
+UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::OnceOperator);
+
+  return MakeUniqueCursorPtr<OnceCursor>(mem);
+}
 
 WITHOUT_SINGLE_INPUT(Once);
 
@@ -144,6 +185,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 ACCEPT_WITH_INPUT(CreateNode)
 
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+
   return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
 }
 
@@ -182,6 +225,8 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 ACCEPT_WITH_INPUT(CreateExpand)
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+
   return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
 }
 
@@ -324,6 +369,8 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
 ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
+
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
@@ -345,6 +392,8 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
+
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
@@ -373,6 +422,8 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
 UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyRangeOperator);
+
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
@@ -430,6 +481,8 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
 UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
+
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, storage::PropertyValue()))> {
     auto *db = context.db_accessor;
@@ -453,6 +506,8 @@ ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOper
 ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
+
   auto vertices = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_, property_));
@@ -470,6 +525,8 @@ ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol o
 ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
+
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
@@ -523,6 +580,8 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 ACCEPT_WITH_INPUT(Expand)
 
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ExpandOperator);
+
   return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
 }
 
@@ -1525,6 +1584,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 };
 
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
+
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
       if (common_.existing_node) {
@@ -1624,6 +1685,8 @@ class ConstructNamedPathCursor : public Cursor {
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
 UniqueCursorPtr ConstructNamedPath::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ConstructNamedPathOperator);
+
   return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, mem);
 }
 
@@ -1639,6 +1702,8 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expres
 ACCEPT_WITH_INPUT(Filter)
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+
   return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
 }
 
@@ -1670,6 +1735,8 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vecto
 ACCEPT_WITH_INPUT(Produce)
 
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ProduceOperator);
+
   return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
 }
 
@@ -1711,6 +1778,8 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector
 ACCEPT_WITH_INPUT(Delete)
 
 UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::DeleteOperator);
+
   return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, mem);
 }
 
@@ -1821,6 +1890,8 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage:
 ACCEPT_WITH_INPUT(SetProperty)
 
 UniqueCursorPtr SetProperty::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::SetPropertyOperator);
+
   return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, mem);
 }
 
@@ -1874,6 +1945,8 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symb
 ACCEPT_WITH_INPUT(SetProperties)
 
 UniqueCursorPtr SetProperties::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::SetPropertiesOperator);
+
   return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, mem);
 }
 
@@ -2004,6 +2077,8 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input
 ACCEPT_WITH_INPUT(SetLabels)
 
 UniqueCursorPtr SetLabels::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::SetLabelsOperator);
+
   return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, mem);
 }
 
@@ -2054,6 +2129,8 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, st
 ACCEPT_WITH_INPUT(RemoveProperty)
 
 UniqueCursorPtr RemoveProperty::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::RemovePropertyOperator);
+
   return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, mem);
 }
 
@@ -2120,6 +2197,8 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
 ACCEPT_WITH_INPUT(RemoveLabels)
 
 UniqueCursorPtr RemoveLabels::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::RemoveLabelsOperator);
+
   return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, mem);
 }
 
@@ -2170,6 +2249,8 @@ EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
 UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EdgeUniquenessFilterOperator);
+
   return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, mem);
 }
 
@@ -2281,6 +2362,8 @@ class AccumulateCursor : public Cursor {
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::AccumulateOperator);
+
   return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
 }
 
@@ -2607,6 +2690,8 @@ class AggregateCursor : public Cursor {
 };
 
 UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::AggregateOperator);
+
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
 }
 
@@ -2616,6 +2701,8 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression
 ACCEPT_WITH_INPUT(Skip)
 
 UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::SkipOperator);
+
   return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
 }
 
@@ -2667,6 +2754,8 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expressi
 ACCEPT_WITH_INPUT(Limit)
 
 UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::LimitOperator);
+
   return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
 }
 
@@ -2813,6 +2902,8 @@ class OrderByCursor : public Cursor {
 };
 
 UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::OrderByOperator);
+
   return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem);
 }
 
@@ -2828,6 +2919,8 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::MergeOperator);
+
   return MakeUniqueCursorPtr<MergeCursor>(mem, *this, mem);
 }
 
@@ -2908,6 +3001,8 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::OptionalOperator);
+
   return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, mem);
 }
 
@@ -3034,6 +3129,8 @@ class UnwindCursor : public Cursor {
 };
 
 UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
 }
 
@@ -3080,6 +3177,8 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vec
 ACCEPT_WITH_INPUT(Distinct)
 
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::DistinctOperator);
+
   return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
 }
 
@@ -3100,6 +3199,8 @@ Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_
       right_symbols_(right_symbols) {}
 
 UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::UnionOperator);
+
   return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem);
 }
 
@@ -3257,6 +3358,8 @@ class CartesianCursor : public Cursor {
 }  // namespace
 
 UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::CartesianOperator);
+
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
 }
 
@@ -3558,6 +3661,8 @@ class CallProcedureCursor : public Cursor {
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
+
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
 

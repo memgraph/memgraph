@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -29,6 +30,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -970,9 +972,16 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
                       data_directory / "telemetry", std::chrono::minutes(10));
-    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
+    telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
+    });
+    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
+      nlohmann::json ret;
+      for (size_t i = 0; i < EventCounter::End(); ++i) {
+        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
+      }
+      return ret;
     });
   }
 
