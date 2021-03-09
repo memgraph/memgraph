@@ -1,5 +1,6 @@
 #include "query/interpreter.hpp"
 
+#include <atomic>
 #include <limits>
 
 #include "glue/communication.hpp"
@@ -18,6 +19,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -29,7 +31,34 @@ DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query plan
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
+namespace EventCounter {
+extern Event ReadQuery;
+extern Event WriteQuery;
+extern Event ReadWriteQuery;
+
+extern const Event LabelIndexCreated;
+extern const Event LabelPropertyIndexCreated;
+}  // namespace EventCounter
+
 namespace query {
+
+namespace {
+void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    case plan::ReadWriteTypeChecker::RWType::R:
+      EventCounter::IncrementCounter(EventCounter::ReadQuery);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::W:
+      EventCounter::IncrementCounter(EventCounter::WriteQuery);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::RW:
+      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
+      break;
+    default:
+      break;
+  }
+}
+}  // namespace
 
 /**
  * A container for data related to the parsing of a query.
@@ -998,9 +1027,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
           interpreter_context->db->CreateIndex(label);
+          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         } else {
           MG_ASSERT(properties.size() == 1U);
           interpreter_context->db->CreateIndex(label, properties[0]);
+          EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
         }
         invalidate_plan_cache();
       };
@@ -1458,10 +1489,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["planning_time"] = planning_timer.Elapsed().count();
     query_execution->prepared_query.emplace(std::move(prepared_query));
 
-    query_execution->summary["type"] =
-        query_execution->prepared_query
-            ? plan::ReadWriteTypeChecker::TypeToString(query_execution->prepared_query->rw_type)
-            : "rw";
+    const auto rw_type = query_execution->prepared_query->rw_type;
+    query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
+
+    UpdateTypeCount(rw_type);
 
 #ifdef MG_ENTERPRISE
     if (const auto query_type = query_execution->prepared_query->rw_type;
@@ -1474,6 +1505,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
+    EventCounter::IncrementCounter(EventCounter::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }
