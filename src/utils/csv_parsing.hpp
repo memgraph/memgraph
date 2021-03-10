@@ -46,6 +46,8 @@ class Reader {
     std::vector<std::string> columns;
   };
 
+  Reader() = default;
+
   explicit Reader(const std::filesystem::path &path, const Config cfg = {}) : path_(path), read_config_(cfg) {
     InitializeStream();
     if (read_config_.with_header) {
@@ -57,9 +59,10 @@ class Reader {
   Reader &operator=(const Reader &) = delete;
 
   Reader(Reader &&) = delete;
-  Reader &operator=(Reader &&) = delete;
+  Reader &operator=(Reader &&) = default;
 
   ~Reader() {
+    // is this necessary if the dtor of csv_stream_ closes the file anyway?
     if (csv_stream_.is_open()) csv_stream_.close();
   }
 

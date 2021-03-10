@@ -309,10 +309,13 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   }
 
   // handle header options
+  // Don't have to check for ctx->HEADER(), as it's a mandatory token.
+  // Just need to check if ctx->WITH() is not nullptr - otherwise, we have a
+  // ctx->NO() and ctx->HEADER() present.
   load_csv->with_header_ = ctx->WITH() != nullptr;
 
   // handle skip bad row option
-  load_csv->ignore_bad_ = (ctx->IGNORE() && ctx->BAD()) != 0;
+  load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
 
   // handle delimiter
   if (ctx->DELIMITER()) {

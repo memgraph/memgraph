@@ -666,7 +666,6 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory) {
-  throw utils::BasicException(fmt::format("{}", __func__));
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp =
@@ -895,9 +894,6 @@ PreparedQuery PrepareCypherQuery(
             .first);
   }
 
-  if (!plan) {
-    throw utils::BasicException(fmt::format("{}", __func__));
-  }
   auto pull_plan =
       std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
                                  interpreter_context, execution_memory);

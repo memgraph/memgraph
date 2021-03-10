@@ -205,6 +205,11 @@ TEST_F(InterpreterTest, Parameters) {
   }
 }
 
+TEST_F(InterpreterTest, LoadCsv) {
+  // for debug purposes
+  auto [stream, qid] = Prepare(R"(LOAD CSV FROM "simple.csv" NO HEADER AS row RETURN row)");
+}
+
 // Test bfs end to end.
 TEST_F(InterpreterTest, Bfs) {
   srand(0);

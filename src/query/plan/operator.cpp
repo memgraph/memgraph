@@ -27,6 +27,7 @@
 #include "utils/csv_parsing.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -4000,15 +4001,11 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 };
 
 namespace {
-ExpressionEvaluator MakeLiteralExpressionEvaluator() {
+ExpressionEvaluator MakeLiteralExpressionEvaluator(EvaluationContext &eval_context) {
   Frame frame(0);
   DbAccessor *db_accessor = nullptr;
   SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  return ExpressionEvaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  return ExpressionEvaluator(&frame, symbol_table, eval_context, db_accessor, storage::View::OLD);
 }
 
 // copy-pasted from interpreter.cpp
@@ -4036,30 +4033,54 @@ TypedValue CsvRowToTypedList(const csv::Reader::Row &row) {
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  csv::Reader reader_;
+  bool reader_initialized_{false};
+  bool input_is_once_;
+  csv::Reader reader_{};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), reader_(MakeReader()) {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
+    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
 
-    if (!input_cursor_->Pull(frame, context)) return false;
+    if (MustAbort(context)) throw HintedAbortError();
+
+    // ToDo(the-joksim):
+    //  - this is an ungodly hack because the pipeline of creating a plan
+    //  doesn't allow evaluating the expressions contained in self_->file_,
+    //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
+    //  without massacring the code even worse than I did here
+    if (UNLIKELY(!reader_initialized_)) {
+      reader_ = MakeReader(context.evaluation_context);
+      reader_initialized_ = true;
+    }
+
+    bool input_pulled = input_cursor_->Pull(frame, context);
+
+    // if the input is Once, we have to keep going until we read all the rows,
+    // regardless of whether the pull on Once returned false;
+    // if we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
+    // have to read at most cardinality(n) rows (but we can read less and stop
+    // pulling MATCH)
+    if (!input_is_once_ && !input_pulled) return false;
 
     if (const auto row = reader_.GetNextRow()) {
       frame[self_->row_var_] = CsvRowToTypedList(*row);
-      return false;
+      return true;
     }
-    return true;
+
+    return false;
   }
 
-  void Reset() override {}
-  void Shutdown() override {}
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
  private:
-  csv::Reader MakeReader() {
-    auto evaluator = MakeLiteralExpressionEvaluator();
+  csv::Reader MakeReader(EvaluationContext &eval_context) {
+    auto evaluator = MakeLiteralExpressionEvaluator(eval_context);
 
     const auto maybe_file = ToOptionalString(evaluator, self_->file_);
     const auto maybe_delim = ToOptionalString(evaluator, self_->delimiter_);
