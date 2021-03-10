@@ -137,12 +137,28 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
-DEFINE_VALIDATED_string(query_modules_directory, "", "Directory where modules with custom query procedures are stored.",
+namespace {
+std::vector<std::filesystem::path> query_modules_directories;
+}  // namespace
+DEFINE_VALIDATED_string(query_modules_directory, "",
+                        "Directory where modules with custom query procedures are stored. "
+                        "NOTE: Multiple comma-separated directories can be defined.",
                         {
+                          query_modules_directories.clear();
                           if (value.empty()) return true;
-                          if (utils::DirExists(value)) return true;
-                          std::cout << "Expected --" << flagname << " to point to a directory." << std::endl;
-                          return false;
+                          const auto directories = utils::Split(value, ",");
+                          for (const auto &dir : directories) {
+                            if (!utils::DirExists(dir)) {
+                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
+                              std::cout << dir << " is not a directory." << std::endl;
+                              return false;
+                            }
+                          }
+                          query_modules_directories.reserve(directories.size());
+                          std::transform(directories.begin(), directories.end(),
+                                         std::back_inserter(query_modules_directories),
+                                         [](const auto &dir) { return dir; });
+                          return true;
                         });
 
 // Logging flags
@@ -944,8 +960,8 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(FLAGS_query_modules_directory);
-  query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectory();
+  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
+  query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));

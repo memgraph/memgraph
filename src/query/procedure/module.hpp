@@ -57,11 +57,17 @@ class ModuleRegistry final {
 
   void DoUnloadAllModules();
 
+  /// Loads the module if it's in the modules_dir directory
+  /// @return Whether the module was loaded
+  bool LoadModuleIfFound(const std::filesystem::path &modules_dir, std::string_view name);
+
+  void LoadModulesFromDirectory(const std::filesystem::path &modules_dir);
+
  public:
   ModuleRegistry();
 
-  /// Set the modules directory that will be used when (re)loading modules.
-  void SetModulesDirectory(const std::filesystem::path &modules_dir);
+  /// Set the modules directories that will be used when (re)loading modules.
+  void SetModulesDirectory(std::vector<std::filesystem::path> modules_dir);
 
   /// Atomically load or reload a module with a particular name from the given
   /// directory.
@@ -74,13 +80,13 @@ class ModuleRegistry final {
   ///
   /// Return true if the module was loaded or reloaded successfully, false
   /// otherwise.
-  bool LoadOrReloadModuleFromName(const std::string_view &name);
+  bool LoadOrReloadModuleFromName(const std::string_view name);
 
   /// Atomically unload all modules and then load all possible modules from the
-  /// given directory.
+  /// set directories.
   ///
   /// Takes a write lock.
-  void UnloadAndLoadModulesFromDirectory();
+  void UnloadAndLoadModulesFromDirectories();
 
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
@@ -91,7 +97,7 @@ class ModuleRegistry final {
   void UnloadAllModules();
 
  private:
-  std::filesystem::path modules_dir_;
+  std::vector<std::filesystem::path> modules_dirs_;
 };
 
 /// Single, global module registry.
