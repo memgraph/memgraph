@@ -2822,8 +2822,6 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD res"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() YIELD res MEMORY UNLIMITED"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() YIELD res MEMORY LIMIT 32 KB"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"), SyntaxException);
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);

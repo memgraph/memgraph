@@ -737,6 +737,7 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
       return it->second;
     }
   }
+
   return plan_cache_access
       .insert({hash,
                std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor))})
@@ -817,6 +818,17 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MonotonicBufferResource *execution_memory) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parsed_query.parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
+  const auto memory_limit = EvalMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters, &interpreter_context->plan_cache, dba);
 
@@ -836,16 +848,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  evaluation_context.parameters = parsed_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  const auto memory_limit = EvalMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
                                               execution_memory, memory_limit);
