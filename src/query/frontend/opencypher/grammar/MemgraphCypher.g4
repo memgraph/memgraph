@@ -64,7 +64,6 @@ query : cypherQuery
       | dumpQuery
       | replicationQuery
       | lockPathQuery
-      | loadCsvQuery
       ;
 
 authQuery : createRole
@@ -90,6 +89,33 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | callProcedure
+       | loadCsv
+       ;
+
+loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+         ( IGNORE BAD ) ?
+         ( DELIMITER delimiter ) ?
+         ( QUOTE quote ) ?
+         AS rowVar ;
+
+csvFile : literal ;
+
+delimiter : literal ;
+
+quote : literal ;
+
+rowVar : variable ; 
 
 userOrRoleName : symbolicName ;
 
@@ -150,16 +176,4 @@ showReplicas  : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 
-csvFile : literal ;
 
-delimiter : literal ;
-
-quote : literal ;
-
-rowVar : symbolicName ; 
-
-loadCsvQuery : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
-              ( IGNORE BAD ) ?
-              ( DELIMITER delimiter ) ?
-              ( QUOTE quote ) ?
-              AS rowVar ;

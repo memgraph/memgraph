@@ -63,7 +63,7 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     AddPrivilege(AuthQuery::Privilege::LOCK_PATH);
   }
 
-  void Visit(LoadCsvQuery &load_csv_query) override { AddPrivilege(AuthQuery::Privilege::READ_FILE); }
+  void Visit(LoadCsv &load_csv) override { AddPrivilege(AuthQuery::Privilege::READ_FILE); }
 
   void Visit(ReplicationQuery &replication_query) override {
     switch (replication_query.action_) {

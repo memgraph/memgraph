@@ -172,6 +172,16 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
+  if (HasSymbol(load_csv.row_var_->name_)) {
+    throw RedeclareVariableError(load_csv.row_var_->name_);
+  }
+  load_csv.row_var_->MapTo(CreateSymbol(load_csv.row_var_->name_, true));
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Return &ret) {
   scope_.in_return = true;
   VisitReturnBody(ret.body_);

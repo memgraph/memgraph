@@ -74,20 +74,16 @@ class RegexMatch;
 class DumpQuery;
 class ReplicationQuery;
 class LockPathQuery;
-class LoadCsvQuery;
+class LoadCsv;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
-    AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
-    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
-    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, SubscriptOperator,
-    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
-    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-    CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind, RegexMatch>;
+    SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
+    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
+    PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
+    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
@@ -118,6 +114,6 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
-                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsvQuery> {};
+                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsv> {};
 
 }  // namespace query

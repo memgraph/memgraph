@@ -299,23 +299,25 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(
   return lock_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitLoadCsvQuery(MemgraphCypher::LoadCsvQueryContext *ctx) {
-  auto *load_csv_query = storage_->Create<LoadCsvQuery>();
+antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) {
+  auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
   if (ctx->csvFile()->literal()->StringLiteral()) {
-    load_csv_query->file_ = ctx->csvFile()->accept(this).as<std::string>();
+    load_csv->file_ = ctx->csvFile()->accept(this);
+  } else {
+    throw SyntaxException("CSV file path should be a string literal");
   }
 
   // handle header options
-  load_csv_query->with_header_ = (ctx->WITH()) != nullptr;
+  load_csv->with_header_ = ctx->WITH() != nullptr;
 
   // handle skip bad row option
-  load_csv_query->ignore_bad_ = (ctx->IGNORE() && ctx->BAD()) != 0;
+  load_csv->ignore_bad_ = (ctx->IGNORE() && ctx->BAD()) != 0;
 
   // handle delimiter
   if (ctx->DELIMITER()) {
     if (ctx->delimiter()->literal()->StringLiteral()) {
-      load_csv_query->delimiter_ = ctx->delimiter()->accept(this);
+      load_csv->delimiter_ = ctx->delimiter()->accept(this);
     } else {
       throw SyntaxException("Delimiter should be a string literal");
     }
@@ -324,15 +326,15 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsvQuery(MemgraphCypher::LoadCsvQueryC
   // handle quote
   if (ctx->QUOTE()) {
     if (ctx->quote()->literal()->StringLiteral()) {
-      load_csv_query->quote_ = ctx->quote()->accept(this);
+      load_csv->quote_ = ctx->quote()->accept(this);
     } else {
       throw SyntaxException("Quote should be a string literal");
     }
   }
 
   // handle row variable
-  load_csv_query->row_var_ = ctx->rowVar()->accept(this);
-  return load_csv_query;
+  load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+  return load_csv;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
@@ -368,6 +370,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_return = false;
   bool has_optional_match = false;
   bool has_call_procedure = false;
+  bool has_load_csv = false;
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
@@ -381,6 +384,14 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
         throw SemanticException(
             "UNWIND can't be put after RETURN clause or after an update.");
       }
+    } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
+      if (has_load_csv) {
+        throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
+      }
+      if (has_return) {
+        throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+      }
+      has_load_csv = true;
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException(
@@ -391,14 +402,11 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       } else if (has_optional_match) {
         throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
-    } else if (utils::IsSubtype(clause_type, Create::kType) ||
-               utils::IsSubtype(clause_type, Delete::kType) ||
+    } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
                utils::IsSubtype(clause_type, SetProperty::kType) ||
-               utils::IsSubtype(clause_type, SetProperties::kType) ||
-               utils::IsSubtype(clause_type, SetLabels::kType) ||
+               utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
                utils::IsSubtype(clause_type, RemoveProperty::kType) ||
-               utils::IsSubtype(clause_type, RemoveLabels::kType) ||
-               utils::IsSubtype(clause_type, Merge::kType)) {
+               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType)) {
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
@@ -475,6 +483,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(
   if (ctx->callProcedure()) {
     return static_cast<Clause *>(
         ctx->callProcedure()->accept(this).as<CallProcedure *>());
+  }
+  if (ctx->loadCsv()) {
+    return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());

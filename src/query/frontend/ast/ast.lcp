@@ -2353,19 +2353,39 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class load-csv-query (query)
-  ((file "std::string" :scope :public)
+(lcp:define-class load-csv (clause)
+  ((file "Expression *" :scope :public)
    (with_header "bool" :scope :public)
    (ignore_bad "bool" :scope :public)
    (delimiter "Expression *" :initval "nullptr" :scope :public)
    (quote "Expression *" :initval "nullptr" :scope :public)
-   (row_var "Expression *" :initval "nullptr" :scope :public))
+   (row_var "Identifier *" :initval "nullptr" :scope :public
+                     :slk-save #'slk-save-ast-pointer
+                     :slk-load (slk-load-ast-pointer "Identifier")))
 
   (:public
     #>cpp
-    LoadCsvQuery() = default;
+    LoadCsv() = default;
 
-    DEFVISITABLE(QueryVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        row_var_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter,
+                     Expression* quote, Identifier* row_var)
+        : file_(file),
+          with_header_(with_header),
+          ignore_bad_(ignore_bad),
+          delimiter_(delimiter),
+          quote_(quote),
+          row_var_(row_var) {
+      DMG_ASSERT(row_var, "LoadCsv cannot take nullptr for identifier");
+    }
     cpp<#)
   (:private
     #>cpp

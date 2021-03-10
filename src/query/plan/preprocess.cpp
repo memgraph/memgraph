@@ -592,9 +592,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage,
                     query_part->merge_matching.back());
-      } else if (utils::IsSubtype(*clause, With::kType) ||
-                 utils::IsSubtype(*clause, query::Unwind::kType) ||
-                 utils::IsSubtype(*clause, query::CallProcedure::kType)) {
+      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
+                 utils::IsSubtype(*clause, query::CallProcedure::kType) ||
+                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();

@@ -52,7 +52,7 @@ ParsedQuery ParseQuery(
     const std::map<std::string, storage::PropertyValue> &params,
     utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
   // Strip the query for caching purposes. The process of stripping a query
-  // "normalizes" it by replacing any literals with new parameters . This
+  // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
@@ -600,28 +600,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
   }
 }
 
-Callback HandleLoadCsvQuery(const LoadCsvQuery *load_csv_query, const Parameters &parameters, DbAccessor *db_accessor) {
-  Frame frame(0);
-  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
-
-  auto to_optional_string = [&evaluator](Expression *expression) -> std::optional<std::string> {
-    const auto evaluated_expr = EvaluateOptionalExpression(expression, &evaluator);
-    if (evaluated_expr.IsString()) {
-      return std::string(evaluated_expr.ValueString());
-    }
-    return std::nullopt;
-  };
-
-  const auto maybe_delimiter = to_optional_string(load_csv_query->delimiter_);
-  const auto maybe_quote = to_optional_string(load_csv_query->quote_);
-
-  const auto read_cfg =
-      csv::Reader::Config(load_csv_query->with_header_, load_csv_query->ignore_bad_, maybe_delimiter, maybe_quote);
-  csv::Reader(load_csv_query->file_, read_cfg);
-
-  return Callback();
-}
-
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
     : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -688,6 +666,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan,
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory) {
+  throw utils::BasicException(fmt::format("{}", __func__));
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp =
@@ -916,6 +895,9 @@ PreparedQuery PrepareCypherQuery(
             .first);
   }
 
+  if (!plan) {
+    throw utils::BasicException(fmt::format("{}", __func__));
+  }
   auto pull_plan =
       std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba,
                                  interpreter_context, execution_memory);
@@ -1267,16 +1249,6 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query,
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
-}
-
-PreparedQuery PrepareLoadCsvQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  InterpreterContext *interpreter_context, Parameters parameters, DbAccessor *dba) {
-  Frame frame(0);
-  auto evaluator = MakeExpressionEvaluator(frame, dba, parameters);
-
-  auto *load_csv_query = utils::Downcast<LoadCsvQuery>(parsed_query.query);
-
-  return PreparedQuery{};
 }
 
 PreparedQuery PrepareInfoQuery(
@@ -1662,9 +1634,6 @@ Interpreter::PrepareResult Interpreter::Prepare(
       prepared_query = PrepareLockPathQuery(
           std::move(parsed_query), in_explicit_transaction_,
           interpreter_context_, &*execution_db_accessor_);
-    } else if (utils::Downcast<LoadCsvQuery>(parsed_query.query)) {
-      prepared_query = PrepareLoadCsvQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                           parsed_query.parameters, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
