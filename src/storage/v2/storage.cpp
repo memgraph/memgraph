@@ -24,11 +24,10 @@
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
 
-#ifdef MG_ENTERPRISE
+/// REPLICATION ///
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
-#endif
 
 namespace storage {
 
@@ -322,11 +321,9 @@ Storage::Storage(Config config)
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-#if MG_ENTERPRISE
       if (info->last_commit_timestamp) {
         last_commit_timestamp_ = *info->last_commit_timestamp;
       }
-#endif
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
@@ -375,13 +372,11 @@ Storage::~Storage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
-#ifdef MG_ENTERPRISE
   {
     // Clear replication data
     replication_server_.reset();
     replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
   }
-#endif
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_ = std::nullopt;
@@ -430,7 +425,6 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
-#ifdef MG_ENTERPRISE
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -448,7 +442,6 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   delta->prev.Set(&*it);
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
-#endif
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
@@ -592,7 +585,6 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
                       &storage_->constraints_, config_);
 }
 
-#ifdef MG_ENTERPRISE
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
                                                    storage::Gid gid) {
   MG_ASSERT(from->transaction_ == to->transaction_,
@@ -659,7 +651,6 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
 }
-#endif
 
 Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   MG_ASSERT(edge->transaction_ == &transaction_,
@@ -837,16 +828,11 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // written before actually committing the transaction (before setting
         // the commit timestamp) so that no other transaction can see the
         // modifications before they are written to disk.
-#ifdef MG_ENTERPRISE
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
           storage_->AppendToWal(transaction_, commit_timestamp);
         }
-#else
-
-        storage_->AppendToWal(transaction_, commit_timestamp);
-#endif
 
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
@@ -856,14 +842,12 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
           transaction_.commit_timestamp->store(commit_timestamp, std::memory_order_release);
-#ifdef MG_ENTERPRISE
           // Replica can only update the last commit timestamp with
           // the commits received from main.
           if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             storage_->last_commit_timestamp_.store(commit_timestamp);
           }
-#endif
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
           engine_guard.unlock();
@@ -1076,9 +1060,7 @@ bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_c
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1088,9 +1070,7 @@ bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optiona
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1100,9 +1080,7 @@ bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_com
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1114,9 +1092,7 @@ bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1133,9 +1109,7 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1146,9 +1120,7 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return true;
 }
 
@@ -1162,9 +1134,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Stora
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
@@ -1178,9 +1148,7 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
-#ifdef MG_ENTERPRISE
   last_commit_timestamp_ = commit_timestamp;
-#endif
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1231,7 +1199,6 @@ Transaction Storage::CreateTransaction() {
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
-#ifdef MG_ENTERPRISE
     // Replica should have only read queries and the write queries
     // can come from main instance with any past timestamp.
     // To preserve snapshot isolation we set the start timestamp
@@ -1243,9 +1210,6 @@ Transaction Storage::CreateTransaction() {
     } else {
       start_timestamp = timestamp_++;
     }
-#else
-    start_timestamp = timestamp_++;
-#endif
   }
   return {transaction_id, start_timestamp};
 }
@@ -1505,7 +1469,6 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-#ifdef MG_ENTERPRISE
   if (replication_role_.load() == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
@@ -1513,7 +1476,6 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
       }
     });
   }
-#endif
 
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
@@ -1526,14 +1488,12 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
     while (true) {
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-#ifdef MG_ENTERPRISE
         replication_clients_.WithLock([&](auto &clients) {
           for (auto &client : clients) {
             client->IfStreamingTransaction(
                 [&](auto &stream) { stream.AppendDelta(*delta, parent, final_commit_timestamp); });
           }
         });
-#endif
       }
       auto prev = delta->prev.Get();
       if (prev.type != PreviousPtr::Type::DELTA) break;
@@ -1667,21 +1627,18 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
 
   FinalizeWalFile();
 
-#ifdef MG_ENTERPRISE
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
       client->FinalizeTransactionReplication();
     }
   });
-#endif
 }
 
 void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
                           const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) return;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-#ifdef MG_ENTERPRISE
   {
     if (replication_role_.load() == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
@@ -1694,17 +1651,14 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
       });
     }
   }
-#endif
   FinalizeWalFile();
 }
 
 void Storage::CreateSnapshot() {
-#ifdef MG_ENTERPRISE
   if (replication_role_.load() != ReplicationRole::MAIN) {
     spdlog::warn("Snapshots are disabled for replicas!");
     return;
   }
-#endif
 
   // Take master RW lock (for reading).
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1742,19 +1696,14 @@ bool Storage::UnlockPath() {
 }
 
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-#ifdef MG_ENTERPRISE
   if (!desired_commit_timestamp) {
     return timestamp_++;
   } else {
     timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
     return *desired_commit_timestamp;
   }
-#else
-  return timestamp_++;
-#endif
 }
 
-#ifdef MG_ENTERPRISE
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
   if (replication_role_ == ReplicationRole::REPLICA) {
@@ -1862,6 +1811,5 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
     return replica_info;
   });
 }
-#endif
 
 }  // namespace storage

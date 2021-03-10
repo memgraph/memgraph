@@ -3,6 +3,10 @@
 ## Future
 
 TODO: Don't forget to add items on the fly.
+### Major Feature and Improvements
+
+* Added replication to community version.
+
 ### Bug Fixes
 
 * Fixed garbage collector by correctly marking the oldest current timestamp
