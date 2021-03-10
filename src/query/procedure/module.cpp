@@ -78,7 +78,7 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   };
   auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
                                                            mgp_memory *) {
-    with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectory(); });
+    with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
@@ -400,24 +400,16 @@ ModuleRegistry::ModuleRegistry() {
   modules_.emplace("mg", std::move(module));
 }
 
-void ModuleRegistry::SetModulesDirectory(const std::filesystem::path &modules_dir) { modules_dir_ = modules_dir; }
+void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs) {
+  modules_dirs_ = std::move(modules_dirs);
+}
 
-bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
-  if (modules_dir_.empty()) return false;
-  if (name.empty()) return false;
-  std::unique_lock<utils::RWLock> guard(lock_);
-  auto found_it = modules_.find(name);
-  if (found_it != modules_.end()) {
-    if (!found_it->second->Close()) {
-      spdlog::warn("Failed to close module {}", found_it->first);
-    }
-    modules_.erase(found_it);
-  }
-  if (!utils::DirExists(modules_dir_)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir_);
+bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir, const std::string_view name) {
+  if (!utils::DirExists(modules_dir)) {
+    spdlog::error("Module directory {} doesn't exist", modules_dir);
     return false;
   }
-  for (const auto &entry : std::filesystem::directory_iterator(modules_dir_)) {
+  for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {
     const auto &path = entry.path();
     if (entry.is_regular_file() && path.stem() == name) {
       auto module = LoadModuleFromFile(path);
@@ -428,15 +420,33 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view &name) {
   return false;
 }
 
-void ModuleRegistry::UnloadAndLoadModulesFromDirectory() {
-  if (modules_dir_.empty()) return;
-  if (!utils::DirExists(modules_dir_)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir_);
+bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
+  if (modules_dirs_.empty()) return false;
+  if (name.empty()) return false;
+  std::unique_lock<utils::RWLock> guard(lock_);
+  auto found_it = modules_.find(name);
+  if (found_it != modules_.end()) {
+    if (!found_it->second->Close()) {
+      spdlog::warn("Failed to close module {}", found_it->first);
+    }
+    modules_.erase(found_it);
+  }
+
+  for (const auto &module_dir : modules_dirs_) {
+    if (LoadModuleIfFound(module_dir, name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
+  if (modules_dir.empty()) return;
+  if (!utils::DirExists(modules_dir)) {
+    spdlog::error("Module directory {} doesn't exist", modules_dir);
     return;
   }
-  std::unique_lock<utils::RWLock> guard(lock_);
-  DoUnloadAllModules();
-  for (const auto &entry : std::filesystem::directory_iterator(modules_dir_)) {
+  for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {
     const auto &path = entry.path();
     if (entry.is_regular_file()) {
       std::string name = path.stem();
@@ -445,6 +455,14 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectory() {
       if (!module) continue;
       RegisterModule(name, std::move(module));
     }
+  }
+}
+
+void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
+  std::unique_lock<utils::RWLock> guard(lock_);
+  DoUnloadAllModules();
+  for (const auto &module_dir : modules_dirs_) {
+    LoadModulesFromDirectory(module_dir);
   }
 }
 
