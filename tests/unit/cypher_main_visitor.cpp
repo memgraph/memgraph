@@ -18,6 +18,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -2867,4 +2868,98 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
 }
 
+TEST_P(CypherMainVisitorTest, MemoryLimit) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT KB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12GB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("MEMORY LIMIT 12KB RETURN x"), SyntaxException);
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12KB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("CALL mg.procedures() MEMORY LIMIT 3KB YIELD x RETURN x MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() MEMORY LIMIT 3KB YIELD x RETURN x"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY LIMIT 3KB"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+}
 }  // namespace
