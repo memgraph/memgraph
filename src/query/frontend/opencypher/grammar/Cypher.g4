@@ -52,7 +52,7 @@ explainQuery : EXPLAIN cypherQuery ;
 
 profileQuery : PROFILE cypherQuery ;
 
-cypherQuery : singleQuery ( cypherUnion )* ;
+cypherQuery : singleQuery ( cypherUnion )* ( memoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
 
@@ -106,11 +106,11 @@ with : WITH ( DISTINCT )? returnBody ( where )? ;
 
 cypherReturn : RETURN ( DISTINCT )? returnBody ;
 
-callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( callProcedureMemoryLimit )? ( yieldProcedureResults )? ;
+callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( memoryLimit )? ( yieldProcedureResults )? ;
 
 procedureName : symbolicName ( '.' symbolicName )* ;
 
-callProcedureMemoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
+memoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
 
 yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
 

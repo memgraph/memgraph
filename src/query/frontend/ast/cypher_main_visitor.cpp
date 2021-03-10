@@ -127,6 +127,18 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
   }
 
+  if (auto *memory_limit_ctx = ctx->memoryLimit()) {
+    if (memory_limit_ctx->LIMIT()) {
+      cypher_query->memory_limit_ = memory_limit_ctx->literal()->accept(this);
+      if (memory_limit_ctx->MB()) {
+        cypher_query->memory_scale_ = 1024U * 1024U;
+      } else {
+        MG_ASSERT(memory_limit_ctx->KB());
+        cypher_query->memory_scale_ = 1024U;
+      }
+    }
+  }
+
   query_ = cypher_query;
   return cypher_query;
 }
@@ -428,7 +440,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
   }
-  if (auto *memory_limit_ctx = ctx->callProcedureMemoryLimit()) {
+  if (auto *memory_limit_ctx = ctx->memoryLimit()) {
     if (memory_limit_ctx->LIMIT()) {
       call_proc->memory_limit_ = memory_limit_ctx->literal()->accept(this);
       if (memory_limit_ctx->MB()) {
