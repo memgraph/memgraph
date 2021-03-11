@@ -84,6 +84,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
+  bool PreVisit(LoadCsv &) override;
 
   bool Visit(Once &) override;
 
@@ -198,6 +199,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
+  bool PreVisit(LoadCsv &) override;
 
   bool Visit(Once &) override;
 

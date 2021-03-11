@@ -230,6 +230,11 @@ bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
+  WithPrintLn([&op](auto &out) { out << "* LoadCsv {" << op.row_var_.name() << "}"; });
+  return true;
+}
+
 bool PlanPrinter::Visit(query::plan::Once &op) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
@@ -834,6 +839,23 @@ bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
   self["arguments"] = ToJson(op.arguments_);
   self["result_fields"] = op.result_fields_;
   self["result_symbols"] = ToJson(op.result_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
+  json self;
+  self["name"] = "LoadCsv";
+  self["file"] = ToJson(op.file_);
+  self["with_header"] = op.with_header_;
+  self["ignore_bad"] = op.ignore_bad_;
+  self["delimiter"] = ToJson(op.delimiter_);
+  self["quote"] = ToJson(op.quote_);
+  self["row_variable"] = ToJson(op.row_var_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
