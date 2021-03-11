@@ -3,6 +3,7 @@ import argparse
 import re
 import subprocess
 import sys
+import os
 
 
 # This script is used to determine the current version of Memgraph. The script
@@ -161,7 +162,16 @@ parser.add_argument(
 parser.add_argument(
     "--variant", choices=("binary", "deb", "rpm"), default="binary",
     help="which variant of the version string should be generated")
+parser.add_argument(
+    "--root-dir", help="The root directory of the checked out "
+    "Memgraph repository.", default=".")
 args = parser.parse_args()
+
+if not os.path.isdir(args.root_dir):
+    raise Exception("The root directory ({}) is not a valid directory".format(
+        args.root_dir))
+
+os.chdir(args.root_dir)
 
 offering = "enterprise" if args.enterprise else "community"
 
