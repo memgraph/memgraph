@@ -803,17 +803,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
-std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, const size_t memory_scale) {
-  if (!memory_limit) return std::nullopt;
-  const auto limit_value = memory_limit->Accept(*eval);
-  if (!limit_value.IsInt() || limit_value.ValueInt() <= 0) {
-    throw QueryRuntimeException("Memory limit must be a non-negative integer.");
-  }
-  const size_t limit = limit_value.ValueInt();
-  if (std::numeric_limits<size_t>::max() / memory_scale < limit) throw QueryRuntimeException("Memory limit overflow");
-  return limit * memory_scale;
-}
-
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MonotonicBufferResource *execution_memory) {
@@ -827,7 +816,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
           .count();
   evaluation_context.parameters = parsed_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  const auto memory_limit = EvalMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters, &interpreter_context->plan_cache, dba);
@@ -956,7 +945,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
           .count();
   evaluation_context.parameters = parsed_inner_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
-  const auto memory_limit = EvalMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
