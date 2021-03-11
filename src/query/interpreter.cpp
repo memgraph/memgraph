@@ -23,6 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -643,11 +644,9 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
 
   if (memory_limit_) {
-    spdlog::error("USING MEMORY LIMIT");
     maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
-    spdlog::error("NOT USING MEMORY LIMIT");
     ctx_.evaluation_context.memory = &pool_memory;
   }
 
@@ -819,6 +818,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   evaluation_context.parameters = parsed_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  if (memory_limit) {
+    spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
+  }
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters, &interpreter_context->plan_cache, dba);

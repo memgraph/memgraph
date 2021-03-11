@@ -30,6 +30,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -3420,7 +3421,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    SPDLOG_INFO("Running '{}' with memory limit of {} bytes", fully_qualified_procedure_name, *memory_limit);
+    SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
+                utils::GetReadableSize(*memory_limit));
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     MG_ASSERT(result->signature == &proc.results);
