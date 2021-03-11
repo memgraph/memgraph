@@ -4021,11 +4021,19 @@ auto ToOptionalString(ExpressionEvaluator &evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(const csv::Reader::Row &row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &&row) {
   auto typed_columns = std::vector<TypedValue>();
   std::transform(begin(row.columns), end(row.columns), std::back_inserter(typed_columns),
-                 [](const std::string &column) { return TypedValue(column); });
+                 [](auto &column) { return TypedValue(column); });
   return TypedValue(typed_columns);
+}
+
+TypedValue CsvRowToTypedMap(csv::Reader::Row &&row, csv::Reader::Header &&header) {
+  // a valid row has the same number of elements as the header
+  std::map<std::string, TypedValue> m{};
+  std::transform(begin(header.columns), end(header.columns), begin(row.columns), std::inserter(m, end(m)),
+                 [](auto &header_col, auto &row_col) { return std::make_pair(header_col, TypedValue(row_col)); });
+  return TypedValue(m);
 }
 
 }  // namespace
@@ -4033,9 +4041,9 @@ TypedValue CsvRowToTypedList(const csv::Reader::Row &row) {
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool reader_initialized_{false};
   bool input_is_once_;
   csv::Reader reader_{};
+  bool reader_initialized_{false};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4067,8 +4075,12 @@ class LoadCsvCursor : public Cursor {
     // pulling MATCH)
     if (!input_is_once_ && !input_pulled) return false;
 
-    if (const auto row = reader_.GetNextRow()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row);
+    if (auto row = reader_.GetNextRow()) {
+      if (!reader_.HasHeader()) {
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
+      } else {
+        frame[self_->row_var_] = CsvRowToTypedMap(std::move(*row), *reader_.GetHeader());
+      }
       return true;
     }
 

@@ -44,6 +44,10 @@ std::optional<Reader::Header> Reader::ParseHeader() {
   return std::nullopt;
 }
 
+[[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
+
+std::optional<Reader::Header> Reader::GetHeader() const { return header_; }
+
 namespace {
 enum class CsvParserState : uint8_t {
   INITIAL_FIELD,

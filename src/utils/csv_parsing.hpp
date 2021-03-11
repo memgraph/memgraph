@@ -46,6 +46,12 @@ class Reader {
     std::vector<std::string> columns;
   };
 
+  struct Header {
+    Header() = default;
+    explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
+    std::vector<std::string> columns;
+  };
+
   Reader() = default;
 
   explicit Reader(const std::filesystem::path &path, const Config cfg = {}) : path_(path), read_config_(cfg) {
@@ -75,6 +81,8 @@ class Reader {
   };
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
+  [[nodiscard]] bool HasHeader() const;
+  std::optional<Header> GetHeader() const;
   std::optional<Row> GetNextRow();
 
  private:
@@ -83,13 +91,6 @@ class Reader {
   Config read_config_;
   uint64_t line_count_{1};
   uint16_t number_of_columns_{0};
-
-  struct Header {
-    Header() = default;
-    explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
-    std::vector<std::string> columns;
-  };
-
   std::optional<Header> header_{};
 
   void InitializeStream();
