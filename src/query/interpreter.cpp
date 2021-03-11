@@ -643,9 +643,11 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
 
   if (memory_limit_) {
+    spdlog::error("USING MEMORY LIMIT");
     maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
+    spdlog::error("NOT USING MEMORY LIMIT");
     ctx_.evaluation_context.memory = &pool_memory;
   }
 

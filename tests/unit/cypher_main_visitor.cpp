@@ -2731,7 +2731,8 @@ TEST_P(CypherMainVisitorTest, CallWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY LIMIT 32 KB"));
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 KB"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2748,7 +2749,7 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY UNLIMITED"));
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2764,8 +2765,8 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
   auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY LIMIT 32 MB YIELD res"));
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2789,8 +2790,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
   auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY UNLIMITED YIELD res"));
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY UNLIMITED YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2826,7 +2827,7 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"), SyntaxException);
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() MEMORY UNLIMITED"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
   // TODO: Implement support for the following syntax. These are defined in
   // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
@@ -2871,13 +2872,15 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
 TEST_P(CypherMainVisitorTest, MemoryLimit) {
   auto &ast_generator = *GetParam();
 
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEM"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIM"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT KB"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12GB"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("MEMORY LIMIT 12KB RETURN x"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT KB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12GB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("QUERY MEMORY LIMIT 12KB RETURN x"), SyntaxException);
 
   {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
@@ -2886,7 +2889,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
   }
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12KB"));
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12KB"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
@@ -2894,7 +2897,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
   }
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x MEMORY LIMIT 12MB"));
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12MB"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
@@ -2903,7 +2906,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
 
   {
     auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x MEMORY LIMIT 12MB"));
+        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
@@ -2917,8 +2920,8 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
   }
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("CALL mg.procedures() MEMORY LIMIT 3KB YIELD x RETURN x MEMORY LIMIT 12MB"));
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
@@ -2934,8 +2937,8 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
   }
 
   {
-    auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() MEMORY LIMIT 3KB YIELD x RETURN x"));
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x"));
     ASSERT_TRUE(query);
     ASSERT_FALSE(query->memory_limit_);
 
@@ -2949,7 +2952,8 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
   }
 
   {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY LIMIT 3KB"));
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 3KB"));
     ASSERT_TRUE(query);
     ASSERT_FALSE(query->memory_limit_);
 
@@ -2960,6 +2964,20 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(call_proc->memory_limit_);
     ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
     ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() QUERY MEMORY LIMIT 3KB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 3);
+    ASSERT_EQ(query->memory_scale_, 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   }
 }
 }  // namespace

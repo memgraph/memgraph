@@ -149,8 +149,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
   }
 
-  if (auto *memory_limit_ctx = ctx->memoryLimit()) {
-    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx, this);
+  if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {
       cypher_query->memory_limit_ = memory_limit_info->first;
       cypher_query->memory_scale_ = memory_limit_info->second;
@@ -459,8 +459,8 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     call_proc->arguments_.push_back(expr->accept(this));
   }
 
-  if (auto *memory_limit_ctx = ctx->memoryLimit()) {
-    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx, this);
+  if (auto *memory_limit_ctx = ctx->procedureMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {
       call_proc->memory_limit_ = memory_limit_info->first;
       call_proc->memory_scale_ = memory_limit_info->second;
