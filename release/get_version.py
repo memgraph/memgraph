@@ -163,15 +163,15 @@ parser.add_argument(
     "--variant", choices=("binary", "deb", "rpm"), default="binary",
     help="which variant of the version string should be generated")
 parser.add_argument(
-    "--root-dir", help="The root directory of the checked out "
+    "--memgraph-root-dir", help="The root directory of the checked out "
     "Memgraph repository.", default=".")
 args = parser.parse_args()
 
-if not os.path.isdir(args.root_dir):
+if not os.path.isdir(args.memgraph_root_dir):
     raise Exception("The root directory ({}) is not a valid directory".format(
-        args.root_dir))
+        args.memgraph_root_dir))
 
-os.chdir(args.root_dir)
+os.chdir(args.memgraph_root_dir)
 
 offering = "enterprise" if args.enterprise else "community"
 
