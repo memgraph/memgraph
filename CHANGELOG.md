@@ -2,13 +2,16 @@
 
 ## Future
 
-TODO: Don't forget to add items on the fly.
 ### Major Featuires and Improvements
 
 * Added a new flag `--memory-limit` which enables the user to set the maximum total amount of memory
   memgraph can allocate during its runtime.
 * Added `FREE MEMORY` query which tries to free unusued memory chunks in different parts of storage.
 * Added the memory limit and amount of currently allocated bytes in the result of `SHOW STORAGE INFO` query.
+* Added `QUERY MEMORY LIMIT num (KB|MB)` to Cypher queries which allows you to limit memory allocation for
+  the entire query. It can be added only at the end of the entire Cypher query.
+* Changed `MEMORY LIMIT num (KB|MB)` for procedures to `PROCEDURE MEMORY LIMIT num (KB|MB)`. The functionality
+  is still the same.
 
 ### Bug Fixes
 
