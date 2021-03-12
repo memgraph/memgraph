@@ -3986,7 +3986,9 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
       ignore_bad_(ignore_bad),
       delimiter_(delimiter),
       quote_(quote),
-      row_var_(row_var) {}
+      row_var_(row_var) {
+  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+}
 
 bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
 
@@ -4001,20 +4003,13 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 };
 
 namespace {
-ExpressionEvaluator MakeLiteralExpressionEvaluator(EvaluationContext &eval_context) {
-  Frame frame(0);
-  DbAccessor *db_accessor = nullptr;
-  SymbolTable symbol_table;
-  return ExpressionEvaluator(&frame, symbol_table, eval_context, db_accessor, storage::View::OLD);
-}
-
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
-auto ToOptionalString(ExpressionEvaluator &evaluator, Expression *expression) -> std::optional<std::string> {
-  const auto evaluated_expr = EvaluateOptionalExpression(expression, &evaluator);
+auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<std::string> {
+  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
     return std::string(evaluated_expr.ValueString());
   }
@@ -4030,9 +4025,12 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &&row) {
 
 TypedValue CsvRowToTypedMap(csv::Reader::Row &&row, csv::Reader::Header &&header) {
   // a valid row has the same number of elements as the header
+  // ToDo(the-joksim):
+  //  - insertion order is screwed (bacause of using std::map) - fix!
   std::map<std::string, TypedValue> m{};
-  std::transform(begin(header.columns), end(header.columns), begin(row.columns), std::inserter(m, end(m)),
-                 [](auto &header_col, auto &row_col) { return std::make_pair(header_col, TypedValue(row_col)); });
+  for (auto i = 0; i < row.columns.size(); ++i) {
+    m.emplace(header.columns[i], row.columns[i]);
+  }
   return TypedValue(m);
 }
 
@@ -4042,8 +4040,7 @@ class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
   bool input_is_once_;
-  csv::Reader reader_{};
-  bool reader_initialized_{false};
+  std::optional<csv::Reader> reader_{};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4061,9 +4058,8 @@ class LoadCsvCursor : public Cursor {
     //  doesn't allow evaluating the expressions contained in self_->file_,
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
-    if (UNLIKELY(!reader_initialized_)) {
-      reader_ = MakeReader(context.evaluation_context);
-      reader_initialized_ = true;
+    if (UNLIKELY(!reader_)) {
+      reader_ = MakeReader(&context.evaluation_context);
     }
 
     bool input_pulled = input_cursor_->Pull(frame, context);
@@ -4075,11 +4071,11 @@ class LoadCsvCursor : public Cursor {
     // pulling MATCH)
     if (!input_is_once_ && !input_pulled) return false;
 
-    if (auto row = reader_.GetNextRow()) {
-      if (!reader_.HasHeader()) {
+    if (auto row = reader_->GetNextRow()) {
+      if (!reader_->HasHeader()) {
         frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
       } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(std::move(*row), *reader_.GetHeader());
+        frame[self_->row_var_] = CsvRowToTypedMap(std::move(*row), *reader_->GetHeader());
       }
       return true;
     }
@@ -4091,12 +4087,15 @@ class LoadCsvCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
  private:
-  csv::Reader MakeReader(EvaluationContext &eval_context) {
-    auto evaluator = MakeLiteralExpressionEvaluator(eval_context);
+  csv::Reader MakeReader(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
 
-    const auto maybe_file = ToOptionalString(evaluator, self_->file_);
-    const auto maybe_delim = ToOptionalString(evaluator, self_->delimiter_);
-    const auto maybe_quote = ToOptionalString(evaluator, self_->quote_);
+    auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+    auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
+    auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
 
     // no need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause

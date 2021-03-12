@@ -27,11 +27,11 @@ class Reader {
  public:
   struct Config {
     Config(){};
-    Config(const bool with_header, const bool ignore_bad, const std::optional<std::string> delim,
-           const std::optional<std::string> qt)
+    Config(const bool with_header, const bool ignore_bad, std::optional<std::string> delim,
+           std::optional<std::string> qt)
         : with_header(with_header), ignore_bad(ignore_bad) {
-      delimiter = (delim) ? *delim : ",";
-      quote = (qt) ? *qt : "\"";
+      delimiter = (delim) ? std::move(*delim) : ",";
+      quote = (qt) ? std::move(*qt) : "\"";
     }
 
     bool with_header{false};
@@ -54,17 +54,15 @@ class Reader {
 
   Reader() = default;
 
-  explicit Reader(const std::filesystem::path &path, const Config cfg = {}) : path_(path), read_config_(cfg) {
+  explicit Reader(const std::filesystem::path &path, Config cfg = {}) : path_(path), read_config_(std::move(cfg)) {
     InitializeStream();
-    if (read_config_.with_header) {
-      header_ = ParseHeader();
-    }
+    TryInitializeHeader();
   }
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
 
-  Reader(Reader &&) = delete;
+  Reader(Reader &&) = default;
   Reader &operator=(Reader &&) = default;
 
   ~Reader() {
@@ -95,9 +93,11 @@ class Reader {
 
   void InitializeStream();
 
+  void TryInitializeHeader();
+
   std::optional<std::string> GetNextLine();
 
-  std::optional<Header> ParseHeader();
+  ParsingResult ParseHeader();
 
   ParsingResult ParseRow();
 };

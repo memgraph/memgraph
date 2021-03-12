@@ -32,16 +32,27 @@ std::optional<std::string> Reader::GetNextLine() {
   return line;
 }
 
-std::optional<Reader::Header> Reader::ParseHeader() {
+Reader::ParsingResult Reader::ParseHeader() {
   // header must be the very first line in the file
   MG_ASSERT(line_count_ == 1, fmt::format("Invalid use of {}", __func__));
-  const auto maybe_line = GetNextLine();
-  if (!maybe_line) {
-    throw CsvReadException("CSV file {} empty!", path_);
+  return ParseRow();
+}
+
+void Reader::TryInitializeHeader() {
+  if (HasHeader()) {
+    auto header = ParseHeader();
+    if (header.HasError()) {
+      throw CsvReadException("CSV reading : {}", header.GetError().message);
+    }
+
+    auto &header_columns = header.GetValue().columns;
+    if (header_columns.empty()) {
+      throw CsvReadException("CSV file {} empty!", path_);
+    }
+
+    number_of_columns_ = header_columns.size();
+    header_ = Header(header_columns);
   }
-  Header header;
-  // set the 'number_of_fields_' once this method is implemented fully
-  return std::nullopt;
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
@@ -83,7 +94,7 @@ Reader::ParsingResult Reader::ParseRow() {
       // Null bytes aren't allowed in CSVs.
       if (c == '\0') {
         return ParseError(ParseError::ErrorCode::NULL_BYTE,
-                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_));
+                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1));
       }
 
       switch (state) {
@@ -138,8 +149,8 @@ Reader::ParsingResult Reader::ParseRow() {
             i += read_config_.delimiter.size() - 1;
           } else {
             return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
-                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}'", read_config_.delimiter,
-                                          read_config_.quote, c));
+                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
+                                          read_config_.delimiter, read_config_.quote, c, line_count_ - 1));
           }
           break;
         }
@@ -180,19 +191,22 @@ Reader::ParsingResult Reader::ParseRow() {
   //      determine the allowed number of columns
   //    - if we don't skip bad rows, the very first row will determine the allowed
   //      number of columns in all subsequent rows
-  if (!read_config_.with_header && number_of_columns_ == 0) {
+  if (!HasHeader() && number_of_columns_ == 0) {
     MG_ASSERT(!row.empty());
     number_of_columns_ = row.size();
   }
 
-  if (row.size() != number_of_columns_) {
-    return ParseError(
-        ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-        // ToDo(the-joksim):
-        //    - 'line_count_ - 1' is the last line of a row (as a
-        //      row may span several lines) ==> should have a row
-        //      counter
-        fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_, line_count_, row.size()));
+  // Has header, but the header has already been read and the number_of_columns_
+  // is already set. Otherwise, we would get an error every time we'd parse the
+  // header.
+  if (row.size() != number_of_columns_ && number_of_columns_ != 0) {
+    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+                      // ToDo(the-joksim):
+                      //    - 'line_count_ - 1' is the last line of a row (as a
+                      //      row may span several lines) ==> should have a row
+                      //      counter
+                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
+                                  line_count_ - 1, row.size()));
   }
 
   return Row(row);
