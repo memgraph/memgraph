@@ -111,7 +111,6 @@ Reader::ParsingResult Reader::ParseRow() {
             // The current field is a quoted field.
             state = CsvParserState::QUOTING;
             line_string_view.remove_prefix(read_config_.quote->size());
-            ;
           } else if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
             // The current field has an empty value.
             row.emplace_back("");
@@ -233,7 +232,7 @@ std::optional<Reader::Row> Reader::GetNextRow() {
     // reached end of file
     return std::nullopt;
   }
-  return *row;
+  return std::move(*row);
 }
 
 }  // namespace csv

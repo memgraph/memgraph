@@ -3720,8 +3720,10 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
 
 TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
-  std::transform(begin(row), end(row), std::back_inserter(typed_columns),
-                 [mem = mem](auto &column) { return TypedValue(column, mem); });
+  typed_columns.reserve(row.size());
+  for (auto &column : row) {
+    typed_columns.emplace_back(std::move(column));
+  }
   return TypedValue(typed_columns, mem);
 }
 
