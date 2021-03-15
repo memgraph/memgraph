@@ -74,6 +74,8 @@ execute_process(
     COMMAND "${get_version_script}" ${get_version_enterprise}
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+                "--memgraph-root-dir"
+                "${CMAKE_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_RESULT AND NOT MEMGRAPH_VERSION_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph version.")
@@ -89,6 +91,8 @@ execute_process(
                 --variant deb
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+                "--memgraph-root-dir"
+                "${CMAKE_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_DEB_RESULT AND NOT MEMGRAPH_VERSION_DEB_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph DEB version.")
@@ -104,6 +108,8 @@ execute_process(
                 --variant rpm
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
+                "--memgraph-root-dir"
+                "${CMAKE_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_RPM_RESULT AND NOT MEMGRAPH_VERSION_RPM_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph RPM version.")
