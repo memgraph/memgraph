@@ -165,20 +165,14 @@ Reader::ParsingResult Reader::ParseRow() {
   } while (state == CsvParserState::QUOTING);
 
   switch (state) {
-    case CsvParserState::INITIAL_FIELD: {
+    case CsvParserState::INITIAL_FIELD:
+    case CsvParserState::NEXT_FIELD:
+    case CsvParserState::EXPECT_DELIMITER:
       break;
-    }
-    case CsvParserState::NEXT_FIELD: {
-      row.emplace_back(std::move(column));
-      break;
-    }
     case CsvParserState::QUOTING: {
       return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
                         "There is no more data left to load while inside a quoted string. "
                         "Did you forget to close the quote?");
-      break;
-    }
-    case CsvParserState::EXPECT_DELIMITER: {
       break;
     }
   }
