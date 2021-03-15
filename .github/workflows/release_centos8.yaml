@@ -1,11 +1,14 @@
-name: Release CentOS
+name: Release CentOS 8
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"
 
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, General, Linux, X64, CentOS7]
+    runs-on: [self-hosted, Linux, X64, CentOS8]
     env:
       THREADS: 24
     timeout-minutes: 960
@@ -69,7 +72,7 @@ jobs:
 
   coverage_build:
     name: "Coverage build"
-    runs-on: [self-hosted, General, Linux, X64, CentOS7]
+    runs-on: [self-hosted, Linux, X64, CentOS8]
     env:
       THREADS: 24
 
@@ -124,7 +127,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, General, Linux, X64, CentOS7]
+    runs-on: [self-hosted, Linux, X64, CentOS8]
     env:
       THREADS: 24
 
@@ -198,7 +201,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, General, Linux, X64, CentOS7]
+    runs-on: [self-hosted, Linux, X64, CentOS8]
     env:
       THREADS: 24
     timeout-minutes: 960
