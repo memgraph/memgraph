@@ -305,7 +305,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   if (ctx->csvFile()->literal()->StringLiteral()) {
     load_csv->file_ = ctx->csvFile()->accept(this);
   } else {
-    throw SyntaxException("CSV file path should be a string literal");
+    throw SemanticException("CSV file path should be a string literal");
   }
 
   // handle header options
@@ -322,7 +322,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
     if (ctx->delimiter()->literal()->StringLiteral()) {
       load_csv->delimiter_ = ctx->delimiter()->accept(this);
     } else {
-      throw SyntaxException("Delimiter should be a string literal");
+      throw SemanticException("Delimiter should be a string literal");
     }
   }
 
@@ -331,7 +331,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
     if (ctx->quote()->literal()->StringLiteral()) {
       load_csv->quote_ = ctx->quote()->accept(this);
     } else {
-      throw SyntaxException("Quote should be a string literal");
+      throw SemanticException("Quote should be a string literal");
     }
   }
 

@@ -48,13 +48,12 @@ void Reader::TryInitializeHeader() {
     throw CsvReadException("CSV reading : {}", header.GetError().message);
   }
 
-  auto &header_columns = header->columns;
-  if (header_columns.empty()) {
+  if (header->columns.empty()) {
     throw CsvReadException("CSV file {} empty!", path_);
   }
 
-  number_of_columns_ = header_columns.size();
-  header_ = Header(header_columns);
+  number_of_columns_ = header->columns.size();
+  header_ = Header(header->columns);
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }

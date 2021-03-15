@@ -3281,4 +3281,70 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
 }
 
+TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'" AS)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM file WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER 0 QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE 0 AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    // can't be a standalone clause
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query =
+        R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_csv_clause = dynamic_cast<LoadCsv *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_csv_clause);
+    ASSERT_TRUE(load_csv_clause->with_header_);
+    ASSERT_TRUE(load_csv_clause->ignore_bad_);
+  }
+}
+
 }  // namespace
