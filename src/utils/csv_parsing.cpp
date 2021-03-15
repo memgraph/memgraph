@@ -39,25 +39,27 @@ Reader::ParsingResult Reader::ParseHeader() {
 }
 
 void Reader::TryInitializeHeader() {
-  if (HasHeader()) {
-    auto header = ParseHeader();
-    if (header.HasError()) {
-      throw CsvReadException("CSV reading : {}", header.GetError().message);
-    }
-
-    auto &header_columns = header.GetValue().columns;
-    if (header_columns.empty()) {
-      throw CsvReadException("CSV file {} empty!", path_);
-    }
-
-    number_of_columns_ = header_columns.size();
-    header_ = Header(header_columns);
+  if (!HasHeader()) {
+    return;
   }
+
+  auto header = ParseHeader();
+  if (header.HasError()) {
+    throw CsvReadException("CSV reading : {}", header.GetError().message);
+  }
+
+  auto &header_columns = header->columns;
+  if (header_columns.empty()) {
+    throw CsvReadException("CSV file {} empty!", path_);
+  }
+
+  number_of_columns_ = header_columns.size();
+  header_ = Header(header_columns);
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
 
-std::optional<Reader::Header> Reader::GetHeader() const { return header_; }
+const std::optional<Reader::Header> &Reader::GetHeader() const { return header_; }
 
 namespace {
 enum class CsvParserState : uint8_t {
@@ -186,20 +188,12 @@ Reader::ParsingResult Reader::ParseRow() {
     return Row(row);
   }
 
-  // if there's no header, then:
-  //    - if we skip bad rows, then the very first __valid__ row will
-  //      determine the allowed number of columns
-  //    - if we don't skip bad rows, the very first row will determine the allowed
-  //      number of columns in all subsequent rows
-  if (!HasHeader() && number_of_columns_ == 0) {
-    MG_ASSERT(!row.empty());
-    number_of_columns_ = row.size();
-  }
-
   // Has header, but the header has already been read and the number_of_columns_
-  // is already set. Otherwise, we would get an error every time we'd parse the
-  // header.
-  if (row.size() != number_of_columns_ && number_of_columns_ != 0) {
+  // is already set. Otherwise, we would get an error every time we'd try to
+  // parse the header.
+  // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
+  // need to check the number of columns.
+  if (UNLIKELY(number_of_columns_ != 0 && row.size() != number_of_columns_)) {
     return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
                       // ToDo(the-joksim):
                       //    - 'line_count_ - 1' is the last line of a row (as a
@@ -222,11 +216,11 @@ std::optional<Reader::Row> Reader::GetNextRow() {
 
   if (row.HasError()) {
     if (!read_config_.ignore_bad) {
-      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_, row.GetError().message);
+      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
     }
     // try to parse as many times as necessary to reach a valid row
     do {
-      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_, row.GetError().message);
+      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
       if (!csv_stream_.good()) {
         return std::nullopt;
       }

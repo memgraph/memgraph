@@ -8,9 +8,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <optional>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -54,7 +54,7 @@ class Reader {
 
   Reader() = default;
 
-  explicit Reader(const std::filesystem::path &path, Config cfg = {}) : path_(path), read_config_(std::move(cfg)) {
+  explicit Reader(std::filesystem::path path, Config cfg = {}) : path_(std::move(path)), read_config_(std::move(cfg)) {
     InitializeStream();
     TryInitializeHeader();
   }
@@ -80,7 +80,7 @@ class Reader {
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
   [[nodiscard]] bool HasHeader() const;
-  std::optional<Header> GetHeader() const;
+  const std::optional<Header> &GetHeader() const;
   std::optional<Row> GetNextRow();
 
  private:

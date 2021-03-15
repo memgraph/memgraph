@@ -4016,17 +4016,17 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &&row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row row) {
   auto typed_columns = std::vector<TypedValue>();
   std::transform(begin(row.columns), end(row.columns), std::back_inserter(typed_columns),
                  [](auto &column) { return TypedValue(column); });
   return TypedValue(typed_columns);
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row &&row, csv::Reader::Header &&header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
   // ToDo(the-joksim):
-  //  - insertion order is screwed (bacause of using std::map) - fix!
+  //  - insertion order is screwed (because of using std::map) - fix!
   std::map<std::string, TypedValue> m{};
   for (auto i = 0; i < row.columns.size(); ++i) {
     m.emplace(header.columns[i], row.columns[i]);
@@ -4064,11 +4064,11 @@ class LoadCsvCursor : public Cursor {
 
     bool input_pulled = input_cursor_->Pull(frame, context);
 
-    // if the input is Once, we have to keep going until we read all the rows,
-    // regardless of whether the pull on Once returned false;
-    // if we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
+    // If the input is Once, we have to keep going until we read all the rows,
+    // regardless of whether the pull on Once returned false.
+    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
     // have to read at most cardinality(n) rows (but we can read less and stop
-    // pulling MATCH)
+    // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
 
     if (auto row = reader_->GetNextRow()) {
