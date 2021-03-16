@@ -1543,7 +1543,11 @@ cpp<#
                   :scope :public
                   :slk-save #'slk-save-ast-vector
                   :slk-load (slk-load-ast-vector "CypherUnion")
-                  :documentation "Contains remaining queries that should form and union with `single_query_`."))
+                  :documentation "Contains remaining queries that should form and union with `single_query_`.")
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public))
   (:public
     #>cpp
     CypherQuery() = default;
