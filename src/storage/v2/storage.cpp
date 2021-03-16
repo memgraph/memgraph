@@ -389,13 +389,13 @@ Storage::~Storage() {
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, const bool force_increment_timestamp)
+Storage::Accessor::Accessor(Storage *storage)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(force_increment_timestamp)),
+      transaction_(storage->CreateTransaction()),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -1190,7 +1190,7 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction(const bool force_increment_timestamp) {
+Transaction Storage::CreateTransaction() {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1205,7 +1205,7 @@ Transaction Storage::CreateTransaction(const bool force_increment_timestamp) {
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role_ == ReplicationRole::REPLICA && !force_increment_timestamp) {
+    if (replication_role_ == ReplicationRole::REPLICA) {
       start_timestamp = timestamp_;
     } else {
       start_timestamp = timestamp_++;

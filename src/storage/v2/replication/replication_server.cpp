@@ -275,7 +275,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   std::optional<std::pair<uint64_t, storage::Storage::Accessor>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access(true));
+      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }

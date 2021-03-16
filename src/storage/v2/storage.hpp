@@ -182,7 +182,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage, bool force_increment_timestamp);
+    explicit Accessor(Storage *storage);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -313,7 +313,7 @@ class Storage final {
     Config::Items config_;
   };
 
-  Accessor Access(bool force_increment_timestamp = false) { return Accessor{this, force_increment_timestamp}; }
+  Accessor Access() { return Accessor{this}; }
 
   const std::string &LabelToName(LabelId label) const;
   const std::string &PropertyToName(PropertyId property) const;
@@ -413,7 +413,7 @@ class Storage final {
   std::vector<ReplicaInfo> ReplicasInfo();
 
  private:
-  Transaction CreateTransaction(bool force_increment_timestamp = false);
+  Transaction CreateTransaction();
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
