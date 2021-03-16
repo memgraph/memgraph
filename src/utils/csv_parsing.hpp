@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "utils/exceptions.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 #include "utils/result.hpp"
 
 namespace csv {
@@ -41,20 +43,22 @@ class Reader {
   };
 
   struct Row {
-    Row() = default;
-    explicit Row(std::vector<std::string> cols) : columns(std::move(cols)) {}
-    std::vector<std::string> columns;
+    explicit Row(utils::pmr::vector<utils::pmr::string> cols, utils::MemoryResource *mem = utils::NewDeleteResource())
+        : columns(std::move(cols), mem) {}
+    utils::pmr::vector<utils::pmr::string> columns;
   };
 
   struct Header {
-    Header() = default;
-    explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
-    std::vector<std::string> columns;
+    explicit Header(utils::pmr::vector<utils::pmr::string> cols,
+                    utils::MemoryResource *mem = utils::NewDeleteResource())
+        : columns(std::move(cols), mem) {}
+    utils::pmr::vector<utils::pmr::string> columns;
   };
 
   Reader() = default;
 
-  explicit Reader(std::filesystem::path path, Config cfg = {}) : path_(std::move(path)), read_config_(std::move(cfg)) {
+  explicit Reader(std::filesystem::path path, Config cfg = {}, utils::MemoryResource *mem = utils::NewDeleteResource())
+      : path_(std::move(path)), read_config_(std::move(cfg)), memory_(mem) {
     InitializeStream();
     TryInitializeHeader();
   }
@@ -90,12 +94,13 @@ class Reader {
   uint64_t line_count_{1};
   uint16_t number_of_columns_{0};
   std::optional<Header> header_{};
+  utils::MemoryResource *memory_;
 
   void InitializeStream();
 
   void TryInitializeHeader();
 
-  std::optional<std::string> GetNextLine();
+  std::optional<utils::pmr::string> GetNextLine();
 
   ParsingResult ParseHeader();
 

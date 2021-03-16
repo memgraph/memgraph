@@ -59,20 +59,23 @@ std::string CreateRow(const std::vector<std::string> &columns, const std::string
   return utils::Join(columns, delim);
 }
 
+auto ToPmrColumns(std::vector<std::string> columns) {
+  utils::pmr::vector<utils::pmr::string> pmr_columns(utils::NewDeleteResource());
+  for (auto &s : columns) {
+    pmr_columns.emplace_back(s);
+  }
+  return pmr_columns;
+}
+
 }  // namespace
 
 TEST_F(CsvReaderTest, CommaDelimiter) {
-  // create a file with a valid and an invalid row;
-  // the invalid row has wrong delimiters;
-  // expect the parser's output to be a single string for the invalid row;
+  // create a file with a single valid row;
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::vector<std::string> columns1{"A", "B", "C"};
-  writer.WriteLine(CreateRow(columns1, ","));
-
-  const std::vector<std::string> columns2{"D", "E", "F"};
-  writer.WriteLine(CreateRow(columns2, ";"));
+  const std::vector<std::string> columns{"A", "B", "C"};
+  writer.WriteLine(CreateRow(columns, ","));
 
   writer.Close();
 
@@ -80,9 +83,7 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   auto reader = csv::Reader(filepath);
 
   auto parsed_row = reader.GetNextRow();
-  ASSERT_EQ(parsed_row->columns, columns1);
-
-  EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
+  ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SemicolonDelimiter) {
@@ -90,11 +91,8 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   auto writer = FileWriter(filepath);
 
   const std::string delimiter = ";";
-  const std::vector<std::string> columns1{"A", "B", "C"};
-  writer.WriteLine(CreateRow(columns1, delimiter));
-
-  const std::vector<std::string> columns2{"A", "B", "C"};
-  writer.WriteLine(CreateRow(columns2, ","));
+  const std::vector<std::string> columns{"A", "B", "C"};
+  writer.WriteLine(CreateRow(columns, delimiter));
 
   writer.Close();
 
@@ -104,9 +102,7 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();
-  ASSERT_EQ(parsed_row->columns, columns1);
-
-  EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
+  ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SkipBad) {
@@ -136,7 +132,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     auto reader = csv::Reader(filepath, cfg);
 
     auto parsed_row = reader.GetNextRow();
-    ASSERT_EQ(parsed_row->columns, columns_good);
+    ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns_good));
   }
 
   {
@@ -159,7 +155,7 @@ TEST_F(CsvReaderTest, AllRowsValid) {
 
   const std::string delimiter = ",";
 
-  const std::vector<std::string> columns{"A", "B", "C"};
+  std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, delimiter));
   writer.WriteLine(CreateRow(columns, delimiter));
   writer.WriteLine(CreateRow(columns, delimiter));
@@ -171,8 +167,9 @@ TEST_F(CsvReaderTest, AllRowsValid) {
   const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
   auto reader = csv::Reader(filepath, cfg);
 
+  const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow()) {
-    ASSERT_EQ(parsed_row->columns, columns);
+    ASSERT_EQ(parsed_row->columns, pmr_columns);
   }
 }
 
@@ -198,4 +195,33 @@ TEST_F(CsvReaderTest, SkipAllRows) {
 
   auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row, std::nullopt);
+}
+
+TEST_F(CsvReaderTest, WithHeader) {
+  const auto filepath = csv_directory / "bla.csv";
+  auto writer = FileWriter(filepath);
+
+  const std::string delimiter = ",";
+
+  const std::vector<std::string> header{"A", "B", "C"};
+  const std::vector<std::string> columns{"1", "2", "3"};
+  writer.WriteLine(CreateRow(header, delimiter));
+  writer.WriteLine(CreateRow(columns, delimiter));
+  writer.WriteLine(CreateRow(columns, delimiter));
+  writer.WriteLine(CreateRow(columns, delimiter));
+
+  writer.Close();
+
+  const bool with_header = true;
+  const bool ignore_bad = false;
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+  auto reader = csv::Reader(filepath, cfg);
+
+  const auto pmr_header = ToPmrColumns(header);
+  ASSERT_EQ(reader.GetHeader()->columns, pmr_header);
+
+  const auto pmr_columns = ToPmrColumns(columns);
+  while (auto parsed_row = reader.GetNextRow()) {
+    ASSERT_EQ(parsed_row->columns, pmr_columns);
+  }
 }

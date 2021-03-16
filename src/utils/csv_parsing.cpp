@@ -19,8 +19,8 @@ void Reader::InitializeStream() {
   }
 }
 
-std::optional<std::string> Reader::GetNextLine() {
-  std::string line;
+std::optional<utils::pmr::string> Reader::GetNextLine() {
+  utils::pmr::string line(memory_);
   if (!std::getline(csv_stream_, line)) {
     // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
@@ -53,7 +53,7 @@ void Reader::TryInitializeHeader() {
   }
 
   number_of_columns_ = header->columns.size();
-  header_ = Header(header->columns);
+  header_ = Header(header->columns, memory_);
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
@@ -75,8 +75,8 @@ bool SubstringStartsWith(const std::string_view str, size_t pos, const std::stri
 } // namespace
 
 Reader::ParsingResult Reader::ParseRow() {
-  std::vector<std::string> row;
-  std::string column;
+  utils::pmr::vector<utils::pmr::string> row(memory_);
+  utils::pmr::string column(memory_);
 
   auto state = CsvParserState::INITIAL_FIELD;
 
@@ -184,7 +184,7 @@ Reader::ParsingResult Reader::ParseRow() {
 
   // reached the end of file - return empty row
   if (row.empty()) {
-    return Row(row);
+    return Row(row, memory_);
   }
 
   // Has header, but the header has already been read and the number_of_columns_
@@ -202,7 +202,7 @@ Reader::ParsingResult Reader::ParseRow() {
                                   line_count_ - 1, row.size()));
   }
 
-  return Row(row);
+  return Row(row, memory_);
 }
 
 // Returns Reader::Row if the read row if valid;

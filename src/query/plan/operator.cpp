@@ -4016,22 +4016,20 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row) {
-  auto typed_columns = std::vector<TypedValue>();
+TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
+  auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   std::transform(begin(row.columns), end(row.columns), std::back_inserter(typed_columns),
-                 [](auto &column) { return TypedValue(column); });
-  return TypedValue(typed_columns);
+                 [mem = mem](auto &column) { return TypedValue(column, mem); });
+  return TypedValue(typed_columns, mem);
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, utils::MemoryResource *mem) {
   // a valid row has the same number of elements as the header
-  // ToDo(the-joksim):
-  //  - insertion order is screwed (because of using std::map) - fix!
   std::map<std::string, TypedValue> m{};
   for (auto i = 0; i < row.columns.size(); ++i) {
     m.emplace(header.columns[i], row.columns[i]);
   }
-  return TypedValue(m);
+  return TypedValue(m, mem);
 }
 
 }  // namespace
@@ -4073,9 +4071,10 @@ class LoadCsvCursor : public Cursor {
 
     if (auto row = reader_->GetNextRow()) {
       if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
       } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(std::move(*row), *reader_->GetHeader());
+        frame[self_->row_var_] =
+            CsvRowToTypedMap(std::move(*row), *reader_->GetHeader(), context.evaluation_context.memory);
       }
       return true;
     }
@@ -4100,7 +4099,8 @@ class LoadCsvCursor : public Cursor {
     // no need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause
     return csv::Reader(*maybe_file,
-                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote));
+                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote),
+                       eval_context->memory);
   }
 };
 
