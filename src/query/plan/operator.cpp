@@ -3731,7 +3731,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, ut
   // a valid row has the same number of elements as the header
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    m.emplace(header[i], TypedValue(row[i], mem));
+    m.emplace(std::move(header[i]), std::move(row[i]));
   }
   return TypedValue(m, mem);
 }

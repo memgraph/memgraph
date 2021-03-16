@@ -73,7 +73,7 @@ enum class CsvParserState : uint8_t {
 
 Reader::ParsingResult Reader::ParseRow() {
   utils::pmr::vector<utils::pmr::string> row(memory_);
-  if (LIKELY(number_of_columns_ != 0)) {
+  if (number_of_columns_ != 0) {
     row.reserve(number_of_columns_);
   }
 
@@ -197,7 +197,7 @@ Reader::ParsingResult Reader::ParseRow() {
                                   line_count_ - 1, row.size()));
   }
 
-  return row;
+  return std::move(row);
 }
 
 // Returns Reader::Row if the read row if valid;
