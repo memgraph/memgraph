@@ -24,6 +24,7 @@
 #include "py/py.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/plan/operator.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -999,6 +1000,8 @@ int main(int argc, char **argv) {
       }
       return ret;
     });
+    telemetry->AddCollector("query_modules",
+                            []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
   // Handler for regular termination signals
