@@ -213,14 +213,13 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   utils::EnsureDirOrDie(storage_->wal_directory_);
 
-  auto [wal_info, path] = LoadWal(&decoder);
+  LoadWal(&decoder);
 
   CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
-std::pair<durability::WalInfo, std::filesystem::path> Storage::ReplicationServer::LoadWal(
-    replication::Decoder *decoder) {
+void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
@@ -258,7 +257,6 @@ std::pair<durability::WalInfo, std::filesystem::path> Storage::ReplicationServer
     }
 
     spdlog::debug("{} loaded successfully", *maybe_wal_path);
-    return {std::move(wal_info), std::move(*maybe_wal_path)};
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", *maybe_wal_path, e.what());
   }
@@ -277,7 +275,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   std::optional<std::pair<uint64_t, storage::Storage::Accessor>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
+      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access(true));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }
