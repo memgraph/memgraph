@@ -2,6 +2,11 @@
 
 ## Future
 
+### Breaking Changes
+
+* Changed `MEMORY LIMIT num (KB|MB)` clause in the procedure calls to `PROCEDURE MEMORY LIMIT num (KB|MB)`.
+  The functionality is still the same.
+
 ### Major Feature and Improvements
 
 * Added replication to community version.
@@ -15,6 +20,8 @@
   memgraph can allocate during its runtime.
 * Added `FREE MEMORY` query which tries to free unusued memory chunks in different parts of storage.
 * Added the memory limit and amount of currently allocated bytes in the result of `SHOW STORAGE INFO` query.
+* Added `QUERY MEMORY LIMIT num (KB|MB)` to Cypher queries which allows you to limit memory allocation for
+  the entire query. It can be added only at the end of the entire Cypher query.
 
 ### Bug Fixes
 

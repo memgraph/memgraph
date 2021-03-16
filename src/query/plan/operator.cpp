@@ -33,6 +33,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -3486,16 +3487,6 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
-std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale) {
-  if (!memory_limit) return std::nullopt;
-  auto limit_value = memory_limit->Accept(*eval);
-  if (!limit_value.IsInt() || limit_value.ValueInt() <= 0)
-    throw QueryRuntimeException("Memory limit must be a non-negative integer.");
-  size_t limit = limit_value.ValueInt();
-  if (std::numeric_limits<size_t>::max() / memory_scale < limit) throw QueryRuntimeException("Memory limit overflow.");
-  return limit * memory_scale;
-}
-
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, const mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
@@ -3545,7 +3536,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    SPDLOG_INFO("Running '{}' with memory limit of {} bytes", fully_qualified_procedure_name, *memory_limit);
+    SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
+                utils::GetReadableSize(*memory_limit));
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     MG_ASSERT(result->signature == &proc.results);
@@ -3624,7 +3616,7 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
-      auto memory_limit = EvalMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
