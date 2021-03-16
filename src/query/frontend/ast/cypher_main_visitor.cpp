@@ -33,6 +33,28 @@ namespace query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
+namespace {
+template <typename TVisitor>
+std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
+    MemgraphCypher::MemoryLimitContext *memory_limit_ctx, TVisitor *visitor) {
+  MG_ASSERT(memory_limit_ctx);
+  if (memory_limit_ctx->UNLIMITED()) {
+    return std::nullopt;
+  }
+
+  auto memory_limit = memory_limit_ctx->literal()->accept(visitor);
+  size_t memory_scale = 1024U;
+  if (memory_limit_ctx->MB()) {
+    memory_scale = 1024U * 1024U;
+  } else {
+    MG_ASSERT(memory_limit_ctx->KB());
+    memory_scale = 1024U;
+  }
+
+  return std::make_pair(memory_limit, memory_scale);
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 2, "ExplainQuery should have exactly two children!");
   auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
@@ -125,6 +147,14 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
     cypher_query->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+  }
+
+  if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
+    if (memory_limit_info) {
+      cypher_query->memory_limit_ = memory_limit_info->first;
+      cypher_query->memory_scale_ = memory_limit_info->second;
+    }
   }
 
   query_ = cypher_query;
@@ -436,21 +466,19 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
   }
-  if (auto *memory_limit_ctx = ctx->callProcedureMemoryLimit()) {
-    if (memory_limit_ctx->LIMIT()) {
-      call_proc->memory_limit_ = memory_limit_ctx->literal()->accept(this);
-      if (memory_limit_ctx->MB()) {
-        call_proc->memory_scale_ = 1024U * 1024U;
-      } else {
-        MG_ASSERT(memory_limit_ctx->KB());
-        call_proc->memory_scale_ = 1024U;
-      }
+
+  if (auto *memory_limit_ctx = ctx->procedureMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
+    if (memory_limit_info) {
+      call_proc->memory_limit_ = memory_limit_info->first;
+      call_proc->memory_scale_ = memory_limit_info->second;
     }
   } else {
     // Default to 100 MB
     call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
     call_proc->memory_scale_ = 1024U * 1024U;
   }
+
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
     const auto &maybe_found =

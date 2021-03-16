@@ -656,13 +656,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-inline int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what) {
-  TypedValue value = expr->Accept(*evaluator);
-  try {
-    return value.ValueInt();
-  } catch (TypedValueException &e) {
-    throw QueryRuntimeException(what + " must be an int");
-  }
-}
+int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
+
+std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
 
 }  // namespace query
