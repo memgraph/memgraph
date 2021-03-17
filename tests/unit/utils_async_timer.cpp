@@ -6,8 +6,7 @@
 
 using AsyncTimer = utils::AsyncTimer;
 
-// TODO(Benjamin Antal) Somehow mock the system calls? Wrap into a class?
-TEST(AsyncTimer, SimpleWait) {
+void checkTimeSimple() {
   const auto before = std::chrono::steady_clock::now();
   AsyncTimer timer{1};
   auto is_expired = timer.IsExpired();
@@ -17,5 +16,13 @@ TEST(AsyncTimer, SimpleWait) {
 
   const auto after = std::chrono::steady_clock::now();
   constexpr auto kMinimumElapsedMs = 1000;
-  EXPECT_LE(std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count(), kMinimumElapsedMs);
+  EXPECT_GE(std::chrono::duration_cast<std::chrono::milliseconds>(after - before).count(), kMinimumElapsedMs);
+}
+
+// TODO(Benjamin Antal) Somehow mock the system calls? Wrap into a class?
+TEST(AsyncTimer, SimpleWait) { checkTimeSimple(); }
+
+TEST(AsyncTimer, DoubleWait) {
+  checkTimeSimple();
+  checkTimeSimple();
 }
