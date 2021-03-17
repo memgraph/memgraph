@@ -40,7 +40,7 @@ uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   return id;
 }
 
-std::weak_ptr<std::atomic<bool>> EraseFlag(uint64_t flag_id) {
+void EraseFlag(uint64_t flag_id) {
   std::weak_ptr<std::atomic<bool>> tmp;
   {
     std::lock_guard<utils::SpinLock> guard{expiration_flags_lock};
@@ -50,12 +50,22 @@ std::weak_ptr<std::atomic<bool>> EraseFlag(uint64_t flag_id) {
       it->flag.swap(tmp);
     }
   }
-  return tmp;
+}
+
+std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
+  {
+    std::lock_guard<utils::SpinLock> guard{expiration_flags_lock};
+    auto it = std::find_if(expiration_flags.begin(), expiration_flags.end(), IdMatcher{flag_id});
+    if (expiration_flags.end() != it) {
+      return it->flag;
+    }
+  }
+  return std::weak_ptr<std::atomic<bool>>{};
 }
 
 void NotifyFunction(sigval arg) {
   const auto flag_id = reinterpret_cast<uint64_t>(arg.sival_ptr);
-  auto weak_flag = EraseFlag(flag_id);
+  auto weak_flag = GetFlag(flag_id);
   if (!weak_flag.expired()) {
     auto flag = weak_flag.lock();
     if (nullptr != flag) {
@@ -68,7 +78,7 @@ void NotifyFunction(sigval arg) {
 namespace utils {
 
 AsyncTimer::AsyncTimer(int seconds) : expiration_flag_{std::make_shared<std::atomic<bool>>(false)} {
-  expiration_flag_id_ = AddFlag(std::weak_ptr{expiration_flag_});
+  expiration_flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
   sigevent notification_settings{};
   notification_settings.sigev_notify = SIGEV_THREAD;
   notification_settings.sigev_notify_function = &NotifyFunction;
