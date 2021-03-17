@@ -226,6 +226,9 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
+add_unit_test(utils_async_timer.cpp)
+target_link_libraries(${test_prefix}utils_async_timer mg-utils)
+
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
