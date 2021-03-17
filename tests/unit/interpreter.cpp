@@ -11,6 +11,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
 
 namespace {
@@ -833,5 +834,118 @@ TEST_F(InterpreterTest, Qid) {
     ASSERT_EQ(stream3.GetResults()[2][0].ValueInt(), 9);
 
     interpreter_.CommitTransaction();
+  }
+}
+
+namespace {
+// copied from utils_csv_parsing.cpp - tmp dir management and csv file writer
+class TmpCsvDirManager final {
+ public:
+  TmpCsvDirManager() { CreateCsvDir(); }
+  ~TmpCsvDirManager() { Clear(); }
+
+  const std::filesystem::path &Path() const { return tmp_dir_; }
+
+ private:
+  const std::filesystem::path tmp_dir_{std::filesystem::temp_directory_path() / "csv_directory"};
+
+  void CreateCsvDir() {
+    if (!std::filesystem::exists(tmp_dir_)) {
+      std::filesystem::create_directory(tmp_dir_);
+    }
+  }
+
+  void Clear() {
+    if (!std::filesystem::exists(tmp_dir_)) return;
+    std::filesystem::remove_all(tmp_dir_);
+  }
+};
+
+class FileWriter {
+ public:
+  explicit FileWriter(const std::filesystem::path path) { stream_.open(path); }
+
+  FileWriter(const FileWriter &) = delete;
+  FileWriter &operator=(const FileWriter &) = delete;
+
+  FileWriter(FileWriter &&) = delete;
+  FileWriter &operator=(FileWriter &&) = delete;
+
+  void Close() { stream_.close(); }
+
+  size_t WriteLine(const std::string_view line) {
+    if (!stream_.is_open()) {
+      return 0;
+    }
+
+    stream_ << line << std::endl;
+
+    // including the newline character
+    return line.size() + 1;
+  }
+
+ private:
+  std::ofstream stream_;
+};
+
+std::string CreateRow(const std::vector<std::string> &columns, const std::string_view delim) {
+  return utils::Join(columns, delim);
+}
+}  // namespace
+
+TEST_F(InterpreterTest, LoadCsvClause) {
+  auto dir_manager = TmpCsvDirManager();
+  const auto csv_path = dir_manager.Path() / "file.csv";
+  auto writer = FileWriter(csv_path);
+
+  const std::string delimiter{"|"};
+
+  const std::vector<std::string> header{"A", "B", "C"};
+  writer.WriteLine(CreateRow(header, delimiter));
+
+  const std::vector<std::string> good_columns_1{"a", "b", "c"};
+  writer.WriteLine(CreateRow(good_columns_1, delimiter));
+
+  const std::vector<std::string> bad_columns{"\"\"1", "2", "3"};
+  writer.WriteLine(CreateRow(bad_columns, delimiter));
+
+  const std::vector<std::string> good_columns_2{"d", "e", "f"};
+  writer.WriteLine(CreateRow(good_columns_2, delimiter));
+
+  writer.Close();
+
+  {
+    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.A)",
+                                          csv_path.string(), delimiter);
+    auto [stream, qid] = Prepare(query);
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "x.A");
+
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+
+    Pull(&stream, 1);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    ASSERT_EQ(stream.GetResults()[1][0].ValueString(), "d");
+  }
+
+  {
+    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.C)",
+                                          csv_path.string(), delimiter);
+    auto [stream, qid] = Prepare(query);
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "x.C");
+
+    Pull(&stream);
+    ASSERT_EQ(stream.GetSummary().count("has_more"), 1);
+    ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "c");
+    ASSERT_EQ(stream.GetResults()[1][0].ValueString(), "f");
   }
 }

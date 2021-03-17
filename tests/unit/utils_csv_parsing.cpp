@@ -121,7 +121,7 @@ TEST_F(CsvReaderTest, SkipBad) {
   const utils::pmr::string delimiter{";", mem};
   const utils::pmr::string quote{"\"", mem};
 
-  const std::vector<std::string> columns_bad{"A", "B", "\"C"};
+  const std::vector<std::string> columns_bad{"A", "B", "\"\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
   writer.WriteLine(CreateRow(columns_bad, delimiter));
 
@@ -194,7 +194,7 @@ TEST_F(CsvReaderTest, SkipAllRows) {
   const utils::pmr::string delimiter{",", mem};
   const utils::pmr::string quote{"\"", mem};
 
-  const std::vector<std::string> columns_bad{"A", "B", "\"C"};
+  const std::vector<std::string> columns_bad{"A", "B", "\"\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
   writer.WriteLine(CreateRow(columns_bad, delimiter));
   writer.WriteLine(CreateRow(columns_bad, delimiter));
